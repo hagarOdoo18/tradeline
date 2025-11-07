@@ -23,7 +23,7 @@ class CrmLead(models.Model):
     type = fields.Selection([('lead', 'Lead'), ('opportunity', 'Opportunity')], index=True, required=True,
         default='lead',copy=True,
         help="Type is used to separate Leads and Opportunities")
-    name = fields.Char('Opportunity', required=False,readonly=1,store=True, index=True , copy=False)
+    name = fields.Char('Opportunity', required=False,readonly=True,store=True, index=True , copy=False)
     confirm_data = fields.Datetime(string="Confirm Data", required=False, )
 
 
