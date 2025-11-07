@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-inherit="point_of_sale.ControlButtons" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('control-buttons')]" position="inside">
+
+            <!-- Discount Reason Button -->
+            <button class="btn btn-secondary control-button discount-reason-btn"
+                    t-on-click="() => this.addDiscountReason()"
+                    style="background-color: #ffc107; color: #000;">
+                <i class="fa fa-percent"/>
+                <br/>Discount Reason
+                 <t t-if="env.services.pos.get_order() and env.services.pos.get_order().discount_reason_id">
+                    <br/><small><t t-esc="env.services.pos.get_order().discount_reason_id.name"/></small>
+                </t>
+            </button>
+
+            <!-- As Gift Button -->
+            <button class="btn btn-secondary control-button as-gift-btn"
+                    t-on-click="() => this.toggleAsGift()"
+                    style="background-color: #e91e63; color: #fff;">
+                <i class="fa fa-gift"/>
+                <br/>
+                <t t-if="env.services.pos.get_order() and env.services.pos.get_order().as_gift">
+                    Remove Gift
+                </t>
+                <t t-else="">
+                    Mark as Gift
+                </t>
+            </button>
+
+            <!-- Sales Rep Button -->
+            <button class="btn btn-secondary control-button sales-rep-btn"
+                    t-on-click="() => this.selectSalesRep()"
+                    style="background-color: #17a2b8; color: #fff;">
+                <i class="fa fa-user"/>
+                <br/>Sales Rep
+                <t t-if="env.services.pos.get_order() and env.services.pos.get_order().sales_rep_id">
+                    <br/><small><t t-esc="env.services.pos.get_order().sales_rep_id.name"/></small>
+                </t>
+            </button>
+
+        </xpath>
+    </t>
+
+</templates>
+
+
+

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="discount_reason_branch_form_view" model="ir.ui.view">
+            <field name="name">discount.reason.form.branch</field>
+            <field name="model">discount.reason</field>
+            <field name="inherit_id" ref="base_tradeline.discount_reason_form_view"/>
+            <field name="priority" eval="8"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='company_ids']" position="after">
+                                <field name="branches_ids" widget="many2many_tags" readonly="state != 'new'"/>
+                </xpath>
+
+            </field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_transfer_request,transfer.request,model_transfer_request,group_transfer_user,1,1,0,0
+access_transfer_request_manager,transfer.request_manger,model_transfer_request,group_transfer_manger,1,1,1,1
+access_transfer_request_line,transfer.request.line,model_transfer_request_line,,1,1,1,1
+access_cancel_reason_wizard,cancel.reason.wizard,model_cancel_reason_wizard,,1,1,1,1
+access_extra_qty_wizard,extra.qty.wizard,model_extra_qty_wizard,,1,1,1,1

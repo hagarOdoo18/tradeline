@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="integration_mall_action" model="ir.actions.act_window">
+            <field name="name">configuration Day</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">config.day</field>
+            <field name="view_mode">list,form</field>
+            <field name="context">{"search_default_branch":1,
+                "search_default_date_month":1
+                }</field>
+        </record>
+        <record id="integration_mall_view_search" model="ir.ui.view">
+           <field name="name">Integration Search</field>
+           <field name="model">config.day</field>
+            <field name="arch" type="xml">
+                <search string="">
+                    <field name="date"/>
+                    <field name="branch_id"/>
+                    <filter string="branch" name="branch" context="{'group_by':'branch_id'}"/>
+                    <filter string="Date" name="date_month" context="{'group_by':'date:month'}"/>
+
+
+
+            </search>
+           </field>
+        </record>
+        <record id="integration_mall_view_form" model="ir.ui.view">
+            <field name="name">integration mall view form</field>
+            <field name="model">config.day</field>
+            <field name="arch" type="xml">
+                <form string="integration_mall_form">
+                     <header>
+                         <button name="set_default" invisible="state != 'draft'" string="Set Default" type="object" />
+                         <button name="unconfirm_all" invisible="state != 'draft'" string="UnConfirm All Lines" type="object" />
+
+                         <field name="state" widget="statusbar" statusbar_visible="draft,done" />
+                   </header>
+                    <sheet>
+
+                        <h1 class="mt0">
+                            <div >
+                                <field name="name" readonly="1" class="oe_inline"/>
+                            </div>
+                        </h1>
+                        <group>
+                            <group>
+                                <field name="x_css" invisible="1"/>
+                                <field name="total_day"/>
+                                <field name="old_total_amount" string="Old Total Day"/>
+                                <field name="new_untaxed_total_day" force_save="1" />
+                                <field name="new_tax_day" force_save="1"/>
+                                <field name="new_total_day" force_save="1"/>
+                                <field name="min_invoice_amount"/>
+                            </group>
+                            <group>
+                                <field name="date"/>
+                                <field name="branch_id" widget="selection"/>
+                            </group>
+                        </group>
+                        <notebook>
+                             <page string="Invoices">
+                               <field name="config_day_lines">
+                                   <list editable="bottom" limit="150">
+                                       <field name="invoices_number"/>
+                                       <field name="untaxed_amount" sum="Total"/>
+                                       <field name="tax_amount" sum="Total"/>
+                                       <field name="total_amount" sum="Total"/>
+                                       <field name="new_untaxed_amount" sum="Total"/>
+                                       <field name="new_tax_amount" sum="Total"/>
+                                       <field name="new_total_amount" sum="Total" />
+                                       <field name="confirm"/>
+                                   </list>
+                               </field>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        <record id="integration_mall_view_list" model="ir.ui.view">
+            <field name="name">integration.mall.view.list</field>
+            <field name="model">config.day</field>
+            <field name="arch" type="xml">
+                <list string="integration_mall_list">
+                    <field name="name"/>
+                    <field name="date"/>
+                    <field name="old_untaxed_total_day"/>
+                    <field name="old_tax_day"/>
+                    <field name="old_total_amount"/>
+                    <field name="new_untaxed_total_day"/>
+                    <field name="new_tax_day"/>
+                    <field name="new_total_day"/>
+                    <field name="branch_id"/>
+                </list>
+            </field>
+        </record>
+
+    </data>
+</odoo>

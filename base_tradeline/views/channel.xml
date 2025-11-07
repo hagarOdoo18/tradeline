@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="channel_form_view" model="ir.ui.view">
+            <field name="name">channel.channel.form</field>
+            <field name="model">channel.channel</field>
+            <field name="arch" type="xml">
+                <form string="Channel">
+                    <sheet>
+
+                        <group>
+                            <group>
+                                <field name="name"/>
+                              
+                            </group>
+                           
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="channel_list_view" model="ir.ui.view">
+            <field name="name">channel.channel.list</field>
+            <field name="model">channel.channel</field>
+            <field name="arch" type="xml">
+                <list string="Channel">
+                    <field name="name"/>
+                </list>
+            </field>
+        </record>
+
+       
+
+        <record id="channel_act_window" model="ir.actions.act_window">
+            <field name="name">Channel</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">channel.channel</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="oe_view_nocontent_create">
+                    There is no examples click here to add new Channel.
+                </p>
+            </field>
+        </record>
+
+
+    </data>
+</odoo>

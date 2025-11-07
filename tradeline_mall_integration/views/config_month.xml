@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="integration_mall_month_action" model="ir.actions.act_window">
+            <field name="name">configuration Month</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">config.month</field>
+            <field name="view_mode">list,form</field>
+        </record>
+        <record id="integration_mall_month_view_form" model="ir.ui.view">
+            <field name="name">integration mall view form</field>
+            <field name="model">config.month</field>
+            <field name="arch" type="xml">
+                <form string="integration_mall_form">
+                     <header>
+                         <button name="server_action_create_config_day"  string="Generate Month Days" type="object" />
+
+                   </header>
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="total_month"/>
+                                <field name="total_day"/>
+                                <field name="min_invoice_amount"/>
+                                <field name="branch_id" widget="selection"/>
+                                <field name="send_per_invoice" />
+
+                            </group>
+                            <group>
+                                <field name="month_selection"/>
+                                <field name="year" readonly="False"/>
+                                <field name="percentage" />
+                                <field name="is_created" />
+                            </group>
+                        </group>
+
+                    </sheet>
+                            <chatter/>
+                </form>
+            </field>
+        </record>
+        <record id="integration_mall_month_view_list" model="ir.ui.view">
+            <field name="name">integration.month.mall.view.list</field>
+            <field name="model">config.month</field>
+            <field name="arch" type="xml">
+                <list string="integration_mall_list">
+                    <field name="month_selection"/>
+                    <field name="branch_id"/>
+                    <field name="total_month"/>
+                </list>
+            </field>
+        </record>
+
+    </data>
+</odoo>

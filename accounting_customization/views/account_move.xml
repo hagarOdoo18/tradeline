@@ -1,0 +1,101 @@
+<odoo>
+  <data>
+
+      <!-- Inherit Form View to Modify it -->
+      <record id="account_move_fields" model="ir.ui.view">
+          <field name="name">account.move.fields</field>
+          <field name="model">account.move</field>
+          <field name="inherit_id" ref="account.view_move_form"/>
+          <field name="arch" type="xml">
+               <xpath expr="//button[@name='button_draft']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+              <xpath expr="//button[@name='button_cancel'][1]" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath> <xpath expr="//button[@name='button_cancel'][2]" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+                <xpath expr="//field[@name='invoice_date']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                </xpath>
+                  <xpath expr="//group[@id='header_left_group']" position="after">
+                  <!-- Add your fields or attributes here -->
+                  <group>
+                  <field name="barcode" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="sales_rep_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="reference_number" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="opportunity_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="channel_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="discount_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="inv_type" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="bank_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="courier_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="product_notes" invisiable="1" readonly="1"/>
+                  <field name="create_credit" invisiable="move_type not in ['out_invoice']" groups="accounting_customization.group_create_credit"/>
+                  </group>
+              </xpath>
+              <xpath expr="//field[@name='invoice_line_ids']" position="attributes">
+                <attribute name="readonly">1</attribute>
+              </xpath>
+              <xpath expr="//field[@name='invoice_line_ids']//list//field[@name='product_id']" position="before">
+                  <field name="select_for_report"  invisiable="parent.move_type not in ['out_invoice','out_refund']" />
+
+              </xpath>
+               <xpath expr="//field[@name='invoice_line_ids']//list//field[@name='product_id']" position="after">
+                  <field name="item_code"  invisiable="parent.move_type not in ['out_invoice','out_refund']" />
+                  <field name="warranty_id"  invisiable="parent.move_type not in ['out_invoice','out_refund']" />
+
+              </xpath>
+          </field>
+      </record>
+
+       <record id="account_payment_security" model="ir.ui.view">
+          <field name="name">account.payment.secutiy</field>
+          <field name="model">account.payment</field>
+          <field name="inherit_id" ref="account.view_account_payment_form"/>
+          <field name="arch" type="xml">
+               <xpath expr="//button[@name='action_draft']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+              <xpath expr="//button[@name='action_cancel']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+          </field>
+          </record>
+
+       <record id="account.menu_finance_reports" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('accounting_customization.group_reporting_menu')])]"/>
+            <field name="parent_id" ref=""/>
+            </record>
+      <record id="account.menu_board_journal_1" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('accounting_customization.group_accounting_dashboard_menu')])]"/>
+            </record>
+
+
+      <record id="view_account_move_reversal_dis_create_invoice" model="ir.ui.view">
+        <field name="name">account.move.reversal.dis_create.invoice.form</field>
+        <field name="model">account.move.reversal</field>
+        <field name="inherit_id" ref="account.view_account_move_reversal"/>
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='modify_moves']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+        </field>
+    </record>
+
+
+
+  </data>
+</odoo>

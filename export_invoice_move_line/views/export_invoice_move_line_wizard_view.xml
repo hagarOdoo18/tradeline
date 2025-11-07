@@ -1,0 +1,45 @@
+<odoo>
+    <record id="view_export_invoice_move_line_wizard" model="ir.ui.view">
+        <field name="name">export.invoice.move.line.wizard.form</field>
+        <field name="model">export.invoice.move.line.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Export Invoice Move Lines">
+                <group>
+                    <group>
+                        <field name="branch_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                        <field name="sales_rep_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                        <field name="payment_journal_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                        <field name="categ_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                        <field name="family_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                    </group>
+                    <group>
+                         <field name="discount_id"/>
+                         <field name="vendor_id"/>
+                         <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+
+
+                </group>
+                <footer>
+                    <button name="action_export_excel" type="object" string="Export to Excel" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_export_invoice_move_line_wizard_menu" model="ir.actions.act_window">
+        <field name="name">Export Invoice Move Lines</field>
+        <field name="res_model">export.invoice.move.line.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Menuitem under Accounting / Reporting -->
+    <menuitem id="menu_export_invoice_move_line_root"
+              name="Export Invoice Move Lines"
+              parent="accountant.menu_accounting"
+              action="action_export_invoice_move_line_wizard_menu"
+              sequence="100"/>
+</odoo>

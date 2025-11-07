@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+                <menuitem name="Bank Details" id="bank_details_menu" parent="account.menu_finance_configuration" action="bank_details_act_window"/>
+                <menuitem name="Channel" id="channel_menu" parent="account.menu_finance_configuration" action="channel_act_window"/>
+                <menuitem name="Courier" id="courier_menu" parent="account.menu_finance_configuration" action="courier_act_window"/>
+                <menuitem name="Discount Reason" id="discount_reason_menu" parent="account.menu_finance_configuration" action="discount_reason_act_window"/>
+                <menuitem name="Sales Rep" id="sales_rep_menu" parent="account.menu_finance_configuration" action="sales_rep_act_window"/>
+                <menuitem name="Product Warranty" id="product_warranty_menu" parent="account.menu_finance_configuration" action="warranty_act_window"/>
+                <menuitem name="Family" id="product_family_config_menu" parent="stock.menu_product_in_config_stock"
+              action="product_family_act" sequence="40"/>
+        <menuitem name="Sub Category" id="sub_category_config_menu" parent="stock.menu_product_in_config_stock"
+              action="sub_category_act" sequence="40"/>
+
+
+    </data>
+</odoo>

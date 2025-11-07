@@ -1,0 +1,69 @@
+<odoo>
+    <data>
+
+        <record id="group_crm_groups" model="ir.module.category">
+                    <field name="name">Crm Groups</field>
+        </record>
+        <record id="group_crm_selections" model="res.groups">
+            <field name="name">CRM Selection</field>
+                          <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+
+        </record>
+
+
+                <record id="group_crm_all_pipeline" model="res.groups">
+            <field name="name">All Pipeline</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                <record id="group_crm_my_pipeline" model="res.groups">
+            <field name="name">My pipeline</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+
+        <record id="group_sales_Menuitem" model="res.groups">
+            <field name="name">Sales Menuitem</field>
+                          <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                <record id="group_my_quotation_Menuitem" model="res.groups">
+            <field name="name">My Quotations (crm)</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                        <record id="group_control_discount_type" model="res.groups">
+            <field name="name">Control Discount Type</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                <record id="group_Restore_button" model="res.groups">
+            <field name="name">Restore Button</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                        <record id="group_convert_to_lead_button" model="res.groups">
+            <field name="name">Convert To Lead Button</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                                <record id="group_cancelled_sale_order_button" model="res.groups">
+            <field name="name">Cancelled Sale Order Button</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                                <record id="group_make_won_button" model="res.groups">
+            <field name="name">Make Won Button</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                                        <record id="group_make_lost_button" model="res.groups">
+            <field name="name">Make Lost Button</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+                                        <record id="group_delete_lead_pipeline" model="res.groups">
+            <field name="name">Delete (Lead ^ Pipeline)</field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+
+               <record id="group_disable_crm_options" model="res.groups">
+            <field name="name">allow create crm </field>
+                                  <field name="category_id" ref="tradeline_crm_customize.group_crm_groups"/>
+        </record>
+
+
+
+
+    </data>
+</odoo>

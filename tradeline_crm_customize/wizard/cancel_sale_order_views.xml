@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<odoo>
+
+        <record id="view_cancel_sale_order_pipeline" model="ir.ui.view">
+            <field name="name">cancel.sale.order.pipeline.form</field>
+            <field name="model">cancel.sale.order.pipeline</field>
+            <field name="arch" type="xml">
+                <form string="cancel">
+                    <group name="name">
+                        <field name="reason" />
+                    </group>
+                    <footer>
+                        <button name="action_apply" string="Cancel Order" type="object" class="btn-primary"/>
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+
+        <record id="action_cancel_sale_order_pipeline" model="ir.actions.act_window">
+            <field name="name">Cancel Order</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">cancel.sale.order.pipeline</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="view_cancel_sale_order_pipeline"/>
+            <field name="target">new</field>
+        </record>
+
+
+
+</odoo>

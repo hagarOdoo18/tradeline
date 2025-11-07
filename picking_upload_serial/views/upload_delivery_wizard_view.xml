@@ -1,0 +1,52 @@
+<odoo>
+    <record id="view_upload_delivery_wizard_form" model="ir.ui.view">
+        <field name="name">upload.delivery.wizard.form</field>
+        <field name="model">upload.delivery.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload Excel to Delivery">
+                <group>
+                    <field name="picking_id"/>
+                    <field name="file" filename="filename"/>
+
+                </group>
+                <footer>
+                    <button string="Upload" name="action_upload_excel" type="object" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_upload_delivery_wizard" model="ir.actions.act_window">
+        <field name="name">Upload Delivery Excel</field>
+        <field name="res_model">upload.delivery.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Button in Delivery Order form -->
+    <record id="view_picking_form_inherit_upload_excel" model="ir.ui.view">
+        <field name="name">stock.picking.form.inherit.upload.excel</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <header position="inside">
+                <button name="action_open_upload_excel_wizard"
+                        type="object"
+                        invisible="state == 'done'"
+                        string="Upload Excel"
+                        class="btn-secondary"
+                        icon="fa-upload"/>
+            </header>
+        </field>
+    </record>
+
+    <!-- Menu -->
+<!--    <record id="menu_upload_delivery_root" model="ir.ui.menu">-->
+<!--        <field name="name">Upload Delivery Excel</field>-->
+<!--        <field name="parent_id" ref="stock.menu_stock_warehouse_mgmt"/>-->
+<!--        <field name="action" ref="action_upload_delivery_wizard"/>-->
+<!--        <field name="sequence">90</field>-->
+<!--    </record>-->
+</odoo>

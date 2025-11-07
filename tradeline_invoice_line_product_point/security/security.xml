@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+
+      <record id="group_update_product_point"  model="res.groups">
+        <field name="name">Update Product Point</field>
+      </record>
+
+
+
+
+
+    </data>
+</odoo>

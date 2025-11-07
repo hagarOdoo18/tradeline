@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="product_template_code" model="ir.sequence">
+            <field name="name">product code</field>
+            <field name="code">product.product</field>
+            <field name="prefix"></field>
+            <field name="padding">6</field>
+        </record>
+
+         <record id="tradeline_set_product_codr" forcecreate='True' model="ir.cron">
+            <field name="name">Cron set product code</field>
+            <field eval="False" name="active"/>
+            <field name="user_id" ref="base.user_root"/>
+             <field name="interval_number">15</field>
+            <field name="interval_type">minutes</field>
+             <field name="model_id" ref="model_product_product"/>
+            <field name="state">code</field>
+            <field name="code">model.set_old_product()</field>
+        </record>
+    </data>
+</odoo>

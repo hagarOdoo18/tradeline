@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="sales_rep_form_view" model="ir.ui.view">
+            <field name="name">sales.rep.form</field>
+            <field name="model">sales.rep</field>
+            <field name="arch" type="xml">
+                <form string="sales rep">
+                    <sheet>
+
+                        <group>
+                            <group>
+                                <field name="name"/>
+                                <field name="code"/>
+                                <field name="is_call_center"/>
+
+                            </group>
+                            <group>
+                                <field name="mail"/>
+                                <field name="type"/>
+                            </group>
+                           
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="sales_rep_list_view" model="ir.ui.view">
+            <field name="name">sales.rep.list</field>
+            <field name="model">sales.rep</field>
+            <field name="arch" type="xml">
+                <list string="sales rep">
+                    <field name="name"/>
+                    <field name="code"/>
+                    <field name="is_call_center"/>
+                </list>
+            </field>
+        </record>
+
+       
+
+        <record id="sales_rep_act_window" model="ir.actions.act_window">
+            <field name="name">sales rep</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">sales.rep</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="oe_view_nocontent_create">
+                    There is no examples click here to add new sales rep.
+                </p>
+            </field>
+        </record>
+
+
+    </data>
+</odoo>

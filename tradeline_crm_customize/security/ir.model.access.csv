@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_crm_lead_line,crm.lead.line,model_crm_lead_line,,1,1,1,1
+crm.access_crm_lead_manager,crm.lead.manager,crm.model_crm_lead,sales_team.group_sale_manager,1,1,1,0
+access_crm_lead_manager_with_delete,crm.lead.manager.with_delete,crm.model_crm_lead,tradeline_crm_customize.group_delete_lead_pipeline,1,1,1,0
+

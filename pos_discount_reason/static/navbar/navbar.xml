@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="pos_discount_reason.Navbar" t-inherit="point_of_sale.Navbar" t-inherit-mode="extension">
+        <xpath expr="//DropdownItem[contains(text(), 'Backend')]" position="replace">
+             <DropdownItem onSelected="() => pos.closePos()">
+                                    Backend
+                                </DropdownItem>
+        </xpath>
+        <xpath expr="//DropdownItem[contains(text(), 'Close Register')]" position="replace">
+            <DropdownItem onSelected="() => this.pos.closeSession()">
+                                    Close Register
+                                </DropdownItem>
+        </xpath>
+        <xpath expr="//DropdownItem[contains(text(), 'Clear Cache')]" position="replace">
+           <DropdownItem onSelected="() => this.clearCache()">
+                                    Clear Cache
+                                </DropdownItem>
+        </xpath>
+        <xpath expr="//DropdownItem[contains(text(), 'Install App')]" position="replace">
+
+        </xpath>
+
+    </t>
+
+</templates>

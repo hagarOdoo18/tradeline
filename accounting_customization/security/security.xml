@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+
+          <record id="group_create_credit"  model="res.groups">
+            <field name="name">Create Credit(admin)</field>
+          </record>
+
+          <record id="group_apps_menu" model="res.groups">
+            <field name="name">Access Apps Menu</field>
+
+        </record>
+        <record id="group_reporting_menu" model="res.groups">
+            <field name="name">Reporting Menu</field>
+
+        </record>
+     <record id="group_accounting_dashboard_menu" model="res.groups">
+                <field name="name">Accounting Dashboard Menu</field>
+
+            </record>
+
+
+    </data>
+</odoo>

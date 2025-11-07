@@ -1,0 +1,23 @@
+<odoo>
+    <record id="view_download_picking_barcodes_wizard_form" model="ir.ui.view">
+        <field name="name">download.picking.barcodes.wizard.form</field>
+        <field name="model">download.picking.barcodes.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Download Picking Barcodes">
+                <group>
+                    <field name="picking_id"/>
+                </group>
+                <footer>
+                    <button name="action_download_barcodes" type="object" string="Download Barcodes" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <act_window id="action_download_picking_barcodes_wizard"
+                name="Download Picking Barcodes"
+                res_model="download.picking.barcodes.wizard"
+                view_mode="form"
+                target="new"/>
+</odoo>

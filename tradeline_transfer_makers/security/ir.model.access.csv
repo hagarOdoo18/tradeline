@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_transfer_makers,access.transfer.makers,tradeline_transfer_makers.model_transfer_makers,,1,1,1,1
+access_transfer_makers_line,access.transfer.makers.line,tradeline_transfer_makers.model_transfer_makers_line,,1,1,1,1

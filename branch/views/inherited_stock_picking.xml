@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Stock Picking Inherit Form View to Modify it -->
+        <record id="view_picking_form_inherit_branch" model="ir.ui.view">
+            <field name="name">view.picking.form.inherit.branch</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form" />
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='origin']" position="after">
+                    <field name="branch_id"  readonly="1" options="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                </xpath>
+                <xpath expr="//field[@name='partner_id']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='origin']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+
+                </xpath> <xpath expr="//field[@name='location_id']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+
+                </xpath>
+
+                <xpath expr="//field[@name='picking_type_id']" position="attributes">
+                    <attribute name="invisible">picking_type_code == 'incoming'</attribute>
+                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='location_dest_id'][2]" position="attributes">
+                    <attribute name="invisible">picking_type_code == 'incoming'</attribute>
+                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+
+                </xpath> <xpath expr="//field[@name='location_id'][2]" position="attributes">
+                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+
+                </xpath>
+                <xpath expr="//field[@name='lot_ids']" position="attributes">
+                    <attribute name="optional">show</attribute>
+                </xpath>
+                <xpath expr="//field[@name='quantity']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                </xpath>
+                <xpath expr="//field[@name='product_id']" position="attributes">
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+                    <attribute name="readonly">state != 'draft'</attribute>
+                </xpath>
+                <xpath expr="//button[@name='%(stock.act_stock_return_picking)d']" position="attributes">
+                <attribute name="groups">branch.action_return_picking</attribute>
+            </xpath>
+                <xpath expr="//button[@name='action_cancel']" position="attributes">
+                <attribute name="groups">branch.action_cancel_picking</attribute>
+            </xpath>  <xpath expr="//field[@name='move_ids_without_package']" position="attributes">
+                <attribute name="widget"></attribute>
+            </xpath>
+
+            </field>
+        </record>
+         <record id="view_lot_inherit_list" model="ir.ui.view">
+            <field name="name">view.lot.list.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_tree" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//list" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+        <record id="product_product_stock_create_list" model="ir.ui.view">
+            <field name="name">product.product.stock.list.create</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="stock.product_product_stock_tree" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//list" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+                    <xpath expr="//button[@name=%(stock.stock_move_line_action)d]" position="attributes">
+                <attribute name="groups">branch.group_h_stock_report</attribute>
+            </xpath>  <xpath expr="//button[@name='action_view_orderpoints']" position="attributes">
+                <attribute name="groups">branch.group_orderpoints_report</attribute>
+            </xpath>
+
+            </field>
+         </record>
+        <record id="view_lot_inherit_kanban" model="ir.ui.view">
+            <field name="name">view.lot.kanban.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_kanban" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//kanban" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+        <record id="view_lot_inherit_form" model="ir.ui.view">
+            <field name="name">view.lot.form.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_form" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//form" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+
+          <record id="stock.action_product_stock_view" model="ir.actions.act_window">
+                        <field name="view_mode">list</field>
+
+        </record>
+
+
+
+
+    </data>
+</odoo>

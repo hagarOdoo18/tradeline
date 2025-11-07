@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="sale_order_form_inherit" model="ir.ui.view">
+            <field name="name">sale.order.form</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale.view_order_form"/>
+            <field name="priority" eval="8"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="barcode" readonly="1"/>
+                    <field name="reference_number" readonly="state != 'draft'"/>
+                    <field name="inv_type" readonly="state != 'draft'"/>
+                    <field name="sales_rep_domain" invisible="1"/>
+                    <field name="sales_rep_id" readonly="state != 'draft'" domain="sales_rep_domain"/>
+                    <field name="team_id" readonly="state != 'draft'"/>
+                </xpath>
+                <xpath expr="//field[@name='payment_term_id']" position="after">
+                    <field name="discount_domain" invisible="1"/>
+                    <field name="discount_id" readonly="state != 'draft'" domain="discount_domain"/>
+                    <field name="channel_id" readonly="state != 'draft'"/>
+                    <field name="courier_id" readonly="state != 'draft'"/>
+                    <field name="bank_id" readonly="state != 'draft'"/>
+                </xpath>
+
+
+                <xpath expr="//button[@id='create_invoice_percentage']" position="replace">
+                          <button id="create_invoice_percentage" name="%(sale.action_view_sale_advance_payment_inv)d" string="Create Invoice"
+                    type="action" context="{'default_advance_payment_method': 'delivered'}" data-hotkey="q"
+                    invisible="invoice_status != 'no' or state != 'sale'"/>
+                </xpath>
+
+                 <xpath expr="//page[@name='customer_signature']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+                <xpath expr="//button[@name='action_cancel']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+                 <xpath expr="//button[@name='action_preview_sale_order']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+
+                <xpath expr="//field[@name='order_line']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="readonly">state !='draft'</attribute>
+                </xpath>
+                <xpath expr="//list//field[@name='product_template_id']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+                    <attribute name="column_invisible">1</attribute>
+                </xpath>
+                <xpath expr="//list//field[@name='product_id']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="optional">show</attribute>
+                </xpath>
+                <xpath
+                expr="//field[@name='order_line']/list/field[@name='product_template_id']"
+                position="after"
+            >
+                                                            <field name="location_id"  force_save="1" column_invisible="True"/>
+
+
+
+            </xpath>
+            </field>
+        </record>
+
+        <record id="view_order_form_inherit_warehouse" model="ir.ui.view">
+            <field name="name">view.order.form.inherit.warehouse</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale_stock.view_order_form_inherit_sale_stock"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//page[@name='other_information']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+
+                </field>
+            </record>
+        <record id="view_order_form_inherit_optional_products" model="ir.ui.view">
+            <field name="name">view.order.form.inherit.optional_products</field>
+            <field name="model">sale.order</field>
+            <field name="inherit_id" ref="sale_management.sale_order_form_quote"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//page[@name='optional_products']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+
+                </field>
+            </record>
+        <record id="view_order_form_inherit_sale_order_discount" model="ir.ui.view">
+            <field name="name">view.sale.order.discount.form.inherit</field>
+            <field name="model">sale.order.discount</field>
+            <field name="inherit_id" ref="sale.sale_order_line_wizard_form"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//field[@name='discount_type']" position="attributes">
+                    <!-- Add your fields or attributes here -->
+
+                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                </xpath>
+
+                </field>
+        </record>
+
+         <record id="base.menu_apps" model="ir.ui.menu">
+            <field name="groups_id" eval="[(5, 0, 0), (4, ref('accounting_customization.group_apps_menu'))]"/>
+        </record>
+
+
+
+
+    </data>
+</odoo>

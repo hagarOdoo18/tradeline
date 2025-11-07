@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="config_sequence" model="ir.sequence">
+            <field name="name">config code</field>
+            <field name="code">config.day</field>
+            <field name="prefix">CONF/</field>
+            <field name="padding">3</field>
+        </record>
+
+        <record id="action_set_invoices_table" model="ir.actions.server">
+            <field name="name">Update Invoices</field>
+            <field name="type">ir.actions.server</field>
+            <field name="state">code</field>
+            <field name="model_id" ref="tradeline_mall_integration.model_config_day"/>
+            <field name="binding_model_id" ref="tradeline_mall_integration.model_config_day"/>
+            <field name="code">
+records.server_action_create_daily_table()
+            </field>
+        </record>
+        <record id="action_update_madinaty" model="ir.actions.server">
+            <field name="name">Update Madinaty</field>
+            <field name="type">ir.actions.server</field>
+            <field name="state">code</field>
+            <field name="model_id" ref="tradeline_mall_integration.model_config_day"/>
+            <field name="binding_model_id" ref="tradeline_mall_integration.model_config_day"/>
+            <field name="code">
+records.action_update_madinty()
+            </field>
+        </record>
+        <record id="tradeline_post_mall_integration_cron" forcecreate='True' model="ir.cron">
+            <field name="name">Cron post data for Mall integration</field>
+            <field eval="True" name="active"/>
+            <field name="user_id" ref="base.user_root"/>
+               <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="model_id" ref="model_config_day"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_post_new_invoices()</field>
+        </record>
+        <record id="tradeline_create_table_integration_cron" forcecreate='True' model="ir.cron">
+            <field name="name">Cron  invoices  for Mall integration</field>
+            <field eval="True" name="active"/>
+            <field name="user_id" ref="base.user_root"/>
+               <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="model_id" ref="model_config_day"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_create_daily_table()</field>
+        </record>
+        <record id="tradeline_check_madinaty_invoice" forcecreate='True' model="ir.cron">
+            <field name="name">Cron Check madinaty invoices</field>
+            <field eval="False" name="active"/>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="model_id" ref="model_config_day"/>
+            <field name="state">code</field>
+            <field name="code">model.check_madinaty_invoice()</field>
+        </record>
+
+    </data>
+</odoo>

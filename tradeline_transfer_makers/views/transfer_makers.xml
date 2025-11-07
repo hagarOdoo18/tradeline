@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+       <record id="transfer_makers_action" model="ir.actions.act_window">
+           <field name="res_model">transfer.makers</field>
+           <field name="view_mode">list,form</field>
+       </record>
+        <record id="transfer_makers_view_form" model="ir.ui.view">
+            <field name="name">transfer_makers_view_form</field>
+            <field name="model">transfer.makers</field>
+            <field name="arch" type="xml">
+                <form string="transfer_makers_form">
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="name"/>
+                                <field name="code"/>
+                                <field name="mail"/>
+
+                            </group>
+                        </group>
+                        <notebook>
+                            <page name="line details" string="Line Details">
+                                <field name="transfer_line_ids"
+                                       >
+                             <list editable="bottom">
+                                        <field name="stock_picking"/>
+                                        <field name="date"/>
+                                        <field name="code"/>
+                                        <button name="generate_code" type="object" string="Generate"  />
+                                    </list>
+                                </field>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        <record id="transfer_makers_view_list" model="ir.ui.view">
+            <field name="name">transfer_makers_view_list</field>
+            <field name="model">transfer.makers</field>
+            <field name="arch" type="xml">
+                <list string="transfer_makers_list">
+                    <field name="name"/>
+                    <field name="code"/>
+                </list>
+            </field>
+        </record>
+
+         <menuitem name="Transfer Responsible" id="transfer_makers_menu" parent="stock.menu_warehouse_config"
+              action="transfer_makers_action" groups="tradeline_transfer_makers.group_transfer_maker" sequence="2"/>
+           <menuitem action="stock.action_rules_form" id="stock.menu_action_rules_form"
+        parent="stock.menu_warehouse_config" sequence="3" groups="stock.group_adv_location"/>
+    </data>
+</odoo>

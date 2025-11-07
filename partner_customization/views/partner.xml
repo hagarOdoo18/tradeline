@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+        <record id="partner_mobile_attributes" model="ir.ui.view">
+        <field name="name">partner.updates</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form" />
+        <field eval="1" name="priority"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='company_type']" position="after">
+                <div>
+                    <field name="mobile_type" widget="radio" options="{'horizontal': true}"/>
+
+                </div>
+            </xpath>
+            <xpath expr="//field[@name='vat']" position="replace" >
+
+                <field name="vat" placeholder="e.g. BE0477472701" readonly="parent_id"  invisible="company_type != 'company'" required="1"/>
+                <field name="vat" string="National Id" placeholder="e.g. BE0477472701" readonly="parent_id"  invisible="company_type == 'company'"/>
+                 <field name="company_size" invisible="company_type != 'company'"/>
+                <field name="company_device" invisible="company_type != 'company'"/>
+            </xpath>
+            <xpath expr="//field[@name='mobile']" position="attributes" >
+                <attribute name="required">1</attribute>
+            </xpath>
+            <xpath expr="///group[@name='sale']/field[@name='user_id']" position="before" >
+                <field name="customer"/>
+
+            </xpath>
+            <xpath expr="//group[@name='purchase']" position="inside" >
+                <field name="vendor"/>
+            </xpath>
+        </field>
+        </record>
+
+        <!-- Inherit Form View to Modify it -->
+        <record id="partner_search_custom" model="ir.ui.view">
+        <field name="name">partner.search.custom</field>
+        <field name="model">res.partner</field>
+            <field name="inherit_id" ref="base.view_res_partner_filter"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//field[@name='name']" position="before">
+                    <field name="mobile"/>
+                    <field name="vat"/>
+                    <!-- Add your fields or attributes here -->
+                </xpath>
+
+            </field>
+        </record>
+    </data>
+</odoo>

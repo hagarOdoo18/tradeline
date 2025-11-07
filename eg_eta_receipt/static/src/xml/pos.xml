@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+ <t t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension" owl="1">
+      <!--Override-->
+     <!--  QR Code-->
+     <xpath expr="//div[hasclass('pos-receipt-order-data')]" position="replace">
+                       <div t-attf-id="qrcode_container">
+                         <div id="qrcode">
+                             <img/>
+                         </div>
+<!--                         <script type="text/javascript"> new QRCode(document.getElementById("qrcode_id"), qr_data);</script>-->
+                         <script type="text/javascript">
+                             var qr_data ="
+                              <t t-esc="receipt.url"/>;
+                             #Total: <t t-esc="receipt.total_with_tax"/>;
+                             IssuerRIN:<t t-esc="receipt.company.vat"/>";
+                             var qrcode = new QRCode('qrcode' , {
+                             text: qr_data,
+                             width: 160,
+                             height: 160,
+                             colorDark : "#000000",
+                             colorLight : "#ffffff",
+                             correctLevel : QRCode.CorrectLevel.H
+                             });
+                             qrcode.makeCode(qr_data);
+
+                             $("#qrcode > img").css({"margin":"20px auto"});
+                         </script>
+                     </div>
+     </xpath>
+
+    </t>
+</templates>

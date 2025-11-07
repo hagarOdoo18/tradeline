@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="bank_details_form_view" model="ir.ui.view">
+            <field name="name">bank.details.form</field>
+            <field name="model">bank.details</field>
+            <field name="arch" type="xml">
+                <form string="Bank Details">
+                    <sheet>
+
+                        <group>
+                            <group>
+                                <field name="name"/>
+                                <field name="account_name"/>
+                                <field name="account_number"/>
+                            </group>
+                            <group>
+                                <field name="IBAN"/>
+                                <field name="swift_code"/>
+                                <field name="currency_id"/>
+                            </group>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="bank_details_list_view" model="ir.ui.view">
+            <field name="name">bank.details.list</field>
+            <field name="model">bank.details</field>
+            <field name="arch" type="xml">
+                <list string="Bank Details">
+                    <field name="name"/>
+                    <field name="currency_id"/>
+                </list>
+            </field>
+        </record>
+
+       
+
+        <record id="bank_details_act_window" model="ir.actions.act_window">
+            <field name="name">Bank Details</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">bank.details</field>
+            <field name="view_mode">list,form</field>
+            <field name="help" type="html">
+                <p class="oe_view_nocontent_create">
+                    There is no examples click here to add new Bank Details.
+                </p>
+            </field>
+        </record>
+
+
+    </data>
+</odoo>

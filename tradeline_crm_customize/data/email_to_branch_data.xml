@@ -1,0 +1,1048 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+		<record id="email_to_branch_template_new_order" model="mail.template">
+			<field name="name">New Order: Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.create_uid.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.user_id.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+			
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.user_id.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									You Have received New Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+			
+			</div>
+            </field>
+		</record>
+		<record id="email_to_aganint_template_won_order" model="mail.template">
+			<field name="name">Won Order: Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.user_id.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.create_uid.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} Accepted Your Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+		</record>
+		<record id="email_to_agent_template_lost_order" model="mail.template">
+			<field name="name">Lost Order: Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.user_id.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.create_uid.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} declined Your Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+		</record>
+		<record id="email_to_agent_template_cancelled_order" model="mail.template">
+			<field name="name">Cancelled Order: Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.user_id.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.create_uid.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} Cancelled  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+		</record>
+		<record id="email_to_branch_template_cancelled_order" model="mail.template">
+			<field name="name">Cancelled Order (From Branch): Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.user_id.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.create_uid.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.user_id.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.create_uid.name} Cancelled  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+		</record>
+		<record id="email_to_agent_template_refund_order" model="mail.template">
+			<field name="name">Refunded Order: Send by email</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="email_from">${object.user_id.partner_id.email_formatted |safe}</field>
+            <field name="email_to">${object.create_uid.partner_id.email_formatted |safe}</field>
+<!--            <field name="partner_to">${object.user_id.partner_id.id}</field>-->
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} refunded Your  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+		</record>
+
+
+<!--    admin mails-->
+
+            <record id="email_to_branch_template_new_order_admins" model="mail.template">
+            <field name="name">New Order: Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} ( Admin )
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									You Have received New Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+
+
+        </record>
+            <record id="email_to_agent_template_won_order_admins" model="mail.template">
+            <field name="name">Won Order: Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} ( Admin )
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} Accepted Your Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+        </record>
+            <record id="email_to_agent_template_lost_order_admins" model="mail.template">
+            <field name="name">Lost Order: Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (Admin)
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} declined Your Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+        </record>
+            <record id="email_to_agent_template_cancelled_order_admins" model="mail.template">
+            <field name="name">Cancelled Order: Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} Cancelled  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+        </record>
+            <record id="email_to_branch_template_cancelled_order_admins" model="mail.template">
+            <field name="name">Cancelled Order (From Branch): Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.user_id.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.create_uid.name} Cancelled  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+        </record>
+            <record id="email_to_branch_template_refund_order_admins" model="mail.template">
+            <field name="name">Refund Order: Send by email</field>
+             <field name="email_from">${user.email}</field>
+            <field name="email_to">${'mails_str' in ctx and ctx['mails_str']}</field>
+            <field name="subject">${object.company_id.name} Ticket is assign to user (Ref ${object.name or 'n/a' })</field>
+            <field name="model_id" ref="crm.model_crm_lead"/>
+            <field name="use_default_to" eval="False"/>
+            <field name="body_html" type="html">
+			<div style="margin: 0px; padding: 0px;">
+
+				<table border="0" width="100%" cellpadding="0" bgcolor="#ededed" style="padding: 20px; background-color: #ededed; border-collapse:separate;" summary="o_mail_notification">
+                    <tbody>
+
+                      <!-- HEADER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle">
+                                  <span style="font-size:20px; color:white; font-weight: bold;">
+                                      ${object.name} (${object.create_uid.name})
+                                  </span>
+                              </td>
+                              <td valign="middle" align="right">
+                                  <img src="/logo.png?company=${object.company_id.id}" style="padding: 0px; margin: 0px; height: auto; width: 80px;" alt="${object.company_id.name}"/>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- CONTENT -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#ffffff" style="min-width: 590px; background-color: rgb(255, 255, 255); padding: 20px; border-collapse:separate;">
+                            <tbody>
+                              <td valign="top" style="font-family:Arial,Helvetica,sans-serif; color: #555; font-size: 14px;">
+                              	<p style="margin: 0px; padding: 0px; font-size: 13px;">
+									${object.user_id.name} refunded Your  Order
+									<br/>
+<!--									<br/>-->
+<!--									Please take a follow-up as soon as possible.-->
+<!--									<br/>-->
+									<br/>
+									<br/>
+									<center>
+							        	<a href="${object.form_url}" style="background-color: #1abc9c; padding: 10px; text-decoration: none; color: #fff; border-radius: 5px; font-size: 16px;" class="o_default_snippet_text">View Pipeline</a>
+							        </center>
+							        <br/>
+							        <br/>
+							    </p>
+                              </td>
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+
+                      <!-- FOOTER -->
+                      <tr>
+                        <td align="center" style="min-width: 590px;">
+                          <table width="590" border="0" cellpadding="0" bgcolor="#875A7B" style="min-width: 590px; background-color: rgb(135,90,123); padding: 20px; border-collapse:separate;">
+                            <tr>
+                              <td valign="middle" align="left" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                ${object.company_id.name}<br/>
+                                ${object.company_id.phone or ''}
+                              </td>
+                              <td valign="middle" align="right" style="color: #fff; padding-top: 10px; padding-bottom: 10px; font-size: 12px;">
+                                % if object.company_id.email:
+                                <a href="mailto:${object.company_id.email}" style="text-decoration:none; color: white;">${object.company_id.email}</a><br/>
+                                % endif
+                                % if object.company_id.website:
+                                    <a href="${object.company_id.website}" style="text-decoration:none; color: white;">
+                                        ${object.company_id.website}
+                                    </a>
+                                % endif
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </tbody>
+                </table>
+
+			</div>
+            </field>
+        </record>
+
+</odoo>

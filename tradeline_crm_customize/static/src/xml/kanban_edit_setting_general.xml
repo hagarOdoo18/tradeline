@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates t-name="kanban_edit_setting_general">
+	<t t-extend="KanbanView.Group">
+	<t t-jquery="div.dropdown-menu" t-operation="replace">
+		<div class="dropdown-menu" role="menu">
+<!--                        <a role="menuitem" class="dropdown-item o_kanban_toggle_fold" href="#">Fold</a>-->
+<!--                        <t t-if="widget.grouped_by_m2o">-->
+<!--                            <a t-if="widget.editable and widget.id" role="menuitem" class="dropdown-item o_column_edit" href="#">Edit Stage</a>-->
+<!--                            <a t-if="widget.deletable and widget.id" role="menuitem" class="dropdown-item o_column_delete" href="#">Delete</a>-->
+<!--                        </t>-->
+                        <t t-if="widget.has_active_field and widget.archivable">
+                            <a role="menuitem" href="#" class="dropdown-item o_column_archive_records">Archive All</a>
+                            <a role="menuitem" href="#" class="dropdown-item o_column_unarchive_records">Unarchive All</a>
+                        </t>
+                    </div>
+	</t>
+</t></templates>

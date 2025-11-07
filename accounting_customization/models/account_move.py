@@ -1,0 +1,197 @@
+# -*- coding: utf-8 -*-
+
+from odoo import models, fields, api,_
+from odoo.osv import expression
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+class AccountMove(models.Model):
+    _inherit = 'account.move'
+
+    barcode = fields.Char(
+        string='Barcode', 
+        required=False)
+
+    reference_number = fields.Char(
+        string='Reference Number',
+        required=False)
+
+    opportunity_id = fields.Many2one(
+        comodel_name='crm.lead',
+        string='Opportunity',
+        required=False)
+
+    discount_id = fields.Many2one(
+        comodel_name='discount.reason',
+        string='Discount Reason',
+        required=False)
+
+    channel_id = fields.Many2one(
+        comodel_name='channel.channel',
+        string='Channel',
+        required=False)
+
+    sales_rep_id = fields.Many2one(
+        comodel_name='sales.rep',
+        string='Sales Rep',
+        required=False)
+
+    inv_type = fields.Selection(
+        string='Invoice Type', default='invoice',
+        selection=[('sro', 'SRO'), ('quotation', 'Quotation'),
+                   ('invoice', 'Invoice'), ('debit', 'Debit')],
+        required=True, )
+
+    create_credit = fields.Boolean(
+        string='Create credit',
+        required=False)
+
+    bank_id = fields.Many2one(
+        comodel_name='bank.details',
+        string='Bank',
+        required=False)
+
+    courier_id = fields.Many2one(
+        comodel_name='courier.courier',
+        string='Courier',
+        required=False)
+
+    product_notes = fields.Char(
+        string='Product Notes',
+        required=False)
+
+
+class AccountMoveLine(models.Model):
+    _inherit = 'account.move.line'
+
+    select_for_report = fields.Boolean(
+        string='Select For Report',default=True,
+        required=False)
+
+    item_code = fields.Char(
+        string='Item Code',
+        required=False)
+
+
+    warranty_id = fields.Many2one(
+        comodel_name='product.warranty',
+        string='Warranty',
+        required=False)
+
+
+    family_id = fields.Many2one(
+        comodel_name='product.family',
+        string='Family',
+        required=False)
+
+    categ_id = fields.Many2one(
+        comodel_name='product.category',
+        string='Category',
+        required=False)
+
+    product_point = fields.Float(
+        string='Product point',
+        required=False)
+    product_incentive = fields.Float(
+        string='Product incentive',
+        required=False)
+
+    class AccountMoveReversal(models.TransientModel):
+        _inherit = 'account.move.reversal'
+
+        def _prepare_default_reversal(self, move):
+            res = super()._prepare_default_reversal(move)
+            res.update({
+                'barcode': move.barcode,
+                'reference_number': move.reference_number,
+                'opportunity_id': move.opportunity_id.id,
+                'discount_id': move.discount_id.id,
+                'channel_id': move.channel_id.id,
+                'sales_rep_id': move.sales_rep_id.id,
+                'inv_type': move.inv_type,
+                'bank_id': move.bank_id.id,
+                'courier_id': move.courier_id.id
+            })
+            return res
+
+        def reverse_moves(self, is_modify=False):
+            self.ensure_one()
+            moves = self.move_ids
+
+            # Create default values.
+            partners = moves.company_id.partner_id + moves.commercial_partner_id
+
+            bank_ids = self.env['res.partner.bank'].search([
+                ('partner_id', 'in', partners.ids),
+                ('company_id', 'in', moves.company_id.ids + [False]),
+            ], order='sequence DESC')
+            partner_to_bank = {bank.partner_id: bank for bank in bank_ids}
+            default_values_list = []
+            for move in moves:
+                if move.is_outbound():
+                    partner = move.company_id.partner_id
+                else:
+                    partner = move.commercial_partner_id
+                default_values_list.append({
+                    'partner_bank_id': partner_to_bank.get(partner, self.env['res.partner.bank']).id,
+                    **self._prepare_default_reversal(move),
+                })
+
+            batches = [
+                [self.env['account.move'], [], True],  # Moves to be cancelled by the reverses.
+                [self.env['account.move'], [], False],  # Others.
+            ]
+            for move, default_vals in zip(moves, default_values_list):
+                is_auto_post = default_vals.get('auto_post') != 'no'
+                is_cancel_needed = not is_auto_post and (is_modify or self.move_type == 'entry')
+                batch_index = 0 if is_cancel_needed else 1
+                batches[batch_index][0] |= move
+                batches[batch_index][1].append(default_vals)
+
+            # Handle reverse method.
+            moves_to_redirect = self.env['account.move']
+            for moves, default_values_list, is_cancel_needed in batches:
+                new_moves = moves._reverse_moves(default_values_list, cancel=is_cancel_needed)
+                moves._message_log_batch(
+                    bodies={move.id: move.env._('This entry has been %s',
+                                                reverse._get_html_link(title=move.env._("reversed"))) for move, reverse
+                            in zip(moves, new_moves)}
+                )
+
+                if is_modify:
+                    moves_vals_list = []
+                    for move in moves.with_context(include_business_fields=True):
+                        data = move.copy_data(self._modify_default_reverse_values(move))[0]
+                        data['line_ids'] = [line for line in data['line_ids'] if
+                                            line[2]['display_type'] in ('product', 'line_section', 'line_note')]
+                        moves_vals_list.append(data)
+                    new_moves = self.env['account.move'].create(moves_vals_list)
+
+                moves_to_redirect |= new_moves
+
+            self.new_move_ids = moves_to_redirect
+            for move in self.new_move_ids:
+                move.action_post()
+            # Create action.
+            action = {
+                'name': _('Reverse Moves'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.move',
+            }
+            if len(moves_to_redirect) == 1:
+                action.update({
+                    'view_mode': 'form',
+                    'res_id': moves_to_redirect.id,
+                    'context': {'default_move_type': moves_to_redirect.move_type},
+                })
+            else:
+                action.update({
+                    'view_mode': 'list,form',
+                    'domain': [('id', 'in', moves_to_redirect.ids)],
+                })
+                if len(set(moves_to_redirect.mapped('move_type'))) == 1:
+                    action['context'] = {'default_move_type': moves_to_redirect.mapped('move_type').pop()}
+            return action

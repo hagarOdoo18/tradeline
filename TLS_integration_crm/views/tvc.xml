@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+
+          <record id="account_invoice_tvc_tree" model="ir.ui.view">
+            <field name="name">account.invoice.tvc.tree</field>
+            <field name="model">account.invoice.tvc</field>
+            <field name="priority" eval="8"/>
+            <field name="arch" type="xml">
+                <list string="_form" create="0" edit="0" delete="0" import="0" default_order='sent_date desc' >
+                    <field name="sent_date"  />
+                    <field name="invoice_number"  />
+                    <field name="customer_number"  />
+                    <field name="untaxed_amount"  />
+                    <field name="state"  />
+                    <field name="card"  />
+                    <field name="note"  />
+                </list>
+            </field>
+        </record>
+       <record id="account_invoice_tvc_search" model="ir.ui.view">
+            <field name="name">account.invoice.tvc.search</field>
+            <field name="model">account.invoice.tvc</field>
+            <field name="arch" type="xml">
+                <search string="">
+              <field name="invoice_number" string="Invoice Number"/>
+              <field name="customer_number" string="customer Mobile"/>
+            </search>
+           </field>
+        </record>
+
+        <record id="account_invoice_tvc_action" model="ir.actions.act_window">
+            <field name="name">TVC</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">account.invoice.tvc</field>
+            <field name="view_mode">list</field>
+        </record>
+
+        <menuitem id="tvc_root" name="TVC" sequence="5" parent="accountant.menu_accounting" groups="TLS_integration_crm.group_tvc"/>
+        <menuitem name="Setting" id="tvc_setting" parent="tvc_root" action="TLS_integration_crm.action_open_tvc_settings"
+                 sequence="1" groups="TLS_integration_crm.group_tvc"/>
+
+        <menuitem name="TVC Invoices" id="account_invoice_tvc_config_menu" parent="tvc_root" groups="TLS_integration_crm.group_tvc"
+              action="account_invoice_tvc_action"  sequence="2"/>
+    </data>
+</odoo>

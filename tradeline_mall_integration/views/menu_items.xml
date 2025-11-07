@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+
+         <!-- This Menu Item will appear in the Upper bar, That's why It needs NO parent or action -->
+         <menuitem id="integration_mall_menu_root" name="Mall Integration" sequence="1"  web_icon="tradeline_mall_integration,static/src/img/icon.png" groups="tradeline_mall_integration.group_integration_mall"/>
+        <!-- This Menu Item Must have a parent -->
+        <menuitem id="integration_mall_menu_categ" name="Setting" parent="integration_mall_menu_root" sequence="1" groups="tradeline_mall_integration.group_integration_mall"/>
+        <!-- This Menu Item must have a parent and an action -->
+        <menuitem id="integration_mall_menu_action" name="Configuration Day" parent="integration_mall_menu_categ" action="integration_mall_action" sequence="4" groups="tradeline_mall_integration.group_manager_integration_mall"/>
+        <menuitem id="integration_mall_menu_line_action" name="Configuration Day line" parent="integration_mall_menu_categ" action="integration_mall_line_action" sequence="3" groups="tradeline_mall_integration.group_integration_mall"/>
+        <menuitem id="integration_mall_month_menu_action" name="Configuration Month" parent="integration_mall_menu_categ" action="integration_mall_month_action" sequence="2" groups="tradeline_mall_integration.group_manager_integration_mall"/>
+<!--        <menuitem id="integration_mall_base_integration_new" name="Base Integration" parent="integration_mall_menu_categ" action="integration_mall_base_integration" sequence="1" groups="tradeline_mall_integration.group_manager_integration_mall"/>-->
+        <menuitem name="More Setting" id="integration_mall_send_day_action" parent="integration_mall_menu_categ" action="integration_send_day_actions" sequence="5" groups="tradeline_mall_integration.group_manager_integration_mall"/>
+
+    </data>
+</odoo>

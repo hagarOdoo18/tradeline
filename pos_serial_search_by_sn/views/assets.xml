@@ -1,0 +1,15 @@
+<odoo>
+  <data>
+    <template id="assets" inherit_id="point_of_sale.assets" name="POS Serial Search Assets">
+      <xpath expr="." position="inside">
+        <!-- OWL template for the control button -->
+        <t t-name="pos_serial_search_by_sn.SerialSearchButton" owl="1">
+          <button class="button" t-on-click="onClick" title="Search by Serial Number">
+            <i class="fa fa-search"/>
+            <t t-esc="env._t('Search Serial')"/>
+          </button>
+        </t>
+      </xpath>
+    </template>
+  </data>
+</odoo>

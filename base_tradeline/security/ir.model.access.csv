@@ -1,0 +1,12 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_bank_Details,bank_Details_user,model_bank_details,,1,1,1,1
+access_channel_channel,channel_channel_user,model_channel_channel,,1,1,1,1
+access_courier_courier,courier_courier_user,model_courier_courier,,1,1,1,1
+access_discount_reason,discount_reason_user,model_discount_reason,,1,1,1,1
+access_sales_rep,sales_rep_user,model_sales_rep,,1,1,1,1
+access_product_warranty,product_product_warranty,model_product_warranty,,1,0,0,0
+access_product_warranty_admin,product_warranty_admin,model_product_warranty,base_tradeline.group_product_warranty,1,1,1,1
+access_product_family,product_family_user,model_product_family,,1,0,0,0
+access_sub_category,sub_category_user,model_sub_category,,1,0,0,0
+access_product_family_group,product_family_user,model_product_family,base_tradeline.group_product_family,1,1,1,1
+access_sub_category_group,sub_category_user,model_sub_category,base_tradeline.group_product_family,1,1,1,1
