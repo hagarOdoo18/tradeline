@@ -24,9 +24,14 @@ class ResPartnerInherit(models.Model):
                                     )
     company_size = fields.Selection(
         string='Employees',
-        selection=[('50', '50 - 200'),
-                   ('200', '200 - ... '), ],
-        required=False, )
+        selection=[
+            ('small', '21 small : up to 250'),
+            ('medium', '21 medium: 250-1000'),
+            ('enterprise', '2L Enterprise : 1000+ local'),
+            ('global', '2L Global : 1000+ Foreigner'),
+        ],
+        required=False,
+    )
     company_device = fields.Integer(
         string='Devices',
         required=False)
