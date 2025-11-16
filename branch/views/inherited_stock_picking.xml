@@ -18,11 +18,11 @@
                 <xpath expr="//field[@name='origin']" position="attributes">
                     <attribute name="readonly">1</attribute>
 
-                </xpath> <xpath expr="//field[@name='location_id']" position="attributes">
+                </xpath>
+                <xpath expr="//field[@name='location_id']" position="attributes">
                     <attribute name="readonly">1</attribute>
 
                 </xpath>
-
                 <xpath expr="//field[@name='picking_type_id']" position="attributes">
                     <attribute name="invisible">picking_type_code == 'incoming'</attribute>
                     <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
@@ -36,7 +36,7 @@
 
 
                 </xpath> <xpath expr="//field[@name='location_id'][2]" position="attributes">
-                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="readonly">1</attribute>
                     <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
 
 
