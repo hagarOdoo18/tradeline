@@ -83,10 +83,10 @@ class AccountMove(models.Model):
         invoiced_qties = current_invoice_amls._get_invoiced_qty_per_product()
         invoiced_products = invoiced_qties.keys()
 
-        # if self.move_type == 'out_invoice':
-        #     # filter out the invoices that have been fully refund and re-invoice otherwise, the quantities would be
-        #     # consumed by the reversed invoice and won't be print on the new draft invoice
-        #     previous_amls = previous_amls.filtered(lambda aml: aml.move_id.payment_state != 'reversed')
+        if self.move_type == 'out_invoice':
+            # filter out the invoices that have been fully refund and re-invoice otherwise, the quantities would be
+            # consumed by the reversed invoice and won't be print on the new draft invoice
+            previous_amls = previous_amls.filtered(lambda aml: aml.move_id.payment_state != 'reversed')
 
         previous_qties_invoiced = previous_amls._get_invoiced_qty_per_product()
 
@@ -109,8 +109,8 @@ class AccountMove(models.Model):
 
             # is it a stock return considering the document type (should it be it thought of as positively or negatively?)
             is_stock_return = (
-                    self.move_type == 'out_invoice' and (sml.location_id.usage, sml.location_dest_id.usage) == ('customer', 'internal')
-                    or
+            #         self.move_type == 'out_invoice' and (sml.location_id.usage, sml.location_dest_id.usage) == ('customer', 'internal')
+            #         or
                     self.move_type == 'out_refund' and (sml.location_id.usage, sml.location_dest_id.usage) == ('internal', 'customer')
             )
             if is_stock_return:
