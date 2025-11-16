@@ -162,7 +162,7 @@ class AccountMove(models.Model):
                 if lots:
                     for lot in lots:
                         res.append({
-                            'product_name': lot.product_id.name,
+                            'product_name': lot.product_id.display_name,
                             'quantity': line.qty if lot.product_id.tracking == 'lot' else 1.0,
                             'uom_name': line.product_uom_id.name,
                             'lot_name': lot.lot_name,
