@@ -156,6 +156,20 @@ class AccountMove(models.Model):
                 'lot_id': lot.id,
             })
 
+        for order in self.sudo().pos_order_ids:
+            for line in order.lines:
+                lots = line.pack_lot_ids or False
+                if lots:
+                    for lot in lots:
+                        res.append({
+                            'product_name': lot.product_id.name,
+                            'quantity': line.qty if lot.product_id.tracking == 'lot' else 1.0,
+                            'uom_name': line.product_uom_id.name,
+                            'lot_name': lot.lot_name,
+                            'pos_lot_id': lot.id,
+                        })
+
+
         return res
 
 
