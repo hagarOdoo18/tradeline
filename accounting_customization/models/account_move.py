@@ -137,10 +137,9 @@ class AccountMove(models.Model):
             lot = lot.sudo()
 
             # 🔥 prevent duplication in refund
-            if self.move_type == 'out_refund':
-                if lot.id in added_lots:
-                    continue
-                added_lots.add(lot.id)
+            if self.move_type == 'out_refund' and lot.id in added_lots:
+                continue
+            added_lots.add(lot.id)
 
             if float_is_zero(invoiced_qties[lot.product_id], precision_rounding=lot.product_uom_id.rounding) \
                     or float_compare(qty, 0, precision_rounding=lot.product_uom_id.rounding) <= 0:
