@@ -131,21 +131,29 @@ class AccountMove(models.Model):
 
             qties_per_lot[sml.lot_id] += quantity
 
+        added_lots = set()
+
         for lot, qty in qties_per_lot.items():
-            # access the lot as a superuser in order to avoid an error
-            # when a user prints an invoice without having the stock access
             lot = lot.sudo()
+
+            # 🔥 prevent duplication in refund
+            if self.move_type == 'out_refund':
+                if lot.id in added_lots:
+                    continue
+                added_lots.add(lot.id)
+
             if float_is_zero(invoiced_qties[lot.product_id], precision_rounding=lot.product_uom_id.rounding) \
                     or float_compare(qty, 0, precision_rounding=lot.product_uom_id.rounding) <= 0:
                 continue
+
             invoiced_lot_qty = min(qty, invoiced_qties[lot.product_id])
             invoiced_qties[lot.product_id] -= invoiced_lot_qty
+
             res.append({
                 'product_name': lot.product_id.display_name,
                 'quantity': formatLang(self.env, invoiced_lot_qty, dp='Product Unit of Measure'),
                 'uom_name': lot.product_uom_id.name,
                 'lot_name': lot.name,
-                # The lot id is needed by localizations to inherit the method and add custom fields on the invoice's report.
                 'lot_id': lot.id,
             })
 
