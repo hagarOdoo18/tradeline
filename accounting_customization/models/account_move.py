@@ -71,10 +71,10 @@ class AccountMove(models.Model):
         """ Get and prepare data to show a table of invoiced lot on the invoice's report. """
         self.ensure_one()
 
-        res = super(AccountMove, self)._get_invoiced_lot_values()
+        # res = super(AccountMove, self)._get_invoiced_lot_values()
 
         if self.state == 'draft' or not self.invoice_date or self.move_type not in ('out_invoice', 'out_refund'):
-            return res
+            return []
 
         current_invoice_amls = self.invoice_line_ids.filtered(lambda aml: aml.display_type == 'product' and aml.product_id and aml.product_id.type == 'consu' and aml.quantity)
         all_invoices_amls = current_invoice_amls.sale_line_ids.invoice_lines.filtered(lambda aml: aml.move_id.state == 'posted').sorted(lambda aml: (aml.date, aml.move_name, aml.id))
