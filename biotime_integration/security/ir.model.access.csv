@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_biotime_config,access_biotime_config,biotime_integration.model_biotime_config,,1,1,1,1
+access_biotime_terminal,access_biotime_terminal,biotime_integration.model_biotime_terminal,,1,1,1,1
+access_biotime_employee,access_biotime_employee,biotime_integration.model_biotime_employee,,1,1,1,1
+access_biotime_transaction,access_biotime_transaction,model_biotime_transaction,,1,1,1,1

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data>
+        <record id="group_biotime_access" model="res.groups">
+            <field name="name">Biotime Configuration</field>
+        </record>
+        <record id="terminal_company_rule" model="ir.rule">
+            <field name="name">Terminal Company Rule</field>
+            <field name="model_id" ref="biotime_integration.model_biotime_terminal"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+        <record id="config_company_rule" model="ir.rule">
+            <field name="name">Config Company Rule</field>
+            <field name="model_id" ref="biotime_integration.model_biotime_config"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        </record>
+
+         <record id="config_company_transaction_rule" model="ir.rule">
+            <field name="name">Config transaction Rule</field>
+            <field name="model_id" ref="biotime_integration.model_biotime_transaction"/>
+            <field name="domain_force">['|', ('employee_id', '=', False), ('employee_id.company_id', 'in', company_ids)]</field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!-- This Menu Item will appear in the Upper bar, That's why It needs NO parent or action -->
+    <menuitem id="action_biotime_root_menu" name="Biotime" sequence="7" parent="hr_attendance.menu_hr_attendance_settings"  groups="biotime_integration.group_biotime_access"/>
+
+    <menuitem id="action_biotime_config_menuitem" name="Biotime Config" parent="action_biotime_root_menu"
+              action="action_biotime_config_view" sequence="1"/>
+    <menuitem id="action_biotime_terminal_menuitem" name="Terminals" parent="action_biotime_root_menu"
+              action="action_biotime_terminal_view" sequence="2"/>
+    <menuitem id="action_biotime_employee_menuitem" name="Users" parent="action_biotime_root_menu"
+              action="action_biotime_employee_view" sequence="2"/>
+
+     <menuitem id="action_biotime_transaction_menuitem" name="logs" parent="action_biotime_root_menu"
+              action="biotime_transaction_action" sequence="2"/>
+
+</odoo>
