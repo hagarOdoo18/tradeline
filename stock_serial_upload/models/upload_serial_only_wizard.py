@@ -82,18 +82,18 @@ class UploadSerialOnlyWizard(models.TransientModel):
                 })
             else:
                 move.product_uom_qty+=1
-                if not lot:
-                    self.env['stock.move.line'].create({
-                        'picking_id': picking.id,
-                        'move_id': move.id,
-                        'product_id': product.id,
-                        'product_uom_id': product.uom_id.id,
-                        'lot_id': lot.id,
-                        'lot_name': lot.name,
-                        'qty_done': 1.0,
-                        'location_id': picking.location_id.id,
-                        'location_dest_id': picking.location_dest_id.id,
-                    })
+
+                self.env['stock.move.line'].create({
+                    'picking_id': picking.id,
+                    'move_id': move.id,
+                    'product_id': product.id,
+                    'product_uom_id': product.uom_id.id,
+                    'lot_id': lot.id,
+                    'lot_name': lot.name,
+                    'qty_done': 1.0,
+                    'location_id': picking.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                })
 
             processed += 1
 
