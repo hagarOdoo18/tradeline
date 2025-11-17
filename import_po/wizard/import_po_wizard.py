@@ -32,7 +32,7 @@ class ImportPoWizard(models.TransientModel):
 
         counter = 0
         skipped_line_no = {}
-        running_po = ''
+        running_po = None
         created_po = False
         created_po_list_for_confirm = []
         created_po_list = []
