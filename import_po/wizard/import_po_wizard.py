@@ -57,8 +57,7 @@ class ImportPoWizard(models.TransientModel):
                     break
 
                 # Create new PO if PO name changes
-                if po_name != running_po:
-                    running_po = po_name
+                if po_name != 'running_po':
                     partner = self.env["res.partner"].search(
                         [("name", "=", vendor_name)], limit=1
                     )
