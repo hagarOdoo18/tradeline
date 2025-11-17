@@ -82,7 +82,6 @@ class UploadSerialOnlyWizard(models.TransientModel):
                 })
             else:
                 move.product_uom_qty+=1
-                lot=picking.move_line_ids_without_package.filtered(lambda mv: mv.lot_id == lot)
                 if not lot:
                     self.env['stock.move.line'].create({
                         'picking_id': picking.id,
