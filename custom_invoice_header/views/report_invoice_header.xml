@@ -4,7 +4,7 @@
          <xpath expr="//div[@class='row']" position="replace">
          </xpath>
 
-        <xpath expr="//div[@id='ff']" position="replace">
+        <xpath expr="//div[@id='informations']" position="replace">
 
             <div id="informations_header"  class="row mt32 ">
 
