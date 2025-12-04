@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <template id="custom_invoice_header" inherit_id="account.report_invoice_document">
+         <xpath expr="//div[@class='row']" position="replace">
+         </xpath>
+
+        <xpath expr="//div[@id='ff']" position="replace">
+
+            <div id="informations_header"  class="row mt32 ">
+
+                <div class="col-3" >
+                    <strong>اسم العميل :</strong><br/>
+                    <t t-esc="o.partner_id.name"/>
+                </div>
+
+                <div class="col-3">
+                    <strong>رقم الهاتف :</strong><br/>
+                    <t t-esc="o.partner_id.phone"/>
+                </div>
+
+                <div class="col-2">
+                    <strong>امر البيع :</strong><br/>
+                    <t t-esc="o.invoice_origin"/>
+                </div>
+                  <div class="col-2" >
+                    <strong>تاريخ الفاتورة :</strong><br/>
+                    <t t-esc="o.invoice_date"/>
+                </div>
+                  <div class="col-2" >
+                    <strong>العنوان :</strong><br/>
+                    <t t-esc="o.partner_id.city"/>
+                </div>
+
+            </div>
+             <div id="informations" class="row mt32">
+
+
+                <div class="col-3" style="margin-top:15px;">
+                    <strong>الشركه :</strong><br/>
+                    <t t-esc="o.partner_id.parent_id.name"/>
+                </div>
+                <div class="col-3" style="margin-top:15px;">
+                    <strong> الفرع:</strong><br/>
+                    <t t-esc="o.branch_id.name"/>
+                </div>
+                <div class="col-3" style="margin-top:15px;">
+                    <strong>كود البائع :</strong><br/>
+                    <t t-esc="o.sales_rep_id.code"/>
+                </div>
+
+
+                <div class="col-3" style="margin-top:15px;">
+                    <strong>الرقم المرجعي :</strong><br/>
+                    <t t-esc="o.reference_number"/>
+                </div>
+            </div>
+              <div id="informations" class="row mt32" t-if="o.bank_id">
+
+                <div class="col-2" style="margin-top:15px;">
+                    <strong>Bank Name :</strong><br/>
+                    <t t-esc="o.bank_id.name"/>
+                </div>
+                <div class="col-2" style="margin-top:15px;">
+                    <strong>Bank Account Name :</strong><br/>
+                    <t t-esc="o.bank_id.account_name"/>
+                </div>
+                 <div class="col-2" style="margin-top:15px;">
+                    <strong>Bank Account Number:</strong><br/>
+                    <t t-esc="o.bank_id.account_number"/>
+                </div>
+                <div class="col-2" style="margin-top:15px;">
+                    <strong>Account currency:</strong><br/>
+                    <t t-esc="o.bank_id.currency_id.name"/>
+                </div>
+                <div class="col-2" style="margin-top:15px;">
+                    <strong>Swift Code :</strong><br/>
+                    <t t-esc="o.bank_id.swift_code"/>
+                </div>
+                   <div class="col-2" style="margin-top:15px;"  name="po_field">
+                        <strong>IBAN:</strong>
+                        <p class="m-0" t-field="o.bank_id.IBAN"/>
+
+                    </div>
+
+
+            </div>
+
+        </xpath>
+           <xpath expr="//table[@name='invoice_line_table']" position="replace">
+                 <table class="table table-sm o_main_table" name="invoice_line_table">
+                        <thead>
+                            <tr>
+                                <!-- TODO: remove in master -->
+                                <t t-set="colspan" t-value="6"/>
+                                <th class="text-left">
+                                    <span>كود المنتج</span>
+                                </th>
+                                <th class="text-left">
+                                    <span>الصنف</span>
+                                </th>
+
+                                <th class="text-right">
+                                    <span>الكمية</span>
+                                </th>
+                                <t t-if="o.get_gift_invoice()==false">
+
+                                        <t>
+                                            <th t-attf-class="text-right {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
+                                                <span>سعر الوحدة</span>
+                                            </th>
+                                        </t>
+
+                                        <th  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
+                                            <span>ضربية القيمة المضافة</span>
+                                        </th>
+                                        <!-- <th  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">-->
+                                        <!--   <span>خصم(%)</span>-->
+                                        <!--</th>-->
+                                        <th class="text-right">
+                                            <span groups="account.group_show_line_subtotals_tax_excluded">الاجمالى</span>
+                                            <span groups="account.group_show_line_subtotals_tax_included">Total Price</span>
+                                        </th>
+
+                                </t>
+                            </tr>
+                        </thead>
+                        <tbody class="invoice_tbody">
+                            <t t-set="current_subtotal" t-value="0"/>
+                                <t t-set="current_total" t-value="0"/>
+
+                            <t t-set="lines" t-value="o.invoice_line_ids.sorted(key=lambda l: (-l.sequence, l.date, l.move_name, -l.id), reverse=True)"/>
+
+
+                            <t t-foreach="lines" t-as="line">
+
+
+
+                                <t t-set="current_subtotal" t-value="current_subtotal + line.price_subtotal" groups="account.group_show_line_subtotals_tax_excluded"/>
+                                <t t-set="current_subtotal" t-value="current_subtotal + line.price_total" groups="account.group_show_line_subtotals_tax_included"/>
+
+                                <tr t-att-class="'fw-bold o_line_section' if line.display_type == 'line_section' else 'fst-italic o_line_note' if line.display_type == 'line_note' else ''">
+                                <t t-if="line.display_type == 'product'" name="account_invoice_line_accountable">
+
+                                        <td name="account_invoice_line_code">
+                                            <span t-field="line.product_id.barcode"/>
+                                        </td>
+                                        <td name="account_invoice_line_name">
+                                            <span t-field="line.product_id.name"/>
+                                        </td>
+
+                                        <td class="text-right">
+                                            <span t-esc="int(line.quantity)"/>
+                                            <!--<span t-field="line.quantity"/>-->
+                                            <span t-field="line.uom_id" groups="uom.group_uom"/>
+                                        </td>
+
+                                        <t t-if="o.get_gift_invoice()==false">
+
+                                                    <td t-attf-class="text-right {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
+                                                        <span t-field="line.price_unit"/>
+                                                    </td>
+                                                  <t t-set="taxes" t-value="', '.join([(tax.invoice_label or tax.name) for tax in line.tax_ids])"/>
+                                                <td name="td_taxes" t-attf-class="text-end {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }} {{ 'text-nowrap' if len(taxes) &lt; 10 else '' }}">
+                                                <span t-out="taxes" id="line_tax_ids">Tax 15%</span>
+                                            </td>
+                                                <!--<td  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">-->
+                                                <!--    <span t-esc="line.discount"/>-->
+                                                <!--</td>-->
+                                                <td class="text-right o_price_total">
+                                                    <span t-field="line.price_subtotal" groups="account.group_show_line_subtotals_tax_excluded"/>
+                                                    <span t-field="line.price_total" groups="account.group_show_line_subtotals_tax_included"/>
+                                                </td>
+
+                                        </t>
+                                    </t>
+                                    <t t-if="line.display_type == 'line_section'">
+                                        <td colspan="99">
+                                            <span t-field="line.name"/>
+                                        </td>
+                                        <t t-set="current_section" t-value="line"/>
+                                        <t t-set="current_subtotal" t-value="0"/>
+                                    </t>
+                                    <t t-if="line.display_type == 'line_note'">
+                                        <td colspan="99">
+                                            <span t-field="line.name"/>
+                                        </td>
+                                    </t>
+                                </tr>
+
+
+                            </t>
+                        </tbody>
+                    </table>
+
+        </xpath>
+
+      <xpath expr="//t[@t-set='layout_document_title']" position="replace">
+
+    <t t-set="layout_document_title">
+
+        <!-- العنوان الرئيسي -->
+         <div class="text-center" style="padding-left: 100px;font-size:10px; " name="hotline">
+                        <strong>فاتورة</strong>
+                        <br/>
+                        <strong> الخط الساخن : 19857</strong>
+                        <!--                    <br/>-->
+
+
+        </div>
+        <div style="width:100%; display:flex; justify-content:flex-end;">
+            <div class="text-right" style="font-size:10px; text-align:right;">
+                <strong>سجل تجارى : ٢٤٨.١ </strong><br/>
+                <strong>بطاقة ضريبة :٠ -٦٤-٥٩٨-٢٥٤</strong><br/>
+                <strong>ملف ضريبى :٠٠-٠٠-١٩١-٠٠١٦٩-٥-٥٥٥</strong>
+            </div>
+        </div>
+        <div>
+            <span t-if="not proforma"/>
+            <span t-else="">PROFORMA</span>
+            <span t-if="o.move_type == 'out_invoice' and o.state == 'posted'"></span>
+            <span t-elif="o.move_type == 'out_invoice' and o.state == 'draft'">Draft Invoice</span>
+            <span t-elif="o.move_type == 'out_invoice' and o.state == 'cancel'">Cancelled Invoice</span>
+            <span t-elif="o.move_type == 'out_refund' and o.state == 'posted'">مرتجع</span>
+            <span t-elif="o.move_type == 'out_refund' and o.state == 'draft'">Draft Credit Note</span>
+            <span t-elif="o.move_type == 'out_refund' and o.state == 'cancel'">Cancelled Credit Note</span>
+            <span t-elif="o.move_type == 'in_refund'">Vendor Credit Note</span>
+            <span t-elif="o.move_type == 'in_invoice'">Vendor Bill</span>
+            <span t-if="o.name and o.name != '/'" t-field="o.name"/>
+        </div>
+
+    </t>
+
+      </xpath>
+
+
+    </template>
+</odoo>

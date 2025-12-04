@@ -66,7 +66,13 @@ class AccountMove(models.Model):
         string='Product Notes',
         required=False)
 
-
+    def get_gift_invoice(self):
+        for rec in self:
+            pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin)])
+            if pos_order:
+                return pos_order.as_gift
+            else:
+                return False
     def _get_invoiced_lot_values(self):
         """ Get and prepare data to show a table of invoiced lot on the invoice's report. """
         self.ensure_one()

@@ -52,7 +52,8 @@ class ResPartnerInherit(models.Model):
         res = super(ResPartnerInherit, self).create(vals_list)
         res.vat_constrain()
         res.update({
-            'branch_id': self.env.user.branch_id.id or False
+            'branch_id': self.env.user.branch_id.id or False,
+            'lang': 'ar_001'
         })
         return res
 
@@ -66,7 +67,11 @@ class ResPartnerInherit(models.Model):
 
         return super(ResPartnerInherit, self).write(values)
 
-
+    @api.model
+    def _cron_update_partner_lang(self):
+        partners = self.search([('lang', '!=', 'ar_EG')])
+        partners.write({'lang': 'ar_EG'})
+        return True
     def vat_constrain(self):
 
         if self.vat and self.mobile_type =='local' and self.company_type == 'person' and len(self.vat) != 14:
