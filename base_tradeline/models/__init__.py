@@ -10,3 +10,4 @@ from . import product_family
 from . import purchase
 from . import lot
 from . import pos_config
+from . import company

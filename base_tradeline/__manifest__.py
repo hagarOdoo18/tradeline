@@ -34,6 +34,7 @@
         'views/pos_config.xml',
         'views/lot.xml',
         'views/sub_category.xml',
+        'views/company.xml',
         'views/menus.xml',
     ],
 }

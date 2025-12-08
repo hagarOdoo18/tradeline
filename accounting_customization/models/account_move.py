@@ -66,6 +66,13 @@ class AccountMove(models.Model):
         string='Product Notes',
         required=False)
 
+    en_comment = fields.Html(
+        string="En_comment",default= lambda self: self.env.company.sale_note_en,
+        required=False)
+    comment = fields.Html(
+        string="comment",default= lambda self: self.env.company.sale_note,
+        required=False)
+
     def get_gift_invoice(self):
         for rec in self:
             pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin)])

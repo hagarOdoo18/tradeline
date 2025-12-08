@@ -52,6 +52,13 @@
                   <field name="warranty_id"  invisiable="parent.move_type not in ['out_invoice','out_refund']" />
 
               </xpath>
+              <xpath expr="//notebook" position="inside">
+                  <page name="comment" string="Sale Note">
+                        <field name="comment" readonly="1" />
+
+                  </page>
+
+              </xpath>
           </field>
       </record>
 

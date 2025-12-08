@@ -49,15 +49,5 @@
             </field>
         </record>
 
-         <record id="ir_cron_update_partner_lang" model="ir.cron">
-            <field name="name">Update Partner Language to Arabic</field>
-            <field name="model_id" ref="base.model_res_partner"/>
-            <field name="state">code</field>
-            <field name="code">model._cron_update_partner_lang()</field>
-            <!-- runs once every day -->
-            <field name="interval_number">1</field>
-            <field name="interval_type">days</field>
-            <field name="active">True</field>
-        </record>
     </data>
 </odoo>
