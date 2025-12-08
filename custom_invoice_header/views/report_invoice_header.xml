@@ -240,17 +240,17 @@
                     <strong> الفرع:</strong><br/>
                     <t t-esc="o.branch_id.name"/>
                 </div>
-                <div class="col-3" style="margin-top:15px;">
+                <div class="col-2" style="margin-top:15px;">
                     <strong>كود البائع :</strong><br/>
                     <t t-esc="o.sales_rep_id.code"/>
                 </div>
 
 
-                <div class="col-3" style="margin-top:15px;">
+                <div class="col-2" style="margin-top:15px;">
                     <strong>الرقم المرجعي :</strong><br/>
                     <t t-esc="o.reference_number"/>
                 </div>
-                   <div class="col-3" t-if="o.partner_id.vat">
+                   <div class="col-2" t-if="o.partner_id.vat">
                         <strong>رقم التسجيل الضريبى :</strong>
                         <p t-if="o.partner_id.vat" class="m-0" t-field="o.partner_id.vat"/>
 
@@ -292,7 +292,6 @@
                  <table class="table table-sm o_main_table" name="invoice_line_table">
                         <thead>
                             <tr>
-                                <!-- TODO: remove in master -->
                                 <t t-set="colspan" t-value="6"/>
                                 <th class="text-left">
                                     <span>كود المنتج</span>
@@ -347,7 +346,7 @@
                                             <span t-field="line.product_id.barcode"/>
                                         </td>
                                         <td name="account_invoice_line_name">
-                                            <span t-field="line.product_id.name"/>
+                                            <span t-field="line.product_id.display_name"/>
                                         </td>
 
                                         <td class="text-right">
