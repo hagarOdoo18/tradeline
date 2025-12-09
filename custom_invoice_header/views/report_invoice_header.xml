@@ -145,8 +145,7 @@
 
                         <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
 
-                            <div t-if="not lot_values" class="oe_structure"></div>
-                            <table t-else="" class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
+                            <table class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
                                 <thead>
                                     <tr>
                                         <th>Product</th>
