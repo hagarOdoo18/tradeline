@@ -62,55 +62,55 @@ class AccountInvoice(models.Model):
             mallsTransactionsItems_list.append(mallsTransactionsItems_dict)
         return mallsTransactionsItems_list
 
-    def action_post(self):
-        res = super(AccountInvoice, self).action_post()
-        if self._cr.dbname == "live_11nov_2024":
-
-            for rec in self:
-                if rec.branch_id.id == 29:
-                    url = "https://api.tradelinestores.net/StoresMallsintegrations/GetTransactions"
-                    headers = {"Content-Type": "application/json"}
-                    month = self.env['config.month'].search(
-                        [('branch_id', '=', rec.branch_id.id), ('month_selection', '=', rec.date_invoice.month),('year','=',rec.date_invoice.year)],limit=1)
-                    dec = self.prepare_invoice(rec,month.percentage,month.min_invoice_amount)
-
-                    day = self.env['config.day'].search(
-                        [('branch_id','=',rec.branch_id.id), ('date', '=',rec.date_invoice )])
-                    # day.sudo(2).server_action_create_daily_table()
-                    confg_day_line = self.env['config.day.line'].sudo().create(dec)
-                    confg_day_line.config_day_id = day.id
-                    untaxed_amount =0
-                    tax_amount =0
-                    total_amount =0
-                    new_untaxed_amount =0
-                    new_tax_amount =0
-                    new_total_amount =0
-                    for line in day.config_day_lines:
-                        untaxed_amount += line.untaxed_amount
-                        tax_amount += line.tax_amount
-                        total_amount += line.total_amount
-                        new_untaxed_amount += line.new_untaxed_amount
-                        new_tax_amount += line.new_tax_amount
-                        new_total_amount += line.new_total_amount
-                    day.sudo(2).old_untaxed_total_day  = untaxed_amount
-                    day.sudo(2).old_tax_day = tax_amount
-                    day.sudo(2).old_total_amount =total_amount
-                    day.sudo(2).new_untaxed_total_day  = new_untaxed_amount
-                    day.sudo(2).new_tax_day = new_tax_amount
-                    day.sudo(2).new_total_day =new_total_amount
-                    day.sudo(2).state = 'done'
-                    mallsTransactionsItems = self._prepare_invoices_day_line(confg_day_line)
-                    new_dict = {'StoreId': rec.branch_id.id,
-                                'StoreName':rec.branch_id.name,
-                                'mallsTransactionsItems': mallsTransactionsItems}
-                    pload = json.dumps(new_dict)
-                    try:
-                        r = requests.post(url=url, data=pload, headers=headers,verify=False)
-
-                        _logger.info(r)
-
-                    except Exception as e:
-                        _logger.info("error at Post Api")
-                        _logger.info(e)
-
-        return res
+    # def action_post(self):
+    #     res = super(AccountInvoice, self).action_post()
+    #     # if self._cr.dbname == "live_11nov_2024":
+    #
+    #     for rec in self:
+    #         if rec.branch_id.id == 29:
+    #             url = "https://api.tradelinestores.net/StoresMallsintegrations/GetTransactions"
+    #             headers = {"Content-Type": "application/json"}
+    #             month = self.env['config.month'].search(
+    #                 [('branch_id', '=', rec.branch_id.id), ('month_selection', '=', rec.date_invoice.month),('year','=',rec.date_invoice.year)],limit=1)
+    #             dec = self.prepare_invoice(rec,month.percentage,month.min_invoice_amount)
+    #
+    #             day = self.env['config.day'].search(
+    #                 [('branch_id','=',rec.branch_id.id), ('date', '=',rec.date_invoice )])
+    #             # day.sudo(2).server_action_create_daily_table()
+    #             confg_day_line = self.env['config.day.line'].sudo().create(dec)
+    #             confg_day_line.config_day_id = day.id
+    #             untaxed_amount =0
+    #             tax_amount =0
+    #             total_amount =0
+    #             new_untaxed_amount =0
+    #             new_tax_amount =0
+    #             new_total_amount =0
+    #             for line in day.config_day_lines:
+    #                 untaxed_amount += line.untaxed_amount
+    #                 tax_amount += line.tax_amount
+    #                 total_amount += line.total_amount
+    #                 new_untaxed_amount += line.new_untaxed_amount
+    #                 new_tax_amount += line.new_tax_amount
+    #                 new_total_amount += line.new_total_amount
+    #             day.sudo(2).old_untaxed_total_day  = untaxed_amount
+    #             day.sudo(2).old_tax_day = tax_amount
+    #             day.sudo(2).old_total_amount =total_amount
+    #             day.sudo(2).new_untaxed_total_day  = new_untaxed_amount
+    #             day.sudo(2).new_tax_day = new_tax_amount
+    #             day.sudo(2).new_total_day =new_total_amount
+    #             day.sudo(2).state = 'done'
+    #             mallsTransactionsItems = self._prepare_invoices_day_line(confg_day_line)
+    #             new_dict = {'StoreId': rec.branch_id.id,
+    #                         'StoreName':rec.branch_id.name,
+    #                         'mallsTransactionsItems': mallsTransactionsItems}
+    #             pload = json.dumps(new_dict)
+    #             try:
+    #                 r = requests.post(url=url, data=pload, headers=headers,verify=False)
+    #
+    #                 _logger.info(r)
+    #
+    #             except Exception as e:
+    #                 _logger.info("error at Post Api")
+    #                 _logger.info(e)
+    #
+    #     return res
