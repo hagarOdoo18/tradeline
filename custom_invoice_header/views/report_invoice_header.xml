@@ -140,8 +140,42 @@
             </tr>
         </template>
 
+    <template id="custom_product_serial" inherit_id="stock_account.stock_account_report_invoice_document">
+                   <xpath expr="//table[@name='invoice_snln_table']" position="replace">
+
+                        <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
+
+                            <div t-if="not lot_values" class="oe_structure"></div>
+                            <table t-else="" class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th class="text-end">Quantity</th>
+                                        <th class="text-end">SN/LN</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="lot_values" t-as="snln_line">
+                                        <td><t t-esc="snln_line['product_name']"/></td>
+                                        <td class="text-end">
+                                            <t t-esc="snln_line['quantity']"/>
+                                            <t t-esc="snln_line['uom_name']" groups="uom.group_uom"/>
+                                        </td>
+                                        <td class="text-end">
+                                            <t t-esc="snln_line['serials']"/>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                   </xpath>
+
+
+    </template>
     <template id="custom_invoice_header" inherit_id="account.report_invoice_document">
          <xpath expr="//div[@class='row']" position="replace">
+         </xpath>
+        <xpath expr="//div[@name='comment']" position="inside">
+
          </xpath>
          <xpath expr="//div[@id='right-elements']" position="replace">
              <div id="right-elements" t-attf-class="#{'col-5' if report_type != 'html' else 'col-12 col-md-5'} ms-5 d-inline-block float-end">
@@ -213,85 +247,80 @@
             <div id="informations_header"  class="row mt32 ">
 
                 <div class="col-3" >
-                    <strong>اسم العميل :</strong><br/>
+                    <p>اسم العميل :</p><br/>
                     <t t-esc="o.partner_id.name"/>
                 </div>
 
                 <div class="col-3">
-                    <strong>رقم الهاتف :</strong><br/>
+                    <p>رقم الهاتف :</p><br/>
                     <t t-esc="o.partner_id.mobile"/>
                 </div>
 
                 <div class="col-2">
-                    <strong>امر البيع :</strong><br/>
+                    <p>امر البيع :</p><br/>
                     <t t-esc="o.invoice_origin"/>
                 </div>
-                  <div class="col-2" >
-                    <strong>تاريخ الفاتورة :</strong><br/>
+                <div class="col-2" >
+                    <p>تاريخ الفاتورة :</p><br/>
                     <t t-esc="o.invoice_date"/>
                 </div>
-                  <div class="col-2" >
-                    <strong>العنوان :</strong><br/>
-                    <t t-esc="o.partner_id.city"/>
+                <div class="col-2" >
+                    <p>العنوان :</p><br/>
+                    <t t-esc="o.partner_id.street"/>
                 </div>
 
             </div>
              <div id="informations" class="row mt32">
 
 
-                <div class="col-3" style="margin-top:15px;">
-                    <strong>الشركه :</strong><br/>
+                <div class="col-2" style="margin-top:15px;">
+                    <p>الشركه :</p><br/>
                     <t t-esc="o.partner_id.parent_id.name"/>
                 </div>
-                <div class="col-3" style="margin-top:15px;">
-                    <strong> الفرع:</strong><br/>
+                <div class="col-2" style="margin-top:15px;">
+                    <p> الفرع:</p><br/>
                     <t t-esc="o.branch_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:15px;">
-                    <strong>كود البائع :</strong><br/>
+                    <p>كود البائع :</p><br/>
                     <t t-esc="o.sales_rep_id.code"/>
                 </div>
 
-
-                <div class="col-2" style="margin-top:15px;">
-                    <strong>الرقم المرجعي :</strong><br/>
+                <div class="col-3" style="margin-top:15px;">
+                    <p>الرقم المرجعي :</p><br/>
                     <t t-esc="o.reference_number"/>
                 </div>
-                   <div class="col-2" t-if="o.partner_id.vat">
-                        <strong>رقم التسجيل الضريبى :</strong>
+                   <div class="col-3" t-if="o.partner_id.vat">
+                        <p>رقم التسجيل الضريبى :</p>
                         <p t-if="o.partner_id.vat" class="m-0" t-field="o.partner_id.vat"/>
-
                     </div>
             </div>
               <div id="informations" class="row mt32" t-if="o.bank_id">
 
                 <div class="col-2" style="margin-top:15px;">
-                    <strong>Bank Name :</strong><br/>
+                    <p>Bank Name :</p><br/>
                     <t t-esc="o.bank_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:15px;">
-                    <strong>Bank Account Name :</strong><br/>
+                    <p>Bank Account Name :</p><br/>
                     <t t-esc="o.bank_id.account_name"/>
                 </div>
                  <div class="col-2" style="margin-top:15px;">
-                    <strong>Bank Account Number:</strong><br/>
+                    <p>Bank Account Number:</p><br/>
                     <t t-esc="o.bank_id.account_number"/>
                 </div>
                 <div class="col-2" style="margin-top:15px;">
-                    <strong>Account currency:</strong><br/>
+                    <p>Account currency:</p><br/>
                     <t t-esc="o.bank_id.currency_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:15px;">
-                    <strong>Swift Code :</strong><br/>
+                    <p>Swift Code :</p><br/>
                     <t t-esc="o.bank_id.swift_code"/>
                 </div>
                    <div class="col-2" style="margin-top:15px;"  name="po_field">
-                        <strong>IBAN:</strong>
+                        <p>IBAN:</p>
                         <p class="m-0" t-field="o.bank_id.IBAN"/>
-
                     </div>
-
-
             </div>
 
         </xpath>
