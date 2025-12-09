@@ -186,17 +186,6 @@ class AccountMove(models.Model):
         return res
 
     def get_grouped_lot_values(self):
-        """
-        Returns:
-        [
-            {
-                'product_name': 'Product A',
-                'quantity': 2,
-                'serials': 'LOT1 , LOT2',
-                'uom_name': 'Units',
-            }
-        ]
-        """
         self.ensure_one()
         raw = self._get_invoiced_lot_values()
         grouped = {}
@@ -204,13 +193,13 @@ class AccountMove(models.Model):
         for line in raw:
             product = line.get('product_name')
             lot = line.get('lot_name')
-            qty = line.get('quantity', 0)
+            qty = float(line.get('quantity') or 0)  # ← تحويل الكمية إلى float
             uom = line.get('uom_name')
 
             if product not in grouped:
                 grouped[product] = {
                     "product_name": product,
-                    "quantity": 0,
+                    "quantity": 0.0,
                     "serials": set(),
                     "uom_name": uom,
                 }
@@ -218,7 +207,6 @@ class AccountMove(models.Model):
             grouped[product]["quantity"] += qty
             grouped[product]["serials"].add(lot)
 
-        # Convert serials set → string
         result = []
         for p, vals in grouped.items():
             vals["serials"] = " , ".join(sorted(vals["serials"]))
