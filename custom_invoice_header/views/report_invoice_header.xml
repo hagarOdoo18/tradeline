@@ -430,7 +430,12 @@
 
         </xpath>
 
-      <xpath expr="//t[@t-set='layout_document_title']" position="replace">
+      <xpath expr="//div[name='comment']" position="inside">
+                                              <span t-field="o.comment"/>
+
+
+      </xpath>
+        <xpath expr="//t[@t-set='layout_document_title']" position="replace">
 
     <t t-set="layout_document_title">
 
