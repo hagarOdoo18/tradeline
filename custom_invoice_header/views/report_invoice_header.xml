@@ -430,7 +430,7 @@
 
         </xpath>
 
-      <xpath expr="//div[@name='comment']" position="inside">
+      <xpath expr="//div[@name='comment']" position="after">
                                               <span t-field="o.comment"/>
 
 
