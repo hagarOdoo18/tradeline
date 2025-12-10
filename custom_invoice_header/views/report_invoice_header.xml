@@ -447,7 +447,7 @@
 
         </xpath>
 
-      <xpath expr="//div[@name='mb-3']" position="before">
+      <xpath expr="//div[@class='mb-3']" position="before">
             <div style="width:100%; display:flex; justify-content:flex-end;">
            <div class="text-right" t-if="o.comment" name="comment" style="font-size:9px; text-align:right;">
                         <span t-field="o.comment" dir="rtl"/>
