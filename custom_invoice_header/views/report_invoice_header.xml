@@ -324,6 +324,7 @@
 
         </xpath>
            <xpath expr="//table[@name='invoice_line_table']" position="replace">
+               <br/>
                  <table class="table table-sm o_main_table" name="invoice_line_table">
                         <thead>
                             <tr>
