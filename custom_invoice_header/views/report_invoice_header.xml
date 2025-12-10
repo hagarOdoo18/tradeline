@@ -272,20 +272,20 @@
              <div id="informations" class="row mt32">
 
 
-                <div class="col-2" style="margin-top:10px;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>الشركه :</p>
                     <t t-esc="o.partner_id.parent_id.name"/>
                 </div>
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p> الفرع:</p>
                     <t t-esc="o.branch_id.name"/>
                 </div>
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>كود البائع :</p>
                     <t t-esc="o.sales_rep_id.code"/>
                 </div>
 
-                <div class="col-3" style="margin-top:10px;;">
+                <div class="col-3" style="margin-top:5px;">
                     <p>الرقم المرجعي :</p>
                     <t t-esc="o.reference_number"/>
                 </div>
@@ -296,27 +296,27 @@
             </div>
               <div id="informations" class="row mt32" t-if="o.bank_id">
 
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>Bank Name :</p>
                     <t t-esc="o.bank_id.name"/>
                 </div>
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>Bank Account Name :</p>
                     <t t-esc="o.bank_id.account_name"/>
                 </div>
-                 <div class="col-2" style="margin-top:10px;;">
+                 <div class="col-2" style="margin-top:5px;">
                     <p>Bank Account Number:</p>
                     <t t-esc="o.bank_id.account_number"/>
                 </div>
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>Account currency:</p>
                     <t t-esc="o.bank_id.currency_id.name"/>
                 </div>
-                <div class="col-2" style="margin-top:10px;;">
+                <div class="col-2" style="margin-top:5px;">
                     <p>Swift Code :</p>
                     <t t-esc="o.bank_id.swift_code"/>
                 </div>
-                   <div class="col-2" style="margin-top:10px;;"  name="po_field">
+                   <div class="col-2" style="margin-top:5px;"  name="po_field">
                         <p>IBAN:</p>
                         <p class="m-0" t-field="o.bank_id.IBAN"/>
                     </div>
