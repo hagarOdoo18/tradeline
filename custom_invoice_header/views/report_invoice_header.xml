@@ -450,6 +450,8 @@
       <xpath expr="//div[@id='payment_term']" position="before">
           <br/>
           <br/>
+          <br/>
+          <br/>
             <div style="width:100%; display:flex; justify-content:flex-end;">
            <div class="text-right" t-if="o.comment" name="comment" style="font-size:9px; text-align:right;">
                         <span t-field="o.comment" dir="rtl"/>
