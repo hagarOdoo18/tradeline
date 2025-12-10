@@ -203,7 +203,7 @@
                                                                             <t t-esc="payment_vals['pos_payment_name']"/>
                                                                      </t>
                                                                     <t t-else="">
-                                                                            <t t-esc="payment_vals['name']"/>
+                                                                            <t t-esc="payment_vals['Journal']"/>
                                                                      </t>
                                                                 </i>
                                                             </td>
