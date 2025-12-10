@@ -404,7 +404,7 @@
                                         <td class="text-right">
                                             <span t-esc="int(line.quantity)"/>
                                             <!--<span t-field="line.quantity"/>-->
-                                            <span t-field="line.uom_id" groups="uom.group_uom"/>
+<!--                                            <span t-field="line.uom_id" groups="uom.group_uom"/>-->
                                         </td>
 
                                         <t t-if="o.get_gift_invoice()==false">
