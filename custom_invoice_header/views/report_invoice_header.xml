@@ -447,7 +447,7 @@
 
         </xpath>
 
-      <xpath expr="//div[@id='payment_term']" position="before">
+      <xpath expr="//div[@id='payment_term']" position="replace">
           <br/>
           <br/>
           <br/>
