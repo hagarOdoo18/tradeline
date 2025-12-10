@@ -431,7 +431,9 @@
         </xpath>
 
       <xpath expr="//div[@name='comment']" position="after">
-                                              <span t-field="o.comment"/>
+           <p class="text-right" t-if="o.comment" name="comment" style="font-size:9px">
+                        <span t-field="o.comment" dir="rtl"/>
+                    </p>
 
 
       </xpath>
