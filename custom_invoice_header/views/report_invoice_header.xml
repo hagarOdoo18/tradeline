@@ -243,7 +243,7 @@
 
         <xpath expr="//div[@id='informations']" position="replace">
 
-            <div id="informations_header"  class="row mt32 ">
+            <div id="informations_header"  style="font-size:5px;" class="row mt32 ">
 
                 <div class="col-3" >
                     <strong>اسم العميل :</strong>
@@ -274,7 +274,7 @@
                 </div>
 
             </div>
-             <div id="informations" class="row mt32">
+             <div id="informations" style="font-size:5px;"  class="row mt32">
 
 
                 <div class="col-2" style="margin-top:5px;">
@@ -304,7 +304,7 @@
                         <p t-if="o.partner_id.vat" class="m-0" t-field="o.partner_id.vat"/>
                     </div>
             </div>
-              <div id="informations" class="row mt32" t-if="o.bank_id">
+              <div id="informations" class="row mt32" style="font-size:5px;"  t-if="o.bank_id">
 
                 <div class="col-2" style="margin-top:5px;">
                     <strong>Bank Name :</strong>
