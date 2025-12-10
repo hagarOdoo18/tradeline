@@ -190,7 +190,7 @@
 
                                             <!--Payments-->
                                             <t >
-                                                <t t-if="o.payment_state != 'invoicing_legacy'">
+                                                <t >
                                                     <t t-set="payments_vals" t-value="o.sudo().invoice_payments_widget and o.sudo().invoice_payments_widget['content'] or []"/>
                                                     <t t-foreach="payments_vals" t-as="payment_vals">
                                                         <tr t-if="payment_vals['is_exchange'] == 0">
