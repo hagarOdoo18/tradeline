@@ -246,25 +246,25 @@
             <div id="informations_header"  class="row mt32 ">
 
                 <div class="col-3" >
-                    <p>اسم العميل :</p>
+                    <strong>اسم العميل :</strong>
                     <t t-esc="o.partner_id.name"  class="m-0"/>
                 </div>
 
                 <div class="col-3">
-                    <p>رقم الهاتف :</p>
+                    <strong>رقم الهاتف :</strong>
                     <t t-esc="o.partner_id.mobile"  class="m-0"/>
                 </div>
 
                 <div class="col-2">
-                    <p>امر البيع :</p>
+                    <strong>امر البيع :</strong>
                     <t t-esc="o.invoice_origin"  class="m-0"/>
                 </div>
                 <div class="col-2" >
-                    <p>تاريخ الفاتورة :</p>
+                    <strong>تاريخ الفاتورة :</strong>
                     <t t-esc="o.invoice_date"  class="m-0"/>
                 </div>
                 <div class="col-2" >
-                    <p>العنوان :</p>
+                    <strong>العنوان :</strong>
                     <t t-esc="o.partner_id.street"  class="m-0"/>
                 </div>
 
@@ -273,51 +273,51 @@
 
 
                 <div class="col-2" style="margin-top:5px;">
-                    <p>الشركه :</p>
+                    <strong>الشركه :</strong>
                     <t t-esc="o.partner_id.parent_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:5px;">
-                    <p> الفرع:</p>
+                    <strong> الفرع:</strong>
                     <t t-esc="o.branch_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:5px;">
-                    <p>كود البائع :</p>
+                    <strong>كود البائع :</strong>
                     <t t-esc="o.sales_rep_id.code"/>
                 </div>
 
                 <div class="col-3" style="margin-top:5px;">
-                    <p>الرقم المرجعي :</p>
+                    <strong>الرقم المرجعي :</strong>
                     <t t-esc="o.reference_number"/>
                 </div>
                    <div class="col-3" t-if="o.partner_id.vat">
-                        <p>رقم التسجيل الضريبى :</p>
+                        <strong>رقم التسجيل الضريبى :</strong>
                         <p t-if="o.partner_id.vat" class="m-0" t-field="o.partner_id.vat"/>
                     </div>
             </div>
               <div id="informations" class="row mt32" t-if="o.bank_id">
 
                 <div class="col-2" style="margin-top:5px;">
-                    <p>Bank Name :</p>
+                    <strong>Bank Name :</strong>
                     <t t-esc="o.bank_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:5px;">
-                    <p>Bank Account Name :</p>
+                    <strong>Bank Account Name :</strong>
                     <t t-esc="o.bank_id.account_name"/>
                 </div>
                  <div class="col-2" style="margin-top:5px;">
-                    <p>Bank Account Number:</p>
+                    <strong>Bank Account Number:</strong>
                     <t t-esc="o.bank_id.account_number"/>
                 </div>
                 <div class="col-2" style="margin-top:5px;">
-                    <p>Account currency:</p>
+                    <strong>Account currency:</strong>
                     <t t-esc="o.bank_id.currency_id.name"/>
                 </div>
                 <div class="col-2" style="margin-top:5px;">
-                    <p>Swift Code :</p>
+                    <strong>Swift Code :</strong>
                     <t t-esc="o.bank_id.swift_code"/>
                 </div>
                    <div class="col-2" style="margin-top:5px;"  name="po_field">
-                        <p>IBAN:</p>
+                        <strong>IBAN:</strong>
                         <p class="m-0" t-field="o.bank_id.IBAN"/>
                     </div>
             </div>
@@ -433,7 +433,7 @@
 
       <xpath expr="//div[@name='comment']" position="after">
             <div style="width:100%; display:flex; justify-content:flex-end;">
-           <div class="text-right" t-if="o.comment" name="comment" style="font-size:15px; text-align:right;">
+           <div class="text-right" t-if="o.comment" name="comment" style="font-size:9px; text-align:right;">
                         <span t-field="o.comment" dir="rtl"/>
                     </div>
             </div>
