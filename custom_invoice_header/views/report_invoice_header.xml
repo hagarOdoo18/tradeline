@@ -148,9 +148,9 @@
                             <table class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
                                 <thead>
                                     <tr>
-                                        <th>Product</th>
-                                        <th class="text-end">Quantity</th>
-                                        <th class="text-end">SN/LN</th>
+                                        <th>المنتج</th>
+                                        <th class="text-end">الكميه</th>
+                                        <th class="text-end">رقم السريال</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -447,7 +447,7 @@
 
         </xpath>
 
-      <xpath expr="//div[@id='right-elements']" position="after">
+      <xpath expr="//div[@id='payment_term']" position="before">
             <div style="width:100%; display:flex; justify-content:flex-end;">
            <div class="text-right" t-if="o.comment" name="comment" style="font-size:9px; text-align:right;">
                         <span t-field="o.comment" dir="rtl"/>
