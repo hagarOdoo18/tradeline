@@ -1,0 +1,32 @@
+<odoo>
+    <record id="view_account_invoice_report_tax_wizard" model="ir.ui.view">
+        <field name="name">account.invoice.report.tax.wizard.form</field>
+        <field name="model">account.invoice.report.tax.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                </group>
+                <footer>
+                    <button string="Print" type="object" name="action_invoice_search" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_account_invoice_report_tax_wizard" model="ir.actions.act_window">
+        <field name="name">Invoice Tax Report</field>
+        <field name="res_model">account.invoice.report.tax.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_account_invoice_tax_report"
+          name="Invoice Tax Report"
+          parent="account.menu_finance_receivables"
+          action="action_account_invoice_report_tax_wizard"
+          sequence="50"
+         />
+</odoo>
