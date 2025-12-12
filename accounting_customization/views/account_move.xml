@@ -102,6 +102,21 @@
         </field>
     </record>
 
+      <record id="account_move_tax_view_tree" model="ir.ui.view">
+            <field name="name">account.move.inherit.tax</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_invoice_tree" />
+            <field name="arch" type="xml">
+                <field name="amount_total_in_currency_signed" position="after">
+                    <field name="tax_t1" optional="show" />
+                    <field name="tax_t2" optional="show" />
+                    <field name="tax_t3" optional="show" />
+                    <field name="tax_t5" optional="show" />
+                </field>
+
+            </field>
+        </record>
+
 
 
   </data>

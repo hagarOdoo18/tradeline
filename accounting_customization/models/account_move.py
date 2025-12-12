@@ -214,6 +214,40 @@ class AccountMove(models.Model):
 
         return result
 
+    tax_t1 = fields.Float(compute='_compute_tax', string="VAT14%")
+    tax_t2 = fields.Float(compute='_compute_tax', string="VAT1%")
+    tax_t3 = fields.Float(compute='_compute_tax', string="VAT3%")
+    tax_t5 = fields.Float(compute='_compute_tax', string="VAT5%")
+    total = fields.Float(compute='compute_tax', string="Total")
+
+    @api.depends('invoice_line_ids')
+    def _compute_tax(self):
+        for rec in self:
+            sum_v14 = 0
+            sum_v1 = 0
+            sum_v3 = 0
+            sum_v5 = 0
+
+            for line in rec.invoice_line_ids:
+                if line.tax_ids:
+                    for tax in line.tax_ids:
+                        if tax.name == "14%":
+                            sum_v14 += (line.price_subtotal * tax.amount / 100)
+
+                        elif tax.name == "1% WH":
+                            sum_v1 += (line.price_subtotal * tax.amount / 100)
+
+                        elif tax.name == "3% WH":
+                            sum_v3 += (line.price_subtotal * tax.amount / 100)
+                        elif tax.name == "5% WH":
+                            sum_v5 += (line.price_subtotal * tax.amount / 100)
+
+            rec.tax_t1 = sum_v14
+            rec.tax_t2 = sum_v1
+            rec.tax_t3 = sum_v3
+            rec.tax_t5 = sum_v5
+            rec.total = sum_v14 + rec.amount_untaxed
+
 
 
 
