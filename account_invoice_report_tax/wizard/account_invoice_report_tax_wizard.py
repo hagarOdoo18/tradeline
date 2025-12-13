@@ -76,7 +76,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
         })
 
         # Set columns
-        sheet.set_column(0, 15, 20)
+        sheet.set_column(0, 16, 20)
 
         headers = [
             'Invoice Date', 'Invoice No.', 'NUM.', 'Customer Name', 'Mobile',
@@ -116,9 +116,9 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(row, 3, inv.partner_id.name or '', line_format)
             sheet.write(row, 4, inv.partner_id.mobile or '', line_format)
             sheet.write(row, 5, inv.partner_id.vat or '', line_format)
-            sheet.write(row, 6, getattr(inv.partner_id, 'national_id', ''), line_format)
-            sheet.write(row, 7, getattr(inv.partner_id, 'passport_no', ''), line_format)
-            sheet.write(row, 8, inv.amount_untaxed_signed if inv.move_type== 'out_invoice' else inv.amount_untaxed_signed* -1 , line_format)
+            sheet.write(row, 6, getattr(inv.partner_id, 'passport_no', ''), line_format)
+            sheet.write(row, 7, inv.amount_untaxed_signed if inv.move_type== 'out_invoice' else inv.amount_untaxed_signed* -1 , line_format)
+            sheet.write(row, 8, inv.amount_untaxed_signed *.14 if inv.move_type== 'out_invoice' else (inv.amount_untaxed_signed* -1 )*.14, line_format)
             sheet.write(row, 9, total, line_format)
             sheet.write(row, 10, tax_t1, line_format)
             sheet.write(row, 11, tax_t2, line_format)
