@@ -4,7 +4,7 @@
         <field name="name">account.invoice.excel.wizard.form</field>
         <field name="model">account.invoice.wizard2</field>
         <field name="arch" type="xml">
-            <form string="Export Branches & Payments">
+            <form string="Export Branches &amp; Payments">
                 <group>
                     <field name="date_from"/>
                     <field name="date_to"/>
@@ -19,7 +19,7 @@
     </record>
 
     <record id="action_invoice_excel_wizard" model="ir.actions.act_window">
-        <field name="name">Branches & Payment Excel</field>
+        <field name="name">Branches &amp; Payment Excel</field>
         <field name="res_model">account.invoice.wizard2</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
