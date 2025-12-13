@@ -118,15 +118,14 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(row, 5, inv.partner_id.vat or '', line_format)
             sheet.write(row, 6, getattr(inv.partner_id, 'passport_no', ''), line_format)
             sheet.write(row, 7, inv.amount_untaxed_signed if inv.move_type== 'out_invoice' else inv.amount_untaxed_signed* -1 , line_format)
-            sheet.write(row, 8, inv.amount_untaxed_signed *.14 if inv.move_type== 'out_invoice' else (inv.amount_untaxed_signed* -1 )*.14, line_format)
+            sheet.write(row, 8, tax_t1, line_format)
             sheet.write(row, 9, total, line_format)
-            sheet.write(row, 10, tax_t1, line_format)
-            sheet.write(row, 11, tax_t2, line_format)
-            sheet.write(row, 12, tax_t3, line_format)
-            sheet.write(row, 13, tax_t5, line_format)
-            sheet.write(row, 14, inv.amount_total_signed, line_format)
-            sheet.write(row, 15, total_converted, line_format)
-            sheet.write(row, 16, inv.currency_id.name, line_format)
+            sheet.write(row, 10, tax_t2, line_format)
+            sheet.write(row, 11, tax_t3, line_format)
+            sheet.write(row, 12, tax_t5, line_format)
+            sheet.write(row, 13, inv.amount_total_signed, line_format)
+            sheet.write(row, 14, total_converted, line_format)
+            sheet.write(row, 15, inv.currency_id.name, line_format)
 
             row += 1
 
