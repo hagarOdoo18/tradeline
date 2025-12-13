@@ -69,9 +69,9 @@ class AccountInvoiceWizard(models.TransientModel):
             for line in move.matched_payment_ids.filtered(lambda l: l.state == 'paid'):
                 journal = line.journal_id.name
                 if move.move_type == 'out_invoice':
-                    amount = line.ammount
+                    amount = line.amount
                 else:
-                    amount = line.ammount *-1
+                    amount = line.amount *-1
 
 
                 branch_set.add(branch)
