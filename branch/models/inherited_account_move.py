@@ -73,4 +73,4 @@ class AccountMoveLine(models.Model):
 
 
 
-    branch_id = fields.Many2one('res.branch', string="Branch")
+    branch_id = fields.Many2one('res.branch', related="move_id.branch_id",store=True,string="Branch")
