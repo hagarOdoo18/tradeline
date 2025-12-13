@@ -80,7 +80,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
 
         headers = [
             'Invoice Date', 'Invoice No.', 'NUM.', 'Customer Name', 'Mobile',
-            'Tax ID', 'National ID', 'Passport No.', 'Untaxed', 'Tax14', 'Total',
+            'Tax ID or National ID',  'Passport No.', 'Untaxed', 'Tax14', 'Total',
             'Tax1', 'Tax3','Tax5', 'Total Net', 'Net Converted', 'Currency'
         ]
 
