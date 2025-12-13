@@ -2,7 +2,7 @@
 <odoo>
     <record id="view_invoice_excel_wizard_form" model="ir.ui.view">
         <field name="name">account.invoice.excel.wizard.form</field>
-        <field name="model">account.invoice.excel.wizard</field>
+        <field name="model">account.invoice.wizard2</field>
         <field name="arch" type="xml">
             <form string="Export Branches & Payments">
                 <group>
@@ -20,7 +20,7 @@
 
     <record id="action_invoice_excel_wizard" model="ir.actions.act_window">
         <field name="name">Branches & Payment Excel</field>
-        <field name="res_model">account.invoice.excel.wizard</field>
+        <field name="res_model">account.invoice.wizard2</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
     </record>
