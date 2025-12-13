@@ -81,7 +81,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
         headers = [
             'Invoice Date', 'Invoice No.', 'NUM.', 'Customer Name', 'Mobile',
             'Tax ID', 'National ID', 'Passport No.', 'Untaxed', 'Tax14', 'Total',
-            'Tax1', 'Tax3', 'Total Net', 'Net Converted', 'Currency'
+            'Tax1', 'Tax3','Tax5', 'Total Net', 'Net Converted', 'Currency'
         ]
 
         for col, head in enumerate(headers):
@@ -107,6 +107,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t1 = getattr(inv, 'tax_t1', 0)
             tax_t2 = getattr(inv, 'tax_t2', 0)
             tax_t3 = getattr(inv, 'tax_t3', 0)
+            tax_t5 = getattr(inv, 'tax_t5', 0)
             total = getattr(inv, 'total', inv.amount_total_signed)
 
             sheet.write(row, 0, inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '', line_format)
@@ -118,13 +119,14 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(row, 6, getattr(inv.partner_id, 'national_id', ''), line_format)
             sheet.write(row, 7, getattr(inv.partner_id, 'passport_no', ''), line_format)
             sheet.write(row, 8, inv.amount_untaxed_signed, line_format)
-            sheet.write(row, 9, tax_t1, line_format)
-            sheet.write(row, 10, total, line_format)
+            sheet.write(row, 9, total, line_format)
+            sheet.write(row, 10, tax_t1, line_format)
             sheet.write(row, 11, tax_t2, line_format)
             sheet.write(row, 12, tax_t3, line_format)
-            sheet.write(row, 13, inv.amount_total_signed, line_format)
-            sheet.write(row, 14, total_converted, line_format)
-            sheet.write(row, 15, inv.currency_id.name, line_format)
+            sheet.write(row, 13, tax_t5, line_format)
+            sheet.write(row, 14, inv.amount_total_signed, line_format)
+            sheet.write(row, 15, total_converted, line_format)
+            sheet.write(row, 16, inv.currency_id.name, line_format)
 
             row += 1
 
