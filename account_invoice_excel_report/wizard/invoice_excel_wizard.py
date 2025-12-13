@@ -38,7 +38,7 @@ class AccountInvoiceWizard(models.TransientModel):
         }
 
     def generate_excel(self, invoices):
-        filename = f'Account_Invoices_{datetime.today().strftime("%Y-%m-%d")}.xlsx'
+        filename = f'Payment And Branches {datetime.today().strftime("%Y-%m-%d")}.xlsx'
 
         output = BytesIO()
         workbook = xlsxwriter.Workbook(output, {'in_memory': True})
