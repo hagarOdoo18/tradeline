@@ -64,7 +64,7 @@ class AccountInvoiceWizard(models.TransientModel):
         branch_set = set()
 
         for move in invoices:
-            branch = move.bracnh_id.name or _('No Branch')
+            branch = move.branch_id.name or _('No Branch')
 
             for line in move.matched_payment_ids.filtered(lambda l: l.state == 'paid'):
                 journal = line.journal_id.name
