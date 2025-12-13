@@ -14,7 +14,7 @@ class AccountInvoiceWizard(models.TransientModel):
     date_from = fields.Date(string='Date From', required=True)
     date_to = fields.Date(string='Date To', required=True)
 
-    def action_account_invoice_search(self):
+    def action_export_excel(self):
         self.ensure_one()
 
         invoices = self.env['account.move'].search([
