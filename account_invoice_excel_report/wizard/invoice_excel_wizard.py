@@ -105,3 +105,95 @@ class AccountInvoiceWizard(models.TransientModel):
 
         return report
 
+    class AccountInvoiceWizard(models.TransientModel):
+        _name = 'account.invoice.wizard'
+        _description = 'Account Invoice Excel Wizard'
+
+        partner_id = fields.Many2one('res.partner')
+        branch_id = fields.Many2one('res.branch')
+        journal_ids = fields.Many2many('account.journal')
+        invoice_number = fields.Char()
+        date_from = fields.Date()
+        date_to = fields.Date()
+
+        excel_file = fields.Binary(readonly=True)
+        file_name = fields.Char(readonly=True)
+
+        def action_export_excel(self):
+            domain = [
+                ('move_type', 'in', ('out_invoice', 'out_refund')),
+                ('state', '=', 'posted')
+            ]
+
+            if self.date_from:
+                domain.append(('invoice_date', '>=', self.date_from))
+            if self.date_to:
+                domain.append(('invoice_date', '<=', self.date_to))
+            if self.partner_id:
+                domain.append(('partner_id', '=', self.partner_id.id))
+            if self.branch_id:
+                domain.append(('branch_id', '=', self.branch_id.id))
+            if self.invoice_number:
+                domain.append(('name', '=', self.invoice_number))
+            if self.journal_ids:
+                domain.append(('journal_id', 'in', self.journal_ids.ids))
+
+            invoices = self.env['account.move'].search(domain)
+
+            if not invoices:
+                raise UserError(_('No invoices found'))
+
+            return self._generate_excel(invoices)
+
+        def _generate_excel(self, invoices):
+            output = BytesIO()
+            workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+            sheet = workbook.add_worksheet('Invoices')
+
+            header = workbook.add_format({'bold': True, 'border': 1})
+            cell = workbook.add_format({'border': 1})
+
+            headers = ['No', 'Date', 'Invoice','Branch', 'Customer','Mobile', 'Journal', 'Journal Amount','Ref','Tax Excluded','Tax14','Total','Tax1', 'Tax3','Tax5','Total Net', 'Amount Due']
+            for col, h in enumerate(headers):
+                sheet.write(0, col, h, header)
+
+            row = 1
+            for i, move in enumerate(invoices, start=1):
+                for line in move.matched_payment_ids.filtered(lambda l: l.state == 'paid'):
+                    if move.move_type == 'out_invoice':
+                        amount = line.amount
+                    else:
+                        amount = line.amount * -1
+                    sheet.write(row, 0, i, cell)
+                    sheet.write(row, 1, str(move.invoice_date or ''), cell)
+                    sheet.write(row, 2, move.name or '', cell)
+                    sheet.write(row, 2, move.branch_id.name or '', cell)
+                    sheet.write(row, 3, move.partner_id.name or '', cell)
+                    sheet.write(row, 3, move.partner_id.mobile or '', cell)
+                    sheet.write(row, 4, line.journal_id.name or '', cell)
+                    sheet.write(row, 4, amount or '', cell)
+                    sheet.write(row, 5, move.invoice_origin, cell)
+                    sheet.write(row, 5, move.amount_untaxed_signed, cell)
+                    sheet.write(row, 5, move.tax_t1  if move.move_type == 'out_invoice' else  move.tax_t1*-1, cell)
+                    sheet.write(row, 5, move.total if move.move_type == 'out_invoice' else  move.total*-1, cell)
+                    sheet.write(row, 5, move.tax_t2 if move.move_type == 'out_invoice' else  move.tax_t2*-1, cell)
+                    sheet.write(row, 5, move.tax_t3 if move.move_type == 'out_invoice' else  move.tax_t3*-1, cell)
+                    sheet.write(row, 5, move.tax_t5 if move.move_type == 'out_invoice' else  move.tax_t5*-1, cell)
+                    sheet.write(row, 5, move.amount_total_signed, cell)
+                    sheet.write(row, 6, move.amount_residual_signed, cell)
+                    row += 1
+
+            workbook.close()
+            output.seek(0)
+
+            self.file_name = f'invoices_{datetime.today().date()}.xlsx'
+            self.excel_file = base64.b64encode(output.read())
+
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'account.invoice.wizard',
+                'res_id': self.id,
+                'view_mode': 'form',
+                'target': 'new',
+            }
+

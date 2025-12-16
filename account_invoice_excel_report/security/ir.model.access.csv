@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_invoice_excel_wizard2,access_invoice_excel_wizard,account_invoice_excel_report.model_account_invoice_wizard2,base.group_user,1,1,1,1
+access_invoice_excel_wizard1,access_invoice_excel_wizard1,account_invoice_excel_report.model_account_invoice_wizard,base.group_user,1,1,1,1
