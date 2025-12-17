@@ -17,7 +17,7 @@
                     <button name="action_export_excel" type="object" string="Export Excel" class="btn-primary"/>
                     <button string="Close" special="cancel"/>
                 </footer>
-                <group attrs="{'invisible':[('excel_file','=',False)]}">
+                <group  invisible="not excel_file">
                     <field name="file_name"/>
                     <field name="excel_file" filename="file_name"/>
                 </group>
