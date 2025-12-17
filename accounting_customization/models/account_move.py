@@ -18,6 +18,9 @@ class AccountMove(models.Model):
         string='Barcode', 
         required=False)
 
+    pricelist_id = fields.Many2one('product.pricelist', string='Pricelist')
+
+
     reference_number = fields.Char(
         string='Reference Number',
         required=False)

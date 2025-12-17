@@ -28,6 +28,7 @@
                   <!-- Add your fields or attributes here -->
                   <group>
                   <field name="barcode" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
+                  <field name="pricelist_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
                   <field name="sales_rep_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
                   <field name="reference_number" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
                   <field name="opportunity_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>

@@ -215,6 +215,7 @@ class SaleOrderLine(models.Model):
         res['item_code'] = self.item_code
         res['family_id'] = self.family_id.id
         res['categ_id'] = self.categ_id.id
+        res['pricelist_id'] = self.pricelist_id.id
         return res
 
     @api.onchange('discount')
