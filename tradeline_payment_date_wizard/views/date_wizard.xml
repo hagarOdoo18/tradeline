@@ -1,0 +1,35 @@
+<odoo>
+    <data>
+        <record model="ir.ui.view" id="date_wizard_form_view">
+          <field name="name">date.wizard.form.view</field>
+          <field name="model">payment.data.wizard</field>
+          <field name="arch" type="xml">
+              <form string="Date Payment Range">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="start_date"/>
+                        </group>
+                        <group>
+                            <field name="end_date"/>
+                        </group>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="get_payment_range" string="Payments in Range" type="object" class="oe_highlight" />
+                </footer>
+              </form>
+          </field>
+        </record>
+
+       <act_window id="date_wizard_action"
+                   name="Date Payment Range"
+                   src_model="account.payment"
+                   res_model="payment.data.wizard"
+                   view_mode="form"
+                   target="new"
+        />
+        <!-- This Menu Item must have a parent and an action -->
+        <menuitem id="menu_date_wizard_action" name="Payment Date Range" parent="account.menu_finance_receivables" action="date_wizard_action" sequence="111"/>
+    </data>
+</odoo>
