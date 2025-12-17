@@ -8,6 +8,7 @@
     'data': [
         'security/ir.model.access.csv',
         'views/invoice_excel_wizard_view.xml',
+        'views/account_invoice_wizard_view.xml',
     ],
     'installable': True,
 }
