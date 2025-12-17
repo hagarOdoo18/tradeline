@@ -22,13 +22,13 @@
           </field>
         </record>
 
-       <act_window id="date_wizard_action"
-                   name="Date Payment Range"
-                   src_model="account.payment"
-                   res_model="payment.data.wizard"
-                   view_mode="form"
-                   target="new"
-        />
+
+           <record id="date_wizard_action" model="ir.actions.act_window">
+        <field name="name">Date Payment Range</field>
+        <field name="res_model">payment.data.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
         <!-- This Menu Item must have a parent and an action -->
         <menuitem id="menu_date_wizard_action" name="Payment Date Range" parent="account.menu_finance_receivables" action="date_wizard_action" sequence="111"/>
     </data>
