@@ -18,9 +18,20 @@ class AccountInvoiceReport(models.Model):
     )
 
     pricelist_id = fields.Many2one('product.pricelist', string='Pricelist')
+    discount_id = fields.Many2one(
+        comodel_name='discount.reason',
+        string='Discount Reason',
+        required=False)
+
+    family_id = fields.Many2one(
+        comodel_name='product.family',
+        string='Family',
+        required=False)
 
 
 def _select(self) -> SQL:
-        return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id",
+        return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number"
+                   ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
+                   "move.discount_id as discount_id,line.family_id as family_id",
                    super()._select())
 
