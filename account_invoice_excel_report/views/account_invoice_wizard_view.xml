@@ -7,7 +7,7 @@
             <form string="Invoice Excel Report">
                 <group>
                     <field name="partner_id"/>
-                    <field name="team_id"/>
+                    <field name="branch_id"/>
                     <field name="journal_ids" widget="many2many_tags"/>
                     <field name="invoice_number"/>
                     <field name="date_from"/>
