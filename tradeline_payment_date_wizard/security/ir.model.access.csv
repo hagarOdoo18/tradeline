@@ -1,2 +1,2 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_tradeline_payment_date_wizard_tradeline_payment_date_wizard,tradeline_payment_date_wizard.tradeline_payment_date_wizard,tradeline_payment_date_wizard.model_payment_date_wizard,,1,0,0,0
+access_tradeline_payment_date,tradeline_payment_date_wizrd,tradeline_payment_date_wizard.model_payment_date_wizard,,1,1,1,1
