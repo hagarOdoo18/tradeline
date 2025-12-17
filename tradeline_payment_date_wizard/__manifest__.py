@@ -5,8 +5,8 @@
 
     # always loaded
     'data': [
-        'security/ir.model.access.csv',
         'views/date_wizard.xml',
+        'security/ir.model.access.csv',
 
     ],
 
