@@ -56,7 +56,7 @@
         </record>
         <record id="pos_payment_method_see_all" model="ir.rule">
             <field name="name">All Branch payment method</field>
-            <field ref="point_of_sale,model_pos_payment_methodr" name="model_id"/>
+            <field ref="point_of_sale.model_pos_payment_methodr" name="model_id"/>
             <field name="domain_force">['|',('journal_id.branch_id','=',False),('journal_id.branch_id','in',user.branch_ids.ids)]</field>
         </record>
 
