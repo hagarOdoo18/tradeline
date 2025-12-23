@@ -44,19 +44,19 @@ class account_bank_statement_line(models.Model):
                     else False
 
                 st_line_vals_to_write.update({
-                    'payment_ref': liquidity_lines[1].name,
-                    'partner_id': liquidity_lines.partner_id.id,
+                    'payment_ref': liquidity_lines[0].name,
+                    'partner_id': liquidity_lines[0].partner_id.id,
                 })
 
                 # Update 'amount' according to the liquidity line.
 
                 if journal_currency:
                     st_line_vals_to_write.update({
-                        'amount': liquidity_lines[1].amount_currency,
+                        'amount': liquidity_lines[0].amount_currency,
                     })
                 else:
                     st_line_vals_to_write.update({
-                        'amount': liquidity_lines[1].balance,
+                        'amount': liquidity_lines[0].balance,
                     })
 
                 if len(suspense_lines) > 1:
