@@ -1,0 +1,33 @@
+<odoo>
+  <data>
+
+    <record model="ir.ui.view" id="wizard_apple_stock_report_view">
+        <field name="name">Apple Stock Excel</field>
+        <field name="model">apple.stock.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Apple Stock Excel">
+              <sheet>
+                  <group>
+                      <field name="location_ids" widget="many2many_tags"/>
+                  </group>
+              </sheet>
+              <footer>
+                  <button name="generate_xlsx_report" string="Apple Stock Report" type="object" class="oe_highlight"/>
+              </footer>
+            </form>
+        </field>
+    </record>
+
+
+    <record id="apple_stock_report_action" model="ir.actions.act_window">
+        <field name="name">Apple Stock Excel</field>
+        <field name="res_model">apple.stock.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+
+    <!-- This Menu Item must have a parent and an action -->
+    <menuitem id="menu_apple_stock_quant_excel_report_action" name="Apple Stock Excel" parent="stock.menu_warehouse_report" action="apple_stock_report_action" sequence="11"/>
+  </data>
+</odoo>

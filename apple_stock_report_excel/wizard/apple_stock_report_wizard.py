@@ -1,0 +1,130 @@
+from odoo import models, fields, api
+from io import BytesIO
+import base64
+import xlsxwriter
+
+
+class AppleStockReportWizard(models.TransientModel):
+    _name = 'apple.stock.report.wizard'
+    _description = 'Apple Stock Quant Excel Report'
+
+    gentextfile = fields.Binary('File')
+
+    def get_locations_domain(self):
+        return [('id', 'in', self.env.user.stock_location_ids.ids)]
+    location_ids = fields.Many2many('stock.location',domain=get_locations_domain)
+
+    def generate_xlsx_report(self):
+        self.ensure_one()
+
+        output = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        sheet = workbook.add_worksheet('Apple Stock Quant Sheet')
+
+        header_format = workbook.add_format({
+            'bold': True,
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter',
+            'fg_color': '#2ecc71',
+            'color': 'white'
+        })
+
+        cell_format = workbook.add_format({'align': 'center'})
+
+        is_admin = self.env.user.has_group(
+            'tradeline_stock_quant_excel.group_apple_stock_excel_admin'
+        )
+
+        headers = [
+            'Store Name',
+            'Apple Store id',
+            'Family',
+            'Category',
+        ]
+
+        if is_admin:
+            headers += ['Vendor']
+
+        headers += [
+            'Item Code',
+            'Product Name',
+            'ON Hand'
+        ]
+
+        for col, header in enumerate(headers):
+            sheet.write(0, col, header, header_format)
+
+        # -----------------------------
+        # Stock Quant domain
+        # -----------------------------
+        domain = [('location_id.usage', '=', 'internal')]
+        if self.location_ids:
+            domain = [('id','in',self.env.user.locations.ids)]
+
+        quants = self.env['stock.quant'].search(domain).sorted(
+            key=lambda q: (q.product_id.id, q.location_id.id)
+        )
+
+        row = 1
+        processed_keys = set()
+
+        for quant in quants:
+            key = (
+                quant.product_id.id,
+                quant.location_id.id,
+                quant.location_id.location_id.id if quant.location_id.location_id else False
+            )
+
+            if key in processed_keys:
+                continue
+
+            same_quants = self.env['stock.quant'].search([
+                ('product_id', '=', quant.product_id.id),
+                ('location_id', '=', quant.location_id.id),
+            ])
+
+            quantity = sum(same_quants.mapped('quantity'))
+
+            processed_keys.add(key)
+
+            # Data
+
+            store_name = quant.branch_id.name
+            product = quant.product_id
+            family = product.family_id or ''
+            category = product.categ_id or ''
+            vendor =product.vendor_id or ''
+            item_code = product.barcode or ''
+            product_name = product.display_name
+
+            # Store ID
+            store_id = ''
+
+            store_id = quant.branch_id.apple_store_id
+
+            col = 0
+            sheet.write(row, col, store_name, cell_format); col += 1
+            sheet.write(row, col, store_id, cell_format); col += 1
+            sheet.write(row, col, family, cell_format); col += 1
+            sheet.write(row, col, category, cell_format); col += 1
+
+            if is_admin:
+                sheet.write(row, col, vendor, cell_format); col += 1
+
+            sheet.write(row, col, item_code, cell_format); col += 1
+            sheet.write(row, col, product_name, cell_format); col += 1
+            sheet.write(row, col, quantity, cell_format)
+
+            row += 1
+
+        workbook.close()
+        output.seek(0)
+
+        self.gentextfile = base64.b64encode(output.getvalue())
+
+        return {
+            'type': 'ir.actions.act_url',
+            'url': f'/web/content/{self._name}/{self.id}/gentextfile/Apple_Stock_Quant.xlsx?download=true',
+            'target': 'new',
+        }
