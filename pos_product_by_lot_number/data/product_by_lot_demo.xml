@@ -1,0 +1,79 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!-- Copyright (c) 2016-Present Webkul Software Pvt. Ltd. (<https://webkul.com/>) -->
+<!-- See LICENSE file for full copyright and licensing details. -->
+<!-- License URL : <https://store.webkul.com/license.html/> -->
+
+<odoo noupdate="1">
+    <data>
+        <record model="pos.config" id="point_of_sale.pos_config_main">
+            <field name="module_pos_restaurant" eval="False" />
+            <field name="module_pos_hr" eval="False" />
+        </record>
+
+        <record model="product.product" id="point_of_sale.whiteboard_pen">
+            <field name="available_in_pos">True</field>
+            <field name="tracking">lot</field>
+            <field name="type">consu</field>
+        </record>
+
+        <record model="product.product" id="point_of_sale.led_lamp">
+            <field name="available_in_pos">True</field>
+            <field name="tracking">serial</field>
+            <field name="type">consu</field>
+        </record>
+
+        <record model="product.product" id="point_of_sale.magnetic_board">
+            <field name="available_in_pos">True</field>
+            <field name="tracking">lot</field>
+            <field name="type">consu</field>
+        </record>
+
+        <record model="product.product" id="point_of_sale.newspaper_rack">
+            <field name="available_in_pos">True</field>
+            <field name="tracking">serial</field>
+            <field name="type">consu</field>
+        </record>
+
+        <record model="product.product" id="point_of_sale.whiteboard">
+            <field name="available_in_pos">True</field>
+            <field name="tracking">lot</field>
+            <field name="type">consu</field>
+        </record>
+
+        <record id="serial_led_lamp" model="stock.lot">
+            <field name="name">0000010</field>
+            <field name="product_id" ref="point_of_sale.led_lamp"/>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <record id="lot_whiteboard_pen" model="stock.lot">
+            <field name="name">00020000</field>
+            <field name="product_id" ref="point_of_sale.whiteboard_pen"/>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <record id="lot_magnetic_board" model="stock.lot">
+            <field name="name">0000001</field>
+            <field name="product_id" ref="point_of_sale.magnetic_board"/>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <record id="serial_newspaper_rack" model="stock.lot">
+            <field name="name">0000002</field>
+            <field name="product_id" ref="point_of_sale.newspaper_rack"/>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <record id="lot_whiteboard" model="stock.lot">
+            <field name="name">0000003</field>
+            <field name="product_id" ref="point_of_sale.whiteboard"/>
+            <field name="company_id" ref="base.main_company"/>
+        </record>
+
+        <function
+        model="res.config.settings"
+        name="enable_lot_setting"
+        />
+
+    </data>
+</odoo>
