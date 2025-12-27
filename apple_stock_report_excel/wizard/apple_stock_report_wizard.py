@@ -94,9 +94,9 @@ class AppleStockReportWizard(models.TransientModel):
 
             store_name = quant.branch_id.name
             product = quant.product_id
-            family = product.family_id or ''
-            category = product.categ_id or ''
-            vendor =product.vendor_id or ''
+            family = product.family_id.name or ''
+            category = product.categ_id.name or ''
+            vendor =product.vendor_id.name or ''
             item_code = product.barcode or ''
             product_name = product.display_name
 
