@@ -185,7 +185,6 @@ class StockMove(models.Model):
 
                 move.write({'picking_id': picking.id})
                 move._assign_picking_post_process(new=picking)
-                print(picking)
             # If this method is called in batch by a write on a one2many and
             # at some point had to create a picking, some next iterations could
             # try to find back the created picking. As we look for it by searching

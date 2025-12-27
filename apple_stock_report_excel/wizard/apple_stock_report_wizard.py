@@ -58,9 +58,11 @@ class AppleStockReportWizard(models.TransientModel):
         # -----------------------------
         # Stock Quant domain
         # -----------------------------
-        domain = [('location_id.usage', '=', 'internal')]
-        if self.location_ids:
-            domain = [('id','in',self.env.user.locations.ids)]
+        if not  self.location_ids:
+            domain = [('location_id.usage', '=', 'internal')]
+        else:
+            domain = [('location_id', 'in',  self.location_ids.ids)]
+
 
         quants = self.env['stock.quant'].search(domain).sorted(
             key=lambda q: (q.product_id.id, q.location_id.id)
