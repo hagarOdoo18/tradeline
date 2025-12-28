@@ -110,6 +110,8 @@ class SaleOrder(models.Model):
         res['inv_type'] = self.inv_type
         res['reference_number'] = self.reference_number
         res['barcode'] = self.barcode
+        res['pricelist_id'] = self.pricelist_id.id
+
         res['invoice_date'] = fields.Date.today()
         return res
 
@@ -215,7 +217,6 @@ class SaleOrderLine(models.Model):
         res['item_code'] = self.item_code
         res['family_id'] = self.family_id.id
         res['categ_id'] = self.categ_id.id
-        res['pricelist_id'] = self.order_id.pricelist_id.id
         return res
 
     @api.onchange('discount')
