@@ -11,10 +11,10 @@ class StockQuant(models.Model):
     @api.model
     def default_get(self, default_fields):
         res = super(StockQuant, self).default_get(default_fields)
-        if self.env.user.branch_id:
-            res.update({
-                'branch_id' : self.warehouse_id.branch_id.id or False
-            })
+
+        res.update({
+            'branch_id' : self.warehouse_id.branch_id.id or False
+        })
         return res
 
     branch_id = fields.Many2one('res.branch', string="Branch")
@@ -22,7 +22,8 @@ class StockQuant(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         rec =super(StockQuant, self).create(vals_list)
-        rec.branch_id =  self.warehouse_id.branch_id.id
+        print( rec.warehouse_id.branch_id.id)
+        rec.branch_id =  rec.warehouse_id.branch_id.id
         return rec
 
 

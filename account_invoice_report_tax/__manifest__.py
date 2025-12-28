@@ -5,7 +5,6 @@
     "data": [
         "security/ir.model.access.csv",
         "wizard/account_invoice_report_tax_wizard_view.xml",
-        "views/menu.xml"
     ],
     "installable": True,
 }

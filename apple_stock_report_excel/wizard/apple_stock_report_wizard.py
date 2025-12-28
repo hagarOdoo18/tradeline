@@ -27,9 +27,9 @@ class AppleStockReportWizard(models.TransientModel):
             'align': 'center',
             'valign': 'vcenter',
             'fg_color': '#2ecc71',
-            'color': 'white'
+            'font_color': 'white',
         })
-
+        sheet.set_column(0, 9, 20)  # A
         cell_format = workbook.add_format({'align': 'center'})
 
         is_admin = self.env.user.has_group(
