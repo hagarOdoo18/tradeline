@@ -172,8 +172,8 @@ class StockMove(models.Model):
                     move._assign_picking_post_process(new=picking)
             else:
                 recompute = True
-                picking = Picking.create(move._get_new_picking_values())
                 old_picking = self.env['stock.picking'].search([('name', '=', move.origin)])
+
                 if old_picking:
                     if old_picking.note and old_picking.origin:
                         picking.note = old_picking.note
@@ -182,8 +182,11 @@ class StockMove(models.Model):
                         picking.note = old_picking.note
                     else:
                         picking.note = old_picking.origin
+                else:
+                    picking = Picking.create(move._get_new_picking_values())
 
                 move.write({'picking_id': picking.id})
+                print(picking.origin)
                 move._assign_picking_post_process(new=picking)
             # If this method is called in batch by a write on a one2many and
             # at some point had to create a picking, some next iterations could
