@@ -38,6 +38,8 @@
                                 'pos_product_by_lot_number/static/src/overrides/payment_screen/payment_screen.js',
                                 'pos_product_by_lot_number/static/src/overrides/select_lot_popup/select_lot_popup.js',
                                 'pos_product_by_lot_number/static/src/overrides/select_lot_popup/pos_product_by_lot_number.xml',
+                                'pos_product_by_lot_number/static/src/overrides/select_lot_popup_inh/pos_product_by_lot_number_search.xml',
+                                'pos_product_by_lot_number/static/src/overrides/select_lot_popup_inh/select_lot_popup_search.js',
                               ],
                             },
   "auto_install"         :  False,
