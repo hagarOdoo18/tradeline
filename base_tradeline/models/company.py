@@ -43,7 +43,7 @@ class Currency(models.Model):
             )
 
 
-def amount_to_text(self, amount):
+    def amount_to_text(self, amount):
         self.ensure_one()
 
         def _num2words(number, lang):
