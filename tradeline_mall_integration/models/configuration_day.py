@@ -378,7 +378,7 @@ class ConfigurationDay(models.Model):
         invoice_dic = {}
         min_invoice_amount = day.min_invoice_amount
         total_invoices = day.get_total_invoices(invoices)
-        day.last_total_day = total_invoices
+        # day.last_total_day = total_invoices
         for invoice in invoices:
                 if total_invoices > expected_total_invoices:
                     division_percentage = ((100 * expected_total_invoices) / total_invoices)
