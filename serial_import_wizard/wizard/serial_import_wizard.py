@@ -18,5 +18,5 @@ class SerialImportWizard(models.TransientModel):
         for row in sheet.iter_rows(values_only=True):
             serial = row[0]
             if serial:
-               old= self.env['stock.lot'].search[('name','=',serial),('product_qty','=',0)]
+               old= self.env['stock.lot'].search([('name','=',serial),('product_qty','=',0)])
                old.name = serial+'/'
