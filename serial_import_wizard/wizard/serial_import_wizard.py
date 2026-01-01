@@ -9,7 +9,6 @@ class SerialImportWizard(models.TransientModel):
 
     file = fields.Binary(string="Excel File", required=True)
     filename = fields.Char()
-    product_id = fields.Many2one('product.product', required=True)
 
     def action_import(self):
         book = xlrd.open_workbook(
