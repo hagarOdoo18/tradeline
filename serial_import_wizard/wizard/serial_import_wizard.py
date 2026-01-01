@@ -1,7 +1,8 @@
 import base64
-import xlrd
-from odoo import models, fields
-from datetime import datetime
+import openpyxl
+from odoo import models, fields, _
+from odoo.exceptions import UserError
+from io import BytesIO
 
 class SerialImportWizard(models.TransientModel):
     _name = 'serial.import.wizard'
@@ -11,15 +12,11 @@ class SerialImportWizard(models.TransientModel):
     filename = fields.Char()
 
     def action_import(self):
-        book = xlrd.open_workbook(
-            file_contents=base64.b64decode(self.file)
-        )
-        sheet = book.sheet_by_index(0)
-
-        year = datetime.now().year
-
-        for row in range(1, sheet.nrows):
-            serial = str(sheet.cell(row, 0).value).strip()
+        data = base64.b64decode(self.file)
+        workbook = openpyxl.load_workbook(filename=BytesIO(data), data_only=True)
+        sheet = workbook.active
+        for row in sheet.iter_rows(values_only=True):
+            serial = row[0]
             if serial:
                old= self.env['stock.lot'].search[('name','=',serial),('product_qty','=',0)]
                old.name = serial+'/'
