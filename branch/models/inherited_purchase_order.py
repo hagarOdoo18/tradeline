@@ -47,6 +47,12 @@ class purchase_order(models.Model):
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
+    def action_remove_taxes(self):
+        """Remove taxes from all lines in this PO"""
+        for line in self.order_line:
+            line.taxes_id = [(6, 0, [])]
+        return True
+
     @api.model
     def default_get(self, fields):
         res = super(PurchaseOrder, self).default_get(fields)
