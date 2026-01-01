@@ -103,7 +103,7 @@ class AccountPayment(models.Model):
                 invoice = invoice_defaults[0]
                 rec.branch_id = invoice.branch_id.id
             else:
-                rec.branch_id=False
+                rec.branch_id=rec.move_id.branch_id.id
 
     branch_id = fields.Many2one('res.branch',readonly=True,compute="compute_branches")
 
