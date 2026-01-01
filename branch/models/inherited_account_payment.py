@@ -96,6 +96,7 @@ class AccountPaymentRegister(models.TransientModel):
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 
+    api.depends('reconciled_invoice_ids','move_id')
     def compute_branches(self ):
         for rec in self:
             invoice_defaults = rec.reconciled_invoice_ids
@@ -105,7 +106,7 @@ class AccountPayment(models.Model):
             else:
                 rec.branch_id=rec.move_id.branch_id.id
 
-    branch_id = fields.Many2one('res.branch',readonly=True,compute="compute_branches")
+    branch_id = fields.Many2one('res.branch',store=True,readonly=True,compute="compute_branches")
 
     # @api.onchange('branch_id')
     # def _onchange_branch_id(self):

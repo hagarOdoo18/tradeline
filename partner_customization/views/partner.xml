@@ -15,7 +15,7 @@
             </xpath>
             <xpath expr="//field[@name='vat']" position="replace" >
 
-                <field name="vat" placeholder="e.g. BE0477472701" readonly="parent_id"  invisible="company_type != 'company'" required="1"/>
+                <field name="vat" placeholder="e.g. BE0477472701" readonly="parent_id"  invisible="company_type != 'company'" required="0"/>
                 <field name="vat" string="National Id" placeholder="e.g. BE0477472701" readonly="parent_id"  invisible="company_type == 'company'"/>
                  <field name="company_size" invisible="company_type != 'company'"/>
                 <field name="company_device" invisible="company_type != 'company'"/>

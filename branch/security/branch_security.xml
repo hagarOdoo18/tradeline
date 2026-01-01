@@ -142,6 +142,14 @@
             <field name="groups" eval="[(4, ref('branch.group_branch_user'))]"/>
         </record>
 
+         <record id="account_payment_branch_rule" model="ir.rule">
+            <field name="name">account payment Branch</field>
+            <field name="model_id" ref="account.model_account_payment"/>
+            <field name="global" eval="True"/>
+            <field name="domain_force">['|',('branch_id','=',False),('branch_id','in',user.branch_ids.ids)]</field>
+            <field name="groups" eval="[(4, ref('branch.group_branch_user'))]"/>
+        </record>
+
          <record id="pos_config_branch_rule" model="ir.rule">
             <field name="name">pos config Branch</field>
             <field name="model_id" ref="point_of_sale.model_pos_config"/>
