@@ -1,0 +1,25 @@
+{'issuer': issuer_data_per_company[invoice.company_id],
+'receiver': self.get_reciever_data(partner_id),
+"documentType": documentType,
+"documentTypeVersion": str(invoiceVersion),
+"dateTimeIssued": dateTimeIssued,
+"taxpayerActivityCode": str(
+invoice.taxpayerActivityCode) and invoice.taxpayerActivityCode or "4610",
+"internalID": invoice.name and str(invoice.name) or str(invoice.id),
+"purchaseOrderReference": invoice.payment_reference and str(invoice.payment_reference) or str(
+invoice.name),
+"purchaseOrderDescription": "",
+"salesOrderReference": invoice.ref and invoice.ref or "",
+"salesOrderDescription": "Normal VAT Sale Orders",
+"proformaInvoiceNumber": "",
+"payment": invoice.get_payment_data(),
+"delivery": invoice.get_delivery_data(),
+"invoiceLines": get_invoice_lines_data[0][0],
+"totalSalesAmount": round(totalSalesAmount, 5),
+"totalDiscountAmount": round(totalDiscountAmount, 5),
+"netAmount": round(netAmount, 5),
+"taxTotals": self.get_invoice_taxes(used_taxes_for_totals),
+"extraDiscountAmount": 0,
+"totalItemsDiscountAmount": 0,
+"totalAmount": round(totalAmount, 5)
+}

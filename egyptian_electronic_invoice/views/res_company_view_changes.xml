@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="einvoice_view_company_report_form_inherit" model="ir.ui.view">
+    <field name="name">einvoice.res.company.form.inherit</field>
+    <field name="model">res.company</field>
+    <field name="inherit_id" ref="base.view_company_form"/>
+    <field name="arch" type="xml">
+
+        <xpath expr="//notebook" position="inside">
+            <page string="ETA Taxes API"
+                  groups="egyptian_electronic_invoice.group_e_invoice_sync">
+
+                <!-- Actions -->
+                <button name="get_recent_documents"
+                        type="object"
+                        string="Get Recent Documents"
+                        icon="fa-refresh"
+                        class="btn btn-info rounded shadow"
+                        context="{'show_result': 1}"/>
+
+                <button class="oe_stat_button pull-right"
+                        icon="fa-check-circle"
+                        string="PRODUCTION"
+                        style="background-color:green; color:white"
+                        invisible="config_type != 'prod'"/>
+
+                <button class="oe_stat_button pull-right"
+                        icon="fa-times-circle"
+                        string="UAT / PREPROD"
+                        style="background-color:orange; color:white"
+                        invisible="config_type != 'uat'"/>
+
+                <!-- Main Details -->
+                <group string="Main Details">
+                    <group>
+                        <field name="activity_code_id"/>
+                        <field name="type_code_id"/>
+                        <field name="sub_type_code_id"/>
+                    </group>
+                    <group>
+                        <field name="max_invoice_per_batch"/>
+                        <field name="max_invoice_per_time"/>
+                        <field name="last_extract_doc"/>
+                    </group>
+                </group>
+
+                <!-- Details -->
+                <group string="Details">
+                    <group>
+                        <field name="config_type" widget="radio" options="{'horizontal': true}"/>
+                        <field name="config_version" widget="radio" options="{'horizontal': true}"/>
+                        <field name="client_id"/>
+                        <field name="client_secret" password="True"/>
+                        <field name="generated_token" invisible="1" password="True" readonly="1"/>
+
+                        <label for="last_generated_token"
+                               groups="egyptian_electronic_invoice.group_e_invoice_dev_tools"/>
+
+                        <div class="o_row"
+                             groups="egyptian_electronic_invoice.group_e_invoice_dev_tools">
+                            <field name="last_generated_token" readonly="1"/>
+                            <button name="get_access_token"
+                                    type="object"
+                                    icon="fa-refresh"
+                                    string="Check Data"
+                                    class="btn btn-dark rounded shadow"
+                                    context="{'manual': 1}"/>
+
+                            <div role="alert"
+                                 class="alert alert-warning"
+                                 invisible="not last_generated_token">
+                                This Token only Valid for 59 Min.
+                            </div>
+                        </div>
+                    </group>
+
+                    <group groups="egyptian_electronic_invoice.group_e_invoice_dev_tools">
+                        <label for="method" string="Test API"/>
+                        <div class="o_row">
+                            <field name="method"/>
+                            <button name="test_call_e_invoice_api"
+                                    type="object"
+                                    icon="fa-cogs"
+                                    string="Send Test Request"
+                                    class="btn btn-info rounded shadow"/>
+                        </div>
+                    </group>
+                </group>
+
+                <!-- Signature -->
+                <group string="Signature"
+                       invisible="config_version != '1.0'">
+                    <group>
+                        <field name="signature_tool" widget="radio" options="{'horizontal': true}"/>
+
+                        <field name="signature_url"
+                               widget="url"
+                               invisible="signature_tool != 'python'"/>
+
+                        <field name="signature_serializer"
+                               widget="url"
+                               invisible="signature_tool != 'c#'"/>
+
+                        <field name="signature_hash"
+                               widget="url"
+                               invisible="signature_tool != 'c#'"/>
+
+                        <field name="signature_pin"/>
+                        <field name="signature_label"/>
+                    </group>
+                </group>
+
+            </page>
+        </xpath>
+
+    </field>
+</record>
+
+        <!--Company-->
+        <!--Activity Views-->
+        <record id="company_activity_code_tree_view" model="ir.ui.view">
+            <field name="name">res.company.activity.code.tree.view</field>
+            <field name="model">res.company.activity</field>
+            <field name="arch" type="xml">
+                <list string="Activity Code">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="code"/>
+                </list>
+            </field>
+        </record>
+        <record id="company_activity_code_search_view" model="ir.ui.view">
+            <field name="name">res.company.activity.code.search.view</field>
+            <field name="model">res.company.activity</field>
+            <field name="arch" type="xml">
+                <search string="">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="code"/>
+                </search>
+            </field>
+        </record>
+    </data>
+</odoo>
