@@ -5,6 +5,8 @@
     'category': 'Inventory',
     'depends': ['stock'],
     'data': [
+        'security/ir.model.access.csv',
+
         'views/serial_import_wizard_view.xml',
     ],
     'installable': True,
