@@ -62,6 +62,7 @@ class AccountMove(models.Model):
         """Overriding, to get the next sequence number"""
         self.ensure_one()
         last_sequence = self._get_last_sequence()
+        print(last_sequence)
         new = not last_sequence
         if new:
             last_sequence = self._get_last_sequence(relaxed=True) or \
@@ -94,6 +95,7 @@ class AccountMove(models.Model):
                 format_values['suffix'] = ""
         else:
             format_values['seq'] = format_values['seq'] + \
-                                   self.journal_id.default_step_size
+                                  self.journal_id.default_step_size
+            format_values['year'] = self.date.year
         self[self._sequence_field] = format.format(**format_values)
         self._compute_split_sequence()
