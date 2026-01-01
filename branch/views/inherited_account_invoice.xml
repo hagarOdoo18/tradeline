@@ -71,7 +71,7 @@
             <field name="inherit_id" ref="account.view_account_payment_tree" />
             <field name="arch" type="xml">
                 <field name="name" position="after">
-                    <field name="branch_id" optional="hide" />
+                    <field name="branch_id" optional="show" force_save="1" />
                 </field>
                 <xpath expr="//list" position="attributes">
                     <attribute name="duplicate">false</attribute>

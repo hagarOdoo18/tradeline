@@ -96,16 +96,14 @@ class AccountPaymentRegister(models.TransientModel):
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 
-    @api.model
-    def default_get(self, fields):
-        rec = super(AccountPayment, self).default_get(fields)
-        invoice_defaults = self.reconciled_invoice_ids
-        if invoice_defaults and len(invoice_defaults) == 1:
-            invoice = invoice_defaults[0]
-            rec['branch_id'] = invoice.branch_id.id
-        return rec
+    def compute_branches(self, fields):
+        for rec in self:
+            invoice_defaults = rec.reconciled_invoice_ids
+            if invoice_defaults and len(invoice_defaults) == 1:
+                invoice = invoice_defaults[0]
+                rec.branch_id = invoice.branch_id.id
 
-    branch_id = fields.Many2one('res.branch',readonly=True)
+    branch_id = fields.Many2one('res.branch',readonly=True,compute="compute_branches")
 
     # @api.onchange('branch_id')
     # def _onchange_branch_id(self):
