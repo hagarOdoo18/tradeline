@@ -96,7 +96,6 @@ class AccountPaymentRegister(models.TransientModel):
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 
-    api.depends('reconciled_invoice_ids','move_id')
     def compute_branches(self ):
         for rec in self:
             invoice_defaults = rec.reconciled_invoice_ids
