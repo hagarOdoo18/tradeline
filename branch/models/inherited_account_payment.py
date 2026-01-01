@@ -96,6 +96,13 @@ class AccountPaymentRegister(models.TransientModel):
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 
+    @api.model
+    def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
+        if self.env.context.get('form'):
+            domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
+
+        return super().search_fetch(domain, field_names, offset, limit, order)
+
     def compute_branches(self ):
         for rec in self:
             invoice_defaults = rec.reconciled_invoice_ids
