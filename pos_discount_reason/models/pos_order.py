@@ -51,7 +51,8 @@ class PosOrder(models.Model):
     def _create_invoice(self, move_vals):
         """Override to auto print invoice after creation"""
         move = super()._create_invoice(move_vals)
-
+        move.sales_rep_id = self.sales_rep_id.id
+        move.discount_id = self.discount_reason_id.id
         # Auto print the invoice after creation
         if move and self.config_id.auto_print_invoice:
             try:
@@ -69,6 +70,7 @@ class PosOrder(models.Model):
 
     @api.model
     def sync_from_ui(self, orders):
+        print(orders)
         data = super().sync_from_ui(orders)
         return data
 
