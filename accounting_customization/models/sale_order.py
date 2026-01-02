@@ -11,6 +11,7 @@ class SaleOrder(models.Model):
         string='Reference Number',
         required=True)
 
+
     def generate_barcode(self):
         val = 0
         for res in self:

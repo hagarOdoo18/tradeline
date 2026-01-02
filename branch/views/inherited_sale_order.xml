@@ -7,6 +7,32 @@
             <field name="model">sale.order</field>
             <field name="inherit_id" ref="sale.view_order_form"/>
             <field name="arch" type="xml">
+
+                  <xpath expr="//div[@name='button_box']" position="inside">
+                    <button
+                        type="object"
+                        name="action_view_payments"
+                        class="oe_stat_button"
+                        icon="fa-money">
+                        <field name="payment_count" widget="statinfo" string="Payments"/>
+                    </button>
+                </xpath>
+
+                  <xpath expr="//header" position="inside">
+                    <button
+                        name="action_register_payment_so" invisible="amount_due ==0"
+                        type="object"
+                        string="Register Payment"
+                        class="btn-primary"
+
+                    />
+                </xpath>
+
+
+            <xpath expr="//group[@name='sale_total']" position="inside">
+                <field name="amount_paid" readonly="1"/>
+                <field name="amount_due" readonly="1"/>
+            </xpath>
                  <xpath expr="//field[@name='partner_id']" position="after">
                     <!-- Add your fields or attributes here -->
 

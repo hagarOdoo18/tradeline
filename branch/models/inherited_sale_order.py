@@ -16,6 +16,91 @@ class SaleOrder(models.Model):
         string='Allowed_branch',
         required=False)
 
+    payment_ids = fields.One2many(
+        'account.payment',
+        'sale_order_id',
+        string='Payments'
+    )
+
+    amount_paid = fields.Monetary(
+        compute='_compute_amount_paid',
+        store=True,
+        currency_field='currency_id'
+    )
+
+    amount_due = fields.Monetary(
+        compute='_compute_amount_paid',
+        store=True,
+        currency_field='currency_id'
+    )
+
+    fully_paid = fields.Boolean(
+        compute='_compute_fully_paid',
+        store=True
+    )
+
+    payment_count = fields.Integer(
+        compute='_compute_payment_count'
+    )
+
+    def _compute_payment_count(self):
+        for order in self:
+            order.payment_count = self.env['account.payment'].search_count( [('sale_order_id', '=', self.id)])
+
+    def action_view_payments(self):
+        self.ensure_one()
+        return {
+            'name': ('Payments'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.payment',
+            'view_mode': 'list,form',
+            'domain': [('sale_order_id', '=', self.id)],
+            'context': {'default_sale_order_id': self.id},
+        }
+    def action_register_payment_so(self):
+        self.ensure_one()
+
+        if self.amount_total <= 0:
+            raise UserError(("Nothing to pay."))
+
+        return {
+            'name': ('Register Payment'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.payment',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_payment_type': 'inbound',
+                'default_partner_type': 'customer',
+                'default_partner_id': self.partner_id.id,
+                'default_branch_id': self.branch_id.id,
+                'default_amount': self.amount_total,
+                'default_sale_order_id': self.id,
+                'default_ref': self.name,
+            }
+        }
+
+
+    @api.depends('amount_due')
+    def _compute_fully_paid(self):
+        for order in self:
+            order.fully_paid = order.amount_due <= 0
+
+    @api.depends(
+        'payment_ids.state',
+        'payment_ids.amount',
+        'amount_total'
+    )
+    def _compute_amount_paid(self):
+        for order in self:
+            paid = sum(
+                p.amount for p in order.payment_ids
+                if p.state == 'paid'
+            )
+            order.amount_paid = paid
+            order.amount_due = order.amount_total - paid
+
+
     @api.model_create_multi
     def default_get(self,fields):
         res = super(SaleOrder, self).default_get(fields)

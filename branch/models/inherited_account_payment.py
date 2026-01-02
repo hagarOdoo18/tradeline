@@ -96,6 +96,12 @@ class AccountPaymentRegister(models.TransientModel):
 class AccountPayment(models.Model):
     _inherit = 'account.payment'
 
+    sale_order_id = fields.Many2one(
+        'sale.order',
+        string='Sales Order',
+        index=True
+    )
+
     @api.model
     def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
         domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
@@ -106,7 +112,7 @@ class AccountPayment(models.Model):
         'reconciled_invoice_ids',
         'reconciled_invoice_ids.branch_id',
         'move_id',
-        'move_id.branch_id'
+        'move_id.branch_id','sale_order_id'
     )
     def compute_branches(self ):
         for rec in self:
@@ -114,8 +120,11 @@ class AccountPayment(models.Model):
             if invoice_defaults and len(invoice_defaults) == 1:
                 invoice = invoice_defaults[0]
                 rec.branch_id = invoice.branch_id.id
-            else:
+            elif  rec.move_id.branch_id:
                 rec.branch_id=rec.move_id.branch_id.id
+            else:
+                rec.branch_id=rec.sale_order_id.branch_id.id
+                rec.move_id.branch_id=rec.sale_order_id.branch_id.id
 
     branch_id = fields.Many2one('res.branch',readonly=True,store=True,compute="compute_branches")
 
