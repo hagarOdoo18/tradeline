@@ -98,8 +98,7 @@ class AccountPayment(models.Model):
 
     @api.model
     def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
-        if self.env.context.get('form'):
-            domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
+        domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
 
         return super().search_fetch(domain, field_names, offset, limit, order)
 
