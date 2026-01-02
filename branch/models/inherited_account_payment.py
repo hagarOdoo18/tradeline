@@ -111,7 +111,7 @@ class AccountPayment(models.Model):
             else:
                 rec.branch_id=rec.move_id.branch_id.id
 
-    branch_id = fields.Many2one('res.branch',readonly=True,related="compute_branches")
+    branch_id = fields.Many2one('res.branch',readonly=True,compute="compute_branches")
 
     # @api.onchange('branch_id')
     # def _onchange_branch_id(self):
