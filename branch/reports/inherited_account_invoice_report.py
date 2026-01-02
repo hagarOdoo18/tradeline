@@ -10,6 +10,10 @@ class AccountInvoiceReport(models.Model):
     reference_number = fields.Char(
         string='Reference Number',
         required=False)
+
+    invoice_number = fields.Char(
+        string='Invoice Number',
+        required=False)
     preferred_payment_method_line_id = fields.Many2one(
         string="Payment Method",
         comodel_name='account.payment.method.line',
@@ -31,7 +35,7 @@ class AccountInvoiceReport(models.Model):
 
 
     def _select(self) -> SQL:
-            return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number"
+            return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.name AS invoice_number "
                        ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
                        "move.discount_id as discount_id,line.family_id as family_id",
                        super()._select())
