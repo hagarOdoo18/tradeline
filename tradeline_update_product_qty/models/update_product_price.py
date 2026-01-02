@@ -54,6 +54,8 @@ class UpdateProductPrice (models.TransientModel) :
                     adjust.action_apply_inventory()
                 else:
                     inventory_quant.quantity = self.qty
+                    inventory_quant.action_apply_inventory()
+
 
 
 
