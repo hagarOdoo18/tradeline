@@ -50,14 +50,14 @@ class ResPartnerInherit(models.Model):
 
 
 
-    def write(self, values):
-        # Add code here
-        if 'name' in values or 'mobile' in values  :
-            if self.env.user.id not in [2, 1]:
-                raise ValidationError('Not Allowed')
-
-
-        return super(ResPartnerInherit, self).write(values)
+    # def write(self, values):
+    #     # Add code here
+    #     if 'name' in values or 'mobile' in values  :
+    #         if self.env.user.id not in [2, 1]:
+    #             raise ValidationError('Not Allowed')
+    #
+    #
+    #     return super(ResPartnerInherit, self).write(values)
 
 
     def vat_constrain(self):
