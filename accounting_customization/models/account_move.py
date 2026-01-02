@@ -46,7 +46,7 @@ class AccountMove(models.Model):
 
     inv_type = fields.Selection(
         string='Invoice Type', default='invoice',
-        selection=[('sro', 'SRO'), ('quotation', 'Quotation'),('payment','Payment')
+        selection=[('sro', 'SRO'), ('quotation', 'Quotation'),('payment','Payment'),
                    ('invoice', 'Invoice'), ('debit', 'Debit')],
         required=True, )
 
