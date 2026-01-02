@@ -20,7 +20,7 @@
 
                   <xpath expr="//header" position="inside">
                     <button
-                        name="action_register_payment_so" invisible="amount_due ==0"
+                        name="action_register_payment_so"
                         type="object"
                         string="Register Payment"
                         class="btn-primary"
