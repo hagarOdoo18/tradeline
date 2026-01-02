@@ -245,8 +245,8 @@ class PosPayment(models.Model):
             else:
                 pos_payment_ids = payment.ids
                 payment_amount = payment.amount
-            payment_move = self.env['account.move'].with_context(default_journal_id=payment_method.journal_id.id).create({
-                'journal_id': payment_method.journal_id.id,
+            payment_move = self.env['account.move'].with_context(default_journal_id=journal.id).create({
+                'journal_id': journal.id,
                 'branch_id' : journal.branch_id.id,
                 'inv_type': 'payment',
                 'date': fields.Date.context_today(order, order.date_order),
