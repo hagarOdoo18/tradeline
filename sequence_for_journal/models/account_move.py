@@ -62,7 +62,6 @@ class AccountMove(models.Model):
         """Overriding, to get the next sequence number"""
         self.ensure_one()
         last_sequence = self._get_last_sequence()
-        print(last_sequence)
         new = not last_sequence
         if new:
             last_sequence = self._get_last_sequence(relaxed=True) or \
