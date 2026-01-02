@@ -8,10 +8,6 @@ from odoo.exceptions import ValidationError
 import logging
 from random import randrange
 from odoo.tools.float_utils import float_compare, float_is_zero, float_round
-
-
-
-
 _logger = logging.getLogger(__name__)
 
 class SaleOrder(models.Model):
