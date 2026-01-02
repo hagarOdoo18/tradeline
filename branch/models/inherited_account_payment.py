@@ -103,7 +103,7 @@ class AccountPayment(models.Model):
         return super().search_fetch(domain, field_names, offset, limit, order)
 
     def compute_branches(self ):
-        for rec in self:
+        for rec in self.search( ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]):
             invoice_defaults = rec.reconciled_invoice_ids
             if invoice_defaults and len(invoice_defaults) == 1:
                 invoice = invoice_defaults[0]
