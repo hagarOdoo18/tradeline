@@ -14,7 +14,7 @@
     ''',
     'author': 'Your Name',
     'website': 'https://www.yourwebsite.com',
-    'depends': ['point_of_sale', 'hr','base_tradeline'],
+    'depends': ['point_of_sale', 'hr','base_tradeline','pos_hr'],
     'data': [
         'views/pos_order_views.xml',
         'views/pos_config_views.xml',
