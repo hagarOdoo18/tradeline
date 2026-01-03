@@ -85,6 +85,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
         header_format = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2'})
         currency_format = workbook.add_format({'num_format': '#,##0.00'})
         row = 0
+        invoices = []
+
         if self.env.user.has_group('export_invoice_move_line.group_export_invoice_move_line_admin'):
             headers = ['Date','Branch','Ref','Credit','Opportunity','Customer Name','Customer Mobile','Customer Phone',
                        'Product Category','Family','UPC','Item Code','Description' ,'Quantity','Serial','Unit Cost',
@@ -94,7 +96,6 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, col, h, header_format)
 
             row += 1
-            invoices =[]
             for line in invoice_lines:
                 if self.payment_journal_ids:
                     if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped("journal_id").ids:
@@ -194,16 +195,18 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 15, float(line.product_id.standard_price) or 0)
                 sheet.write(row, 16, float(line.product_id.lst_price) or 0)
                 sheet.write(row, 17, line.discount or 0)
-                sheet.write(row, 18, amount_untaxed_signed or 0)
+                sheet.write(row, 18, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 19,  float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
-                sheet.write(row, 20,amount_total_signed or '')
-                sheet.write(row, 21, payment_journals or '')
-                sheet.write(row, 22, payment_amount or '')
+                sheet.write(row, 20,amount_total_signed if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 21, payment_journals if line.move_id.id not in invoices  else '')
+                sheet.write(row, 22, payment_amount if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, line.move_id.sales_rep_id.name or '')
                 sheet.write(row, 24, line.move_id.reference_number or '')
                 sheet.write(row, 25, line.product_id.vendor_id.name or '')
                 sheet.write(row, 27, line.move_id.channel_id.name or '')
                 sheet.write(row, 28, line.move_id.currency_id.name or '')
+                invoices.append(line.move_id.id)
+
                 row += 1
         else:
             headers = ['Date', 'Branch', 'Ref', 'Credit', 'Opportunity', 'Customer Name', 'Customer Mobile',
@@ -252,15 +255,16 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 14, serials or '')
                 sheet.write(row, 15, line.product_id.lst_price or '')
                 sheet.write(row, 16, line.discount or '')
-                sheet.write(row, 17, amount_untaxed_signed or '')
-                sheet.write(row, 18, amount_total_signed or '')
-                sheet.write(row, 19, payment_journals or '')
-                sheet.write(row, 20, payment_amount or '')
+                sheet.write(row, 17, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 18, amount_total_signed if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 19, payment_journals if line.move_id.id not in invoices  else '')
+                sheet.write(row, 20, payment_amount if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 21, line.move_id.sales_rep_id.name or '')
                 sheet.write(row, 22, line.move_id.reference_number or '')
                 sheet.write(row, 23, line.product_point or '')
                 sheet.write(row, 24, line.move_id.channel_id.name or '')
                 sheet.write(row, 25, line.move_id.currency_id.name or '')
+                invoices.append(line.move_id.id)
                 row += 1
 
 
