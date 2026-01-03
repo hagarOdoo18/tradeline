@@ -88,7 +88,7 @@ class SaleOrder(models.Model):
     @api.onchange('branch_id')
     def onchange_branch_id(self):
         if self.branch_id:
-            self.sales_rep_domain = "[('branch_id','=',"+str(self.branch_id.id)+"),('is_software','=',True),('is_hardware','=',True)]"
+            self.sales_rep_domain = "[('branch_id','=',"+str(self.branch_id.id)+"),'|',('is_software','=',True),('is_hardware','=',True)]"
             self.discount_domain = "[('branches_ids','in',"+str(self.branch_id.id)+"),('state','=','run')]"
 
         else:
