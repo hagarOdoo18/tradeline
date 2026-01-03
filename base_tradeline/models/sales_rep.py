@@ -25,13 +25,7 @@ class SalesRep(models.Model):
         string='call center',
         required=False)
 
-    is_software = fields.Boolean(
-        string='Software',
-        required=False)
 
-    is_hardware = fields.Boolean(
-        string='Hardware',
-        required=False)
 
     def name_get(self):
         # TDE: this could be cleaned a bit I think

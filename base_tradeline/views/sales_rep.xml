@@ -14,9 +14,6 @@
                                 <field name="name"/>
                                 <field name="code"/>
                                 <field name="is_call_center"/>
-                                <field name="is_software"/>
-                                <field name="is_hardware"/>
-
                             </group>
                             <group>
                                 <field name="mail"/>
