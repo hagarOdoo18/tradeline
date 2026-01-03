@@ -15,7 +15,7 @@ class AccountInvoice(models.Model):
             new_total_amount = ((division_percentage * invoice.amount_total) / 100)
             new_tax_amount = ((division_percentage * invoice.amount_tax) / 100)
             new_untaxed_amount = new_total_amount - new_tax_amount
-            if invoice.type != 'out_refund':
+            if invoice.move_type != 'out_refund':
 
                 dec = { 'invoices_number': invoice.name,
                     'untaxed_amount':invoice.amount_untaxed,

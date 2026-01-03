@@ -46,7 +46,7 @@ class send_day (models.Model) :
                 invoice = self.env['account.move'].search([('name','=',invoice_number)])
                 if invoice != None and index !=0 :
                     day= self.env['config.day'].search([('date','=',invoice.date_invoice),('branch_id','=',invoice.branch_id.id)])
-                    if invoice.type != 'out_refund':
+                    if invoice.move_type != 'out_refund':
                         self.env['config.day.line'].create({ 'invoices_number': invoice.name,
                         'untaxed_amount':invoice.amount_untaxed,
                            'total_amount':invoice.amount_total,
