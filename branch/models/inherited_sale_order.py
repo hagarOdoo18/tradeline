@@ -61,8 +61,7 @@ class SaleOrder(models.Model):
     def action_register_payment_so(self):
         self.ensure_one()
 
-        if self.amount_total <= 0:
-            raise UserError(("Nothing to pay."))
+
 
         return {
             'name': ('Register Payment'),
@@ -75,7 +74,7 @@ class SaleOrder(models.Model):
                 'default_partner_type': 'customer',
                 'default_partner_id': self.partner_id.id,
                 'default_branch_id': self.branch_id.id,
-                'default_amount': self.amount_total,
+                'default_amount': self.amount_total or 0,
                 'default_sale_order_id': self.id,
                 'default_ref': self.name,
             }
