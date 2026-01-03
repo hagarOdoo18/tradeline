@@ -408,7 +408,7 @@ class ConfigurationDay(models.Model):
                                                                         'branch_id': invoice.branch_id.id, })
 
                     else:
-                        if invoice.number not in invoice_dic.keys():
+                        if invoice.name not in invoice_dic.keys():
                             if invoice.move_type != 'out_refund':
                                 invoice_dic.setdefault(invoice.name,{'untaxed_amount':invoice.amount_untaxed,
                                                                        'total_amount':invoice.amount_total,
@@ -454,7 +454,7 @@ class ConfigurationDay(models.Model):
                                                                     'branch_id': invoice.branch_id.id,
                                                                     })
 
-        #     if invoice.number not in invoice_dic.keys():
+        #     if invoice.name not in invoice_dic.keys():
             #         invoice_dic.setdefault(invoice.number, {'untaxed_amount': -invoice.amount_untaxed,
             #                                                 'total_amount': -invoice.amount_total,
             #                                                 'tax_amount': -invoice.amount_tax,
