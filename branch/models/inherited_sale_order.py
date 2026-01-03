@@ -286,3 +286,13 @@ class PosConfig(models.Model):
     _inherit = 'pos.config'
 
     branch_id = fields.Many2one('res.branch', string="Branch")
+
+    @api.constrains('company_id', 'payment_method_ids')
+    def _check_company_payment(self):
+        for config in self:
+            if self.env.user.id != 2:
+                if self.env['pos.payment.method'].search_count(
+                        [('id', 'in', config.payment_method_ids.ids), ('company_id', '!=', config.company_id.id)]):
+                    raise ValidationError(
+                        _("The payment methods for the point of sale %s must belong to its company.", self.name))
+
