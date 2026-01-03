@@ -70,7 +70,6 @@ class PosOrder(models.Model):
 
     @api.model
     def sync_from_ui(self, orders):
-        print(orders)
         data = super().sync_from_ui(orders)
         return data
 
