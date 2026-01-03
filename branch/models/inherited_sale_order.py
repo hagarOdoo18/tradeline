@@ -246,7 +246,7 @@ class PosPayment(models.Model):
                 payment_amount = payment.amount
             payment_move = self.env['account.move'].with_context(default_journal_id=journal.id).create({
                 'journal_id': journal.id,
-                'branch_id' : journal.branch_id.id,
+                'branch_id' : self.env.user.branch_id.id if self.env.user.branch_id.id else False ,
                 'inv_type': 'payment',
                 'date': fields.Date.context_today(order, order.date_order),
                 'ref': _('Invoice payment for %(order)s (%(account_move)s) using %(payment_method)s', order=order.name, account_move=order.account_move.name, payment_method=payment_method.name),
