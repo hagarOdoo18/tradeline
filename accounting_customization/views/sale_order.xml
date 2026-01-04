@@ -9,7 +9,24 @@
             <field name="priority" eval="8"/>
             <field name="arch" type="xml">
 
-                              <xpath expr="//field[@name='partner_id']" position="after">
+                  <xpath expr="//header" position="inside">
+                    <button
+                        name="action_set_to_use"
+                        type="object"
+                        string="Set To Use"
+                        class="btn-primary"
+
+                    />
+                       <button
+                        name="action_set_to_refund"
+                        type="object"
+                        string="Refund Order"
+                        class="btn-primary"
+
+                    />
+                </xpath>
+
+              <xpath expr="//field[@name='partner_id']" position="after">
                     <field name="barcode" readonly="1"/>
                     <field name="reference_number" readonly="state != 'draft'"/>
                     <field name="inv_type" readonly="state != 'draft'"/>

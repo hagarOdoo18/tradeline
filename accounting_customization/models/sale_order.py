@@ -10,7 +10,17 @@ class SaleOrder(models.Model):
     reference_number = fields.Char(
         string='Reference Number',
         required=True)
+    state = fields.Selection(selection_add=[('to_use', 'To Use'), ('refund', 'Refund')])
 
+    def action_set_to_use(self):
+        self.write({
+            'state': 'to_use'
+        })
+
+    def action_set_to_refund(self):
+        self.write({
+            'state': 'refund'
+        })
 
     def generate_barcode(self):
         val = 0
