@@ -145,6 +145,7 @@ class StockMove(models.Model):
                     if move_picking.origin == move.origin:
                         return picking
         return False
+
     def _assign_picking(self):
         """ Try to assign the moves to an existing picking that has not been
         reserved yet and has the same procurement group, locations and picking
