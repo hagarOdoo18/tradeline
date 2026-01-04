@@ -23,7 +23,7 @@
                                 <field name="total_month"/>
                                 <field name="total_day"/>
                                 <field name="min_invoice_amount"/>
-                                <field name="branch_id" widget="selection"/>
+                                <field name="branch_id" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" />
                                 <field name="send_per_invoice" />
 
                             </group>
