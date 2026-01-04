@@ -68,21 +68,21 @@ class StockPicking(models.Model):
             raise UserError("Check your Mail")
 
 
-    def button_validate(self):
-
-        for rec in self:
-
-            if rec.picking_type_code == 'internal':
-
-                if rec.transfer_maker:
-                    approve=False
-                    for line in rec.transfer_maker.transfer_line_ids:
-                        if line.code == rec.validation_code and line.stock_picking.id == rec.id:
-                            approve=True
-                    if not approve:
-                        raise UserError("Check your Code")
-                else:
-                    raise UserError("Set transfer Maker")
-
-
-        return super(StockPicking, self).button_validate()
+    # def button_validate(self):
+    #
+    #     for rec in self:
+    #
+    #         if rec.picking_type_code == 'internal':
+    #
+    #             if rec.transfer_maker:
+    #                 approve=False
+    #                 for line in rec.transfer_maker.transfer_line_ids:
+    #                     if line.code == rec.validation_code and line.stock_picking.id == rec.id:
+    #                         approve=True
+    #                 if not approve:
+    #                     raise UserError("Check your Code")
+    #             else:
+    #                 raise UserError("Set transfer Maker")
+    #
+    #
+    #     return super(StockPicking, self).button_validate()
