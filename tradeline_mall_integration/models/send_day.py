@@ -81,7 +81,7 @@ class send_day (models.Model) :
    
     def send_day( self ):
         for rec in self:
-            if self._cr.dbname == "live_11nov_2024" :
+            if self._cr.dbname == "tradelinestores-production-25284095" :
                 if rec.file:
                     rec.import_excel()
                 else:

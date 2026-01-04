@@ -74,6 +74,7 @@ class ConfigurationDay(models.Model):
         string='Min Invoice Amount',
         required=True)
     branch_id = fields.Many2one('res.branch', 'branch', index=True,required=True)
+    month_id = fields.Many2one('config.month', 'Month', index=True,required=True)
     is_post = fields.Boolean(
         string='Is_post',
         default=False)
@@ -242,7 +243,7 @@ class ConfigurationDay(models.Model):
             if line.new_total_amount > day.min_invoice_amount:
                 count_of_min_invoice_amount += 1
         if day.total_day < total_new_invoices  :
-            new_percentage = ((100 * day.total_day) / total_new_invoices)
+            new_percentage = day.month_id.percentage
             if new_percentage < 99:
                 day.new_total_day = total_new_invoices
                 day.new_tax_day = total_new_tax
@@ -381,7 +382,7 @@ class ConfigurationDay(models.Model):
         # day.last_total_day = total_invoices
         for invoice in invoices:
                 if total_invoices > expected_total_invoices:
-                    division_percentage = ((100 * expected_total_invoices) / total_invoices)
+                    division_percentage = day.month_id.percentage
 
                     if invoice.amount_total > min_invoice_amount:
                         new_total_amount = ((division_percentage * invoice.amount_total) / 100)

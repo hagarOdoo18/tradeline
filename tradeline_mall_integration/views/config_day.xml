@@ -57,6 +57,7 @@
                             <group>
                                 <field name="date"/>
                                 <field name="branch_id" widget="selection"/>
+                                <field name="month_id"/>
                             </group>
                         </group>
                         <notebook>
@@ -93,6 +94,7 @@
                     <field name="new_tax_day"/>
                     <field name="new_total_day"/>
                     <field name="branch_id"/>
+                    <field name="month_id"/>
                 </list>
             </field>
         </record>

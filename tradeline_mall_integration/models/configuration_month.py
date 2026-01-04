@@ -74,6 +74,7 @@ class ConfigurationMonth(models.Model):
                         'total_day': config_month.total_day,
                         'min_invoice_amount' : config_month.min_invoice_amount,
                         'branch_id' : config_month.branch_id.id,
+                        'month_id' : config_month.id,
                     })
                     config_day.server_action_create_daily_table()
 
@@ -101,6 +102,8 @@ class ConfigurationMonth(models.Model):
                             'total_day': config_month.total_day,
                             'min_invoice_amount': config_month.min_invoice_amount,
                             'branch_id': config_month.branch_id.id,
+                            'month_id' : config_month.id,
+
                         })
                         has_day.server_action_create_daily_table()
                     else:
@@ -109,6 +112,8 @@ class ConfigurationMonth(models.Model):
                             'total_day': config_month.total_day,
                             'min_invoice_amount' : config_month.min_invoice_amount,
                             'branch_id' : config_month.branch_id.id,
+                            'month_id': config_month.id,
+
                         })
                         config_day.server_action_create_daily_table()
 
