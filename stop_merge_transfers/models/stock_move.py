@@ -5,7 +5,7 @@ class StockMove(models.Model):
     _inherit = "stock.move"
 
     def _search_picking_for_assignation_domain(self):
-        if self.picking_type_id.code in ['outgoing','internal']:
+        if self.picking_type_id.code not in ['outgoing','internal']:
             domain = [
                 ('group_id', '=', self.group_id.id),
                 ('location_id', '=', self.location_id.id),
