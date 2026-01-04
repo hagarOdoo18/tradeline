@@ -19,10 +19,11 @@ class StockPicking(models.Model):
     branch_id = fields.Many2one('res.branch', string="Branch")
 
     @api.model
-    def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
+    def search_fetch(self, domain, StockLocation, offset=0, limit=None, order=None):
+
         domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
 
-        return super().search_fetch(domain, field_names, offset, limit, order)
+        return super().search_fetch(domain, StockLocation, offset, limit, order)
     # @api.onchange('branch_id')
     # def _onchange_branch_id(self):
     #     selected_brach = self.branch_id
