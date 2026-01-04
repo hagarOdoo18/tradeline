@@ -9,6 +9,12 @@ class StockLocation(models.Model):
 
     branch_id = fields.Many2one('res.branch',)
 
+    @api.model
+    def search_fetch(self, domain, field_names, offset=0, limit=None, order=None):
+        domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
+
+        return super().search_fetch(domain, field_names, offset, limit, order)
+
     @api.constrains('branch_id')
     def _check_branch(self):
         warehouse_obj = self.env['stock.warehouse']
