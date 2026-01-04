@@ -11,10 +11,9 @@ class StockLocation(models.Model):
 
     @api.model
     def search_fetch(self, domain, fields, offset=0, limit=None, order=None):
-        print('dd')
         domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
 
-        return super(StockLocation).search_fetch(domain, fields, offset, limit, order)
+        return super().search_fetch(domain, fields, offset, limit, order)
 
     @api.constrains('branch_id')
     def _check_branch(self):
