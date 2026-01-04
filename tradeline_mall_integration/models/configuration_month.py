@@ -106,6 +106,8 @@ class ConfigurationMonth(models.Model):
                                 'min_invoice_amount': config_month.min_invoice_amount,
                                 'branch_id': config_month.branch_id.id,
                                 'month_id' : config_month.id,
+                                'percentage' : config_month.percentage,
+
 
                             })
                             has_day.server_action_create_daily_table()
