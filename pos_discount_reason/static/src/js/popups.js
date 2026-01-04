@@ -105,9 +105,10 @@ patch(ControlButtons.prototype, {
                         console.log("Custom discount reason set to:", customReason);
                     }
                 } else {
-                    order.discount_reason = confirmed;
+                    order.discount_reason_id = confirmed;
 //                    this.pos.selectedOrder = order;
                     console.log("Discount reason set to:", confirmed.name);
+                    console.log("Discount reason set to: ezzat", order.discount_reason_id);
 
                     // Apply suggested discount percentage if available
                     if (confirmed.discount_percentage > 0) {
