@@ -79,6 +79,10 @@ class ConfigurationDay(models.Model):
         string='Is_post',
         default=False)
 
+    percentage = fields.Float(
+        string='Percentage',
+        required=False)
+
     config_day_lines = fields.One2many(
         comodel_name='config.day.line',
         inverse_name='config_day_id',
@@ -243,7 +247,7 @@ class ConfigurationDay(models.Model):
             if line.new_total_amount > day.min_invoice_amount:
                 count_of_min_invoice_amount += 1
         if day.total_day < total_new_invoices  :
-            new_percentage = day.month_id.percentage
+            new_percentage = day.percentage
             if new_percentage < 99:
                 day.new_total_day = total_new_invoices
                 day.new_tax_day = total_new_tax
@@ -382,7 +386,7 @@ class ConfigurationDay(models.Model):
         # day.last_total_day = total_invoices
         for invoice in invoices:
                 if total_invoices > expected_total_invoices:
-                    division_percentage = day.month_id.percentage
+                    division_percentage = day.percentage
 
                     if invoice.amount_total > min_invoice_amount:
                         new_total_amount = ((division_percentage * invoice.amount_total) / 100)

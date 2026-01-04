@@ -76,6 +76,7 @@ class ConfigurationMonth(models.Model):
                         'min_invoice_amount' : config_month.min_invoice_amount,
                         'branch_id' : config_month.branch_id.id,
                         'month_id' : config_month.id,
+                        'percentage' : config_month.percentage,
                     })
                     config_day.server_action_create_daily_table()
 
@@ -96,17 +97,18 @@ class ConfigurationMonth(models.Model):
                 days = [(d1 + timedelta(days=i)) for i in range(delta.days + 1)]
                 config_month.is_created =True
                 for day in days:
-                    has_day= self.env['config.day'].search([('date','=',day),('branch_id','=',config_month.branch_id.id)])
+                    has_day= self.env['config.day'].search([('date','=',day),('branch_id','=',config_month.branch_id.id),])
                     if has_day :
-                        has_day.write({
-                            'date': day,
-                            'total_day': config_month.total_day,
-                            'min_invoice_amount': config_month.min_invoice_amount,
-                            'branch_id': config_month.branch_id.id,
-                            'month_id' : config_month.id,
+                        if has_day.state=='draft':
+                            has_day.write({
+                                'date': day,
+                                'total_day': config_month.total_day,
+                                'min_invoice_amount': config_month.min_invoice_amount,
+                                'branch_id': config_month.branch_id.id,
+                                'month_id' : config_month.id,
 
-                        })
-                        has_day.server_action_create_daily_table()
+                            })
+                            has_day.server_action_create_daily_table()
                     else:
                         config_day = self.env['config.day'].create({
                             'date' : day,
@@ -114,7 +116,7 @@ class ConfigurationMonth(models.Model):
                             'min_invoice_amount' : config_month.min_invoice_amount,
                             'branch_id' : config_month.branch_id.id,
                             'month_id': config_month.id,
-
+                            'percentage' : config_month.percentage,
                         })
                         config_day.server_action_create_daily_table()
 
