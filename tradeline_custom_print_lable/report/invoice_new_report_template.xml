@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+    <odoo>
+    <template id="pricelist_barcode_label_custom">
+
+    <t t-name="custom_product_barcode_stock">
+                <t t-call="web.basic_layout">
+                    <t t-foreach="docs" t-as="doc">
+                        <div class="page">
+                            <div t-foreach="doc.move_ids_without_package" t-as="move">
+                                <t t-set="quantity" t-value="int(move.product_uom_qty)"/>
+                                <t t-foreach="range(quantity)" t-as="l">
+                    <div style="width:243px;  display: inline-table; padding-bottom:13px; padding-top:30px; margin-left:40px; margin-right:10px;">
+                                        <table>
+                                            <tr>
+                                                <td>
+                                                    <strong t-field="move.product_id.lst_price" style="font-size:9px; margin-right:6px;  margin-left:30px;" class="float-right" t-options="{'widget': 'monetary', 'display_currency':move.product_id.company_id.currency_id}"/>
+                                                    <strong style="font-size:9px; margin-left:20px; "  class="float-left" t-field="move.product_id.barcode"/>
+                                                </td>
+                                            </tr>
+                                            <tr class="text-center">
+                                                <strong style="font-size:8px; padding-left:20px" t-field="move.product_id.display_name"/>
+                                            </tr>
+                                            <tr>
+                                                <td class="text-center align-middle">
+<!--                                                    <t t-if="move.product_id.barcode">-->
+<!--                                                        <img alt="Barcode" t-if="len(move.product_id.barcode) == 13" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN13', move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
+<!--                                                        <img alt="Barcode" t-elif="len(move.product_id.barcode) == 8" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN8',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
+<!--                                                        <img alt="Barcode" t-else="" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('Code128',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
+<!--                                                        &lt;!&ndash;												<span t-field="product.barcode"/>&ndash;&gt;-->
+<!--                                                    </t>-->
+                                                      <t t-if="move.product_id.barcode">
+                                                        <div t-field="move.product_id.barcode" t-options="{'widget': 'barcode', 'img_style': 'width:100%;height:35%'}"/>
+                                                        <div class="o_label_4x12 text-center"><span t-out="move.product_id.barcode">12345678901</span></div>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <span class="text-muted">No barcode available</span>
+                                                    </t>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+            </t>
+    </template>
+
+
+        <record id="custom_paperformat" model="report.paperformat">
+			<field name="name">European A4 low margin</field>
+			<field name="default" eval="True"/>
+			<field name="format">A4</field>
+			<field name="page_height">0</field>
+			<field name="page_width">0</field>
+			<field name="orientation">Portrait</field>
+			<field name="margin_top">0</field>
+			<field name="margin_bottom">0</field>
+			<field name="margin_left">0</field>
+			<field name="margin_right">0</field>
+			<field name="header_line" eval="False"/>
+			<field name="header_spacing">0</field>
+			<field name="dpi">0</field>
+		</record>
+
+
+             <record id="custom_product_barcode" model="ir.actions.report">
+                <field name="name">Product Barcode</field>
+                <field name="model">stock.picking</field>
+                <field name="report_type">qweb-pdf</field>
+                <field name="report_name">tradeline_custom_print_lable.pricelist_barcode_label_custom</field>
+                <field name="report_file">tradeline_custom_print_lable.pricelist_barcode_label_custom</field>
+                <field name="print_report_name">'Product Barcode - %s ' % ((object.name).replace('/',''))</field>
+                <field name="binding_model_id" ref="stock.model_stock_picking"/>
+                 <field name="paperformat_id" ref="custom_paperformat"/>
+                <field name="binding_type">report</field>
+            </record>
+
+
+</odoo>
