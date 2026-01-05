@@ -1,0 +1,9 @@
+<odoo>
+    <record id="action_invoice_line_print_wizard" model="ir.actions.act_window">
+        <field name="name">Print Lines</field>
+        <field name="res_model">invoice.line.print.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="context">{'default_move_id': active_id}</field>
+    </record>
+</odoo>
