@@ -57,7 +57,7 @@
                 <xpath expr="//button[@name='action_cancel']" position="attributes">
                     <!-- Add your fields or attributes here -->
 
-                    <attribute name="groups">base_tradeline.group_admin_system</attribute>
+                    <attribute name="groups">accounting_customization.group_cancel_order</attribute>
                 </xpath>
                  <xpath expr="//button[@name='action_preview_sale_order']" position="attributes">
                     <!-- Add your fields or attributes here -->
