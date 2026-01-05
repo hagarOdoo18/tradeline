@@ -137,9 +137,6 @@ class SaleOrder(models.Model):
 
         return res
 
-
-
-
     tax_t1 = fields.Float(compute='_compute_tax', string="VAT14%")
     tax_t2 = fields.Float(compute='_compute_tax', string="VAT1%")
     tax_t2_t = fields.Float(compute='_compute_tax', string="VAT2%")
