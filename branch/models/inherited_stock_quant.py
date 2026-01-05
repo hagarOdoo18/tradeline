@@ -22,7 +22,6 @@ class StockQuant(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         rec =super(StockQuant, self).create(vals_list)
-        print( rec.warehouse_id.branch_id.id)
         rec.branch_id =  rec.warehouse_id.branch_id.id
         return rec
 

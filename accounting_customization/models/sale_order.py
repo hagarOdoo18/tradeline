@@ -142,6 +142,7 @@ class SaleOrder(models.Model):
 
     tax_t1 = fields.Float(compute='_compute_tax', string="VAT14%")
     tax_t2 = fields.Float(compute='_compute_tax', string="VAT1%")
+    tax_t2_t = fields.Float(compute='_compute_tax', string="VAT2%")
     tax_t3 = fields.Float(compute='_compute_tax', string="VAT3%")
     tax_t5 = fields.Float(compute='_compute_tax', string="VAT5%")
     total = fields.Float(compute='compute_tax', string="Total")
@@ -153,6 +154,7 @@ class SaleOrder(models.Model):
             sum_v1 = 0
             sum_v3 = 0
             sum_v5 = 0
+            sum_v2 = 0
 
             for line in rec.order_line:
                 if line.tax_ids:
@@ -160,18 +162,21 @@ class SaleOrder(models.Model):
                         if tax.name == "14%":
                             sum_v14 += (line.price_subtotal * tax.amount / 100)
 
-                        elif tax.name == "1% WH":
+                        elif tax.name == "Withholding Tax -1%":
                             sum_v1 += (line.price_subtotal * tax.amount / 100)
 
-                        elif tax.name == "3% WH":
+                        elif tax.name == "Withholding Tax -3%":
                             sum_v3 += (line.price_subtotal * tax.amount / 100)
-                        elif tax.name == "5% WH":
+                        elif tax.name == "Withholding Tax -5%":
                             sum_v5 += (line.price_subtotal * tax.amount / 100)
+                        elif tax.name == "Withholding Tax -2%":
+                            sum_v2 += (line.price_subtotal * tax.amount / 100)
 
             rec.tax_t1 = sum_v14
             rec.tax_t2 = sum_v1
             rec.tax_t3 = sum_v3
             rec.tax_t5 = sum_v5
+            rec.tax_t2_t = sum_v2
             rec.total = sum_v14 + rec.amount_untaxed
 
 class SaleOrderLine(models.Model):
