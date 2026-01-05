@@ -37,6 +37,9 @@ class DiscountReason (models.Model):
     def action_stop(self):
         self.state = 'stopped'
 
+    def action_new(self):
+        self.state = 'new'
+
     @api.model
     def _load_pos_data_domain(self, data):
         return []
