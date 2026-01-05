@@ -28,7 +28,10 @@ class StockPicking(models.Model):
     @api.model
     def set_branch(self):
         for rec in self:
-            if rec.location_dest_id.id:
+            if rec.location_dest_id.warehouse_id.branch_id:
                 rec.branch_id = rec.location_dest_id.warehouse_id.branch_id.id
+            else:
+                rec.branch_id = rec.location_id.warehouse_id.branch_id.id
+
 
 
