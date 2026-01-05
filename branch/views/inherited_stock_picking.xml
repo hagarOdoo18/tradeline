@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
+
+         <record id="update_branch_picking" model="ir.actions.server">
+        <field name="name">Update Branch</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="state">code</field>
+        <field name="code">
+            if records:
+                action = records.set_branch()
+        </field>
+    </record>
+
         <!-- Stock Picking Inherit Form View to Modify it -->
         <record id="view_picking_form_inherit_branch" model="ir.ui.view">
             <field name="name">view.picking.form.inherit.branch</field>
