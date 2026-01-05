@@ -29,6 +29,6 @@ class StockPicking(models.Model):
     def set_branch(self):
         for rec in self:
             if rec.location_dest_id.id:
-                rec.branch_id = rec.location_dest_id.warehouse_id.branch_ids.id
+                rec.branch_id = rec.location_dest_id.warehouse_id.branch_id.id
 
 
