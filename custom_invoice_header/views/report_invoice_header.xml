@@ -384,7 +384,7 @@
                             <t t-set="current_subtotal" t-value="0"/>
                                 <t t-set="current_total" t-value="0"/>
 
-                            <t t-set="lines" t-value="o.invoice_line_ids.sorted(key=lambda l: (-l.sequence, l.date, l.move_name, -l.id), reverse=True)"/>
+                            <t t-set="lines" t-value="o.invoice_line_ids.filtered(lambda l: l.select_for_report).sorted(key=lambda l: (-l.sequence, l.date, l.move_name, -l.id), reverse=True)"/>
 
 
                             <t t-foreach="lines" t-as="line">
