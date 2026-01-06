@@ -38,3 +38,28 @@ patch(PaymentScreen.prototype, {
         }
     }
 });
+//
+///** @odoo-module **/
+//
+//import { patch } from "@web/core/utils/patch";
+//import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
+//import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+//
+//patch(ProductScreen.prototype, {
+//    async _onClickPay() {
+//        const order = this.pos.get_order();
+//
+//        // discount_reason_id stored as [id, name]
+//        const discountReason = order.discount_reason_id;
+//
+//        if (!discountReason || !discountReason[0]) {
+//            this.dialog.add(AlertDialog, {
+//                title: "Discount Reason Required",
+//                body: "You must select a discount reason before proceeding to payment.",
+//            });
+//            return;
+//        }
+//
+//        await super._onClickPay(...arguments);
+//    },
+//});
