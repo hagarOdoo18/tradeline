@@ -43,7 +43,7 @@
     width:7cm;
     height:2.5cm;
     display:inline-block;
-padding-bottom:13px; padding-top:5px;margin-top:24px;
+padding-bottom:13px; padding-top:5px;margin-top:26px;
    margin-left:35px; margin-right:10px;
     border:1px solid #000;
     font-family: Arial;
