@@ -211,6 +211,8 @@ class SaleOrderLine(models.Model):
         store=True
     )
 
+
+
     @api.depends('order_id.warehouse_id')
     def _compute_location_id(self):
         for line in self:
@@ -227,9 +229,9 @@ class SaleOrderLine(models.Model):
 
         res = super()._prepare_invoice_line(**optional_values)
         res['warranty_id'] = self.warranty_id.id
-        res['item_code'] = self.item_code
-        res['family_id'] = self.family_id.id
-        res['categ_id'] = self.categ_id.id
+        res['item_code'] =  self.product_id.default_code
+        res['family_id'] = self.product_id.product_tmpl_id.family_id.id
+        res['categ_id'] = self.product_id.categ_id.id
         return res
 
     @api.onchange('discount')

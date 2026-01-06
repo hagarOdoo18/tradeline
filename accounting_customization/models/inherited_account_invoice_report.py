@@ -29,14 +29,20 @@ class AccountInvoiceReport(models.Model):
         required=False)
 
     family_id = fields.Many2one(
-        comodel_name='product.family',realted="product_id.family_id",
+        comodel_name='product.family',
         string='Family',
+        required=False)
+
+
+    sales_rep_id = fields.Many2one(
+        comodel_name='sales.rep',
+        string='Sales Rep',
         required=False)
 
 
     def _select(self) -> SQL:
             return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.name AS invoice_number "
                        ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
-                       "move.discount_id as discount_id,line.family_id as family_id",
+                       "move.discount_id as discount_id,line.family_id,move.sales_rep_id as sales_rep_id",
                        super()._select())
 

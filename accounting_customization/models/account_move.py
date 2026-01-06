@@ -295,6 +295,8 @@ class AccountMoveLine(models.Model):
         string='Product incentive',
         required=False)
 
+
+
     class AccountMoveReversal(models.TransientModel):
         _inherit = 'account.move.reversal'
 
