@@ -59,7 +59,7 @@ class PosOrder(models.Model):
         if move and self.config_id.auto_print_invoice:
             try:
                 # Print the invoice
-                move.print_invoice()
+                # move.print_invoice()
                 # You can also add logging here
                 self.env['pos.session']._notify_changes_in_session()
             except Exception as e:
