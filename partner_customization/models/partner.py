@@ -43,9 +43,9 @@ class ResPartnerInherit(models.Model):
             raise ValidationError('Mobile already exists!')
 
 
-    _sql_constraints = [
-        ('vat_uniq', 'unique(vat)', "Vat and National Id  should be unique")
-    ]
+    # _sql_constraints = [
+    #     ('vat_uniq', 'unique(vat)', "Vat and National Id  should be unique")
+    # ]
 
 
 
