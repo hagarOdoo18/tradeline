@@ -9,36 +9,86 @@
                             <div t-foreach="doc.move_ids_without_package" t-as="move">
                                 <t t-set="quantity" t-value="int(move.product_uom_qty)"/>
                                 <t t-foreach="range(quantity)" t-as="l">
-                    <div style="width:243px;  display: inline-table; padding-bottom:13px; padding-top:30px; margin-left:40px; margin-right:10px;">
-                                        <table>
-                                            <tr>
-                                                <td>
-                                                    <strong t-field="move.product_id.lst_price" style="font-size:9px; margin-right:6px;  margin-left:30px;" class="float-right" t-options="{'widget': 'monetary', 'display_currency':move.product_id.company_id.currency_id}"/>
-                                                    <strong style="font-size:9px; margin-left:20px; "  class="float-left" t-field="move.product_id.barcode"/>
-                                                </td>
-                                            </tr>
-                                            <tr class="text-center">
-                                                <strong style="font-size:8px; padding-left:20px" t-field="move.product_id.display_name"/>
-                                            </tr>
-                                            <tr>
-                                                <td class="text-center align-middle">
-<!--                                                    <t t-if="move.product_id.barcode">-->
-<!--                                                        <img alt="Barcode" t-if="len(move.product_id.barcode) == 13" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN13', move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
-<!--                                                        <img alt="Barcode" t-elif="len(move.product_id.barcode) == 8" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN8',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
-<!--                                                        <img alt="Barcode" t-else="" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('Code128',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>-->
-<!--                                                        &lt;!&ndash;												<span t-field="product.barcode"/>&ndash;&gt;-->
+<!--                    <div style="width:243px;  display: inline-table; padding-bottom:13px; padding-top:30px; margin-left:40px; margin-right:10px;">-->
+<!--                                        <table>-->
+<!--                                            <tr>-->
+<!--                                                <td>-->
+<!--                                                    <strong t-field="move.product_id.lst_price" style="font-size:9px; margin-right:6px;  margin-left:30px;" class="float-right" t-options="{'widget': 'monetary', 'display_currency':move.product_id.company_id.currency_id}"/>-->
+<!--                                                    <strong style="font-size:9px; margin-left:20px; "  class="float-left" t-field="move.product_id.barcode"/>-->
+<!--                                                </td>-->
+<!--                                            </tr>-->
+<!--                                            <tr class="text-center">-->
+<!--                                                <strong style="font-size:8px; padding-left:20px" t-field="move.product_id.display_name"/>-->
+<!--                                            </tr>-->
+<!--                                            <tr>-->
+<!--                                                <td class="text-center align-middle">-->
+<!--&lt;!&ndash;                                                    <t t-if="move.product_id.barcode">&ndash;&gt;-->
+<!--&lt;!&ndash;                                                        <img alt="Barcode" t-if="len(move.product_id.barcode) == 13" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN13', move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>&ndash;&gt;-->
+<!--&lt;!&ndash;                                                        <img alt="Barcode" t-elif="len(move.product_id.barcode) == 8" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('EAN8',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>&ndash;&gt;-->
+<!--&lt;!&ndash;                                                        <img alt="Barcode" t-else="" t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('Code128',move.product_id.barcode, 600, 150)" style="width:100%;height:2.5rem;"/>&ndash;&gt;-->
+<!--&lt;!&ndash;                                                        &lt;!&ndash;												<span t-field="product.barcode"/>&ndash;&gt;&ndash;&gt;-->
+<!--&lt;!&ndash;                                                    </t>&ndash;&gt;-->
+<!--                                                      <t t-if="move.product_id.barcode">-->
+<!--                                                        <div t-field="move.product_id.barcode" t-options="{'widget': 'barcode', 'img_style': 'width:100%;height:35%'}"/>-->
+<!--                                                        <div class="o_label_4x12 text-center"><span t-out="move.product_id.barcode">12345678901</span></div>-->
 <!--                                                    </t>-->
-                                                      <t t-if="move.product_id.barcode">
-                                                        <div t-field="move.product_id.barcode" t-options="{'widget': 'barcode', 'img_style': 'width:100%;height:35%'}"/>
-                                                        <div class="o_label_4x12 text-center"><span t-out="move.product_id.barcode">12345678901</span></div>
-                                                    </t>
-                                                    <t t-else="">
-                                                        <span class="text-muted">No barcode available</span>
-                                                    </t>
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </div>
+<!--                                                    <t t-else="">-->
+<!--                                                        <span class="text-muted">No barcode available</span>-->
+<!--                                                    </t>-->
+<!--                                                </td>-->
+<!--                                            </tr>-->
+<!--                                        </table>-->
+<!--                                    </div>-->
+                                <div style="
+    width:7cm;
+    height:2.5cm;
+    display:inline-block;
+    padding:0.15cm;
+    margin:0;
+    border:1px solid #000;
+    box-sizing:border-box;
+    font-family: Arial;
+    overflow:hidden;
+">
+
+    <table style="width:100%; height:100%; border-collapse:collapse;">
+
+        <!-- السطر الأول: السعر + كود المنتج -->
+        <tr>
+            <td style="font-size:8px; text-align:right; width:50%;">
+                <strong t-field="move.product_id.lst_price"
+                        t-options="{'widget': 'monetary',
+                        'display_currency': move.product_id.company_id.currency_id}"/>
+            </td>
+            <td style="font-size:8px; text-align:left; width:50%;">
+                <span t-field="move.product_id.barcode"/>
+            </td>
+        </tr>
+
+        <!-- اسم المنتج -->
+        <tr>
+            <td colspan="2"
+                style="text-align:center; font-size:7px; padding:1px 0;">
+                <strong t-field="move.product_id.display_name"/>
+            </td>
+        </tr>
+
+        <!-- الباركود -->
+        <tr>
+            <td colspan="2" style="text-align:center;">
+                <t t-if="move.product_id.barcode">
+                    <div t-field="move.product_id.barcode"
+                         t-options="{
+                            'widget': 'barcode',
+                            'img_style': 'width:100%; height:1.2cm;'
+                         }"/>
+                </t>
+            </td>
+        </tr>
+
+    </table>
+</div>
+
                                 </t>
                             </div>
                         </div>
