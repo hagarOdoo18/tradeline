@@ -363,7 +363,7 @@ class ConfigurationDay(models.Model):
                     ("Not Allowed"))
 
     def get_all_invoice_by_date_and_branch(self,day):
-        all_invoices = self.env['account.move'].search([('invoice_date','=',day.date),('branch_id','=',day.branch_id.id),('payment_state','in',['paid','in_payment','partial'])])
+        all_invoices = self.env['account.move'].search([('invoice_date','=',day.date),('branch_id','=',day.branch_id.id),('payment_state','in',['paid','in_payment','partial','reversed'])])
         if all_invoices:
             return all_invoices
         else:
