@@ -53,6 +53,8 @@ class PosOrder(models.Model):
         move = super()._create_invoice(move_vals)
         move.sales_rep_id = self.sales_rep_id.id
         move.discount_id = self.discount_reason_id.id
+        for line  in  move.invoice_line_ids :
+            line.family_id = line.product_id.product_tmpl_id.family_id.id
         # Auto print the invoice after creation
         if move and self.config_id.auto_print_invoice:
             try:
