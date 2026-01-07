@@ -39,6 +39,13 @@ class AccountInvoiceReport(models.Model):
         string='Sales Rep',
         required=False)
 
+    price_subtotal_currency = fields.Float(string='Untaxed Amount in Currency', groups='accounting_customization.group_accounting_reporting_price_subtotal_currency',readonly=True)
+    price_subtotal = fields.Float(string='Untaxed Amount',groups='accounting_customization.group_accounting_reporting_price_subtotal' , readonly=True)
+    price_total = fields.Float(string='Total in Currency',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
+    price_average = fields.Float(string='Average Price', groups='accounting_customization.group_accounting_reporting_avarage',readonly=True, aggregator="avg")
+    price_margin = fields.Float(string='Margin', groups='accounting_customization.group_accounting_reporting_Margin' ,readonly=True)
+    inventory_value = fields.Float(string='Inventory Value', groups='accounting_customization.group_accounting_reporting_valuation', readonly=True)
+
 
     def _select(self) -> SQL:
             return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.name AS invoice_number "

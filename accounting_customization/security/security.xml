@@ -24,5 +24,31 @@
             </record>
 
 
+         <record id="group_accounting_reporting_price_subtotal_currency" model="res.groups">
+                <field name="name">Reporting Untexted Currency</field>
+
+            </record>
+        <record id="group_accounting_reporting_price_subtotal" model="res.groups">
+                        <field name="name">Reporting Untaxed Amount</field>
+
+                    </record>
+        <record id="group_accounting_reporting_Total_Currency" model="res.groups">
+                        <field name="name">Reporting Total in Currency</field>
+
+                    </record>
+        <record id="group_accounting_reporting_avarage" model="res.groups">
+                        <field name="name">Reporting Average Price</field>
+
+                    </record>
+        <record id="group_accounting_reporting_valuation" model="res.groups">
+                        <field name="name">Reporting Inventory Value</field>
+
+                    </record>
+        <record id="group_accounting_reporting_Margin" model="res.groups">
+                        <field name="name">Reporting Margin</field>
+
+                    </record>
+
+
     </data>
 </odoo>

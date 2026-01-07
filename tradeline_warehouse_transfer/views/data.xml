@@ -7,6 +7,8 @@
             <field name="code">transfer.request</field>
             <field name="prefix">TR/</field>
             <field name="padding">4</field>
+                    <field name="company_id" eval="False"/>
+
         </record>
 
 

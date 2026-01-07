@@ -9,7 +9,7 @@
                         <field name="state" widget="statusbar" statusbar_visible="draft,approved,in_progress,received,completed,cancel"/>
                         <button name="approve_request" string="Approve" type="object"  invisible="state != 'draft'" groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
                         <button name="create_request" string="Create" type="object"  invisible="state != 'approved'"  groups="tradeline_warehouse_transfer.group_transfer_manger"/>
-                        <button name="cancel" string="Cancel" type="object"  invisible="state != 'create'" groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
+                        <button name="cancel" string="Cancel" type="object"  groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
                         <button name="action_complete" string="Complete" type="object"  groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
                         <button name="set_draft" string="Set To Draft" type="object" invisible="state not in ['approved','cancel']"  groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
                         <button name="%(tradeline_warehouse_transfer.cancel_reason_action)d" invisible="state != 'draft'"  type="action" string="Cancel" groups="tradeline_warehouse_transfer.group_transfer_super_manger"/>
