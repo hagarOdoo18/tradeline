@@ -31,12 +31,12 @@
                     <field name="reference_number" readonly="state != 'draft'"/>
                     <field name="inv_type" readonly="state != 'draft'"/>
                     <field name="sales_rep_domain" invisible="1"/>
-                    <field name="sales_rep_id" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'"  domain="sales_rep_domain"/>
+                    <field name="sales_rep_id" readonly="state != 'draft'" domain="sales_rep_domain"/>
                     <field name="team_id" readonly="state != 'draft'"/>
                 </xpath>
                 <xpath expr="//field[@name='payment_term_id']" position="after">
                     <field name="discount_domain" invisible="1"/>
-                    <field name="discount_id" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'" domain="discount_domain"/>
+                    <field name="discount_id" readonly="state != 'draft'" domain="discount_domain"/>
                     <field name="channel_id" readonly="state != 'draft'"/>
                     <field name="courier_id" readonly="state != 'draft'"/>
                     <field name="bank_id" readonly="state != 'draft'"/>
