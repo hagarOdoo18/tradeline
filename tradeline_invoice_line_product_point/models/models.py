@@ -58,7 +58,7 @@ class ProductPointWizard (models.TransientModel) :
         invoices_lines = self.sudo ().env ['account.move.line'].search (
             [('invoice_date', '>=', self.date_from),('invoice_date', '<=', self.date_to),('move_id.payment_state', '=', 'paid')])
         for line in invoices_lines :
-            if line.invoice_id.type == "out_refund" :
+            if line.move_id.move_type == "out_refund" :
                 if self.field =='point':
 
                     line.product_point = line.product_id.product_tmpl_id.product_point * -line.quantity
