@@ -100,9 +100,19 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 if self.payment_journal_ids:
                     if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped("journal_id").ids:
                         continue
+
                 payments = line.move_id._get_reconciled_payments()
-                payment_journals = ", ".join(payments.mapped("journal_id.name"))
-                payment_amount = sum(payments.mapped("amount"))
+                if payments:
+                    payment_journals = ", ".join(payments.mapped("journal_id.name"))
+                    payment_amount = sum(payments.mapped("amount"))
+                else:
+                    payment_journals = ", ".join(line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
+                    payment_amount = sum(line.move_id.pos_order_ids.payment_ids.mapped("amount"))
+
+
+
+
+
                 total =  line.move_id.amount_total
                 amount_total_signed =  line.move_id.amount_total_signed
                 amount_untaxed_signed =  line.move_id.amount_untaxed_signed
