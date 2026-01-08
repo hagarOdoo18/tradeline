@@ -102,13 +102,16 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                         continue
 
                 payments = line.move_id._get_reconciled_payments()
+                amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
-                    payment_amount = sum(payments.mapped("amount"))
+                    for payment in payments:
+                        amount += ',' + str(payment.amount)
                 else:
-                    payment_journals = ", ".join(line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    payment_amount = sum(line.move_id.pos_order_ids.payment_ids.mapped("amount"))
-
+                    payment_journals = ", ".join(
+                        line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
+                    for payment in payments:
+                        amount += ',' + str(payment.amount)
 
 
 
@@ -148,7 +151,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 21, float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1 or 0)
                 sheet.write(row, 22,amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, payment_journals if line.move_id.id not in invoices  else '')
-                sheet.write(row, 24, payment_amount if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 24, amount if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 25, line.move_id.sales_rep_id.name or '')
                 sheet.write(row, 26, line.move_id.reference_number or '')
                 sheet.write(row, 27, line.product_id.vendor_id.name or '')
@@ -176,14 +179,16 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                             "journal_id").ids:
                         continue
                 payments = line.move_id._get_reconciled_payments()
+                amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
-                    payment_amount = sum(payments.mapped("amount"))
+                    for payment in payments:
+                        amount += ','+str(payment.amount)
                 else:
                     payment_journals = ", ".join(
                         line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    payment_amount = sum(line.move_id.pos_order_ids.payment_ids.mapped("amount"))
-
+                    for payment in payments:
+                        amount += ',' + str(payment.amount)
                 total = line.move_id.amount_total
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
@@ -219,7 +224,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 21,  float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
                 sheet.write(row, 22,amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, payment_journals if line.move_id.id not in invoices  else '')
-                sheet.write(row, 24, payment_amount if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 24, amount if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 25, line.move_id.sales_rep_id.name or '')
                 sheet.write(row, 26, line.move_id.reference_number or '')
                 sheet.write(row, 27, line.product_id.vendor_id.name or '')
@@ -246,13 +251,16 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                             "journal_id").ids:
                         continue
                 payments = line.move_id._get_reconciled_payments()
+                amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
-                    payment_amount = sum(payments.mapped("amount"))
+                    for payment in payments:
+                        amount += ',' + str(payment.amount)
                 else:
                     payment_journals = ", ".join(
                         line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    payment_amount = sum(line.move_id.pos_order_ids.payment_ids.mapped("amount"))
+                    for payment in payments:
+                        amount += ',' + str(payment.amount)
 
                 total = line.move_id.amount_total
                 amount_total_signed = line.move_id.amount_total_signed
@@ -286,7 +294,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 19, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 20, amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 21, payment_journals if line.move_id.id not in invoices  else '')
-                sheet.write(row, 22, payment_amount if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 22, amount if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, line.move_id.sales_rep_id.name or '')
                 sheet.write(row, 24, line.move_id.reference_number or '')
                 sheet.write(row, 25, line.product_point or '')
