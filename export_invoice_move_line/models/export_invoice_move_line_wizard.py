@@ -110,11 +110,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 else:
                     payment_journals = ", ".join(
                         line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    for payment in payments:
+                    for payment in line.move_id.pos_order_ids.payment_ids:
                         amount += ',' + str(payment.amount)
-
-
-
 
                 total =  line.move_id.amount_total
                 amount_total_signed =  line.move_id.amount_total_signed
@@ -187,8 +184,9 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 else:
                     payment_journals = ", ".join(
                         line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    for payment in payments:
+                    for payment in line.move_id.pos_order_ids.payment_ids:
                         amount += ',' + str(payment.amount)
+
                 total = line.move_id.amount_total
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
@@ -259,7 +257,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 else:
                     payment_journals = ", ".join(
                         line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
-                    for payment in payments:
+                    for payment in  line.move_id.pos_order_ids.payment_ids:
                         amount += ',' + str(payment.amount)
 
                 total = line.move_id.amount_total
