@@ -73,6 +73,8 @@ class ResPartnerInherit(models.Model):
     def mobile_constrain(self):
         if self.mobile:
             print(len(self.mobile))
+            _logger.info(len(self.mobile))
+
             existing_mob = self.search([('mobile', 'in', [str(self.mobile)])]) - self
             if len(existing_mob) > 0 and self.env.user.id  not in [2,1] :
                 raise ValidationError('mobile number already exist')
