@@ -91,7 +91,7 @@ class ConfigurationDay(models.Model):
 
     @api.model
     def _cron_post_new_invoices(self):
-        if self._cr.dbname == "live_11nov_2024":
+        if self._cr.dbname == "tradelinestores-production-25284095":
             get_day = 1
             while get_day <=1:
                 days_to_send = self.env['config.day'].search([('is_post','=',False),('date','=',fields.Date.today() - timedelta(days=int(get_day))),('branch_id','!=',29)])
