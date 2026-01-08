@@ -72,14 +72,13 @@ class ResPartnerInherit(models.Model):
     @api.constrains('mobile')
     def mobile_constrain(self):
         if self.mobile:
-            print(len(self.mobile))
-            _logger.info(len(self.mobile))
+
 
             existing_mob = self.search([('mobile', 'in', [str(self.mobile)])]) - self
             if len(existing_mob) > 0 and self.env.user.id  not in [2,1] :
                 raise ValidationError('mobile number already exist')
 
-            elif self.mobile_type == 'local' and len(self.mobile) != 15:
+            elif self.mobile_type == 'local' and len(self.mobile) in [15,11]:
                 raise ValidationError('The local mobile number must be only 11 digits')
         else:
             raise ValidationError('Please Set Mobile Number')
