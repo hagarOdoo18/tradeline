@@ -29,9 +29,13 @@
                 <xpath expr="//button[@name='button_done']" position="attributes">
                 <attribute name="groups">branch.action_done_purchase</attribute>
             </xpath>
-                <xpath expr="//button[@name='button_confirm']" position="attributes">
+                <xpath expr="//button[@name='button_confirm'][1]" position="attributes">
                 <attribute name="groups">branch.action_confirm_purchase</attribute>
-            </xpath>  <xpath expr="//button[@name='action_create_invoice'][1]" position="attributes">
+            </xpath>
+                 <xpath expr="//button[@name='button_confirm'][2]" position="attributes">
+                <attribute name="groups">branch.action_confirm_purchase</attribute>
+            </xpath>
+                <xpath expr="//button[@name='action_create_invoice'][1]" position="attributes">
                 <attribute name="groups">branch.action_create_bill_purchase</attribute>
             </xpath>
                 <xpath expr="//button[@name='action_create_invoice'][2]" position="attributes">
