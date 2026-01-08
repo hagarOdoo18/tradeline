@@ -1,0 +1,35 @@
+<odoo>
+    <record id="view_branch_account_report_wizard" model="ir.ui.view">
+        <field name="name">account.branch.report.wizard.form</field>
+        <field name="model">account.branch.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Branch Account Excel Report">
+                <group>
+                    <field name="branches_ids" widget="many2many_tags"/>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                </group>
+                 <group  invisible="not excel_file">
+                    <field name="file_name"/>
+                    <field name="excel_file" filename="file_name"/>
+                </group>
+                <footer>
+                    <button name="action_export_excel" type="object" string="Export Excel" class="btn-primary"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_branch_account_report_wizard" model="ir.actions.act_window">
+        <field name="name">Branch Account Excel Report</field>
+        <field name="res_model">account.branch.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_branch_account_excel_report"
+              name="Branch Account Excel Report"
+              parent="account.menu_finance_reports"
+              action="action_branch_account_report_wizard"/>
+</odoo>
