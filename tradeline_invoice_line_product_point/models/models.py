@@ -61,18 +61,18 @@ class ProductPointWizard (models.TransientModel) :
             if line.move_id.move_type == "out_refund" :
                 if self.field =='point':
 
-                    line.product_point = line.product_id.product_tmpl_id.product_point * -line.quantity
+                    line.product_point = line.product_id.product_point * -line.quantity
 
                 else:
-                    line.product_incentive = line.product_id.product_tmpl_id.product_incentive * -line.quantity
+                    line.product_incentive = line.product_id.product_incentive * -line.quantity
 
             else :
                 if self.field == 'point':
 
-                    line.product_point = line.product_id.product_tmpl_id.product_point * line.quantity
+                    line.product_point = line.product_id.product_point * line.quantity
 
                 else:
-                    line.product_incentive = line.product_id.product_tmpl_id.product_incentive * line.quantity
+                    line.product_incentive = line.product_id.product_incentive * line.quantity
 
     def change_product_point ( self,item_code, point) :
         product_template = self.env['product.product'].search([('barcode', '=', item_code)])
