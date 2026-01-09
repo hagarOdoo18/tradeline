@@ -7,6 +7,8 @@ from dateutil.relativedelta import relativedelta
 import calendar
 
 from datetime import date
+from odoo.exceptions import AccessError, UserError
+
 class AccountMove(models.Model):
     _inherit = 'account.move'
 
@@ -74,3 +76,12 @@ class AccountMoveLine(models.Model):
 
 
     branch_id = fields.Many2one('res.branch', related="move_id.branch_id",store=True,string="Branch")
+
+    def remove_move_reconcile(self):
+        if not self.env.user.has_group(
+                'branch.group_unreconcile'
+        ):
+            raise AccessError(
+                "You are not allowed to unreconcile payments."
+            )
+        return super().remove_move_reconcile()

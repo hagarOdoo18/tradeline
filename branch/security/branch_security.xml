@@ -14,6 +14,13 @@
         </record>
 
 
+          <record id="group_unreconcile" model="res.groups">
+            <field name="name">Unreconcile Payment</field>
+
+        </record>
+
+
+
         <record id="group_branch_user_manager" model="res.groups">
             <field name="name">Manager</field>
             <field name="category_id" ref="module_branch_management"/>
