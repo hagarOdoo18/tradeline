@@ -114,14 +114,14 @@ operating-Unit Operation for POS,operating-Unit Operation for Sales,operating-Un
         'views/discount_reason.xml',
         'views/inherited_account_journal.xml',
     ],
-    'assets': {
-        'web.assets_backend': [
-            'branch/views/paymnet_reconcile.xml',
-            # 'branch/static/src/js/payment.js',
-
-
-        ],
-    },
+    # 'assets': {
+    #     'web.assets_backend': [
+    #         'branch/views/paymnet_reconcile.xml',
+    #         'branch/static/src/js/payment.js',
+    #
+    #
+    #     ],
+    # },
     'license' : 'OPL-1',
     'demo': [],
     'test': [],
