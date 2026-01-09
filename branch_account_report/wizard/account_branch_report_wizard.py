@@ -26,7 +26,7 @@ class AccountBranchReportWizard(models.TransientModel):
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
             header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center'})
             text = workbook.add_format({'border': 1})
-            amount = workbook.add_format({'border': 1, 'num_format': '#,##0.00'})
+            amount = workbook.add_format({'border': 1,'align': 'center'})
 
             summary = workbook.add_worksheet('Summary')
             summary_headers = ['Branch', 'Invoices , Credits And Sales Order Count',
@@ -87,7 +87,6 @@ class AccountBranchReportWizard(models.TransientModel):
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.journal_id.name,
                                              payment.amount],
                                             text)
-                            sheet.write(row, 5, inv.amount_total, amount)
                             total_payment += payment.amount
                             row += 1
                     else:
@@ -96,7 +95,9 @@ class AccountBranchReportWizard(models.TransientModel):
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
                                              payment.amount],
                                             text)
-                            sheet.write(row, 5, inv.amount_total, amount)
+                            print( inv.name,' inv')
+                            print( payment.payment_method_id.name,' payment.payment_method_id.name')
+                            print( payment.amount,' payment.amount')
                             total_payment += payment.amount
                             row += 1
 
@@ -110,7 +111,6 @@ class AccountBranchReportWizard(models.TransientModel):
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.journal_id.name,
                                              -1 * payment.amount],
                                             text)
-                            sheet.write(row, 5, -1 * inv.amount_total, amount)
                             total_payment -= payment.amount
                             row += 1
                     else:
@@ -119,7 +119,6 @@ class AccountBranchReportWizard(models.TransientModel):
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
                                              -1 * payment.amount],
                                             text)
-                            sheet.write(row, 5, -1 * inv.amount_total, amount)
                             total_payment -= payment.amount
 
                             row += 1
@@ -131,7 +130,6 @@ class AccountBranchReportWizard(models.TransientModel):
                                      payment.journal_id.name,
                                      payment.amount],
                                     text)
-                    sheet.write(row, 5, payment.amount, amount)
                     row += 1
                 summary.set_column(0, 5, 30)
                 summary.write_row(summary_row, 0, [
