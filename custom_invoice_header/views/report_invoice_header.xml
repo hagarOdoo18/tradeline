@@ -369,9 +369,9 @@
                                         <th  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
                                             <span>ضربية القيمة المضافة</span>
                                         </th>
-                                        <!-- <th  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">-->
-                                        <!--   <span>خصم(%)</span>-->
-                                        <!--</th>-->
+                                         <th  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
+                                           <span>خصم(%)</span>
+                                        </th>
                                         <th class="text-right">
                                             <span groups="account.group_show_line_subtotals_tax_excluded">الاجمالى</span>
                                             <span groups="account.group_show_line_subtotals_tax_included">Total Price</span>
@@ -419,9 +419,9 @@
                                                 <td name="td_taxes" t-attf-class="text-end {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }} {{ 'text-nowrap' if len(taxes) &lt; 10 else '' }}">
                                                 <span t-out="taxes" id="line_tax_ids">Tax 15%</span>
                                             </td>
-                                                <!--<td  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">-->
-                                                <!--    <span t-esc="line.discount"/>-->
-                                                <!--</td>-->
+                                                <td  t-attf-class="text-left {{ 'd-none d-md-table-cell' if report_type == 'html' else '' }}">
+                                                    <span t-esc="line.discount"/>
+                                                </td>
                                                 <td class="text-right o_price_total">
                                                     <span t-field="line.price_subtotal" groups="account.group_show_line_subtotals_tax_excluded"/>
                                                     <span t-field="line.price_total" groups="account.group_show_line_subtotals_tax_included"/>
