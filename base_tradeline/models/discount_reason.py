@@ -40,9 +40,7 @@ class DiscountReason (models.Model):
     def action_new(self):
         self.state = 'new'
 
-    def set_draft(self):
 
-        self.state='draft'
     @api.model
     def _load_pos_data_domain(self, data):
         return []

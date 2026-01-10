@@ -9,7 +9,7 @@
                 <form string="Discount Reason">
                     <header>
                         <button name="action_run" string="Run" class="oe_highlight" invisible="state != 'new'" type="object"/>
-                        <button name="set_draft" string="Set TO Draft" class="oe_highlight" invisible="state != 'stopped'" type="object"/>
+                        <button name="action_new" string="Set TO Draft" class="oe_highlight" invisible="state != 'stopped'" type="object"/>
                         <button name="action_stop" string="Stop" class="oe_highlight" invisible="state != 'run'" type="object"/>
                         <button name="action_new" string="Set New" class="oe_highlight" invisible="state != 'run'" type="object"/>
                         <field name="state" widget="statusbar" statusbar_visible="new,run,stopped"/>
