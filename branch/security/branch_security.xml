@@ -19,6 +19,11 @@
 
         </record>
 
+         <record id="group_margin_pos_report" model="res.groups">
+            <field name="name">Margin POS Report</field>
+
+        </record>
+
 
 
         <record id="group_branch_user_manager" model="res.groups">

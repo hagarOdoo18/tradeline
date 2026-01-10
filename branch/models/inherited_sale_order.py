@@ -296,3 +296,8 @@ class PosConfig(models.Model):
                     raise ValidationError(
                         _("The payment methods for the point of sale %s must belong to its company.", self.name))
 
+class PosOrderReport(models.Model):
+    _inherit = "report.pos.order"
+
+
+    margin = fields.Float(string='Margin', group="branch.group_margin_pos_report" ,readonly=True)
