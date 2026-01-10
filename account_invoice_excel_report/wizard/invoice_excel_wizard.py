@@ -24,10 +24,19 @@ class AccountInvoiceWizard(models.TransientModel):
             ('move_type', 'in', ('out_invoice', 'out_refund')),
         ])
 
+        order_payments = self.env['account.payment'].with_context(
+            allowed_company_ids=self.env.companies.ids
+        ).search([
+            ('sale_order_id', '!=', False),
+
+            ('date', '>=', self.date_from),
+            ('date', '<=', self.date_to),
+        ])
+
         if not invoices:
             raise UserError(_('No invoices found for this period'))
 
-        report = self.generate_excel(invoices)
+        report = self.generate_excel(invoices,order_payments)
 
         return {
             'type': 'ir.actions.act_window',
@@ -37,7 +46,7 @@ class AccountInvoiceWizard(models.TransientModel):
             'target': 'new',
         }
 
-    def generate_excel(self, invoices):
+    def generate_excel(self, invoices,order_payments):
         filename = f'Payment And Branches {datetime.today().strftime("%Y-%m-%d")}.xlsx'
 
         output = BytesIO()
@@ -58,27 +67,52 @@ class AccountInvoiceWizard(models.TransientModel):
         })
 
         sheet.set_column(0, 0, 30)
-        sheet.set_column(1, 20, 20)
+        sheet.set_column(1, 50, 20)
 
         master_dic = {}
         branch_set = set()
 
         for move in invoices:
             branch = move.branch_id.name or _('No Branch')
+            payments = move._get_reconciled_payments()
+            if payments:
+                for payment in payments:
+                    journal = payment.journal_id.name
+                    if move.move_type == 'out_invoice':
+                        amount = payment.amount
+                    else:
+                        amount = payment.amount * -1
+                    branch_set.add(branch)
+                    if journal not in master_dic.keys():
+                        master_dic.setdefault(journal, {})
+                    if branch not in master_dic[journal].keys():
+                        master_dic[journal].setdefault(branch, 0.0)
+                    master_dic[journal][branch] += amount
+            else:
 
-            for line in move.matched_payment_ids.filtered(lambda l: l.state == 'paid'):
-                journal = line.journal_id.name
-                if move.move_type == 'out_invoice':
-                    amount = line.amount
-                else:
-                    amount = line.amount *-1
+                for payment in move.pos_order_ids.payment_ids:
+                    journal=payment.payment_method_id.journal_id.name
+                    amount = payment.amount
+                    branch_set.add(branch)
+                    if branch =='Water Way 3 TLS':
+                        print('Water Way 3 TLS')
+                    if journal not in master_dic.keys():
+                        master_dic.setdefault(journal, {})
+                    if branch not in master_dic[journal].keys():
+                        master_dic[journal].setdefault(branch, 0.0)
+                    master_dic[journal][branch] += amount
 
 
-                branch_set.add(branch)
 
+        for payment in order_payments:
+            branch_set.add(payment.branch_id.name)
+            amount=payment.amount
+            journal = payment.journal_id.name
+            if journal not in master_dic.keys():
                 master_dic.setdefault(journal, {})
-                master_dic[journal].setdefault(branch, 0.0)
-                master_dic[journal][branch] += amount
+            if payment.branch_id.name not in master_dic[journal].keys():
+                master_dic[journal].setdefault(payment.branch_id.name, 0.0)
+            master_dic[journal][payment.branch_id.name] += amount
 
         branches = list(branch_set)
 

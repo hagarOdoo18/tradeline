@@ -79,10 +79,12 @@ class AccountBranchReportWizard(models.TransientModel):
                 total_invoice = total_payment = 0.0
 
                 for inv in invoices:
-                    total_invoice += inv.amount_total
                     payments = inv._get_reconciled_payments()
                     if payments:
+                        total_invoice += inv.amount_total
+
                         for payment in payments:
+
                             sheet.write_row(row, 0,
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.journal_id.name,
                                              payment.amount],
@@ -90,6 +92,9 @@ class AccountBranchReportWizard(models.TransientModel):
                             total_payment += payment.amount
                             row += 1
                     else:
+                        if inv.pos_order_ids.payment_ids:
+                            total_invoice += inv.amount_total
+
                         for payment in inv.pos_order_ids.payment_ids:
                             sheet.write_row(row, 0,
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
@@ -100,10 +105,11 @@ class AccountBranchReportWizard(models.TransientModel):
                             row += 1
 
                 for inv in credits:
-                    total_invoice -= inv.amount_total
 
                     payments = inv._get_reconciled_payments()
                     if payments:
+                        total_invoice -= inv.amount_total
+
                         for payment in payments:
                             sheet.write_row(row, 0,
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.journal_id.name,
@@ -112,6 +118,9 @@ class AccountBranchReportWizard(models.TransientModel):
                             total_payment -= payment.amount
                             row += 1
                     else:
+                        if inv.pos_order_ids.payment_ids:
+                            total_invoice -= inv.amount_total
+
                         for payment in inv.pos_order_ids.payment_ids:
                             sheet.write_row(row, 0,
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
