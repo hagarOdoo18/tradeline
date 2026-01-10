@@ -378,6 +378,9 @@
                                         </th>
 
                                 </t>
+                                  <th class="text-right">
+                                    <span>الضمان</span>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="invoice_tbody">
@@ -428,6 +431,10 @@
                                                 </td>
 
                                         </t>
+                                          <td name="account_invoice_line_warranty_id">
+                                            <span t-field="line.warranty_id.name"/>
+                                        </td>
+
                                     </t>
                                     <t t-if="line.display_type == 'line_section'">
                                         <td colspan="99">
@@ -447,6 +454,8 @@
                             </t>
                         </tbody>
                     </table>
+
+
 
         </xpath>
 

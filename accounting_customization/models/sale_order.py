@@ -220,15 +220,21 @@ class SaleOrderLine(models.Model):
 
 
     @api.onchange('product_id')
-    def _onchange_product_id(self):
+    def _onchange_product_id_set_values(self):
         self.item_code = self.product_id.default_code
         self.family_id = self.product_id.product_tmpl_id.family_id.id
         self.categ_id = self.product_id.categ_id.id
+        warranty =  self.env['product.warranty'].search([('categ_ids','in',self.product_id.categ_id.id)])
+        if warranty:
+            self.warranty_id =  warranty.id
+
 
     def _prepare_invoice_line(self, **optional_values):
 
         res = super()._prepare_invoice_line(**optional_values)
-        res['warranty_id'] = self.warranty_id.id
+        warranty = self.env['product.warranty'].search([('categ_ids', 'in', self.product_id.categ_id.id)])
+
+        res['warranty_id'] = warranty.id if warranty else False
         res['item_code'] =  self.product_id.default_code
         res['family_id'] = self.product_id.product_tmpl_id.family_id.id
         res['categ_id'] = self.product_id.categ_id.id

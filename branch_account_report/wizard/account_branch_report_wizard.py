@@ -95,9 +95,7 @@ class AccountBranchReportWizard(models.TransientModel):
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
                                              payment.amount],
                                             text)
-                            print( inv.name,' inv')
-                            print( payment.payment_method_id.name,' payment.payment_method_id.name')
-                            print( payment.amount,' payment.amount')
+
                             total_payment += payment.amount
                             row += 1
 
@@ -117,9 +115,9 @@ class AccountBranchReportWizard(models.TransientModel):
                         for payment in inv.pos_order_ids.payment_ids:
                             sheet.write_row(row, 0,
                                             [branch.name, inv.name, '', inv.partner_id.name, payment.payment_method_id.name,
-                                             -1 * payment.amount],
+                                            payment.amount],
                                             text)
-                            total_payment -= payment.amount
+                            total_payment += payment.amount
 
                             row += 1
 

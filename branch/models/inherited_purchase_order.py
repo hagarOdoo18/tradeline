@@ -28,7 +28,9 @@ class purchase_order(models.Model):
         return res
 
     branch_id = fields.Many2one('res.branch', string="Branch")
-
+    item_code = fields.Char(
+        string='Item code', related="product_id.barcode",
+        required=False)
     def _prepare_stock_moves(self, picking):
         result = super(purchase_order, self)._prepare_stock_moves(picking)
 
