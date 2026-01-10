@@ -300,4 +300,4 @@ class PosOrderReport(models.Model):
     _inherit = "report.pos.order"
 
 
-    margin = fields.Float(string='Margin', group="branch.group_margin_pos_report" ,readonly=True)
+    margin = fields.Float(string='Margin', groups="branch.group_margin_pos_report" ,readonly=True)
