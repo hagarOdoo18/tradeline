@@ -129,7 +129,16 @@ class SaleOrder(models.Model):
 
     branch_id = fields.Many2one('res.branch', string="Branch",required=True)
 
-    
+    @api.onchange('branch_id')
+    def _onchange_branch_id_warehouse(self):
+        branched_warehouse = self.env['stock.warehouse'].search([('branch_id', '=', self.branch_id.id)])
+        self.warehouse_id = branched_warehouse.id
+        branched_team = self.env['crm.team'].search([('branch_id', '=', self.branch_id.id)])
+        if branched_team:
+            self.team_id = branched_team.ids[0]
+
+
+
     def _prepare_invoice(self):
         res = super(SaleOrder, self)._prepare_invoice()
         res['branch_id'] = self.branch_id.id
