@@ -93,7 +93,14 @@ class SaleOrder(models.Model):
         for line in self.order_line:
             if line.product_id.product_notes != '':
                 self.product_notes == line.product_id.product_notes
-
+    def action_draft(self):
+        orders = self.filtered(lambda s: s.state in ['cancel', 'sent','to_use','refund'])
+        return orders.write({
+            'state': 'draft',
+            'signature': False,
+            'signed_by': False,
+            'signed_on': False,
+        })
 
     @api.onchange('branch_id')
     def onchange_branch_id(self):
