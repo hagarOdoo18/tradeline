@@ -94,8 +94,7 @@ class SaleOrder(models.Model):
             if line.product_id.product_notes != '':
                 self.product_notes == line.product_id.product_notes
     def action_draft(self):
-        orders = self.filtered(lambda s: s.state in ['cancel', 'sent','to_use','refund'])
-        return orders.write({
+        return self.write({
             'state': 'draft',
             'signature': False,
             'signed_by': False,
