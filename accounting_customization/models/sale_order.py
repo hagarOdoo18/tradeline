@@ -246,7 +246,7 @@ class SaleOrderLine(models.Model):
             if line.product_id:
                 if line.discount != 0 and not line.order_id.discount_id:
                     raise UserError("Select Discount Reason To Apply Discount")
-                elif line.discount <= line.order_id.discount_id.discount_percentage:
+                elif line.discount > line.order_id.discount_id.discount_percentage:
                     raise UserError("Discount Not Matched with Discount Reason")
 
     @api.onchange('product_id')
