@@ -323,6 +323,12 @@ class ConfigurationDay(models.Model):
             inv.unlink()
 
     @api.model
+    def set_draft(self):
+        for rec in self:
+            rec.state='draft'
+            rec.is_post = False
+
+    @api.model
     def server_action_create_daily_table(self):
         for day in self:
             # if not day.config_day_lines:
@@ -331,14 +337,12 @@ class ConfigurationDay(models.Model):
                 if all_invoices:
                     new_invoices = self.calculate_new_amount(all_invoices,day)
                     self.create_day_lines(new_invoices,day)
-                    self._cr.commit()
                 percentage = True
                 while percentage:
                     percentage = self.check_table(day)
                     if percentage:
                         if percentage:
                             if not self.recalculate_table(day, percentage):
-                                self._cr.commit()
                                 break
 
     @api.model
