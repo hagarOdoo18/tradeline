@@ -110,30 +110,30 @@ class PurchaseOrder(models.Model):
 
     def _prepare_invoice(self):
         result = super(PurchaseOrder, self)._prepare_invoice()
-        result ['branch_id']:self.branch_id.id
+        result ['branch_id']=self.branch_id.id
 
 
         return result
 
-    def action_view_invoice(self, invoices=False):
-        '''
-        This function returns an action that display existing vendor bills of given purchase order ids.
-        When only one found, show the vendor bill immediately.
-        '''
-
-        result = super(PurchaseOrder, self).action_view_invoice(invoices)
-        if not result.branch_id:
-            branch_id = False
-            if self.branch_id:
-                branch_id = self.branch_id.id
-            elif self.env.user.branch_id:
-                branch_id = self.env.user.branch_id.id
-
-            result.update({
-                'branch_id': branch_id
-            })
-
-        return result
+    # def action_view_invoice(self, invoices=False):
+    #     '''
+    #     This function returns an action that display existing vendor bills of given purchase order ids.
+    #     When only one found, show the vendor bill immediately.
+    #     '''
+    #
+    #     result = super(PurchaseOrder, self).action_view_invoice(invoices)
+    #     if not result.branch_id:
+    #         branch_id = False
+    #         if self.branch_id:
+    #             branch_id = self.branch_id.id
+    #         elif self.env.user.branch_id:
+    #             branch_id = self.env.user.branch_id.id
+    #
+    #         result.update({
+    #             'branch_id': branch_id
+    #         })
+    #
+    #     return result
 
     # @api.onchange('branch_id')
     # def _onchange_branch_id(self):
