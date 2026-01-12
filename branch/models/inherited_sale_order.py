@@ -132,7 +132,9 @@ class SaleOrder(models.Model):
     @api.onchange('branch_id')
     def _onchange_branch_id_warehouse(self):
         branched_warehouse = self.env['stock.warehouse'].search([('branch_id', '=', self.branch_id.id)])
-        self.warehouse_id = branched_warehouse.ids[0]
+        if branched_warehouse:
+
+            self.warehouse_id = branched_warehouse.ids[0]
         branched_team = self.env['crm.team'].search([('branch_id', '=', self.branch_id.id)])
         if branched_team:
             self.team_id = branched_team.ids[0]

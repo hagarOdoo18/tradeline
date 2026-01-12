@@ -110,17 +110,8 @@ class PurchaseOrder(models.Model):
 
     def _prepare_invoice(self):
         result = super(PurchaseOrder, self)._prepare_invoice()
-        if not result.branch_id:
-            branch_id = False
-            if self.branch_id:
-                branch_id = self.branch_id.id
-            elif self.env.user.branch_id:
-                branch_id = self.env.user.branch_id.id
+        result ['branch_id']:self.branch_id.id
 
-            result.update({
-
-                'branch_id': branch_id
-            })
 
         return result
 
