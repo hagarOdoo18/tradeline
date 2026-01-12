@@ -110,7 +110,7 @@ class PurchaseOrder(models.Model):
 
     def _prepare_invoice(self):
         result = super(PurchaseOrder, self)._prepare_invoice()
-        result ['branch_id']=self.branch_id.id
+        result ['branch_id']=self.picking_type_id.branch_id.id
 
 
         return result
