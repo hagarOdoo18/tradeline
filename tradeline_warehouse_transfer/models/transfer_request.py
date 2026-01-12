@@ -467,7 +467,7 @@ class StockPicking(models.Model):
                             s = ','.join(str(x) for x in serials)
                             raise UserError("Check Serials "+ s)
 
-                        raise UserError("Check Transfer Lines and Request Lines or set  qty done for lines")
+                        # raise UserError("Check Transfer Lines and Request Lines or set  qty done for lines")
                 for line in rec.request_id.lines:
                     if line.product_id.tracking == 'serial':
                         if line.serial_ids:
