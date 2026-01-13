@@ -1,144 +1,112 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-
         <record id="vendor_received_document_form_view" model="ir.ui.view">
-    <field name="name">vendor.received.document.form.view</field>
-    <field name="model">vendor.received.document</field>
-    <field name="arch" type="xml">
-
-        <form create="0" delete="0" edit="0">
-
-            <!-- HEADER -->
-            <header>
-
-                <button name="action_link_bill"
-                        string="Link To Bill"
-                        type="object"
-                        icon="fa-link"
-                        class="oe_highlight"
-                        invisible="state != 'draft'"/>
-
-                <button name="action_reset"
-                        string="Reset To Draft"
-                        type="object"
-                        icon="fa-refresh"
-                        class="oe_highlight"
-                        invisible="state != 'done'"/>
-
-                <field name="state"
-                       widget="statusbar"
-                       statusbar_visible="draft,done"/>
-            </header>
-
-            <sheet>
-
-                <div class="oe_button_box" name="button_box"/>
-
-                <field name="document_status" invisible="1"/>
-
-                <!-- RIBBONS -->
-                <div class="ribbon ribbon-top-right green"
-                     invisible="document_status != 'Valid'">
-                    <span>Valid</span>
-                </div>
-
-                <div class="ribbon ribbon-top-right red"
-                     invisible="document_status == 'Valid'">
-                    <span>Not Valid</span>
-                </div>
-
-                <label for="name"/>
-                <h2>
-                    <field name="name" class="oe_title" placeholder="UUID"/>
-                </h2>
-
-                <!-- MAIN DATA -->
-                <group>
-                    <group>
-                        <field name="partner_id" invisible="not partner_id"/>
-                        <field name="issuer_id"/>
-                        <field name="issuer_name"/>
-                        <field name="date_issued"/>
-                        <field name="receiver_id"/>
-                        <field name="receiver_name"/>
-                        <field name="date_received"/>
-                    </group>
-
-                    <group>
-                        <field name="bill_id" invisible="not bill_id"/>
-                        <field name="submission_id"/>
-                        <field name="document_type"/>
-                        <field name="document_version"/>
-                        <field name="company_id" groups="base.group_multi_company"/>
-                        <field name="currency_id" groups="base.group_multi_company"/>
-                    </group>
-                </group>
-
-                <!-- NOTEBOOK -->
-                <notebook>
-
-                    <page string="Lines">
-                        <field name="line_ids" readonly="1">
-                            <tree create="0" edit="0" delete="0">
-                                <field name="name"/>
-                                <field name="hs_description"/>
-                            </tree>
-                        </field>
-
-                        <group col="4">
-                            <group class="oe_subtotal_footer oe_right">
-                                <field name="total_sales" widget="monetary"/>
-                                <field name="total_discount" widget="monetary"/>
-                                <field name="net_amount" widget="monetary"/>
-                                <hr/>
-                                <field name="total" widget="monetary"/>
-                            </group>
-                        </group>
-                    </page>
-
-                    <page name="json_details"
-                          string="Json Details"
-                          groups="egyptian_electronic_invoice.group_e_invoice_sync">
-                        <field name="json"/>
-                    </page>
-
-                </notebook>
-            </sheet>
-
-            <!-- CHATTER -->
-            <div class="oe_chatter">
-                <field name="message_follower_ids" widget="mail_followers"/>
-                <field name="message_ids" widget="mail_thread"/>
-            </div>
-
-        </form>
-    </field>
-</record>
-
-
-        <record id="vendor_received_document_tree_view" model="ir.ui.view">
-            <field name="name">vendor.received.document.tree</field>
+            <field name="name">vendor.received.document.form.view</field>
             <field name="model">vendor.received.document</field>
             <field name="arch" type="xml">
-                <list string="Received Doc" decoration-success="state == 'done'">
+                <form create="0" delete="0" edit="0">
+                    <header>
+                        <button name="action_link_bill" string="Link To Bill" groups="base.group_user"
+                                type="object" class="oe_highlight" invisible="state != 'draft'" icon="fa-link"/>
+                        <button name="action_reset" string="Reset To Draft" groups="base.group_user"
+                                type="object" class="oe_highlight" invisible="state != 'done'"  icon="fa-refresh"/>
+                        <button name="action_reject" string="Reject Document" groups="base.group_user"
+                                invisible="state != 'done' "
+                                type="object" class="btn-danger"  icon="fa-file"/>
+                        <field name="state" widget="statusbar" statusbar_visible="draft,done"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_button_box" name="button_box"/>
+                        <field name="document_status" invisible="1"/>
+                        <widget name="web_ribbon" title="Valid" bg_color="bg-success"
+                                invisible="document_status != 'Valid'"
+                        />
+                        <widget name="web_ribbon" title="Not Valid" bg_color="bg-warning"
+                                invisible="document_status == 'Valid'"
+
+                        />
+                        <label for="name" />
+                        <h2>
+                            <field name="name" class="oe_title" placeholder="UUID"/>
+                        </h2>
+                        <group>
+                            <group>
+                                <field name="partner_id"  invisible="partner_id == False"/>
+                                <field name="issuer_id"/>
+                                <field name="issuer_name"/>
+                                <field name="date_issued"/>
+                                <field name="receiver_id"/>
+                                <field name="receiver_name"/>
+                                <field name="date_received"/>
+                                <field name="show_result"/>
+                            </group>
+                            <group>
+                                <field name="bill_id" invisible="bill_id == False"/>
+                                <field name="submission_id"/>
+                                <field name="document_type"/>
+                                <field name="document_version"/>
+                                <field name="company_id" groups="base.group_multi_company"/>
+                                <field name="currency_id" groups="base.group_multi_company"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Lines">
+                                <field name="line_ids" readonly="1">
+                                    <list edit="0" create="0" delete="0">
+                                        <field name="name"/>
+                                        <field name="hs_type"/>
+                                        <field name="hs_code"/>
+                                        <field name="hs_description" optional="show"/>
+                                    </list>
+                                </field>
+                                <group col="4">
+                                    <!-- Totals-->
+                                    <group class="oe_subtotal_footer oe_right">
+                                        <field name="total_sales" widget="monetary"/>
+                                        <field name="total_discount" widget="monetary"/>
+                                        <field name="net_amount" widget="monetary"/>
+                                        <hr/>
+                                        <field name="total" widget="monetary"/>
+                                    </group>
+
+                                </group>
+                            </page>
+                            <page name="json_details" string="Json Details" groups="egyptian_electronic_invoice.group_e_invoice_sync">
+                                <field name="json"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <div class="oe_chatter">
+                        <field name="message_follower_ids" widget="mail_followers"/>
+                        <field name="message_ids" widget="mail_thread"/>
+                    </div>
+                </form>
+            </field>
+        </record>
+
+        <record id="vendor_received_document_tree_view" model="ir.ui.view">
+            <field name="name">vendor.received.document.tree.view</field>
+            <field name="model">vendor.received.document</field>
+            <field name="arch" type="xml">
+                <list create="0" delete="1" multi_edit="0">
                     <field name="name"/>
-                    <field name="issuer_id" />
+                    <field name="issuer_id" optional="hide"/>
                     <field name="issuer_name"/>
                     <field name="date_issued"/>
-                    <field name="receiver_id" />
+                    <field name="receiver_id" optional="hide"/>
                     <field name="receiver_name"/>
                     <field name="date_received"/>
-                    <field name="submission_id" />
+                    <field name="submission_id" optional="hide"/>
                     <field name="document_type"/>
                     <field name="document_version"/>
                     <field name="company_id" groups="base.group_multi_company"/>
-                    <field name="currency_id" groups="base.group_multi_company" />
-                    <field name="state" />
-                    <field name="total_sales"  sum="TotalSales" widget="monetary"/>
-                    <field name="total_discount"  sum="Discount" widget="monetary"/>
-                    <field name="net_amount"  sum="NetTotal" widget="monetary"/>
-                    <field name="total"  sum="Total" widget="monetary"/>
+                    <field name="currency_id" groups="base.group_multi_company" optional="hide"/>
+                    <field name="state" optional="show"/>
+                    <field name="total_sales" optional="hide" sum="TotalSales" widget="monetary"/>
+                    <field name="total_discount" optional="hide" sum="Discount" widget="monetary"/>
+                    <field name="net_amount" optional="hide" sum="NetTotal" widget="monetary"/>
+                    <field name="total" optional="show" sum="Total" widget="monetary"/>
                 </list>
             </field>
         </record>
@@ -171,7 +139,7 @@
             <field name="name">ETA Received Documents</field>
             <field name="res_model">vendor.received.document</field>
             <field name="type">ir.actions.act_window</field>
-            <field name="view_mode">tree,form</field>
+            <field name="view_mode">list,form</field>
         </record>
 
         <menuitem id="menu_vendor_received_document"
@@ -185,9 +153,7 @@
             <field name="active">0</field>
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
-            <field name="numbercall">-1</field>
             <field name="nextcall" eval="(DateTime.now().replace(hour=00, minute=00, second=00) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')" />
-            <field name="doall" eval="False"/>
             <field name="model_id" ref="base.model_res_company"/>
             <field name="code">env.company.get_recent_documents()</field>
             <field name="state">code</field>

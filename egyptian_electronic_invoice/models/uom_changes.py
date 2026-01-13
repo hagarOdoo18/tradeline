@@ -57,8 +57,7 @@ class AccountTaxSubType(models.Model):
 		domain = []
 		if name:
 			domain = ['|', ('name', operator, name), ('code', operator, name)]
-		obj_ids = self._search(domain + args, limit=limit, access_rights_uid=name_get_uid)
-		return self.browse(obj_ids).name_get()
+		return self._search(expression.AND([domain, args]), limit=limit, access_rights_uid=name_get_uid)
 	
 	@api.model
 	def load_eta_uom(self):
@@ -66,16 +65,21 @@ class AccountTaxSubType(models.Model):
 		Load All uom from JSON file
 		:return:
 		"""
+		print("---- 11 ----")
 		uom_obj = self.env['eta.uom']
+		print("---- in ----")
 		with open(os.path.join(os.path.dirname(__file__), '../data/UnitTypes.json'), 'r', encoding='utf8') as EtaUom:
+			print("EtaUom: ", EtaUom)
 			details = eval(json.dumps(json.load(EtaUom), indent=4))
 		if details:
+			print("Details: ", details)
 			current_uom = uom_obj.search([]).mapped('code')
 			for eta_uom in details:
 				if eta_uom.get('code') and eta_uom.get('code') not in current_uom:
 					uom_obj.create({
 						'code': eta_uom.get('code'),
 						'name': eta_uom.get('desc_en')
+						
 					})
 					logging.info(green + "Create New UOM: %s" % eta_uom.get('Code') + reset)
 # Ahmed Salama Code End.

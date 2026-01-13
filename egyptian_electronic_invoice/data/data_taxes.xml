@@ -4,9 +4,11 @@
         <!-- Tax template for sale and purchase -->
         <record id="tax_group_14" model="account.tax.group">
             <field name="name">Additional Taxes 14%</field>
+            <field name="country_id" ref="base.eg"/>
         </record>
         <record id="tax_group_withholding_tax" model="account.tax.group">
             <field name="name">Withholding tax (WHT)</field>
+            <field name="country_id" ref="base.eg"/>
         </record>
     </data>
     <data>
@@ -16,6 +18,7 @@
             <field name="amount">14</field>
             <field name="active">True</field>
             <field name="type_tax_use">sale</field>
+            <field name="country_id" ref="base.eg"/>
             <field name="tax_group_id" ref="egyptian_electronic_invoice.tax_group_14"/>
             <field name="type_code_id" ref="egyptian_electronic_invoice.default_tax_type"/>
             <field name="sub_type_code_id" ref="egyptian_electronic_invoice.default_tax_sub_type"/>

@@ -58,8 +58,7 @@ class AccountTaxType(models.Model):
 		domain = []
 		if name:
 			domain = ['|', '|', ('name', operator, name), ('ar_name', operator, name), ('code', operator, name)]
-		obj_ids = self._search(domain + args, limit=limit, access_rights_uid=name_get_uid)
-		return self.browse(obj_ids).name_get()
+		return self._search(expression.AND([domain, args]), limit=limit, access_rights_uid=name_get_uid)
 	
 	@api.model
 	def load_tax_types(self):
@@ -138,8 +137,7 @@ class AccountTaxSubType(models.Model):
 		domain = []
 		if name:
 			domain = ['|', '|', ('name', operator, name), ('ar_name', operator, name), ('code', operator, name)]
-		obj_ids = self._search(domain + args, limit=limit, access_rights_uid=name_get_uid)
-		return self.browse(obj_ids).name_get()
+		return self._search(expression.AND([domain, args]), limit=limit, access_rights_uid=name_get_uid)
 	
 	@api.model
 	def load_tax_sub_types(self):

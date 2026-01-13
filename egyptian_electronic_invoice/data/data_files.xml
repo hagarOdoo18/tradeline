@@ -30,13 +30,14 @@
             <field name="name">Non-specialized wholesale trade</field>
             <field name="ar_name">تجارة الجملة غير المتخصصة</field>
         </record>
+<!--        <record id="default_product_uom_unit" model="eta.uom">-->
+<!--            <field name="code">EA</field>-->
+<!--            <field name="name">each (ST) ( ST )</field>-->
+<!--        </record>-->
         <!--   Load Json Files-->
         <function name="load_eta_uom" model="eta.uom"/>
         <function name="load_tax_types" model="account.tax.type.code"/>
         <function name="load_tax_sub_types" model="account.tax.sub.type.code"/>
         <function name="load_activity_codes" model="res.company.activity"/>
-
-
-
     </data>
 </odoo>
