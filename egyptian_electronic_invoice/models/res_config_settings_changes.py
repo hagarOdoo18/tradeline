@@ -27,15 +27,13 @@ class ResConfigSettings(models.TransientModel):
     eta_expiration_duration = fields.Integer("ETA Expiration Duration", default=7, required=True,
                                              help="This field is used to configure the duration of expiration"
                                                   " which updated from ETA side.")
-    auto_choose_class = fields.Boolean(string='Auto Edit Classifications',
-                                                  help='Used to auto select classifications '
-                                                       'according to Val/National ID regex.')
     
     @api.model
     def default_get(self, fields):
         vals = super(ResConfigSettings, self).default_get(fields)
         vals['document_validate_cron_id'] = self.env.ref('egyptian_electronic_invoice.ir_cron_document_posted_sync').id
-        vals['vendor_received_doc_cron_id'] = self.env.ref('egyptian_electronic_invoice.ir_cron_auto_pull_received_documents').id
+        vals['vendor_received_doc_cron_id'] = self.env.ref(
+            'egyptian_electronic_invoice.ir_cron_auto_pull_received_documents').id
         return vals
     
     @api.model
@@ -59,9 +57,6 @@ class ResConfigSettings(models.TransientModel):
         # ETA Expiration Duration
         res['eta_expiration_duration'] = int(self.env['ir.config_parameter'].sudo().get_param(
             'egyptian_electronic_invoice.eta_expiration_duration')) or 7
-        # ETA Auto Classification
-        res['auto_choose_class'] = self.env['ir.config_parameter'].sudo().get_param(
-            'egyptian_electronic_invoice.auto_choose_class')
         return res
     
     @api.model
@@ -93,8 +88,5 @@ class ResConfigSettings(models.TransientModel):
         # ETA Expiration Duration
         self.env['ir.config_parameter'].sudo().set_param('egyptian_electronic_invoice.eta_expiration_duration',
                                                          int(self.eta_expiration_duration))
-        # ETA Auto Classification
-        self.env['ir.config_parameter'].sudo().set_param('egyptian_electronic_invoice.auto_choose_class',
-                                                         self.auto_choose_class)
 
 

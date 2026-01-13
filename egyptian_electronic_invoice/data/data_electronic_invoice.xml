@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data noupdate="1">
-
         <!--Testing Details-->
 <!--        <record id="uom.product_uom_unit" model="uom.uom">-->
 <!--            <field name="eta_uom_id" ref="egyptian_electronic_invoice.default_product_uom_unit"/>-->
@@ -37,7 +36,7 @@
             <field name="email">ahmed.salama1679@gmail.com</field>
             <field name="vat">313717919</field>
             <field name="classification">B</field>
-            <field name="customer">1</field>
+            <field name="customer_rank">1</field>
             <field name="website">https://www.linkedin.com/in/ahmed-salama-a982b182</field>
             <field name="image_1920" type="base64" file="egyptian_electronic_invoice/static/description/eta_gov.jpg"/>
         </record>

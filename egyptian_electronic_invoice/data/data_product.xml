@@ -12,7 +12,7 @@
             <field name="hs_type">GS1</field>
             <field name="hs_description">المنتج رقم 1 من الفاتوره الإلكترونيه</field>
             <field name="taxes_id" eval='[(6, 0, [ref("egyptian_electronic_invoice.additional_taxes_14_template")])]'/>
-            <field name="categ_id" ref="product.product_category_all"/>
+            <field name="categ_id" ref="product.product_category_1"/>
             <field name="uom_id" ref="uom.product_uom_unit" />
             <field name="uom_po_id" ref="uom.product_uom_unit" />
         </record>
