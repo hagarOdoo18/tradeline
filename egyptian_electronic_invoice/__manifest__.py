@@ -20,13 +20,13 @@
 #################################################################################
 
 {
-    'name': "ETA - Egyptian Electronic Invoice V15.0",
+    'name': "ETA - Egyptian Electronic Invoice V18.0",
     'author': 'Ahmed Salama',
     'category': 'Accounting',
-    'summary': """Egyptian Electronic Invoice Submitting module V15.0""",
+    'summary': """Egyptian Electronic Invoice Submitting module V18.0""",
     'website': 'https://www.linkedin.com/in/ahmed-salama-a982b182/',
     'license': 'AGPL-3',
-    'description': """Egyptian Electronic Invoice Submitting module V15.0""",
+    'description': """Egyptian Electronic Invoice Submitting module V18.0""",
     'version': '10.1',
     'depends': ['account', 'product', 'uom'],
     'data': [
