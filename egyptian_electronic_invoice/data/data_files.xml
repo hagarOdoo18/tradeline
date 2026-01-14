@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="default_tax_type" model="account.tax.type.code">
+            <field name="code">T1</field>
+            <field name="name">Value added tax</field>
+            <field name="ar_name">ضريبه القيمه المضافه</field>
+            <field name="taxable">True</field>
+        </record>
+        <record id="default_tax_sub_type" model="account.tax.sub.type.code">
+            <field name="code">V001</field>
+            <field name="name">Export</field>
+            <field name="ar_name">تصدير للخارج</field>
+            <field name="type_id" ref="egyptian_electronic_invoice.default_tax_type"/>
+        </record>
+        <record id="default_tax_type_t4" model="account.tax.type.code">
+            <field name="code">T4</field>
+            <field name="name">Withholding tax (WHT)</field>
+            <field name="ar_name">الخصم تحت حساب الضريبه</field>
+            <field name="taxable">True</field>
+        </record>
+        <record id="default_tax_sub_type_t4" model="account.tax.sub.type.code">
+            <field name="code">W010</field>
+            <field name="name">Professional fees</field>
+            <field name="ar_name">اتعاب مهنية</field>
+            <field name="type_id" ref="egyptian_electronic_invoice.default_tax_type_t4"/>
+        </record>
+        <record id="default_company_activity" model="res.company.activity">
+            <field name="code">4690</field>
+            <field name="name">Non-specialized wholesale trade</field>
+            <field name="ar_name">تجارة الجملة غير المتخصصة</field>
+        </record>
+<!--        <record id="default_product_uom_unit" model="eta.uom">-->
+<!--            <field name="code">EA</field>-->
+<!--            <field name="name">each (ST) ( ST )</field>-->
+<!--        </record>-->
+        <!--   Load Json Files-->
+        <function name="load_eta_uom" model="eta.uom"/>
+        <function name="load_tax_types" model="account.tax.type.code"/>
+        <function name="load_tax_sub_types" model="account.tax.sub.type.code"/>
+        <function name="load_activity_codes" model="res.company.activity"/>
+    </data>
+</odoo>
