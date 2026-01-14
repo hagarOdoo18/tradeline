@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- UOM-->
+        <menuitem action="uom.product_uom_form_action" id="menu_product_uom_form_action"
+                  parent="account.account_invoicing_menu" sequence="7"/>
+        <record id="e_invoice_product_uom_form_view_inherit" model="ir.ui.view">
+            <field name="name">e_invoice.uom.uom.form.inherit</field>
+            <field name="model">uom.uom</field>
+            <field name="inherit_id" ref="uom.product_uom_form_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="eta_uom_id"/>
+                </xpath>
+            </field>
+        </record>
+        <!-- ETA UOM-->
+        <record id="eta_uom_tree_view" model="ir.ui.view">
+            <field name="name">eta.uom.tree</field>
+            <field name="model">eta.uom</field>
+            <field name="arch" type="xml">
+                <list string="ETS Units of Measure" create="0" delete="0">
+                    <field name="code"/>
+                    <field name="name"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="eta_uom_form_view" model="ir.ui.view">
+            <field name="name">eta.uom.form</field>
+            <field name="model">eta.uom</field>
+            <field name="arch" type="xml">
+                <form string="Units of Measure" create="0" delete="0">
+                    <sheet>
+                        <group>
+                            <field name="code"/>
+                            <field name="name"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+        <record id="eta_uom_form_action" model="ir.actions.act_window">
+            <field name="name">ETA Units of Measure</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">eta.uom</field>
+            <field name="view_id" ref="eta_uom_tree_view"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Add a new ETA unit of measure
+                </p>
+            </field>
+        </record>
+
+        <menuitem action="eta_uom_form_action" id="menu_eta_uom_form_action"
+                  parent="account.account_invoicing_menu" sequence="8"/>
+
+    </data>
+</odoo>
