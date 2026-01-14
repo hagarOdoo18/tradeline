@@ -1,0 +1,22 @@
+<odoo>
+    <record id="action_import_transfer_excel" model="ir.actions.act_window">
+        <field name="name">Import Excel</field>
+        <field name="res_model">import.transfer.excel</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_picking_form_import_excel" model="ir.ui.view">
+        <field name="name">stock.picking.form.import.excel</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="%(action_import_transfer_excel)d"
+                        type="action"
+                        string="Import Excel"
+                        class="btn-primary"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
