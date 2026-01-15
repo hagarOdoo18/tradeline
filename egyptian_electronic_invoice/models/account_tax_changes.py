@@ -172,4 +172,5 @@ class AccountTaxInherit(models.Model):
 	sub_type_code_id = fields.Many2one('account.tax.sub.type.code', "Sub Tax Type Code",
 	                                   domain="[('type_id','=',type_code_id)]", ondelete='cascade',
 	                                   help="To be used in informing of Egyptian Taxes Foundation.")
+	is_deduction = fields.Boolean(string="Is Deduction")
 # Ahmed Salama Code End.
