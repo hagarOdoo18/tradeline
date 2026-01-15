@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 # Part of BrowseInfo. See LICENSE file for full copyright and licensing details.
-
 {
     'name': 'POS Restrict Zero Quantity',
     'version': '18.0.0.0',
@@ -9,15 +8,15 @@
     'description' :"""
        The Point Of Sale Restrict Zero Quantity Odoo App helps users to prevents the sales of products with zero or negative stock levels, ensuring that businesses never run out of stock. Additionally, the app can be configured to display a warning message when the stock level of a product is getting low. When a customer attempts to purchase a product with a stock level below the minimum, the app will display an error message, preventing the sale from going through.
     """,
-    'author': 'BrowseInfo',
-    'website': 'https://www.browseinfo.in',
+    'author': 'BROWSEINFO',
+    'website': 'https://www.browseinfo.com/demo-request?app=bi_pos_restrict_zero_qty&version=18&edition=Community',
     'depends': ['base','point_of_sale'],
     'data': [
         'views/pos_config_view.xml',
     ],
     'assets':{
-        'point_of_sale.assets': [
-            '/bi_pos_restrict_zero_qty/static/src/js/ProductScreen.js',
+        'point_of_sale._assets_pos': [
+            '/bi_pos_restrict_zero_qty/static/src/app/models/models.js',
          ],
     },
     'demo': [],
@@ -25,6 +24,6 @@
     'license':'OPL-1',
     'installable': True,
     'auto_install': False,
-    'live_test_url':'https://youtu.be/6pUwaykhfQE',
+    'live_test_url':'https://www.browseinfo.com/demo-request?app=bi_pos_restrict_zero_qty&version=18&edition=Community',
     "images":['static/description/Banner.gif'],
 }

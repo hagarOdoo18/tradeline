@@ -13,7 +13,7 @@ class PosConfig(models.Model):
 class ResConfigSettings(models.TransientModel):
 	_inherit = 'res.config.settings'
 
-	restrict_zero_qty = fields.Boolean(related="pos_config_id.restrict_zero_qty",readonly=False)
+	pos_restrict_zero_qty = fields.Boolean(related="pos_config_id.restrict_zero_qty",readonly=False)
 
 
 class PosSession(models.Model):
@@ -24,3 +24,11 @@ class PosSession(models.Model):
 		result['search_params']['fields'].extend(['qty_available','type'])
 		return result
 
+class ProductProductInherit(models.Model):
+	_inherit = 'product.product'
+
+	@api.model
+	def _load_pos_data_fields(self, config_id):
+		params = super()._load_pos_data_fields(config_id)
+		params += ['qty_available','type']
+		return params
