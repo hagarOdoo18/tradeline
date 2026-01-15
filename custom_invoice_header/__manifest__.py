@@ -7,6 +7,7 @@
     'depends': ['account','stock_account'],
     'data': [
         'views/report_invoice_header.xml',
+        'views/transfer_report.xml',
     ],
     'installable': True,
     'application': False,

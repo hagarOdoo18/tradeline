@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+     <template id="report_delivery_document_inherit_transfer_number" inherit_id="stock.report_delivery_document">
+         <xpath expr="//div[@name='div_sched_date']" position="after">
+            <div class="col col-3 mw-100 mb-2" t-if="o.sudo().request_id">
+                <strong>Transfer Request</strong>
+                <div t-field="o.sudo().request_id.name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" t-if="o.sudo().request_id">
+                <strong>Sales Rep</strong>
+                <div t-field="o.sudo().request_id.sales_rep.name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" >
+                <strong>From</strong>
+                <div t-field="o.sudo().location_id.complete_name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" >
+                <strong>To</strong>
+                <div t-field="o.sudo().location_dest_id.complete_name" class="m-0"></div>
+            </div>
+            <div class="col col-3 mw-100 mb-2" >
+                <strong>Branch</strong>
+                <div t-field="o.sudo().branch_id.name" class="m-0"></div>
+            </div>
+
+        </xpath>
+    </template>
+         <template id="report_report_picking_inherit_transfer_number" inherit_id="stock.report_picking">
+         <xpath expr="//div[@id='informations']" position="after">
+         <div id="informations" class="row mb-4">
+
+            <div class="col col-3 mw-100 mb-2" t-if="o.sudo().request_id">
+                <strong>Transfer Request</strong>
+                <div t-field="o.sudo().request_id.name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" t-if="o.sudo().request_id">
+                <strong>Sales Rep</strong>
+                <div t-field="o.sudo().request_id.sales_rep.name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" >
+                <strong>From</strong>
+                <div t-field="o.sudo().location_id.complete_name" class="m-0"></div>
+            </div>
+             <div class="col col-3 mw-100 mb-2" >
+                <strong>To</strong>
+                <div t-field="o.sudo().location_dest_id.complete_name" class="m-0"></div>
+            </div>
+            <div class="col col-3 mw-100 mb-2" >
+                <strong>Branch</strong>
+                <div t-field="o.sudo().branch_id.name" class="m-0"></div>
+            </div>
+         </div>
+
+        </xpath>
+    </template>
+
+</odoo>
