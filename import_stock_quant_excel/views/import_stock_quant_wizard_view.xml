@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_import_stock_quant_wizard" model="ir.ui.view">
+        <field name="name">import.stock.quant.wizard.form</field>
+        <field name="model">import.stock.quant.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="company_id"/>
+                    <field name="file" filename="filename"/>
+                </group>
+                <footer>
+                    <button name="action_preview" type="object" string="Preview" class="btn-primary"/>
+                    <button name="action_remove_invalid_lines" type="object" string="Remove Invalid Lines" invisible="state != 'preview'"
+                           />
+                    <button name="action_apply" type="object" string="Apply" invisible="state != 'preview'"
+                           />
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+                <field name="line_ids">
+                    <list>
+                        <field name="row_no"/>
+                        <field name="item_code"/>
+                        <field name="location_name"/>
+                        <field name="quantity"/>
+                        <field name="serial"/>
+                        <field name="is_valid"/>
+                        <field name="error_msg"/>
+                    </list>
+                </field>
+            </form>
+        </field>
+    </record>
+
+
+    <record id="action_import_stock_quant" model="ir.actions.act_window">
+    <field name="name">Import Stock (Excel)</field>
+    <field name="res_model">import.stock.quant.wizard</field>
+    <field name="view_mode">form</field>
+    <field name="target">new</field>
+</record>
+
+    <menuitem id="menu_import_stock_quant"
+          name="Import Stock (Excel)"
+          parent="stock.menu_stock_inventory_control"
+          action="action_import_stock_quant"
+          groups="import_stock_quant_excel.group_import_stock_quant"/>
+
+
+</odoo>
