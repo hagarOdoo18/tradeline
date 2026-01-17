@@ -7,7 +7,7 @@
             <notebook position="inside">
                 <page string="Stock Locations">
                     <group name="Locations">
-                                            <field name="stock_location_ids" widget="many2many_tags"/>
+                                            <field name="stock_location_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}"/>
 
                     </group>
                 </page>

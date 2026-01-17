@@ -14,7 +14,7 @@ class ProductTemplate(models.Model):
         string='Ar Description',
         required=False)
 
-    @api.model
+    @api.model_create_multi
     def create(self, vals):
         code = self.env['ir.sequence'].next_by_code(
             'product.product')

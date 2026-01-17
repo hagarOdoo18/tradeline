@@ -10,9 +10,12 @@ class AppleStockReportWizard(models.TransientModel):
 
     gentextfile = fields.Binary('File')
 
-    def get_locations_domain(self):
-        return [('id', 'in', self.env.user.stock_location_ids.ids)]
-    location_ids = fields.Many2many('stock.location',domain=get_locations_domain)
+    def _get_locations_domain(self):
+        print( self.env.user.stock_location_ids.ids)
+        return "[('id', 'in', %s)]" %self.env.user.stock_location_ids.ids
+
+
+    location_ids = fields.Many2many('stock.location',domain=lambda self: [('id', 'in',self.env.user.stock_location_ids.ids)],)
 
     def generate_xlsx_report(self):
         self.ensure_one()
