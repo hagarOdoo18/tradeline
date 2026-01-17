@@ -949,7 +949,15 @@ class AccountMoveLineInherit(models.Model):
 					totalTaxableFees += amount
 				if self.currency_id:
 					# TODO: NEEDED to be changed
-					amount = self.currency_id.compute(amount, EGP)
+					amount = self.currency_id._convert(
+								amount,
+								EGP,
+								self.company_id,
+								self.move_id.invoice_date or fields.Date.today()
+							)
+
+					
+
 				taxType = tax.type_code_id.code or self.env.company.type_code_id.code
 				subType = tax.sub_type_code_id.code or self.env.company.sub_type_code_id.code
 				rate = abs(tax.amount)
