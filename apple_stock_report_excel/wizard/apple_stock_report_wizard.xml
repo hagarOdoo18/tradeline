@@ -8,7 +8,7 @@
             <form string="Apple Stock Excel">
               <sheet>
                   <group>
-                      <field name="location_ids" widget="many2many_tags"/>
+                      <field name="location_ids" widget="many2many_tags" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}"/>
                   </group>
               </sheet>
               <footer>
