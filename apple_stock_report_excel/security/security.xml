@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data>
+
+        <record id="group_export_applestock_vendor" model="res.groups">
+            <field name="name">vendor at Apple stock Excel</field>
+        </record>
+
+
+
+
+    </data>
+</odoo>

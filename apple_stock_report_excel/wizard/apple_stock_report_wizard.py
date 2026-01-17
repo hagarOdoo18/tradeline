@@ -10,9 +10,6 @@ class AppleStockReportWizard(models.TransientModel):
 
     gentextfile = fields.Binary('File')
 
-    def _get_locations_domain(self):
-        print( self.env.user.stock_location_ids.ids)
-        return "[('id', 'in', %s)]" %self.env.user.stock_location_ids.ids
 
 
     location_ids = fields.Many2many('stock.location',domain=lambda self: [('id', 'in',self.env.user.stock_location_ids.ids)],)
@@ -36,7 +33,7 @@ class AppleStockReportWizard(models.TransientModel):
         cell_format = workbook.add_format({'align': 'center'})
 
         is_admin = self.env.user.has_group(
-            'tradeline_stock_quant_excel.group_apple_stock_excel_admin'
+            'apple_stock_report_excel.group_export_applestock_vendor'
         )
 
         headers = [
