@@ -6,9 +6,9 @@
         <field name="inherit_id" ref="product.product_template_form_view"/>
         <field name="arch" type="xml">
             <xpath expr="//group[@name='group_general']" position="inside">
-                <field name="hs_code" required="1"/>
-                <field name="hs_type" required="1" options="{'horizontal': true}" widget="radio"/>
-                <field name="hs_description" required="1"/>
+                <field name="hs_code" required="0"/>
+                <field name="hs_type" required="0" options="{'horizontal': true}" widget="radio"/>
+                <field name="hs_description" required="0"/>
             </xpath>
         </field>
     </record>
@@ -18,9 +18,9 @@
         <field name="inherit_id" ref="product.product_variant_easy_edit_view"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='barcode']" position="after">
-                <field name="hs_code" required="1"/>
-                <field name="hs_type" required="1" options="{'horizontal': true}" widget="radio"/>
-                <field name="hs_description" required="1"/>
+                <field name="hs_code" required="0"/>
+                <field name="hs_type" required="0" options="{'horizontal': true}" widget="radio"/>
+                <field name="hs_description" required="0"/>
             </xpath>
         </field>
     </record>
