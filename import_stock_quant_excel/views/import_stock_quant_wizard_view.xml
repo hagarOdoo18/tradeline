@@ -26,6 +26,8 @@
                         <field name="serial"/>
                         <field name="is_valid"/>
                         <field name="error_msg"/>
+                        <button name="create_lot" type="object" string="Create Lot" invisible="not serial"
+                           />
                     </list>
                 </field>
             </form>

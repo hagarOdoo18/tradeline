@@ -64,7 +64,7 @@ class ImportStockQuantWizard(models.TransientModel):
                     ('product_id','=',product.id),
                     ('company_id','in',[self.company_id.id, False])
                 ], limit=1)
-                vals['lot_id'] = lot.id if lot else False
+                vals['lot_id'] = lot.id if lot else   vals.update({'is_valid':False,'error_msg':'Serial Not Found'})
 
             self.env['import.stock.quant.line'].create(vals)
 
@@ -126,3 +126,23 @@ class ImportStockQuantLine(models.TransientModel):
     lot_id = fields.Many2one('stock.lot')
     is_valid = fields.Boolean(default=True)
     error_msg = fields.Text()
+
+    def create_lot(self):
+        if self.serial and not self.lot_id:
+            lot = self.env['stock.lot'].create({
+                'name': self.serial,
+                'product_id': self.product_id.id,
+                'company_id': self.env.company.id,
+            })
+            self.lot_id = lot.id
+            self.is_valid = True
+            self.error_msg = 'Serial Creadted'
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": self.wizard_id._name,
+            "res_id": self.wizard_id.id,
+            "view_mode": "form",
+            "target": "new",
+        }
+
+
