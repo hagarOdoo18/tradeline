@@ -955,6 +955,7 @@ class AccountMoveLineInherit(models.Model):
 								self.company_id,
 								self.move_id.invoice_date or fields.Date.today()
 							)
+
 					
 
 				taxType = tax.type_code_id.code or self.env.company.type_code_id.code
