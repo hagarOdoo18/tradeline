@@ -20,11 +20,11 @@ class ResConfigSettings(models.TransientModel):
                                                   help="This action is responsible for Daily bulk"
                                                        " pull vendor received documents")
     eta_description = fields.Selection([('product', 'Product HS Desc.'), ('line', 'Label')],
-                                       "ETA Description", default='product', required=True,
+                                       "ETA Description", default='product', required=False,
                                        help="This action is used to determine if product description from product or "
                                             "line\n- Product HS Desc: this will use value from product HS Description "
                                             "field\n- Label: this will use value from line label field\n")
-    eta_expiration_duration = fields.Integer("ETA Expiration Duration", default=7, required=True,
+    eta_expiration_duration = fields.Integer("ETA Expiration Duration", default=7, required=False,
                                              help="This field is used to configure the duration of expiration"
                                                   " which updated from ETA side.")
     
