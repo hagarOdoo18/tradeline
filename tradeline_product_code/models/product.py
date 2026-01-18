@@ -16,11 +16,12 @@ class ProductTemplate(models.Model):
 
     @api.model_create_multi
     def create(self, vals):
-        code = self.env['ir.sequence'].next_by_code(
-            'product.product')
-        tax_id = self.env.user.company_id.vat if self.env.user.company_id.vat else self.env.user.company_id.anther_vat
-        new_code = "EG-" + tax_id + "-" + code
-        vals['e_invoicing_code'] = new_code
+        for val in vals:
+            code = self.env['ir.sequence'].next_by_code(
+                'product.product')
+            tax_id = self.env.user.company_id.vat if self.env.user.company_id.vat else self.env.user.company_id.anther_vat
+            new_code = "EG-" + tax_id + "-" + code
+            val['e_invoicing_code'] = new_code
         return super().create(vals)
 
     @api.model
