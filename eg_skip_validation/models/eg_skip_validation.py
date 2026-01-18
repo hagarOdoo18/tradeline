@@ -5,7 +5,7 @@ class AccountEdiFormat(models.Model):
     _inherit = 'account.edi.format'
 
     def _check_move_configuration(self, invoice):
-        errors = super()._check_move_configuration(invoice)
+        errors = []
         if self.code != 'eg_eta':
             return errors
         if invoice.journal_id.l10n_eg_skip_eta_validation :
