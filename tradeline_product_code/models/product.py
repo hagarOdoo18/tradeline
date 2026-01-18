@@ -26,10 +26,13 @@ class ProductTemplate(models.Model):
 
     @api.model
     def set_old_product(self):
-        all_products = self.search([('code_type','=','gs1')])
+        all_products = self.search([('e_invoicing_code','=','')])
         for product in all_products:
-
-            product.code_type = 'egs'
+            code = self.env['ir.sequence'].next_by_code(
+                'product.product')
+            tax_id = self.env.user.company_id.vat if self.env.user.company_id.vat else self.env.user.company_id.anther_vat
+            new_code = "EG-" + tax_id + "-" + code
+            product.e_invoicing_code =new_code
 
 
 class ResCompany(models.Model):
