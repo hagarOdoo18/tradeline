@@ -231,6 +231,86 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 invoices.append(line.move_id.id)
 
                 row += 1
+        elif self.env.user.has_group('export_invoice_move_line.group_export_invoice_move_line_accounting'):
+            headers = ['Date', 'Branch', 'Ref', 'Credit', 'Opportunity', 'Customer Name', 'Customer Mobile',
+                       'Customer Phone','Address','Tax ID OR National ID','Employees','Devices','Tags','Apple Store ID',
+                       'Product Category', 'Family', 'UPC', 'Item Code', 'Description', 'Quantity', 'Serial',
+                       'Unit Cost',
+                       'Unit Price', 'Discount (%)','Amount signed','Price Total Signed', 'Invoice Amount signed', 'Total Cost', 'Invoice Price Total Signed',
+                       'Payment Journals'
+                , 'Payment Amount Journals', 'Sales rep', 'PO', 'Vendor',  'Channel', 'currency']
+            for col, h in enumerate(headers):
+                sheet.write(row, col, h, header_format)
+
+            row += 1
+
+            for line in invoice_lines:
+                if self.payment_journal_ids:
+                    if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped(
+                            "journal_id").ids:
+                        continue
+                payments = line.move_id._get_reconciled_payments()
+                amount = ''
+                if payments:
+                    payment_journals = ", ".join(payments.mapped("journal_id.name"))
+                    for payment in payments:
+                        amount += ','+str(payment.amount)
+                else:
+                    payment_journals = ", ".join(
+                        line.move_id.pos_order_ids.payment_ids.mapped("payment_method_id.name"))
+                    for payment in line.move_id.pos_order_ids.payment_ids:
+                        amount += ',' + str(payment.amount)
+
+                total = line.move_id.amount_total
+                amount_total_signed = line.move_id.amount_total_signed
+                amount_untaxed_signed = line.move_id.amount_untaxed_signed
+                credit = self.get_credit_note(line.move_id)
+                list_lots = line.move_id._get_invoiced_lot_values()
+                serials = ''
+                for dic_lots in list_lots:
+                    if dic_lots['product_name'] == line.product_id.display_name:
+                        serials += str(dic_lots['lot_name']) + " , "
+
+                partner = line.move_id.partner_id
+                sheet.write(row, 0, str( line.move_id.invoice_date or ''))
+                sheet.write(row, 1,  line.move_id.branch_id.name or '')
+                sheet.write(row, 2,  line.move_id.name or '')
+                sheet.write(row, 3, credit or '')
+                sheet.write(row, 4, line.move_id.opportunity_id.name or '')
+                sheet.write(row, 5, partner.name)
+                sheet.write(row, 6, partner.mobile or '')
+                sheet.write(row, 7, partner.phone or '')
+                sheet.write(row, 8, partner.street or '')
+                sheet.write(row, 9, partner.vat or '')
+                sheet.write(row, 10, dict(partner._fields['company_size'].selection).get(partner.company_size) or '')
+                sheet.write(row,11, partner.company_device or '')
+                sheet.write(row, 12, ", ".join(partner.category_id.mapped(".name")) or '')
+                sheet.write(row, 13,  line.move_id.branch_id.apple_store_id or '')
+                sheet.write(row, 14, line.product_id.categ_id.name or '')
+                sheet.write(row, 15, line.product_id.product_tmpl_id.family_id.name or '')
+                sheet.write(row, 16, line.product_id.default_code or '')
+                sheet.write(row, 17, line.product_id.barcode or '')
+                sheet.write(row, 18, line.product_id.display_name or '')
+                sheet.write(row, 19, line.quantity  if line.move_id.move_type != 'out_refund' else line.quantity *-1 or '')
+                sheet.write(row, 20, serials or '')
+                sheet.write(row, 21, float(line.product_id.standard_price) or 0)
+                sheet.write(row, 22, float(line.product_id.lst_price) or 0)
+                sheet.write(row, 23, line.discount or 0)
+                sheet.write(row, 24, line.price_subtotal  if line.move_id.move_type != 'out_refund' else  line.price_subtotal*-1 or 0)
+                sheet.write(row, 25, line.price_total  if line.move_id.move_type != 'out_refund' else  line.price_total*-1 or 0)
+                sheet.write(row, 26, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 27,  float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
+                sheet.write(row, 28,amount_total_signed if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 29, payment_journals if line.move_id.id not in invoices  else '')
+                sheet.write(row, 30, amount if line.move_id.id not in invoices  else 0)
+                sheet.write(row, 31, line.move_id.sales_rep_id.name or '')
+                sheet.write(row, 32, line.move_id.reference_number or '')
+                sheet.write(row, 33, line.product_id.vendor_id.name or '')
+                sheet.write(row, 34, line.move_id.channel_id.name or '')
+                sheet.write(row, 35, line.move_id.currency_id.name or '')
+                invoices.append(line.move_id.id)
+
+                row += 1
         else:
             headers = ['Date', 'Branch', 'Ref', 'Credit', 'Opportunity', 'Customer Name', 'Customer Mobile',
                        'Customer Phone',
