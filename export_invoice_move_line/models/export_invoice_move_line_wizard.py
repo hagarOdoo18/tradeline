@@ -284,7 +284,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 9, partner.vat or '')
                 sheet.write(row, 10, dict(partner._fields['company_size'].selection).get(partner.company_size) or '')
                 sheet.write(row,11, partner.company_device or '')
-                sheet.write(row, 12, ", ".join(partner.category_id.mapped(".name")) or '')
+                sheet.write(row, 12, ", ".join(partner.category_id.mapped("name")) or '')
                 sheet.write(row, 13,  line.move_id.branch_id.apple_store_id or '')
                 sheet.write(row, 14, line.product_id.categ_id.name or '')
                 sheet.write(row, 15, line.product_id.product_tmpl_id.family_id.name or '')
