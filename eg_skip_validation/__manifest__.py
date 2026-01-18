@@ -11,7 +11,7 @@
     'company': 'Cybrosys Techno Solutions',
     'maintainer': 'Cybrosys Techno Solutions',
     'website': 'https://www.cybrosys.com',
-    'depends': ['base', 'mail','account','l10n_eg_edi_eta','tradeline_product_code'],
+    'depends': ['base', 'mail','account','account_edi','tradeline_product_code'],
     'data': [
         'views/account_journal.xml',
     ],
