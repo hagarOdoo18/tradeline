@@ -483,7 +483,7 @@ class AccountMoveInherit(models.Model):
 			                                             product=line.product_id,
 			                                             partner=line.partner_id)
 			total_sales_amount += sales_total_amount
-			prd_required_fields = ['hs_code', 'hs_type', 'hs_description']
+			prd_required_fields = ['e_invoicing_code', 'code_type', 'ar_description']
 			for prd_field in prd_required_fields:
 				if not getattr(line.product_id, prd_field):
 					raise ValidationError(_("Missing One of required details [%s] for product [%s] !!!" %
@@ -497,15 +497,15 @@ class AccountMoveInherit(models.Model):
 			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
 			totalAmount += line_price_total
 			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
-			description = eta_description == 'product' and line.product_id.hs_description or line.name
+			description = eta_description == 'product' and line.product_id.display_name or line.name
 			if quantity != 0.0:
 				invoice_lines.append({
 					"description": description or '',  # "Computerl"
-					"itemType": line.product_id.hs_type,  # "EGS"/"GS1"
-					"itemCode": line.product_id.hs_code,  # "EG-113317713-123456"
+					"itemType": line.product_id.code_type,  # "EGS"/"GS1"
+					"itemCode": line.product_id.e_invoicing_code,  # "EG-113317713-123456"
 					"unitType": unitType,
 					"quantity": quantity,
-					"internalCode": line.product_id.default_code or "",  # "ICO"/default_code
+					"internalCode": line.product_id.barccode or "",  # "ICO"/default_code
 					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
 					"total": round(line_price_total, 5),
 					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
