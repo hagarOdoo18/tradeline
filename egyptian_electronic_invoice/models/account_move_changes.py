@@ -8,6 +8,7 @@ import pytz
 import requests
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
+from datetime import date
 
 grey = "\x1b[38;21m"
 yellow = "\x1b[33;21m"
@@ -707,7 +708,7 @@ class AccountMoveInherit(models.Model):
 			raise ValidationError(_("You must Add invoice date first!!\n technical name 'invoice_date'"))
 		api_version = self.env.company.config_version
 
-		invoice_time = datetime.combine(fields.Date.today(), datetime.min.time())
+		invoice_time = datetime.combine(date.today(), datetime.min.time())
 		invoice_lines, totalDiscountAmount, totalSalesAmount, totalAmount = self._get_eta_invoice_lines()
 		netAmount = (totalSalesAmount - totalDiscountAmount)
 		tax_lines = self.line_ids.filtered(lambda l: l.tax_line_id and l.tax_line_id.type_code_id)
