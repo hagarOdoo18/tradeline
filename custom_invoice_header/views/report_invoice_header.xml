@@ -487,7 +487,6 @@
         </div>
          <div id="qrcode_eg" t-if="o.l10n_eg_qr_code" class="text-right" style="font-size:10px; text-align:right;">
                     <p style="font-size:10px; text-align:right;">
-                        <strong class="text-center">ETA QR Code</strong>
                         <img style=" text-align:right;"
                              t-att-src="'/report/barcode/?barcode_type=%s&amp;value=%s&amp;width=%s&amp;height=%s'%('QR', o.l10n_eg_qr_code, 100, 100)"/>
                     </p>
