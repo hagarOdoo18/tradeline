@@ -485,6 +485,13 @@
 
 
         </div>
+         <div id="qrcode_eg" t-if="o.l10n_eg_qr_code">
+                    <p>
+                        <strong class="text-center">ETA QR Code</strong>
+                        <img style="display:block;"
+                             t-att-src="'/report/barcode/?barcode_type=%s&amp;value=%s&amp;width=%s&amp;height=%s'%('QR', o.l10n_eg_qr_code, 130, 130)"/>
+                    </p>
+                </div>
         <div style="width:100%; display:flex; justify-content:flex-end;">
             <div class="text-right" style="font-size:10px; text-align:right;">
                 <strong>سجل تجارى : ٢٤٨.١ </strong><br/>
@@ -512,4 +519,12 @@
 
 
     </template>
+
+     <template id="l10n_eg_edi_eta.egyptian_invoice" inherit_id="account.report_invoice_document">
+            <xpath expr="//div[@id='qrcode']" position="after">
+                <div id="qrcode_eg" t-if="o.l10n_eg_qr_code">
+
+                </div>
+            </xpath>
+        </template>
 </odoo>
