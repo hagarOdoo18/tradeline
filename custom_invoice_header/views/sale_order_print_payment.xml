@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+        <template id="custom_sale_order_payment_print" inherit_id="sale.report_saleorder_document">
+
+            <xpath expr="//div[@name='so_total_summary']" position="after">
+                <div>
+                    <t t-if="doc.payment_ids">
+                        <h3 style="margin-top:20px;">Payments</h3>
+                        <table class="table table-sm o_main_table">
+                            <thead>
+                                <tr>
+                                    <th>Payment</th>
+                                    <th>Date</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="doc.payment_ids" t-as="pay">
+                                    <td>
+                                        <t t-esc="pay.journal_id.name"/>
+                                    </td>
+                                    <td>
+                                        <t t-esc="pay.date"/>
+                                    </td>
+
+                                    <td class="text-end">
+                                        <t t-esc="pay.amount"/>
+                                    </td>
+
+                                </tr>
+                            </tbody>
+                        </table>
+                    </t>
+
+                </div>
+
+            </xpath>
+        </template>
+</odoo>
