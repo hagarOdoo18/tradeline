@@ -136,6 +136,9 @@ class SaleOrder(models.Model):
         """ Override of `sale` to send the order to Gelato on confirmation. """
         res = super(SaleOrder, self).action_confirm()
         for rec in self:
+            if  rec.pricelist_id.currency_id.id != rec.invoice_journal_id.currency_id.id:
+                raise UserError("PriceList Not same in journal ")
+
             if rec.discount_id:
                 for line in rec.order_line:
                     if line.discount <= 0:

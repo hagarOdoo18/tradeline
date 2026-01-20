@@ -38,6 +38,7 @@
 
                             <field name="branch_id" readonly="not allowed_branch" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
                             <field name="warehouse_id" readonly="1" force_save="1" options="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                            <field name="invoice_journal_id" readonly="state != 'draft'" force_save="1" options="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
 
                 </xpath>
                 <xpath expr="//list//field[@name='product_template_id']" position="attributes">

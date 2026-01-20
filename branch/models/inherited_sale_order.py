@@ -60,9 +60,6 @@ class SaleOrder(models.Model):
         }
     def action_register_payment_so(self):
         self.ensure_one()
-
-
-
         return {
             'name': ('Register Payment'),
             'type': 'ir.actions.act_window',
@@ -114,7 +111,7 @@ class SaleOrder(models.Model):
             branched_warehouse = self.env['stock.warehouse'].search([('branch_id','=',branch_id)])
             if branched_warehouse:
                 warehouse_id = branched_warehouse.ids[0]
-        
+
         if not warehouse_id:
             warehouse_id = self.env.user._get_default_warehouse_id()
             warehouse_id = warehouse_id.id
@@ -129,6 +126,14 @@ class SaleOrder(models.Model):
 
     branch_id = fields.Many2one('res.branch', string="Branch",required=True)
 
+
+    invoice_journal_id = fields.Many2one(
+        'account.journal', string='Invoice Journal',
+        check_company=True,required=True,
+        domain=[('type', '=', 'sale')],
+        help="Accounting journal used to create invoices.",
+        )
+
     @api.onchange('branch_id')
     def _onchange_branch_id_warehouse(self):
         branched_warehouse = self.env['stock.warehouse'].search([('branch_id', '=', self.branch_id.id)])
@@ -138,12 +143,17 @@ class SaleOrder(models.Model):
         branched_team = self.env['crm.team'].search([('branch_id', '=', self.branch_id.id)])
         if branched_team:
             self.team_id = branched_team.ids[0]
+        if self.branch_id:
+            self.invoice_journal_id = self.env['account.journal'].search([
 
+            ('type', '=', 'sale'),('branch_id', '=', self.branch_id.id)
+        ], limit=1).id
 
 
     def _prepare_invoice(self):
         res = super(SaleOrder, self)._prepare_invoice()
         res['branch_id'] = self.branch_id.id
+        res['journal_id'] = self.journal_id.id
         return res
 
     @api.model_create_multi
