@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
      <template id="report_delivery_document_inherit_transfer_number" inherit_id="stock.report_delivery_document">
+          <xpath expr="//th[@name='lot_serial']" position="after">
+
+
+            <t name="item_code">
+                <th>ItemCode</th>
+            </t>
+        </xpath>
          <xpath expr="//div[@name='div_sched_date']" position="after">
             <div class="col col-3 mw-100 mb-2" t-if="o.sudo().request_id">
                 <strong>Transfer Request</strong>
@@ -51,6 +58,14 @@
             </div>
          </div>
 
+        </xpath>
+    </template>
+
+     <template id="stock_report_delivery_has_serial_move_line_inherit_itemcode" inherit_id="stock.stock_report_delivery_has_serial_move_line">
+        <xpath expr="//t[@name='move_line_lot']" position="after">
+            <t>
+                <td><span t-field="move_line.product_id.barcode"/></td>
+            </t>
         </xpath>
     </template>
 
