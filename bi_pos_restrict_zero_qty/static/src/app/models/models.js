@@ -20,15 +20,16 @@ patch(PosStore.prototype, {
            if(this.env.services.pos.config.restrict_zero_qty){
              for (let line of lines) {
                    let prd = line.product_id;
-                   if (prd.type == 'consu'){
-                       if(prd.id in prod_used_qty){
-                           let old_qty = prod_used_qty[prd.id][1];
-                           prod_used_qty[prd.id] = [prd.qty_available,line.qty+old_qty]
-                       }else{
-                           prod_used_qty[prd.id] = [prd.qty_available,line.qty]
+                   if(line.qty >=1){
+                       if (prd.type == 'consu'){
+                           if(prd.id in prod_used_qty){
+                               let old_qty = prod_used_qty[prd.id][1];
+                               prod_used_qty[prd.id] = [prd.qty_available,line.qty+old_qty]
+                           }else{
+                               prod_used_qty[prd.id] = [prd.qty_available,line.qty]
+                           }
                        }
-                   }
-                   if (prd.type == 'consu'){
+                       if (prd.type == 'consu'){
                        if(prd.qty_available <= 0){
                            restrict = true;
                            call_super = false;
@@ -38,6 +39,7 @@ patch(PosStore.prototype, {
                                 body: _t(warning),
                             });
                        }
+                   }
                    }
              }
 
