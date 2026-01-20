@@ -8,7 +8,7 @@
                 <th>Item Code</th>
             </t>
         </xpath>
-         <xpath expr="//t[@name='no_package_move_lines']" position="after">
+         <xpath expr="//t[@name='no_package_section']" position="after">
 
 
              <t name="item_code">
