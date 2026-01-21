@@ -13,6 +13,19 @@ class StockMoveLine(models.Model):
 
     branch_id = fields.Many2one('res.branch', related = 'move_id.branch_id')
 
+    def _get_aggregated_product_quantities(self, **kwargs):
+        """Returns dictionary of products and corresponding values of interest + hs_code
+
+        Unfortunately because we are working with aggregated data, we have to loop through the
+        aggregation to add more values to each datum. This extension adds on the hs_code value.
+
+        returns: dictionary {same_key_as_super: {same_values_as_super, hs_code}, ...}
+        """
+        aggregated_move_lines = super()._get_aggregated_product_quantities(**kwargs)
+        for aggregated_move_line in aggregated_move_lines:
+            barcode = aggregated_move_lines[aggregated_move_line]['product'].barcode
+            aggregated_move_lines[aggregated_move_line]['barcode'] = barcode
+        return aggregated_move_lines
 
     def _action_done(self):
         """ This method is called during a move's `action_done`. It'll actually move a quant from
