@@ -63,6 +63,10 @@
                     <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
                     <attribute name="readonly">state != 'draft'</attribute>
                 </xpath>
+                <xpath expr="//field[@name='product_id']" position="after">
+                  <field name="item_code"/>
+                  <field name="default_code"/>
+                </xpath>
                 <xpath expr="//button[@name='%(stock.act_stock_return_picking)d']" position="attributes">
                 <attribute name="groups">branch.action_return_picking</attribute>
             </xpath>

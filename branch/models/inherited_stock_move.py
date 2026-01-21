@@ -134,6 +134,10 @@ class StockMove(models.Model):
     _inherit = 'stock.move'
 
     branch_id = fields.Many2one('res.branch')
+    item_code = fields.Char(related='product_id.barcode')
+    default_code = fields.Char('UPC', related='product_id.barcode')
+
+
 
     @api.model
     def default_get(self, default_fields):
