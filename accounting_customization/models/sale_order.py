@@ -116,7 +116,7 @@ class SaleOrder(models.Model):
         journal = self.env['account.journal'].search([('type','=','sale'),('branch_id','=',self.branch_id.id),('currency_id','=',self.currency_id.id)])
         if not journal:
             raise UserError(('please set Journal for this Branch'))
-        res['journal_id'] = journal.id
+        res['journal_id'] = journal.id if not self.invoice_journal_id else self.invoice_journal_id.id
         res['opportunity_id'] = self.opportunity_id.id
         res['discount_id'] = self.discount_id.id
         res['courier_id'] = self.courier_id.id
@@ -138,6 +138,9 @@ class SaleOrder(models.Model):
         for rec in self:
             if  rec.pricelist_id.currency_id.id != rec.invoice_journal_id.currency_id.id:
                 raise UserError("PriceList Not same in journal ")
+            if not rec.invoice_journal_id:
+                raise UserError("Select Invoice Journal ")
+
 
             if rec.discount_id:
                 for line in rec.order_line:

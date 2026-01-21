@@ -129,7 +129,7 @@ class SaleOrder(models.Model):
 
     invoice_journal_id = fields.Many2one(
         'account.journal', string='Invoice Journal',
-        check_company=True,required=True,
+        check_company=True,
         domain=[('type', '=', 'sale')],
         help="Accounting journal used to create invoices.",
         )
