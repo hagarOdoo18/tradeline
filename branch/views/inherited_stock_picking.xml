@@ -159,6 +159,9 @@
                                         <th name="th_product">
                                             <div align="left"><strong>UPC</strong></div>
                                         </th>
+                                          <th name="th_product_itemcode">
+                                            <div align="left"><strong>Item code</strong></div>
+                                        </th>
                                         <th class="text-end">
                                             <strong>Quantity</strong>
                                         </th>
@@ -185,6 +188,10 @@
                                         </td>
                                         <td>
                                             <span t-field="ml.product_id.default_code"></span><br/>
+
+                                        </td>
+                                        <td>
+                                            <span t-field="ml.product_id.barcode"></span><br/>
 
                                         </td>
                                         <td class="o_td_quantity text-end">
