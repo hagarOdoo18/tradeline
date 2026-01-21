@@ -53,6 +53,7 @@ class PosOrder(models.Model):
         move = super()._create_invoice(move_vals)
         move.sales_rep_id = self.sales_rep_id.id
         move.discount_id = self.discount_reason_id.id
+        move.order_number = self.tracking_number
 
         for line  in  move.invoice_line_ids :
             warranty = self.env['product.warranty'].search([('categ_ids', 'in', line.product_id.categ_id.id)])

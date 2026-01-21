@@ -276,6 +276,7 @@
                     <t t-esc="o.partner_id.street"  class="m-0"/>
                 </div>
 
+
             </div>
              <div id="informations" style="font-size:9px;"  class="row mt32">
 
@@ -306,6 +307,14 @@
                        <br/>
                         <p t-if="o.partner_id.vat" class="m-0" t-field="o.partner_id.vat"/>
                     </div>
+
+            </div>
+            <div id="informations" class="row mt32" style="font-size:9px;">
+                  <div class="col-2" >
+                    <strong>رقم الطلب :</strong>
+                    <br/>
+                    <t t-esc="o.order_number"  class="m-0"/>
+                </div>
             </div>
               <div id="informations" class="row mt32" style="font-size:9px;"  t-if="o.bank_id">
 
