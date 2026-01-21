@@ -32,24 +32,38 @@ class AccountInvoiceReport(models.Model):
         comodel_name='product.family',
         string='Family',
         required=False)
-
-
     sales_rep_id = fields.Many2one(
         comodel_name='sales.rep',
         string='Sales Rep',
         required=False)
+    vendor_id = fields.Many2one(
+        comodel_name='res.partner',
+        string='Vendor',
+        required=False)
+    point = fields.Integer(
+        string='Point',
+        required=False)
+
 
     price_subtotal_currency = fields.Float(string='Untaxed Amount in Currency', groups='accounting_customization.group_accounting_reporting_price_subtotal_currency',readonly=True)
     price_subtotal = fields.Float(string='Untaxed Amount',groups='accounting_customization.group_accounting_reporting_price_subtotal' , readonly=True)
     price_total = fields.Float(string='Total in Currency',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
     price_average = fields.Float(string='Average Price', groups='accounting_customization.group_accounting_reporting_avarage',readonly=True, aggregator="avg")
-    price_margin = fields.Float(string='Margin', groups='accounting_customization.group_accounting_reporting_Margin' ,readonly=True)
+    price_margin = fields.Float(string='Margin', groups="accounting_customization.group_accounting_reporting_old_Margin",readonly=True)
     inventory_value = fields.Float(string='Inventory Value', groups='accounting_customization.group_accounting_reporting_valuation', readonly=True)
+    price_margin_taxed = fields.Float(
+        string="Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
+        readonly=True
+    )
 
 
     def _select(self) -> SQL:
             return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.name AS invoice_number "
                        ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
-                       "move.discount_id as discount_id,line.family_id,move.sales_rep_id as sales_rep_id",
+                       "move.discount_id as discount_id,line.family_id,move.sales_rep_id as sales_rep_id , line.product_point as point ,product.vendor_id as vendor_id,"
+                       " CASE WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) "
+                       "* COALESCE(product.standard_price-> line.company_id::text, to_jsonb(0.0)) ::float)/1.14 "
+                       " ELSE account_currency_table.rate * (-line.balance - (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) * COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0)) ::float)/1.14"
+                       "END  AS price_margin_taxed ",
                        super()._select())
 
