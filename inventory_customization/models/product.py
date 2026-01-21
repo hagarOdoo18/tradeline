@@ -210,8 +210,7 @@ class ProductProduct(models.Model):
     def _compute_display_name(self):
 
         def get_display_name(name, code):
-            if self._context.get('display_default_code', True) and code:
-                return f'[{code}] {name}'
+
             return name
 
         partner_id = self._context.get('partner_id')
