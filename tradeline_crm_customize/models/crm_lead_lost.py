@@ -51,5 +51,4 @@ class CrmLeadLost(models.TransientModel):
             if eamil_to_agent_lost_template_id:
                 eamil_to_agent_lost_template_id.sudo().send_mail(l.id, force_send=True,
                                                           notif_layout='mail.mail_notification_light')
-        res = self.lead_ids.action_set_lost(lost_reason_id=self.lost_reason_id.id)
         return res
