@@ -10,7 +10,6 @@ class CrmLeadLost(models.TransientModel):
 
     def action_lost_reason_apply(self):
         leads = self.env['crm.lead'].browse(self.env.context.get('active_ids'))
-        leads.write({'lost_reason': self.lost_reason_id.id})
 
         stage = self.env['crm.stage'].search(
             [('probability', '=', 0.00)],limit=1)
