@@ -20,18 +20,18 @@ class CrmLeadLost(models.TransientModel):
             team = self.env['crm.team'].search(
                 [('member_ids', '=', l.create_uid.id)], limit=1)
             if team:
-                ids_manager = []
-                for manager in team.manager_ids:
-                    title = _("Order Call Center (Admin)")
-                    message = _("Check Pipline now Number (Admin) %s") % l.name
-
-                    ids_manager.append(manager.partner_id.id)
+                # ids_manager = []
+                # for manager in team.manager_ids:
+                #     title = _("Order Call Center (Admin)")
+                #     message = _("Check Pipline now Number (Admin) %s") % l.name
+                #
+                #     ids_manager.append(manager.partner_id.id)
                 l.message_post(
                     subject=('Order Cames From Call Center (Admin)'),
                     body=('(Admin) Please Check This {}').format(
                         l.name),
                     # partner_ids=[t.team_id.team_head.partner_id.id],
-                    partner_ids=ids_manager,
+                    partner_ids=l.team_id.user_id.id,
                 )
 
             # end add
