@@ -31,7 +31,7 @@ class CrmLeadLost(models.TransientModel):
                     body=('(Admin) Please Check This {}').format(
                         l.name),
                     # partner_ids=[t.team_id.team_head.partner_id.id],
-                    partner_ids=l.team_id.user_id.id,
+                    partner_ids=l.team_id.user_id.partner_id.ids,
                 )
 
             # end add
