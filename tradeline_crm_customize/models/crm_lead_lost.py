@@ -40,7 +40,7 @@ class CrmLeadLost(models.TransientModel):
                             body=('Please Check This {}').format(
                                 l.name),
                             # partner_ids=[t.team_id.team_head.partner_id.id],
-                            partner_ids=[l.create_uid.partner_id],
+                            partner_ids=l.create_uid.partner_id.ids,
                         )
             title = _("Order Call Center")
             message = _("Check Pipline now Number %s") % l.name
