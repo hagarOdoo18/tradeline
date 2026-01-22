@@ -12,7 +12,7 @@ class CrmLeadLost(models.TransientModel):
         leads = self.env['crm.lead'].browse(self.env.context.get('active_ids'))
 
         stage = self.env['crm.stage'].search(
-            [('probability', '=', 0.00)],limit=1)
+            [('name', '=','Lost')],limit=1)
         for l in leads:
             l.stage_id = stage.id
             # edit 22/2/2021
