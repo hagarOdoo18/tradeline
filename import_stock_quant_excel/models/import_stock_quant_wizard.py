@@ -77,6 +77,24 @@ class ImportStockQuantWizard(models.TransientModel):
             "view_mode": "form",
             "target": "new",
         }
+    def create_lots(self):
+        for rec in self.line_ids:
+            if rec.serial and not rec.lot_id:
+                lot = self.env['stock.lot'].create({
+                    'name': rec.serial,
+                    'product_id': rec.product_id.id,
+                    'company_id': rec.env.company.id,
+                })
+                rec.lot_id = lot.id
+                rec.is_valid = True
+                rec.error_msg = 'Serial Created'
+        return {
+            "type": "ir.actions.act_window",
+            "res_model": self._name,
+            "res_id": self.id,
+            "view_mode": "form",
+            "target": "new",
+        }
 
     def action_remove_invalid_lines(self):
         self.line_ids.filtered(lambda l: not l.is_valid).unlink()

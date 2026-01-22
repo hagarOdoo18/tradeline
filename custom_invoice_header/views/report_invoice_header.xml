@@ -475,9 +475,13 @@
           <br/>
           <div id="qrcode"></div>
             <div style="width:100%; display:flex; justify-content:flex-end;">
-           <div class="text-right" t-if="o.comment" name="comment" style="font-size:8px; text-align:right;">
-                        <span t-field="o.comment" dir="rtl"/>
-                    </div>
+               <div class="text-right" t-if="o.comment" name="comment" style="font-size:8px; text-align:right;">
+                            <span t-field="o.comment" dir="rtl"/>
+                        </div>
+
+              <div class="text-right" t-if="o.get_product_notes()" name="Product Notes" style="font-size:8px; text-align:right;">
+                            <span t-field="o.get_product_notes()" dir="rtl"/>
+                        </div>
             </div>
 
       </xpath>
