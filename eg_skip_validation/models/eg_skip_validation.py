@@ -86,7 +86,7 @@ class AccountEdiFormat(models.Model):
                                                                                     grouping_function_global)
         values_per_grouping_key = AccountTax._aggregate_base_lines_aggregated_values(base_lines_aggregated_values)
 
-        date_string = invoice.invoice_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+        # date_string = invoice.invoice_date.strftime('%Y-%m-%dT%H:%M:%SZ')
         date_string = date.today().strftime('%Y-%m-%dT%H:%M:%SZ')
         eta_invoice = {
             'issuer': self._l10n_eg_eta_prepare_address_data(invoice.journal_id.l10n_eg_branch_id, invoice,
