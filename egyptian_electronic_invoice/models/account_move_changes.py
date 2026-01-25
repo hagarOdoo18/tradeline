@@ -718,7 +718,7 @@ class AccountMoveInherit(models.Model):
 		issuer = self._get_eta_personal_details(self.env.company.partner_id, totalSalesAmount)
 		issuer["address"]["branchID"] = "%s" % self.journal_id.eta_branch or 0
 		receiver = self._get_eta_personal_details(self.partner_id, totalSalesAmount)
-		internal_id = self.name.replace("/", "")
+		internal_id = self.name
 		tax_total_lines = self._get_eta_tax_totals(tax_lines)
 		invoice_params = {
 			"issuer": issuer,
