@@ -417,7 +417,7 @@ class AccountMoveInherit(models.Model):
 		})
 	
 	def _get_eta_personal_details(self, partner, order_total):
-		required_fields = ['country_id', 'state_id', 'city', 'street', 'classification', 'street2']
+		required_fields = ['country_id', 'state_id', 'city', 'street', 'classification']
 		for field_name in required_fields:
 			if not getattr(partner, field_name):
 				raise ValidationError(
@@ -434,7 +434,7 @@ class AccountMoveInherit(models.Model):
 		                    "governate": partner.state_id.display_name,
 		                    "regionCity": partner.city,
 		                    "street": partner.street,
-		                    "buildingNumber": partner.street2,
+		                    "buildingNumber": partner.street2 if partner.street2 else '1',
 		                    "postalCode": partner.zip or "12345",  # TODO:: Next is optional
 		                    "floor": partner.floor or "0",
 		                    "room": partner.room or "0",
