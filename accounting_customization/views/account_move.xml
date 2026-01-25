@@ -27,6 +27,7 @@
                   <xpath expr="//group[@id='header_left_group']" position="after">
                   <!-- Add your fields or attributes here -->
                   <group>
+                  <field name="company_type" invisiable="1" />
                   <field name="barcode" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
                   <field name="pricelist_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>
                   <field name="sales_rep_id" invisiable="move_type not in ['out_invoice','out_refund']" readonly="1"/>

@@ -71,6 +71,9 @@ class AccountMove(models.Model):
     product_notes = fields.Char(
         string='Product Notes',
         required=False)
+
+    company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
+                                    )
     def get_product_notes(self):
         for rec in self.invoice_line_ids:
             if rec.product_id.product_notes:
