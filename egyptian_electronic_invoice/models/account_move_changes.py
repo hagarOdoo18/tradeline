@@ -506,7 +506,7 @@ class AccountMoveInherit(models.Model):
 					"itemCode": line.product_id.e_invoicing_code,  # "EG-113317713-123456"
 					"unitType": unitType,
 					"quantity": quantity,
-					"internalCode": line.product_id.barccode or "",  # "ICO"/default_code
+					"internalCode": line.product_id.barcode or "",  # "ICO"/default_code
 					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
 					"total": round(line_price_total, 5),
 					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
