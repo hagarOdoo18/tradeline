@@ -434,7 +434,7 @@ class AccountMoveInherit(models.Model):
 		partner_class =''
 		if  partner.company_type =='person' and partner.mobile_type =='local':
 			partner_class='P'
-		elif partner.individual =='person' and partner.mobile_type =='foreigner':
+		elif partner.company_type =='person' and partner.mobile_type =='foreigner':
 			partner_class='F'
 		else:
 			partner_class="B"
