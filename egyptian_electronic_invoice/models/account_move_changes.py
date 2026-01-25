@@ -731,7 +731,7 @@ class AccountMoveInherit(models.Model):
 			"internalID": internal_id,  # "IID1"
 			"payment": self.get_payment_data(),
 			"delivery": self.get_delivery_data(),
-			"purchaseOrderReference": self.e_invoice_po_ref or "",
+			"purchaseOrderReference": self.reference_number or "",
 			"purchaseOrderDescription": self.e_invoice_po_desc or "",
 			"salesOrderReference": self.e_invoice_so_ref or self.ref or "",
 			"salesOrderDescription": self.e_invoice_so_desc or "Normal VAT Sale Orders",
