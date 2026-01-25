@@ -176,7 +176,8 @@ class AccountMoveInherit(models.Model):
 		for chunk in docs_chunks:
 			for invoice in chunk:
 				show_results = invoice.show_results
-				internal_id = invoice.name
+				# internal_id = invoice.name
+				internal_id = invoice.name.replace("/", "")
 				# if not invoice.e_invoice_json:
 				print("-------------------- here --------------------")
 				invoice_params, env = invoice.action_generate_eta_json()
