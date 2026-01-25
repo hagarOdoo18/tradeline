@@ -418,19 +418,27 @@ class AccountMoveInherit(models.Model):
 		})
 	
 	def _get_eta_personal_details(self, partner, order_total):
-		required_fields = ['country_id', 'state_id', 'city', 'street', 'classification']
+		required_fields = ['country_id', 'state_id', 'city', 'street',]
 		for field_name in required_fields:
 			if not getattr(partner, field_name):
 				raise ValidationError(
 					_("Missing one of required details [%s] for partner [%s]" % (field_name, partner.display_name)))
 		if not partner.vat:
-			if partner.classification == 'B':
+			if partner.company_type  == 'company':
 				raise ValidationError(_("Missing Tax ID for partner [%s]" % partner.display_name))
-			elif partner.classification == 'P' and order_total > 50000:
+			elif partner.company_type == 'person' and order_total > 50000:
 				raise ValidationError(
 					_("Missing National ID for partner [%s] cause order over 50K" % partner.display_name))
-		if partner.classification == 'P' and order_total > 50000 and len(partner.vat) != 14:
+		if partner.company_type == 'person' and  partner.mobile_type =='local' and order_total > 50000 and len(partner.vat) != 14:
 			raise ValidationError(_("National ID for partner [%s] is not valid" % partner.display_name))
+		partner_class =''
+		if  partner.company_type =='person' and partner.mobile_type =='local':
+			partner_class='P'
+		elif partner.individual =='person' and partner.mobile_type =='foreigner':
+			partner_class='F'
+		else:
+			partner_class="B"
+
 		return {"address": {"country": partner.country_id.code,
 		                    "governate": partner.state_id.display_name,
 		                    "regionCity": partner.city,
@@ -442,7 +450,7 @@ class AccountMoveInherit(models.Model):
 		                    "landmark": partner.landmark or "landmark",
 		                    "additionalInformation": partner.additional_info or "additionalInformation"
 		                    },
-		        "type": partner.classification,
+		        "type": partner_class ,
 		        "id": partner.vat or "",  # 538486562
 		        "name": partner.display_name or ""
 		        }
