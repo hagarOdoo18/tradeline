@@ -471,8 +471,7 @@ class AccountMoveInherit(models.Model):
 			currencyExchangeRate = 0.00
 			# line_price_total = line.price_total
 			sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
-			line_price_total =price_unit* line.quantity * (1 - line.discount / 100) * (
-					1 + sum_line_taxes_no_deduction)
+			line_price_total =line.price_total
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
 				#amountEGP = line.price_unit * currencyExchangeRate
