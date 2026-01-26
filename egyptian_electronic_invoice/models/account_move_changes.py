@@ -507,7 +507,7 @@ class AccountMoveInherit(models.Model):
 			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
 			totalAmount += line_price_total
 			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
-			description = eta_description == 'product' and line.product_id.display_name or line.name
+			description =  line.product_id.display_name
 			if quantity != 0.0:
 				invoice_lines.append({
 					"description": description or '',  # "Computerl"
