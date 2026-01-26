@@ -463,6 +463,7 @@ class AccountMoveInherit(models.Model):
 		EGP = self.env.ref('base.EGP')
 		for line in self.invoice_line_ids.filtered(
 				lambda l: l.product_id):  # Loop only lines with product to avoid line of T8
+			price_unit = line.price_unit
 			price_unit = line.get_price_unit()
 			amountEGP = price_unit if price_unit else 1.00
 			currencySold = EGP.name
