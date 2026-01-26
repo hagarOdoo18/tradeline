@@ -478,7 +478,7 @@ class AccountMoveInherit(models.Model):
 				amountSold = price_unit if price_unit else 1.00
 				currencySold = line.currency_id.name
 				currencyExchangeRate = round(1 / line.currency_id.rate,5)
-				amountEGP = round(line.price_unit * currencyExchangeRate,5)
+				amountEGP = round(price_unit * currencyExchangeRate,5)
 				# line_price_total = round(line.price_total * currencyExchangeRate,5)
 				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
 						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
