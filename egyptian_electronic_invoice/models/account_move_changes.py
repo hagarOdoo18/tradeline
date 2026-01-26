@@ -988,7 +988,7 @@ class AccountMoveLineInherit(models.Model):
 		return taxableItems, totalTaxableFees
 	
 	def get_price_unit(self):
-		price_unit_wo_discount = self.price_unit/1.14 * (1 - (self.discount / 100.0))
+		price_unit_wo_discount = self.price_unit * (1 - (self.discount / 100.0))
 		price_unit = self.price_unit
 		if self.tax_ids:
 			taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
