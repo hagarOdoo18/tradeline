@@ -472,6 +472,7 @@ class AccountMoveInherit(models.Model):
 			line_price_total = line.price_total
 			sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
 			# line_price_total =(line.price_unit * (1 - line.discount / 100) )* line.quantity
+			sales_total_amount =price_unit  * quantity
 
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
@@ -492,12 +493,13 @@ class AccountMoveInherit(models.Model):
 				currencyExchangeRate = round(1 / line.currency_id.rate,5)
 				amountEGP = round(price_unit * currencyExchangeRate,5)
 				# line_price_total = round(line.price_total * currencyExchangeRate,5)
+				sales_total_amount = round(price_unit * currencyExchangeRate, 5) * quantity
+
 				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
 						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
 			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
 			discount_percentage = line.discount if line.discount else 0.00000
 			quantity = line.quantity
-			sales_total_amount =round(price_unit * currencyExchangeRate,5) * quantity
 			discount_amount = (discount_percentage / 100) * sales_total_amount
 			total_discount += discount_amount
 			taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
