@@ -478,12 +478,12 @@ class AccountMoveInherit(models.Model):
 				#amountEGP = line.price_unit * currencyExchangeRate
 				price_unit = line.price_unit
 				if line.tax_ids:
-					taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
+					taxes_included = line.tax_ids.filtered(lambda tx: tx.price_include)
 					for tax in taxes_included:
 						tax_line = tax._origin.compute_all(price_unit,
-														   quantity=1, currency=self.currency_id,
-														   product=self.product_id,
-														   partner=self.partner_id)
+														   quantity=1, currency=line.currency_id,
+														   product=line.product_id,
+														   partner=line.partner_id)
 
 						print("Tax_ Line", tax_line)
 						price_unit -= tax_line['taxes'][0]['amount']
