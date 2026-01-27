@@ -55,6 +55,8 @@ class AccountInvoiceReport(models.Model):
         string="Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
         readonly=True
     )
+    price_total_converted = fields.FlLat(string='TotaL',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
+
 
 
     def _select(self) -> SQL:
@@ -64,6 +66,6 @@ class AccountInvoiceReport(models.Model):
                        " CASE WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) "
                        "* COALESCE(product.standard_price-> line.company_id::text, to_jsonb(0.0)) ::float)/1.14 "
                        " ELSE account_currency_table.rate * (-line.balance - (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) * COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0)) ::float)/1.14 "
-                       "END  AS price_margin_taxed ",
+                       "END  AS price_margin_taxed, line.price_total * (CASE WHEN move.move_type IN ('in_invoice','out_refund','in_receipt') THEN -1 ELSE 1 END) * account_currency_table.rate   AS price_total, ",
                        super()._select())
 
