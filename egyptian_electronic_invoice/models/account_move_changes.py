@@ -489,7 +489,7 @@ class AccountMoveInherit(models.Model):
 			sales_total_amount =line.price_unit * quantity
 			discount_amount = (discount_percentage / 100) * sales_total_amount
 			total_discount += discount_amount
-			taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
+			taxes_res = line.tax_ids._origin.compute_all(line.price_unit,
 			                                             quantity=line.quantity, currency=line.currency_id,
 			                                             product=line.product_id,
 			                                             partner=line.partner_id)
