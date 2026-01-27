@@ -520,7 +520,7 @@ class AccountMoveInherit(models.Model):
 					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
 					"total": round(line_price_total, 5),
 					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
-					"totalTaxableFees": totalTaxableFees,  # TODO::  In CASE of [T5:T12] must sent
+					"totalTaxableFees": 0.0,  # TODO::  In CASE of [T5:T12] must sent
 					"netTotal": round(netTotal, 5),
 					"itemsDiscount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO خصم اضافى على المنتجات كقيمه
 					"unitValue": {
