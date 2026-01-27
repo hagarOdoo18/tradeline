@@ -463,7 +463,7 @@ class AccountMoveInherit(models.Model):
 		EGP = self.env.ref('base.EGP')
 		for line in self.invoice_line_ids.filtered(
 				lambda l: l.product_id):  # Loop only lines with product to avoid line of T8
-			# price_unit = line.price_unit
+
 			price_unit = line.get_price_unit()
 			amountEGP = price_unit if price_unit else 1.00
 			currencySold = EGP.name
@@ -476,6 +476,17 @@ class AccountMoveInherit(models.Model):
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
 				#amountEGP = line.price_unit * currencyExchangeRate
+				price_unit = line.price_unit
+				if line.tax_ids:
+					taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
+					for tax in taxes_included:
+						tax_line = tax._origin.compute_all(price_unit,
+														   quantity=1, currency=self.currency_id,
+														   product=self.product_id,
+														   partner=self.partner_id)
+
+						print("Tax_ Line", tax_line)
+						price_unit -= tax_line['taxes'][0]['amount']
 				amountSold = price_unit if price_unit else 1.00
 				currencySold = line.currency_id.name
 				currencyExchangeRate = round(1 / line.currency_id.rate,5)
