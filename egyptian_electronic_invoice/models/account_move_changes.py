@@ -564,7 +564,12 @@ class AccountMoveInherit(models.Model):
 			price_unit = line.price_unit or 0.0
 			discount_percentage = line.discount or 0.0
 
-			price_unit_after_discount = price_unit * (1 - discount_percentage / 100.0)
+			# ========================
+			# Sales & discount (ETA logic)
+			# ========================
+			sales_total_amount = price_unit * quantity
+			discount_amount = sales_total_amount * (discount_percentage / 100.0)
+			sales_total_after_discount = sales_total_amount - discount_amount
 
 			# ========================
 			# Currency handling
@@ -572,17 +577,19 @@ class AccountMoveInherit(models.Model):
 			currencySold = EGP.name
 			amountSold = 0.0
 			currencyExchangeRate = 0.0
-			amountEGP = price_unit_after_discount
+			amountEGP = price_unit * (1 - discount_percentage / 100.0)
 
 			if line.currency_id and line.currency_id != EGP:
 				currencySold = line.currency_id.name
 				currencyExchangeRate = round(1 / (line.currency_id.rate or 1), 5)
-				amountSold = price_unit_after_discount
-				amountEGP = round(price_unit_after_discount * currencyExchangeRate, 5)
+				amountSold = price_unit * (1 - discount_percentage / 100.0)
+				amountEGP = round(amountSold * currencyExchangeRate, 5)
 
 			# ========================
-			# Taxes (clean & correct)
+			# Taxes (ETA compliant)
 			# ========================
+			price_unit_after_discount = price_unit * (1 - discount_percentage / 100.0)
+
 			taxes_res = line.tax_ids._origin.compute_all(
 				price_unit_after_discount,
 				quantity=quantity,
@@ -592,19 +599,16 @@ class AccountMoveInherit(models.Model):
 			)
 
 			line_price_total = taxes_res['total_included']
-			net_total = taxes_res['total_excluded']
 
 			if line.currency_id and line.currency_id != EGP:
 				line_price_total = round(line_price_total * currencyExchangeRate, 5)
-				net_total = round(net_total * currencyExchangeRate, 5)
+
+			net_total = sales_total_after_discount  # ETA requires this
 
 			# ========================
-			# Sales & discount totals
+			# Totals
 			# ========================
-			sales_total_amount = price_unit * quantity
-			discount_amount = (discount_percentage / 100.0) * sales_total_amount
-
-			total_sales_amount += sales_total_amount
+			total_sales_amount += sales_total_after_discount
 			total_discount += discount_amount
 			totalAmount += line_price_total
 
@@ -636,7 +640,7 @@ class AccountMoveInherit(models.Model):
 			# ========================
 			# ETA taxable items
 			# ========================
-			taxable_items_lines, totalTaxableFees = line._get_taxableItems(
+			taxable_items_lines, _ = line._get_taxableItems(
 				taxes_res['taxes']
 			)
 
@@ -651,10 +655,10 @@ class AccountMoveInherit(models.Model):
 					"unitType": uom or "D41",
 					"quantity": quantity,
 					"internalCode": line.product_id.barcode or "",
-					"salesTotal": round(sales_total_amount, 5),
+					"salesTotal": round(sales_total_after_discount, 5),
 					"total": round(line_price_total, 5),
 					"valueDifference": 0.0,
-					"totalTaxableFees": round(totalTaxableFees or 0.0, 5),
+					"totalTaxableFees": 0.0,
 					"netTotal": round(net_total, 5),
 					"itemsDiscount": 0.0,
 					"unitValue": {
