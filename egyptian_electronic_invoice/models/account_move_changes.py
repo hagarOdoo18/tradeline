@@ -476,7 +476,9 @@ class AccountMoveInherit(models.Model):
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
 				#amountEGP = line.price_unit * currencyExchangeRate
-				price_unit = line.price_unit
+				currencyExchangeRate = round(1 / line.currency_id.rate,5)
+
+				price_unit = line.price_unit  * currencyExchangeRate
 				if line.tax_ids:
 					taxes_included = line.tax_ids.filtered(lambda tx: tx.price_include)
 					for tax in taxes_included:
