@@ -476,13 +476,11 @@ class AccountMoveInherit(models.Model):
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
 				#amountEGP = line.price_unit * currencyExchangeRate
-				currencyExchangeRate = round(1 / line.currency_id.rate,5)
-
 				price_unit = line.price_unit
 				if line.tax_ids:
 					taxes_included = line.tax_ids.filtered(lambda tx: tx.price_include)
 					for tax in taxes_included:
-						tax_line = tax._origin.compute_all(price_unit * currencyExchangeRate,
+						tax_line = tax._origin.compute_all(price_unit,
 														   quantity=1, currency=line.currency_id,
 														   product=line.product_id,
 														   partner=line.partner_id)
@@ -496,8 +494,7 @@ class AccountMoveInherit(models.Model):
 				# line_price_total = round(line.price_total * currencyExchangeRate,5)
 				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
 						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
-				price_unit  = price_unit * currencyExchangeRate
-			price_unit_wo_discount = price_unit * (1 - (line.discount / 100.0))
+			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
 			discount_percentage = line.discount if line.discount else 0.00000
 			quantity = line.quantity
 			sales_total_amount =price_unit * quantity
