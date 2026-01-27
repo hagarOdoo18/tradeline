@@ -455,98 +455,223 @@ class AccountMoveInherit(models.Model):
 		        "name": partner.display_name or ""
 		        }
 	
+	# def _get_eta_invoice_lines(self):
+	# 	invoice_lines = []
+	# 	totalAmount = 0.00000
+	# 	total_discount = 0.00000
+	# 	total_sales_amount = 0.00000
+	# 	EGP = self.env.ref('base.EGP')
+	# 	for line in self.invoice_line_ids.filtered(
+	# 			lambda l: l.product_id):  # Loop only lines with product to avoid line of T8
+	#
+	# 		price_unit = line.get_price_unit()
+	# 		amountEGP = price_unit if price_unit else 1.00
+	# 		currencySold = EGP.name
+	# 		amountSold = 0.00
+	# 		currencyExchangeRate = 0.00
+	# 		line_price_total = line.price_total
+	# 		sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
+	# 		# line_price_total =(line.price_unit * (1 - line.discount / 100) )* line.quantity
+	#
+	# 		if line.currency_id and line.currency_id != EGP:
+	# 			# TODO: NEEDED to be changed
+	# 			#amountEGP = line.price_unit * currencyExchangeRate
+	# 			price_unit = line.price_unit
+	# 			if line.tax_ids:
+	# 				taxes_included = line.tax_ids.filtered(lambda tx: tx.price_include)
+	# 				for tax in taxes_included:
+	# 					tax_line = tax._origin.compute_all(price_unit,
+	# 													   quantity=1, currency=line.currency_id,
+	# 													   product=line.product_id,
+	# 													   partner=line.partner_id)
+	#
+	# 					print("Tax_ Line", tax_line)
+	# 					price_unit -= tax_line['taxes'][0]['amount']
+	# 			amountSold = price_unit if price_unit else 1.00
+	# 			currencySold = line.currency_id.name
+	# 			currencyExchangeRate = round(1 / line.currency_id.rate,5)
+	# 			amountEGP = round(price_unit * currencyExchangeRate,5)
+	# 			# line_price_total = round(line.price_total * currencyExchangeRate,5)
+	# 			line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
+	# 					1 + sum_line_taxes_no_deduction) * currencyExchangeRate
+	# 		price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
+	# 		discount_percentage = line.discount if line.discount else 0.00000
+	# 		quantity = line.quantity
+	# 		sales_total_amount =price_unit * quantity
+	# 		discount_amount = (discount_percentage / 100) * sales_total_amount
+	# 		total_discount += discount_amount
+	# 		taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
+	# 		                                             quantity=line.quantity, currency=line.currency_id,
+	# 		                                             product=line.product_id,
+	# 		                                             partner=line.partner_id)
+	# 		total_sales_amount += sales_total_amount
+	# 		prd_required_fields = ['e_invoicing_code', 'code_type', 'ar_description']
+	# 		for prd_field in prd_required_fields:
+	# 			if not getattr(line.product_id, prd_field):
+	# 				raise ValidationError(_("Missing One of required details [%s] for product [%s] !!!" %
+	# 				                        (prd_field, line.product_id.display_name)))
+	# 		uom = line.product_uom_id.eta_uom_id and line.product_uom_id.eta_uom_id.code or line.product_uom_id.name
+	# 		if uom not in PROD_UNIT_TYPE:
+	# 			raise ValidationError(_("This product uit of measure [%s] not in Tax System unites \n\n %s" %
+	# 			                        (uom, PROD_UNIT_TYPE)))
+	# 		unitType = uom or "D41"
+	# 		netTotal = sales_total_amount - discount_amount
+	# 		taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
+	# 		totalAmount += line_price_total
+	# 		eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
+	# 		description =  line.product_id.display_name
+	# 		if quantity != 0.0:
+	# 			invoice_lines.append({
+	# 				"description": description or '',  # "Computerl"
+	# 				"itemType": line.product_id.code_type,  # "EGS"/"GS1"
+	# 				"itemCode": line.product_id.e_invoicing_code,  # "EG-113317713-123456"
+	# 				"unitType": unitType,
+	# 				"quantity": quantity,
+	# 				"internalCode": line.product_id.barcode or "",  # "ICO"/default_code
+	# 				"salesTotal": round(sales_total_amount, 5),  # Total Quantity
+	# 				"total": round(line_price_total, 5),
+	# 				"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
+	# 				"totalTaxableFees": 0.0,  # TODO::  In CASE of [T5:T12] must sent
+	# 				"netTotal": round(netTotal, 5),
+	# 				"itemsDiscount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO خصم اضافى على المنتجات كقيمه
+	# 				"unitValue": {
+	# 					"currencySold": currencySold,  # Currency Code
+	# 					"amountSold": round(amountSold, 5),  # amount value in currency
+	# 					"currencyExchangeRate": round(currencyExchangeRate, 5),  # currency Rate
+	# 					"amountEGP": round(amountEGP, 5)  # Amount in EGP
+	# 				},
+	# 				"discount": {  # TODO::  الخصم قبل حساب الضريبه
+	# 					"rate": round(discount_percentage, 5),
+	# 					"amount": round(discount_amount, 5)},
+	# 				"taxableItems": taxable_items_lines,
+	# 			})
+	# 	return invoice_lines, total_discount, total_sales_amount, totalAmount
+
 	def _get_eta_invoice_lines(self):
 		invoice_lines = []
-		totalAmount = 0.00000
-		total_discount = 0.00000
-		total_sales_amount = 0.00000
-		EGP = self.env.ref('base.EGP')
-		for line in self.invoice_line_ids.filtered(
-				lambda l: l.product_id):  # Loop only lines with product to avoid line of T8
+		totalAmount = 0.0
+		total_discount = 0.0
+		total_sales_amount = 0.0
 
-			price_unit = line.get_price_unit()
-			amountEGP = price_unit if price_unit else 1.00
+		EGP = self.env.ref('base.EGP')
+
+		for line in self.invoice_line_ids.filtered(lambda l: l.product_id):
+
+			# ========================
+			# Base values
+			# ========================
+			quantity = line.quantity or 0.0
+			price_unit = line.price_unit or 0.0
+			discount_percentage = line.discount or 0.0
+
+			price_unit_after_discount = price_unit * (1 - discount_percentage / 100.0)
+
+			# ========================
+			# Currency handling
+			# ========================
 			currencySold = EGP.name
-			amountSold = 0.00
-			currencyExchangeRate = 0.00
-			line_price_total = line.price_total
-			sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
-			# line_price_total =(line.price_unit * (1 - line.discount / 100) )* line.quantity
+			amountSold = 0.0
+			currencyExchangeRate = 0.0
+			amountEGP = price_unit_after_discount
 
 			if line.currency_id and line.currency_id != EGP:
-				# TODO: NEEDED to be changed
-				#amountEGP = line.price_unit * currencyExchangeRate
-				price_unit = line.price_unit
-				if line.tax_ids:
-					taxes_included = line.tax_ids.filtered(lambda tx: tx.price_include)
-					for tax in taxes_included:
-						tax_line = tax._origin.compute_all(price_unit,
-														   quantity=1, currency=line.currency_id,
-														   product=line.product_id,
-														   partner=line.partner_id)
-
-						print("Tax_ Line", tax_line)
-						price_unit -= tax_line['taxes'][0]['amount']
-				amountSold = price_unit if price_unit else 1.00
 				currencySold = line.currency_id.name
-				currencyExchangeRate = round(1 / line.currency_id.rate,5)
-				amountEGP = round(price_unit * currencyExchangeRate,5)
-				# line_price_total = round(line.price_total * currencyExchangeRate,5)
-				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
-						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
-			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
-			discount_percentage = line.discount if line.discount else 0.00000
-			quantity = line.quantity
-			sales_total_amount =price_unit * quantity
-			discount_amount = (discount_percentage / 100) * sales_total_amount
-			total_discount += discount_amount
-			taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
-			                                             quantity=line.quantity, currency=line.currency_id,
-			                                             product=line.product_id,
-			                                             partner=line.partner_id)
+				currencyExchangeRate = round(1 / (line.currency_id.rate or 1), 5)
+				amountSold = price_unit_after_discount
+				amountEGP = round(price_unit_after_discount * currencyExchangeRate, 5)
+
+			# ========================
+			# Taxes (clean & correct)
+			# ========================
+			taxes_res = line.tax_ids._origin.compute_all(
+				price_unit_after_discount,
+				quantity=quantity,
+				currency=line.currency_id,
+				product=line.product_id,
+				partner=line.partner_id,
+			)
+
+			line_price_total = taxes_res['total_included']
+			net_total = taxes_res['total_excluded']
+
+			if line.currency_id and line.currency_id != EGP:
+				line_price_total = round(line_price_total * currencyExchangeRate, 5)
+				net_total = round(net_total * currencyExchangeRate, 5)
+
+			# ========================
+			# Sales & discount totals
+			# ========================
+			sales_total_amount = price_unit * quantity
+			discount_amount = (discount_percentage / 100.0) * sales_total_amount
+
 			total_sales_amount += sales_total_amount
-			prd_required_fields = ['e_invoicing_code', 'code_type', 'ar_description']
-			for prd_field in prd_required_fields:
-				if not getattr(line.product_id, prd_field):
-					raise ValidationError(_("Missing One of required details [%s] for product [%s] !!!" %
-					                        (prd_field, line.product_id.display_name)))
-			uom = line.product_uom_id.eta_uom_id and line.product_uom_id.eta_uom_id.code or line.product_uom_id.name
-			if uom not in PROD_UNIT_TYPE:
-				raise ValidationError(_("This product uit of measure [%s] not in Tax System unites \n\n %s" %
-				                        (uom, PROD_UNIT_TYPE)))
-			unitType = uom or "D41"
-			netTotal = sales_total_amount - discount_amount
-			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
+			total_discount += discount_amount
 			totalAmount += line_price_total
-			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
-			description =  line.product_id.display_name
-			if quantity != 0.0:
+
+			# ========================
+			# Product validations
+			# ========================
+			for field in ['e_invoicing_code', 'code_type', 'ar_description']:
+				if not getattr(line.product_id, field):
+					raise ValidationError(
+						_("Missing required field [%s] for product [%s]")
+						% (field, line.product_id.display_name)
+					)
+
+			# ========================
+			# UOM
+			# ========================
+			uom = (
+				line.product_uom_id.eta_uom_id.code
+				if line.product_uom_id.eta_uom_id
+				else line.product_uom_id.name
+			)
+
+			if uom not in PROD_UNIT_TYPE:
+				raise ValidationError(
+					_("Unit of Measure [%s] not allowed in ETA system\n\n%s")
+					% (uom, PROD_UNIT_TYPE)
+				)
+
+			# ========================
+			# ETA taxable items
+			# ========================
+			taxable_items_lines, totalTaxableFees = line._get_taxableItems(
+				taxes_res['taxes']
+			)
+
+			# ========================
+			# Append line
+			# ========================
+			if quantity:
 				invoice_lines.append({
-					"description": description or '',  # "Computerl"
-					"itemType": line.product_id.code_type,  # "EGS"/"GS1"
-					"itemCode": line.product_id.e_invoicing_code,  # "EG-113317713-123456"
-					"unitType": unitType,
+					"description": line.product_id.display_name or "",
+					"itemType": line.product_id.code_type,
+					"itemCode": line.product_id.e_invoicing_code,
+					"unitType": uom or "D41",
 					"quantity": quantity,
-					"internalCode": line.product_id.barcode or "",  # "ICO"/default_code
-					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
+					"internalCode": line.product_id.barcode or "",
+					"salesTotal": round(sales_total_amount, 5),
 					"total": round(line_price_total, 5),
-					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
-					"totalTaxableFees": 0.0,  # TODO::  In CASE of [T5:T12] must sent
-					"netTotal": round(netTotal, 5),
-					"itemsDiscount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO خصم اضافى على المنتجات كقيمه
+					"valueDifference": 0.0,
+					"totalTaxableFees": round(totalTaxableFees or 0.0, 5),
+					"netTotal": round(net_total, 5),
+					"itemsDiscount": 0.0,
 					"unitValue": {
-						"currencySold": currencySold,  # Currency Code
-						"amountSold": round(amountSold, 5),  # amount value in currency
-						"currencyExchangeRate": round(currencyExchangeRate, 5),  # currency Rate
-						"amountEGP": round(amountEGP, 5)  # Amount in EGP
+						"currencySold": currencySold,
+						"amountSold": round(amountSold, 5),
+						"currencyExchangeRate": round(currencyExchangeRate, 5),
+						"amountEGP": round(amountEGP, 5),
 					},
-					"discount": {  # TODO::  الخصم قبل حساب الضريبه
+					"discount": {
 						"rate": round(discount_percentage, 5),
-						"amount": round(discount_amount, 5)},
+						"amount": round(discount_amount, 5),
+					},
 					"taxableItems": taxable_items_lines,
 				})
+
 		return invoice_lines, total_discount, total_sales_amount, totalAmount
-	
+
 	def _get_eta_tax_totals(self, tax_lines):
 		taxTotals = []
 		if tax_lines:
