@@ -55,7 +55,7 @@ class AccountInvoiceReport(models.Model):
         string="Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
         readonly=True
     )
-    price_total_converted = fields.FlLat(string='TotaL',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
+    price_total_converted = fields.Float(string='TotaL',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
 
 
 
