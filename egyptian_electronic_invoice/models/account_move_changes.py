@@ -486,10 +486,10 @@ class AccountMoveInherit(models.Model):
 			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
 			discount_percentage = line.discount if line.discount else 0.00000
 			quantity = line.quantity
-			sales_total_amount =line.price_unit * quantity
+			sales_total_amount =price_unit * quantity
 			discount_amount = (discount_percentage / 100) * sales_total_amount
 			total_discount += discount_amount
-			taxes_res = line.tax_ids._origin.compute_all(line.price_unit,
+			taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
 			                                             quantity=line.quantity, currency=line.currency_id,
 			                                             product=line.product_id,
 			                                             partner=line.partner_id)
@@ -504,8 +504,7 @@ class AccountMoveInherit(models.Model):
 				raise ValidationError(_("This product uit of measure [%s] not in Tax System unites \n\n %s" %
 				                        (uom, PROD_UNIT_TYPE)))
 			unitType = uom or "D41"
-			# netTotal = sales_total_amount - discount_amount
-			netTotal = line.price_subtotal
+			netTotal = sales_total_amount - discount_amount
 			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
 			totalAmount += line_price_total
 			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
@@ -521,7 +520,7 @@ class AccountMoveInherit(models.Model):
 					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
 					"total": round(line_price_total, 5),
 					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
-					"totalTaxableFees": 0.00,  # TODO::  In CASE of [T5:T12] must sent
+					"totalTaxableFees": totalTaxableFees,  # TODO::  In CASE of [T5:T12] must sent
 					"netTotal": round(netTotal, 5),
 					"itemsDiscount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO خصم اضافى على المنتجات كقيمه
 					"unitValue": {
