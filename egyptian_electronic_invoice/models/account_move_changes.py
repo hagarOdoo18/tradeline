@@ -469,9 +469,10 @@ class AccountMoveInherit(models.Model):
 			currencySold = EGP.name
 			amountSold = 0.00
 			currencyExchangeRate = 0.00
-			# line_price_total = line.price_total
+			line_price_total = line.price_total
 			sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
-			line_price_total =line.price_total
+			# line_price_total =(line.price_unit * (1 - line.discount / 100) )* line.quantity
+
 			if line.currency_id and line.currency_id != EGP:
 				# TODO: NEEDED to be changed
 				#amountEGP = line.price_unit * currencyExchangeRate
@@ -485,7 +486,7 @@ class AccountMoveInherit(models.Model):
 			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
 			discount_percentage = line.discount if line.discount else 0.00000
 			quantity = line.quantity
-			sales_total_amount = amountEGP * quantity
+			sales_total_amount =line.price_unit * quantity
 			discount_amount = (discount_percentage / 100) * sales_total_amount
 			total_discount += discount_amount
 			taxes_res = line.tax_ids._origin.compute_all(price_unit_wo_discount,
@@ -958,6 +959,8 @@ class AccountMoveLineInherit(models.Model):
 				amount = abs(tax_line['amount'])
 				if tax.type_code_id.code in ['T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12']:
 					totalTaxableFees += amount
+				else:
+					totalTaxableFees -= amount
 				if self.currency_id:
 					# TODO: NEEDED to be changed
 					amount = self.currency_id._convert(
@@ -987,17 +990,18 @@ class AccountMoveLineInherit(models.Model):
 		return taxableItems, totalTaxableFees
 	
 	def get_price_unit(self):
-		price_unit_wo_discount = self.price_unit * (1 - (self.discount / 100.0))
-		price_unit = self.price_unit
-		if self.tax_ids:
-			taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
-			for tax in taxes_included:
-				tax_line = tax._origin.compute_all(price_unit_wo_discount,
-				                                   quantity=1, currency=self.currency_id,
-				                                   product=self.product_id,
-				                                   partner=self.partner_id)
-				print("Tax_ Line",  tax_line)
-				price_unit -= tax_line['taxes'][0]['amount']
+		# price_unit_wo_discount = self.price_unit
+		price_unit = self.price_unit /1.14
+		# if self.tax_ids:
+		# 	taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
+		# 	for tax in taxes_included:
+		# 		tax_line = tax._origin.compute_all(price_unit_wo_discount,
+		# 		                                   quantity=1, currency=self.currency_id,
+		# 		                                   product=self.product_id,
+		# 		                                   partner=self.partner_id)
+		#
+		# 		print("Tax_ Line",  tax_line)
+		# 		price_unit -= tax_line['taxes'][0]['amount']
 		return price_unit
 
 
