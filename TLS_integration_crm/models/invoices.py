@@ -1090,11 +1090,11 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_TVC_invoice ( self ) :
-        if self._cr.dbname == "live_11nov_2024" :
+        if self._cr.dbname == "tradelinestores-production-25284095" :
 
             invoice_date = datetime.today().date() - timedelta(days=30)
             invoice_date_today = datetime.today().date()
-            if str (invoice_date) >= '2022-01-01' :
+            if str (invoice_date) >= '2026-01-01' :
                 tvc_invoices = self.sudo ().search (
                     [('date_invoice', '=', invoice_date_today), ('type', '=', 'out_invoice'), ('state', 'in', ['paid','open']),
                      ('is_tvc', '=', False),('residual_signed','<=',1),('partner_id.is_exempt_select', 'not in', ['true']),('offer','=',False),
@@ -1110,14 +1110,14 @@ class AccountInvoice(models.Model):
     @api.model
     def sent_TVC_credit( self ):
 
-        if self._cr.dbname == "live_11nov_2024" :
+        if self._cr.dbname == "tradelinestores-production-25284095" :
             pos_order = self.env ['pos.order'].sudo ().search (
                 [ '|' ,('partner_id.customer_type', '=', 'Individual'),('partner_id.foreigner_type', '=', 'Person'),('date_order', '>=', '2025-01-01'),('state','=','invoiced'),
                       ('is_tvc', '=', False),('amount_total','<',0),('is_installment','=',False),('partner_id.is_exempt_select', 'not in', ['true']),
                     ], order='date_order')
             self.post_pos_order_tvc_credit (pos_order)
 
-            tvc_credits = self.sudo().search([('date_invoice','>=','2025-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),
+            tvc_credits = self.sudo().search([('date_invoice','>=','2026-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),
                                               ('is_installment','=', False), '|' ,('partner_id.customer_type', '=', 'Individual'),('partner_id.foreigner_type', '=', 'Person'),('partner_id.is_exempt_select', 'not in', ['true']),('team_id', '!=', 52)],order='date_invoice')
             self.post_credit(tvc_credits)
 
@@ -1125,19 +1125,19 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_tvc_point( self ):
-        if self._cr.dbname == "live_11nov_2024" :
+        if self._cr.dbname == "tradelinestores-production-25284095" :
 
             tvc_bank_pays = self.env['account.bank.statement.line'].sudo ().search (
-                [ ('date', '>=', '2025-01-01'),('journal_id.payment_type', '=', 'TVC'), ('is_point', '=', False)
+                [ ('date', '>=', '2026-01-01'),('journal_id.payment_type', '=', 'TVC'), ('is_point', '=', False)
                  ], order='date')
             self.post_tvc_point (tvc_bank_pays)
             tvc_invoices = self.sudo ().search (
-                [('date_invoice', '>=', '2025-1-01'), ('state', '=', 'paid'),
+                [('date_invoice', '>=', '2026-1-01'), ('state', '=', 'paid'),
                  ('is_point', '=', False), ('payment_journal', 'ilike', 'TVC'),
                  ('team_id', '!=', 52)], order='date_invoice')
             self.post_tvc_credit_invoice_point (tvc_invoices)
             tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
-                [('quotation_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2022-1-19'),
+                [('quotation_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2026-1-1'),
                  ('is_point', '=', False), ('payment_journal_text', 'ilike', 'TVC'),
                  ('team_id', '!=', 52)], order='create_date')
 
