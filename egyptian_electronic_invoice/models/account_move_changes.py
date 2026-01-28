@@ -470,7 +470,7 @@ class AccountMoveInherit(models.Model):
 			amountSold = 0.00
 			currencyExchangeRate = 0.00
 			quantity = line.quantity
-			line_price_total = line.price_unit * quantity if sum(tax.amount for tax in line.tax_ids ) >0 else price_unit * quantity
+			line_price_total = line.price_total  if sum(tax.amount for tax in line.tax_ids ) >0 else price_unit * quantity
 			sum_line_taxes_no_deduction = sum(tax.amount for tax in line.tax_ids if not tax.is_deduction) / 100
 			# line_price_total =(line.price_unit * (1 - line.discount / 100) )* line.quantity
 
