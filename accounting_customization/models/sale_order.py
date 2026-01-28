@@ -306,6 +306,7 @@ class saleadvancepaymentinv(models.TransientModel):
         invoices = super(saleadvancepaymentinv, self)._create_invoices(sale_orders)
         for invoice in invoices:
             invoice.action_post()
+
             if invoice.partner_id.company_type=='company':
                 invoice.action_sign_invoice()
         return invoices
