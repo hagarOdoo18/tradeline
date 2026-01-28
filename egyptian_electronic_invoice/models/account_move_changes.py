@@ -142,7 +142,21 @@ class AccountMoveInherit(models.Model):
 	e_invoice_po_ref = fields.Char("Purchase Order Ref.")
 	e_invoice_po_desc = fields.Char("Purchase Order Desc.")
 	e_invoice_pref_no = fields.Char("Proforma Invoice Num.")
-	
+	e_invoice_long_id = fields.Char(string='ETA Long ID',)
+	e_invoice_qr_code = fields.Char(string='ETA QR Code', compute='_compute_eta_invoice_qr_code_str')
+
+	@api.depends('invoice_date', 'e_invoice_uuid', 'e_invoice_long_id')
+	def _compute_eta_invoice_qr_code_str(self):
+		for move in self:
+			if move.invoice_date and move.l10n_eg_uuid and move.l10n_eg_long_id:
+				is_prod = move.company_id.l10n_eg_production_env
+				base_url ='https://invoicing.eta.gov.eg'
+				qr_code_str = '%s/documents/%s/share/%s' % (base_url, move.e_invoice_uuid, move.e_invoice_long_id)
+				move.e_invoice_qr_code = qr_code_str
+			else:
+				move.e_invoice_qr_code = ''
+
+
 	def action_send_electronic_invoice(self):
 		logging.info(yellow + "\n---------------------- Start Prepare Send %s Invoice" % len(self) + reset)
 		# Generate new token
@@ -239,6 +253,7 @@ class AccountMoveInherit(models.Model):
 							# 	submitted_invoice.action_update_electronic_invoice_pdf()
 							# Edit Record
 							vals = {'e_invoice_uuid': accept_detail['uuid'],
+									'':accept_detail['longId'],
 							        'e_invoice_date': fields.Datetime.now(),
 							        'e_invoice_sent': True,
 							        'e_invoice_status': document_status}
