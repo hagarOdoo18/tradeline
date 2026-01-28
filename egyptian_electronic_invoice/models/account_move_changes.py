@@ -253,7 +253,7 @@ class AccountMoveInherit(models.Model):
 							# 	submitted_invoice.action_update_electronic_invoice_pdf()
 							# Edit Record
 							vals = {'e_invoice_uuid': accept_detail['uuid'],
-									'':accept_detail['longId'],
+									'e_invoice_qr_code':accept_detail['longId'],
 							        'e_invoice_date': fields.Datetime.now(),
 							        'e_invoice_sent': True,
 							        'e_invoice_status': document_status}
