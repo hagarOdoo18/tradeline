@@ -148,8 +148,7 @@ class AccountMoveInherit(models.Model):
 	@api.depends('invoice_date', 'e_invoice_uuid', 'e_invoice_long_id')
 	def _compute_eta_invoice_qr_code_str(self):
 		for move in self:
-			if move.invoice_date and move.l10n_eg_uuid and move.l10n_eg_long_id:
-				is_prod = move.company_id.l10n_eg_production_env
+			if move.invoice_date and move.e_invoice_uuid and move.e_invoice_long_id:
 				base_url ='https://invoicing.eta.gov.eg'
 				qr_code_str = '%s/documents/%s/share/%s' % (base_url, move.e_invoice_uuid, move.e_invoice_long_id)
 				move.e_invoice_qr_code = qr_code_str
