@@ -1090,7 +1090,7 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_TVC_invoice ( self ) :
-        if self._cr.dbname == "tradelinestores-production-25284095" :
+        if self._cr.dbname == "test" :
 
             invoice_date = datetime.today().date() - timedelta(days=30)
             invoice_date_today = datetime.today().date()
@@ -1110,7 +1110,7 @@ class AccountInvoice(models.Model):
     @api.model
     def sent_TVC_credit( self ):
 
-        if self._cr.dbname == "tradelinestores-production-25284095" :
+        if self._cr.dbname == "test" :
             pos_order = self.env ['pos.order'].sudo ().search (
                 [ '|' ,('partner_id.customer_type', '=', 'Individual'),('partner_id.foreigner_type', '=', 'Person'),('date_order', '>=', '2025-01-01'),('state','=','invoiced'),
                       ('is_tvc', '=', False),('amount_total','<',0),('is_installment','=',False),('partner_id.is_exempt_select', 'not in', ['true']),
@@ -1125,7 +1125,8 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_tvc_point( self ):
-        if self._cr.dbname == "tradelinestores-production-25284095" :
+        # if self._cr.dbname == "tradelinestores-production-25284095" :
+        if self._cr.dbname == "test" :
 
             tvc_bank_pays = self.env['account.bank.statement.line'].sudo ().search (
                 [ ('date', '>=', '2026-01-01'),('journal_id.payment_type', '=', 'TVC'), ('is_point', '=', False)
