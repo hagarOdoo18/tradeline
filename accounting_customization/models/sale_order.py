@@ -308,7 +308,7 @@ class saleadvancepaymentinv(models.TransientModel):
             invoice.action_post()
 
             if invoice.partner_id.company_type=='company':
-                invoice.action_sign_invoice()
+                invoice.action_send_electronic_invoice()
         return invoices
 
 # class SaleProductConfiguratorController(Controller):
