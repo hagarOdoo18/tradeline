@@ -453,10 +453,10 @@ class AccountMoveInherit(models.Model):
 		else:
 			partner_class="B"
 
-		return {"address": {"country": partner.country_id.code,
-		                    "governate": partner.state_id.display_name,
-		                    "regionCity": partner.city,
-		                    "street": partner.street,
+		return {"address": {"country": partner.country_id.code or 'EG',
+		                    "governate": partner.state_id.display_name or 'Cairo',
+		                    "regionCity": partner.city  or 'Cairo',
+		                    "street": partner.street  or 'Cairo',
 		                    "buildingNumber": partner.street2 if partner.street2 else '1',
 		                    "postalCode": partner.zip or "12345",  # TODO:: Next is optional
 		                    "floor": partner.floor or "0",
