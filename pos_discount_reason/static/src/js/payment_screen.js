@@ -42,11 +42,21 @@ patch(PaymentScreen.prototype, {
      async _isOrderValid(isForceValidate) {
 
         const currentPartner = this.currentOrder.get_partner();
-        if (currentPartner && !currentPartner.vat && currentPartner.company_type  == 'company' ) {
+        const total =  this.currentOrder.get_total_with_tax();
+        if ( !currentPartner.vat && currentPartner.company_type  == 'person' && total >= 15000 ) {
 
             this.dialog.add(AlertDialog, {
                 title: ("Missing Field"),
                 body: ("An Identification Number Is Required"),
+            });
+             this.pos.editPartner(currentPartner);
+            return false;
+        }
+        if ( !currentPartner.vat && currentPartner.company_type  == 'company' ) {
+
+            this.dialog.add(AlertDialog, {
+                title: ("Missing Field"),
+                body: ("An Vat Number Is Required"),
             });
              this.pos.editPartner(currentPartner);
             return false;
