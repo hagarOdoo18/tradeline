@@ -432,11 +432,11 @@ class AccountMoveInherit(models.Model):
 		})
 	
 	def _get_eta_personal_details(self, partner, order_total):
-		required_fields = ['country_id', 'state_id', 'city', 'street',]
-		for field_name in required_fields:
-			if not getattr(partner, field_name):
-				raise ValidationError(
-					_("Missing one of required details [%s] for partner [%s]" % (field_name, partner.display_name)))
+		# required_fields = ['country_id', 'state_id', 'city', 'street',]
+		# for field_name in required_fields:
+		# 	if not getattr(partner, field_name):
+		# 		raise ValidationError(
+		# 			_("Missing one of required details [%s] for partner [%s]" % (field_name, partner.display_name)))
 		if not partner.vat:
 			if partner.company_type  == 'company':
 				raise ValidationError(_("Missing Tax ID for partner [%s]" % partner.display_name))
