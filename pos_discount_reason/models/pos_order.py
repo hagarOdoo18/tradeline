@@ -62,17 +62,6 @@ class PosOrder(models.Model):
             line.warranty_id = warranty if warranty else False
 
         # Auto print the invoice after creation
-        if move and self.config_id.auto_print_invoice:
-            try:
-                # Print the invoice
-                # move.print_invoice()
-                # You can also add logging here
-                self.env['pos.session']._notify_changes_in_session()
-            except Exception as e:
-                # Log the error but don't stop the process
-                import logging
-                _logger = logging.getLogger(__name__)
-                _logger.error(f"Failed to auto print invoice {move.name}: {str(e)}")
 
         return move
 
