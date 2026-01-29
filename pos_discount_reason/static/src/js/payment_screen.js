@@ -60,6 +60,8 @@ patch(PaymentScreen.prototype, {
             });
             return false;
         }
+                return true;
+
     },
 });
 
