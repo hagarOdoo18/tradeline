@@ -963,7 +963,7 @@ class AccountMoveInherit(models.Model):
 		"""
 		active_ids = self.env.context.get('active_ids')
 		posted_invoices_ids = self.browse(active_ids).filtered(
-			lambda i: i.expiration_duration > 0 and i.state == 'posted' and i.move_type in ('out_invoice', 'out_refund'))
+			lambda i:  i.state == 'posted' and i.move_type in ('out_invoice', 'out_refund'))
 		if not posted_invoices_ids:
 			raise ValidationError(_("No Valid records to be used in Sync details!!!"))
 		posted_invoices_ids.action_send_electronic_invoice()
