@@ -2,6 +2,7 @@
 
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 import { patch } from "@web/core/utils/patch";
+import { AlertDialog, ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 patch(PaymentScreen.prototype, {
     async _finalizeValidation() {
@@ -36,30 +37,29 @@ patch(PaymentScreen.prototype, {
             // If we have the invoice already, we can print it directly
             await this.printer.printInvoice(order.account_move);
         }
-    }
+    },
+
+     async _isOrderValid(isForceValidate) {
+
+        const currentPartner = this.currentOrder.get_partner();
+        if (currentPartner && !currentPartner.vat && currentPartner.company_type  == 'company' ) {
+
+            this.dialog.add(AlertDialog, {
+                title: ("Missing Field"),
+                body: ("An Identification Number Is Required"),
+            });
+             this.pos.editPartner(currentPartner);
+            return false;
+        }
+        if (
+            !(currentPartner.name && currentPartner.street && currentPartner.city && currentPartner.country_id && currentPartner.state_id)
+        ) {
+            this.dialog.add(AlertDialog, {
+                title: ("Incorrect address for shipping"),
+                body: ("The selected customer needs an address."),
+            });
+            return false;
+        }
+    },
 });
-//
-///** @odoo-module **/
-//
-//import { patch } from "@web/core/utils/patch";
-//import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
-//import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
-//
-//patch(ProductScreen.prototype, {
-//    async _onClickPay() {
-//        const order = this.pos.get_order();
-//
-//        // discount_reason_id stored as [id, name]
-//        const discountReason = order.discount_reason_id;
-//
-//        if (!discountReason || !discountReason[0]) {
-//            this.dialog.add(AlertDialog, {
-//                title: "Discount Reason Required",
-//                body: "You must select a discount reason before proceeding to payment.",
-//            });
-//            return;
-//        }
-//
-//        await super._onClickPay(...arguments);
-//    },
-//});
+
