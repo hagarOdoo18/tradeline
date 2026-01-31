@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+from mpmath.calculus.extrapolation import limit
 from odoo import models, fields, api,_
 from odoo.osv import expression
 
@@ -266,12 +266,15 @@ class AccountMove(models.Model):
             rec.tax_t2_t = tax_t2_t
             rec.total = sum_v14 + rec.amount_untaxed
 
+
+
+
     def action_post(self):
 
         res = super(AccountMove, self).action_post()
         for rec in self:
             if rec.move_type in ('out_invoice', 'out_refund'):
-                if rec.partner_id.company_type == 'company':
+                # if rec.partner_id.company_type == 'company':
                     rec.action_send_electronic_invoice()
 
         return res

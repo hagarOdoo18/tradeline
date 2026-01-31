@@ -235,13 +235,11 @@
         <field name="name">E-Invoice: Automatic sync posted documents Cron</field>
         <field name="active">0</field>
         <field name="interval_number">1</field>
-        <field name="interval_type">days</field>
+        <field name="interval_type">minutes</field>
         <field name="nextcall" eval="(DateTime.now().replace(hour=0, minute=0, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
         <field name="model_id" ref="account.model_account_move"/>
         <field name="code">
-            model.search([('state','=','posted'),('e_invoice_sent','=',False),('valid_flag','=',False),
-                          ('move_type','in', ('out_invoice', 'out_refund'))]).filtered(
-                          lambda i: i.expiration_duration > 0).action_send_electronic_invoice()
+            model.cron_send_invoices()
         </field>
         <field name="state">code</field>
     </record>
@@ -254,7 +252,7 @@
         <field name="nextcall" eval="(DateTime.now().replace(hour=0, minute=0, second=0) + timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
         <field name="model_id" ref="account.model_account_move"/>
         <field name="code">
-            model.search([('state','=','posted'),('e_invoice_sent','=',True),('e_invoice_status','=',('Submitted'))]).action_update_electronic_invoice_status()
+            model.search([('state','=','posted'),('e_invoice_sent','=',True),('e_invoice_status','=',('Submitted'))],limit=2).action_update_electronic_invoice_status()
         </field>
         <field name="state">code</field>
     </record>

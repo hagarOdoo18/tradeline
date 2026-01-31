@@ -1041,7 +1041,15 @@ class AccountMoveInherit(models.Model):
 				invoice.e_invoice_url = False
 				invoice.invoice_signed = False
 				invoice.static_signature = False
-	
+
+	def cron_send_invoices(self):
+		for rec in self.search([('move_type', 'in', ('out_invoice', 'out_refund')), ('e_invoice_status', '=', 'Draft')],
+							   limit=100):
+			try:
+				rec.action_send_electronic_invoice()
+			except:
+				rec.e_invoice_status="Error"
+
 	def _reset_e_invoice_Fields(self):
 		for invoice in self:
 			invoice.e_invoice_sent = False
