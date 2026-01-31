@@ -230,7 +230,7 @@
     </data>
 
     <!-- Cron Jobs -->
-<data noupdate="1">
+<data >
     <record id="ir_cron_document_posted_sync" model="ir.cron">
         <field name="name">E-Invoice: Automatic sync posted documents Cron</field>
         <field name="active">0</field>

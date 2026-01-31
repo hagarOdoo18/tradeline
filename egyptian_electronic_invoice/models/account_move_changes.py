@@ -1044,7 +1044,7 @@ class AccountMoveInherit(models.Model):
 
 	def cron_send_invoices(self):
 		for rec in self.search([('move_type', 'in', ('out_invoice', 'out_refund')), ('e_invoice_status', '=', 'Draft')],
-							   limit=100):
+							   limit=50):
 			try:
 				rec.action_send_electronic_invoice()
 			except:
