@@ -1165,7 +1165,8 @@ class AccountMoveLineInherit(models.Model):
 	
 	def get_price_unit(self):
 		# price_unit_wo_discount = self.price_unit
-		price_unit = self.price_unit /1.14
+
+		price_unit = self.price_unit /1.14 if sum(tax.amount for tax in self.tax_ids ) >0 else self.price_unit
 		# if self.tax_ids:
 		# 	taxes_included = self.tax_ids.filtered(lambda tx: tx.price_include)
 		# 	for tax in taxes_included:
