@@ -101,14 +101,14 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 inv.invoice_date
             )
 
-            total_converted = inv.amount_total_signed * (1 / currency_rate) if currency_rate else 0
+            total_converted = inv.amount_total_in_currency_signed * (1 / currency_rate) if currency_rate else 0
 
             # custom tax fields — keep if exists
             tax_t14 = getattr(inv, 'tax_t1', 0) if inv.move_type== 'out_invoice' else getattr(inv, 'tax_t1', 0) *-1
             tax_t2 = getattr(inv, 'tax_t2', 0)if inv.move_type== 'out_invoice' else getattr(inv, 'tax_t2', 0) *-1
             tax_t3 = getattr(inv, 'tax_t3', 0) if inv.move_type== 'out_invoice' else getattr(inv, 'tax_t3', 0) *-1
             tax_t5 = getattr(inv, 'tax_t5', 0) if inv.move_type== 'out_invoice' else getattr(inv, 'tax_t5', 0) *-1
-            total = getattr(inv, 'total', inv.amount_total_signed) if inv.move_type== 'out_invoice' else inv.amount_total_signed *-1
+            total = getattr(inv, 'total', inv.amount_untaxed_in_currency_signed)
 
             sheet.write(row, 0, inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '', line_format)
             sheet.write(row, 1, inv.name or '', line_format)
@@ -117,13 +117,13 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(row, 4, inv.partner_id.mobile or '', line_format)
             sheet.write(row, 5, inv.partner_id.vat or '', line_format)
             sheet.write(row, 6, getattr(inv.partner_id, 'passport_no', ''), line_format)
-            sheet.write(row, 7, inv.amount_untaxed_signed if inv.move_type== 'out_invoice' else inv.amount_untaxed_signed* -1 , line_format)
+            sheet.write(row, 7, inv.amount_untaxed_in_currency_signed , line_format)
             sheet.write(row, 8, tax_t14, line_format)
             sheet.write(row, 9, total, line_format)
             sheet.write(row, 10, tax_t2, line_format)
             sheet.write(row, 11, tax_t3, line_format)
             sheet.write(row, 12, tax_t5, line_format)
-            sheet.write(row, 13, inv.amount_total_signed, line_format)
+            sheet.write(row, 13, inv.amount_total_in_currency_signed, line_format)
             sheet.write(row, 14, total_converted, line_format)
             sheet.write(row, 15, inv.currency_id.name, line_format)
 
