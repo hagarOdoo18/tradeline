@@ -310,6 +310,7 @@ class AccountMoveInherit(models.Model):
 				now = fields.Datetime.now()
 				duration = (now - invoice.e_invoice_date)
 				if INV_TYP[invoice.move_type] == "I" and duration.days >= 3:
+
 					raise ValidationError(
 						_("Egyptian Taxes Authority prevent cancel Invoices after 3 days of submit date: %s"
 						  % invoice.e_invoice_date))
@@ -887,10 +888,18 @@ class AccountMoveInherit(models.Model):
 		receiver = self._get_eta_personal_details(self.partner_id, totalSalesAmount)
 		internal_id = self.name
 		tax_total_lines = self._get_eta_tax_totals(tax_lines)
+		type=''
+		if self.move_type=='out_invoice':
+			if self.inv_type =='debit':
+				type ='D'
+			else:
+				type='I'
+		else:
+			type='C'
 		invoice_params = {
 			"issuer": issuer,
 			"receiver": receiver,
-			"documentType": INV_TYP[self.move_type],  # "I/C/D"
+			"documentType": type,  # "I/C/D"
 			"documentTypeVersion": api_version,
 			"dateTimeIssued": invoice_time,
 			"taxpayerActivityCode": taxpayerActivityCode,
