@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_account_invoice_duo_wizard_form" model="ir.ui.view">
+        <field name="name">account.invoice.duo.wizard.form</field>
+        <field name="model">account.invoice.duo.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Account Invoice Excel Report">
+                <group>
+                    <field name="partner_id"/>
+                    <field name="branch_id"/>
+                    <field name="number"/>
+                    <field name="journal_id" widget="many2many_tags"/>
+                    <field name="date_from"/>
+                    <field name="date_to"/>
+                </group>
+                <footer>
+                    <button string="Generate Excel" type="object" name="action_account_invoice_search" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+                  <group  invisible="not excel_file">
+                    <field name="file_name"/>
+                    <field name="excel_file" filename="file_name"/>
+                </group>
+            </form>
+        </field>
+    </record>
+
+
+
+    <record id="action_account_invoice_duo_wizard" model="ir.actions.act_window">
+        <field name="name">Account Invoice Excel Report</field>
+        <field name="res_model">account.invoice.duo.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+            <menuitem id="menu_account_invoice_report" name="Account Invoice Report Excel" parent="account.menu_finance_receivables" action="action_account_invoice_duo_wizard" sequence="100"/>
+</odoo>

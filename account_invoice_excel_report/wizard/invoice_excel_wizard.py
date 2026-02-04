@@ -94,8 +94,7 @@ class AccountInvoiceWizard(models.TransientModel):
                     journal=payment.payment_method_id.journal_id.name
                     amount = payment.amount
                     branch_set.add(branch)
-                    if branch =='Water Way 3 TLS':
-                        print('Water Way 3 TLS')
+
                     if journal not in master_dic.keys():
                         master_dic.setdefault(journal, {})
                     if branch not in master_dic[journal].keys():
