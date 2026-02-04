@@ -123,7 +123,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(row, 10, tax_t2, line_format)
             sheet.write(row, 11, tax_t3, line_format)
             sheet.write(row, 12, tax_t5, line_format)
-            sheet.write(row, 13, inv.amount_total_in_currency_signed if inv.move_type== 'out_invoice' else  inv.amount_total_in_currency_signed*-1 , line_format)
+            sheet.write(row, 13, inv.amount_total_in_currency_signed  , line_format)
             sheet.write(row, 14, total_converted, line_format)
             sheet.write(row, 15, inv.currency_id.name, line_format)
 
