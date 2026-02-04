@@ -182,6 +182,7 @@ class AccountInvoiceWizard(models.TransientModel):
             output = BytesIO()
             workbook = xlsxwriter.Workbook(output, {'in_memory': True})
             sheet = workbook.add_worksheet('Invoices')
+            sheet.set_column(1, 50, 20)
 
             header = workbook.add_format({'bold': True, 'border': 1,'bg_color': '#AAB7B8','align': 'center', 'valign': 'vcenter',})
             cell = workbook.add_format( {'font_name': 'KacstBook', 'font_size': 10, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True, 'border': 1})
