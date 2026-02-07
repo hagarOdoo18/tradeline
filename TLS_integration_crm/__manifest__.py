@@ -21,6 +21,7 @@
         'security/security.xml',
         'security/ir.model.access.csv',
         'views/tvc_setting.xml',
+        'views/inherited_account_journal.xml',
         'views/tvc.xml',
         'views/cron.xml',
     ],

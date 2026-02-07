@@ -23,6 +23,12 @@ class AccountInvoice(models.Model):
                    ('error', 'Error'),
                    ('done', 'Done'), ],
         required=False, )
+    type = fields.Selection(
+        string='Type',
+        selection=[('debit', 'Debit'),
+                   ('Credit', 'credit'), ],
+        required=False, )
+
     customer_number = fields.Char(
         string='Customer Mobile',
         required=False)

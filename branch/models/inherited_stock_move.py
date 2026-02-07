@@ -164,14 +164,13 @@ class StockMove(models.Model):
         return False
 
 
-    def _search_picking_for_assignation(self):
-        self.ensure_one()
-        domain = self._search_picking_for_assignation_domain()
-        print('test')
-        print(domain)
-        picking = self.env['stock.picking'].sudo().search(domain, limit=1)
-        print(picking)
-        return picking
+    # def _search_picking_for_assignation(self):
+    #     self.ensure_one()
+    #     domain = self._search_picking_for_assignation_domain()
+    #
+    #     picking = self.env['stock.picking'].sudo().search(domain, limit=1)
+    #     print(picking)
+    #     return picking
 
     def _assign_picking(self):
         """ Try to assign the moves to an existing picking that has not been

@@ -13,6 +13,7 @@
                     <field name="invoice_number"  />
                     <field name="customer_number"  />
                     <field name="untaxed_amount"  />
+                    <field name="type"  />
                     <field name="state"  />
                     <field name="card"  />
                     <field name="note"  />
