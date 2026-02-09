@@ -87,45 +87,63 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(0, col, head, header_format)
 
         row = 1
+        currency_model = self.env['res.currency']
+        rate_cache = {}
 
         for inv in invoices:
-            currency_model = self.env['res.currency']
-            rate_cache = {}
+            partner = inv.partner_id
+            sign = 1 if inv.move_type == 'out_invoice' else -1
 
-            number_split = inv.name.split('/') if inv.name else ['']
+            number = inv.name.split('/')[-1] if inv.name else ''
 
-            # currency conversion
-            currency_rate = self.env['res.currency']._get_conversion_rate(
-                inv.company_currency_id,
-                inv.currency_id,
-                inv.company_id,
+            # ===== Currency rate cache =====
+            key = (
+                inv.company_currency_id.id,
+                inv.currency_id.id,
+                inv.company_id.id,
                 inv.invoice_date
             )
 
-            total_converted = inv.amount_untaxed_in_currency_signed * (1 / currency_rate) if currency_rate else 0
+            if key not in rate_cache:
+                rate_cache[key] = currency_model._get_conversion_rate(
+                    inv.company_currency_id,
+                    inv.currency_id,
+                    inv.company_id,
+                    inv.invoice_date
+                )
 
-            # custom tax fields — keep if exists
-            tax_t14 = getattr(inv, 'tax_t1', 0) if inv.move_type == 'out_invoice' else getattr(inv, 'tax_t1', 0) * -1
-            tax_t2 = getattr(inv, 'tax_t2', 0) if inv.move_type == 'out_invoice' else getattr(inv, 'tax_t2', 0) * -1
-            tax_t3 = getattr(inv, 'tax_t3', 0) if inv.move_type == 'out_invoice' else getattr(inv, 'tax_t3', 0) * -1
-            tax_t5 = getattr(inv, 'tax_t5', 0) if inv.move_type == 'out_invoice' else getattr(inv, 'tax_t5', 0) * -1
+            rate = rate_cache[key]
+            total_converted = inv.amount_untaxed_in_currency_signed * rate if rate else 0
 
-            sheet.write(row, 0, inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '', line_format)
-            sheet.write(row, 1, inv.name or '', line_format)
-            sheet.write(row, 2, number_split[-1], line_format)
-            sheet.write(row, 3, inv.partner_id.name or '', line_format)
-            sheet.write(row, 4, inv.partner_id.mobile or '', line_format)
-            sheet.write(row, 5, inv.partner_id.vat or '', line_format)
-            sheet.write(row, 6, getattr(inv.partner_id, 'passport_no', ''), line_format)
-            sheet.write(row, 7, inv.amount_untaxed_in_currency_signed, line_format)
-            sheet.write(row, 8, tax_t14, line_format)
-            sheet.write(row, 9, inv.amount_total_in_currency_signed, line_format)
-            sheet.write(row, 10, tax_t2, line_format)
-            sheet.write(row, 11, tax_t3, line_format)
-            sheet.write(row, 12, tax_t5, line_format)
-            sheet.write(row, 13, inv.amount_untaxed_in_currency_signed, line_format)
-            sheet.write(row, 14, total_converted, line_format)
-            sheet.write(row, 15, inv.currency_id.name, line_format)
+            # ===== Taxes =====
+            tax_t1 = sign * (inv.tax_t1 or 0)
+            tax_t2 = sign * (inv.tax_t2 or 0)
+            tax_t3 = sign * (inv.tax_t3 or 0)
+            tax_t5 = sign * (inv.tax_t5 or 0)
+
+            # ===== Partner VAT logic =====
+            local_vat = partner.vat if partner.mobile_type == 'local' else ''
+            foreign_vat = partner.vat if partner.mobile_type != 'local' else ''
+
+            # ===== Excel write (single call) =====
+            sheet.write_row(row, 0, [
+                inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '',
+                inv.name or '',
+                number,
+                partner.name or '',
+                partner.mobile or '',
+                local_vat,
+                foreign_vat,
+                inv.amount_untaxed_in_currency_signed,
+                tax_t1,
+                inv.amount_total_in_currency_signed,
+                tax_t2,
+                tax_t3,
+                tax_t5,
+                inv.amount_untaxed_in_currency_signed,
+                total_converted,
+                inv.currency_id.name,
+            ], line_format)
 
             row += 1
 
