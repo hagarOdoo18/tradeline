@@ -113,7 +113,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t2 = sign * (inv.tax_t2 or 0)
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
-            total_converted = (inv.amount_total_in_currency_signed -tax_t1) * rate if rate else 0
+            total_converted = (inv.amount_total_in_currency_signed -tax_t2) * rate if rate else 0
 
 
             # ===== Partner VAT logic =====
@@ -135,7 +135,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 tax_t2,
                 tax_t3,
                 tax_t5,
-                inv.amount_total_in_currency_signed - tax_t1,
+                inv.amount_total_in_currency_signed - tax_t2,
                 total_converted,
                 inv.currency_id.name,
             ], line_format)
