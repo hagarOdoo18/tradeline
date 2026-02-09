@@ -114,7 +114,7 @@ class SaleOrder(models.Model):
     def _prepare_invoice(self):
         res = super(SaleOrder, self)._prepare_invoice()
         journal = self.env['account.journal'].search([('type','=','sale'),('branch_id','=',self.branch_id.id),('currency_id','=',self.currency_id.id)])
-        if not journal:
+        if not journal and not self.invoice_journal_id:
             raise UserError(('please set Journal for this Branch'))
         res['journal_id'] = journal.id if not self.invoice_journal_id else self.invoice_journal_id.id
         res['opportunity_id'] = self.opportunity_id.id
