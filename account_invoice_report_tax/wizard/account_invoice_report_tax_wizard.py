@@ -92,39 +92,61 @@ class AccountInvoiceReportWizard(models.TransientModel):
         currency_model = self.env['res.currency']
         rate_cache = {}
 
-        for inv in invoices:
-            partner = inv.partner_id
-            sign = 1 if inv.move_type == 'out_invoice' else -1
+        invoices_data = invoices.read([
+            'name', 'move_type', 'invoice_date',
+            'amount_untaxed_in_currency_signed',
+            'amount_total_in_currency_signed',
+            'currency_id', 'company_currency_id', 'company_id',
+            'tax_t1', 'tax_t2', 'tax_t3', 'tax_t5',
+            'partner_id'
+        ])
 
-            key = (inv.company_currency_id.id, inv.currency_id.id, inv.company_id.id, inv.invoice_date)
+        partner_ids = {i['partner_id'][0] for i in invoices_data if i['partner_id']}
+        partners = self.env['res.partner'].browse(partner_ids).read(
+            ['name', 'mobile', 'vat', 'passport_no']
+        )
+        partner_map = {p['id']: p for p in partners}
+
+        for inv in invoices_data:
+            partner = partner_map.get(inv['partner_id'][0], {})
+
+            sign = 1 if inv['move_type'] == 'out_invoice' else -1
+
+            key = (
+                inv['company_currency_id'][0],
+                inv['currency_id'][0],
+                inv['company_id'][0],
+                inv['invoice_date']
+            )
+
             if key not in rate_cache:
                 rate_cache[key] = currency_model._get_conversion_rate(
-                    inv.company_currency_id,
-                    inv.currency_id,
-                    inv.company_id,
-                    inv.invoice_date
+                    currency_model.browse(inv['company_currency_id'][0]),
+                    currency_model.browse(inv['currency_id'][0]),
+                    currency_model.browse(inv['company_id'][0]),
+                    inv['invoice_date']
                 )
 
             rate = rate_cache[key]
-            total_converted = inv.amount_untaxed_in_currency_signed * rate if rate else 0
+            total_converted = inv['amount_untaxed_in_currency_signed'] * rate if rate else 0
 
             sheet.write_row(row, 0, [
-                inv.invoice_date.strftime('%d.%m.%Y') if inv.invoice_date else '',
-                inv.name or '',
-                inv.name.split('/')[-1] if inv.name else '',
-                partner.name or '',
-                partner.mobile or '',
-                partner.vat or '',
-                getattr(partner, 'passport_no', ''),
-                inv.amount_untaxed_in_currency_signed,
-                sign * (inv.tax_t1 or 0),
-                inv.amount_total_in_currency_signed,
-                sign * (inv.tax_t2 or 0),
-                sign * (inv.tax_t3 or 0),
-                sign * (inv.tax_t5 or 0),
-                inv.amount_untaxed_in_currency_signed,
+                inv['invoice_date'].strftime('%d.%m.%Y') if inv['invoice_date'] else '',
+                inv['name'] or '',
+                inv['name'].split('/')[-1] if inv['name'] else '',
+                partner.get('name', ''),
+                partner.get('mobile', ''),
+                partner.get('vat', ''),
+                partner.get('passport_no', ''),
+                inv['amount_untaxed_in_currency_signed'],
+                sign * (inv['tax_t1'] or 0),
+                inv['amount_total_in_currency_signed'],
+                sign * (inv['tax_t2'] or 0),
+                sign * (inv['tax_t3'] or 0),
+                sign * (inv['tax_t5'] or 0),
+                inv['amount_untaxed_in_currency_signed'],
                 total_converted,
-                inv.currency_id.name,
+                inv['currency_id'][1],
             ], line_format)
 
             row += 1
