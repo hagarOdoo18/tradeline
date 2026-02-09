@@ -41,13 +41,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
 
         act = self.generate_excel(invoices)
 
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'report.excel',
-            'res_id': act.id,
-            'view_mode': 'form',
-            'target': 'new',
-        }
+        return act
 
     def generate_excel(self, invoices):
         filename = 'Invoices_'
