@@ -78,6 +78,8 @@ class AccountMove(models.Model):
         for rec in self.invoice_line_ids:
             if rec.product_id.product_notes:
                 return rec.product_id.product_notes
+            else:
+                return ''
     en_comment = fields.Html(
         string="En_comment",default= lambda self: self.env.company.sale_note_en,
         required=False)
