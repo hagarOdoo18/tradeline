@@ -107,7 +107,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 )
 
             rate = rate_cache[key]
-            total_converted = inv.amount_untaxed_in_currency_signed * rate if rate else 0
+            total_converted = (inv.amount_total_in_currency_signed - inv.amount_untaxed_in_currency_signed) * rate if rate else 0
 
             # ===== Taxes =====
             tax_t1 = sign * (inv.tax_t1 or 0)
@@ -134,7 +134,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 tax_t2,
                 tax_t3,
                 tax_t5,
-                inv.amount_untaxed_in_currency_signed,
+                inv.amount_total_in_currency_signed - inv.amount_untaxed_in_currency_signed,
                 total_converted,
                 inv.currency_id.name,
             ], line_format)

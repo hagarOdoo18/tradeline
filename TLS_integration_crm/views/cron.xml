@@ -21,16 +21,16 @@
             <field name="state">code</field>
             <field name="code">model.sent_TVC_credit()</field>
          </record>
-         <record id="tradeline_sent_tvc_point_cron" forcecreate='True' model="ir.cron">
-            <field name="name">Cron Send TVC Point</field>
-            <field eval="True" name="active"/>
-            <field name="user_id" ref="base.user_admin"/>
-            <field name="interval_number">15</field>
-            <field name="interval_type">minutes</field>
-            <field name="model_id" ref="account.model_account_move"/>
-            <field name="state">code</field>
-            <field name="code">model.sent_tvc_point()</field>
-         </record>
+<!--         <record id="tradeline_sent_tvc_point_cron" forcecreate='True' model="ir.cron">-->
+<!--            <field name="name">Cron Send TVC Point</field>-->
+<!--            <field eval="True" name="active"/>-->
+<!--            <field name="user_id" ref="base.user_admin"/>-->
+<!--            <field name="interval_number">15</field>-->
+<!--            <field name="interval_type">minutes</field>-->
+<!--            <field name="model_id" ref="account.model_account_move"/>-->
+<!--            <field name="state">code</field>-->
+<!--            <field name="code">model.sent_tvc_point()</field>-->
+<!--         </record>-->
          <record id="tradeline_sent_TVC_Offer_cron" forcecreate='True' model="ir.cron">
             <field name="name">Cron Send TVC Offer</field>
             <field eval="False" name="active"/>
