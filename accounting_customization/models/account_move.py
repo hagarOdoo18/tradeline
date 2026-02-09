@@ -89,7 +89,7 @@ class AccountMove(models.Model):
 
     def get_gift_invoice(self):
         for rec in self:
-            pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin),('state','=','invoiced')],limmit=1)
+            pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin),('state','=','invoiced')],limit=1)
             if pos_order:
                 return pos_order.as_gift
             else:
