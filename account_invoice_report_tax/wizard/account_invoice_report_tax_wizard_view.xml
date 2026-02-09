@@ -12,6 +12,10 @@
                     <button string="Print" type="object" name="action_invoice_search" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
+                  <group  invisible="not excel_file">
+                    <field name="file_name"/>
+                    <field name="excel_file" filename="file_name"/>
+                </group>
             </form>
         </field>
     </record>

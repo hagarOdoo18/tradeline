@@ -150,14 +150,13 @@ class AccountInvoiceReportWizard(models.TransientModel):
         workbook.close()
         output.seek(0)
 
-        self.write({
-            'file_name': filename + datetime.today().strftime('%Y-%m-%d') + '.xlsx',
-            'excel_file': base64.b64encode(output.read())
-        })
+        self.file_name = f'invoices_{datetime.today().date()}.xlsx'
+        self.excel_file = base64.b64encode(output.read())
 
-        act_id = self.env['report.excel'].create({
-            'file_name': self.file_name,
-            'excel_file': self.excel_file
-        })
-
-        return act_id
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'account.invoice.report.tax.wizard',
+            'res_id': self.id,
+            'view_mode': 'form',
+            'target': 'new',
+        }
