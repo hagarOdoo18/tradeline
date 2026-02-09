@@ -103,7 +103,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
 
         partner_ids = {i['partner_id'][0] for i in invoices_data if i['partner_id']}
         partners = self.env['res.partner'].browse(partner_ids).read(
-            ['name', 'mobile', 'vat', 'passport_no']
+            ['name', 'mobile', 'vat']
         )
         partner_map = {p['id']: p for p in partners}
 
@@ -136,8 +136,8 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 inv['name'].split('/')[-1] if inv['name'] else '',
                 partner.get('name', ''),
                 partner.get('mobile', ''),
-                partner.get('vat', ''),
-                partner.get('passport_no', ''),
+                partner.get('vat', '') if partner.get('mobile_type') == 'local' else '',
+                partner.get('vat', '') if partner.get('mobile_type') == 'foreigner' else '',
                 inv['amount_untaxed_in_currency_signed'],
                 sign * (inv['tax_t1'] or 0),
                 inv['amount_total_in_currency_signed'],
