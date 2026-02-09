@@ -45,7 +45,6 @@ class AccountInvoiceReportWizard(models.TransientModel):
             'type': 'ir.actions.act_window',
             'res_model': 'report.excel',
             'res_id': act.id,
-            'view_type': 'form',
             'view_mode': 'form',
             'target': 'new',
         }
