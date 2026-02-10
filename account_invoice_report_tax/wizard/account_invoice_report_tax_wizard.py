@@ -6,6 +6,8 @@ from io import BytesIO
 import base64
 from datetime import datetime
 
+from sympy.physics.units import amount
+
 
 class ReportExcel(models.TransientModel):
     _name = 'report.excel'
@@ -113,7 +115,8 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t2 = sign * (inv.tax_t2 or 0)
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
-            total_converted = (inv.amount_total_in_currency_signed -tax_t2) * rate if rate else 0
+            amount_net = inv.amount_total_in_currency_signed - tax_t2 if tax_t2>0 else inv.amount_total_in_currency_signed + tax_t2
+            total_converted = (amount_net) * rate if rate else 0
 
 
             # ===== Partner VAT logic =====
@@ -135,7 +138,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 tax_t2,
                 tax_t3,
                 tax_t5,
-                inv.amount_total_in_currency_signed - tax_t2,
+                amount_net ,
                 total_converted,
                 inv.currency_id.name,
             ], line_format)
