@@ -116,8 +116,9 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
             amount_net = inv.amount_untaxed_in_currency_signed +tax_t1
-            EGP = self.env.ref('base.EGP')
-            total_converted =   inv.currency_id.compute(inv.amount_total_in_currency_signed, EGP)
+            currencyExchangeRate = round(1 / inv.currency_id.rate, 5)
+
+            total_converted =   round(inv.amount_total_in_currency_signed *currencyExchangeRate,2)
 
 
             # ===== Partner VAT logic =====
