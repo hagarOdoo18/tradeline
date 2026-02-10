@@ -116,7 +116,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
             amount_total = inv.amount_untaxed_in_currency_signed +tax_t1
-            currencyExchangeRate = round(1 / inv.invoice_currency_rate.rate, 5)
+            currencyExchangeRate = round(1 / inv.invoice_currency_rate, 5)
 
             total_converted =   round(inv.amount_total_in_currency_signed *currencyExchangeRate,2)
 
