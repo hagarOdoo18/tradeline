@@ -115,7 +115,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t2 = sign * (inv.tax_t2 or 0)
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
-            amount_net = inv.amount_total_in_currency_signed - tax_t2 if tax_t2>0 else inv.amount_total_in_currency_signed + tax_t2
+            amount_net = inv.amount_untaxed_in_currency_signed +tax_t1
             total_converted = (inv.amount_total_in_currency_signed) * rate if rate else 0
 
 
