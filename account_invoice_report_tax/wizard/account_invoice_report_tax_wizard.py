@@ -115,8 +115,8 @@ class AccountInvoiceReportWizard(models.TransientModel):
             tax_t2 = sign * (inv.tax_t2 or 0)
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
-            amount_net = inv.amount_untaxed_in_currency_signed +tax_t1
-            currencyExchangeRate = round(1 / inv.currency_id.rate, 5)
+            amount_total = inv.amount_untaxed_in_currency_signed +tax_t1
+            currencyExchangeRate = round(1 / inv.invoice_currency_rate.rate, 5)
 
             total_converted =   round(inv.amount_total_in_currency_signed *currencyExchangeRate,2)
 
@@ -136,7 +136,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 foreign_vat,
                 inv.amount_untaxed_in_currency_signed,
                 round(tax_t1,2),
-                round(amount_net,2),
+                round(amount_total,2),
                 round(tax_t2,2),
                 round(tax_t3,2),
                 round(tax_t5,2),
