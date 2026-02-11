@@ -290,7 +290,7 @@ class UploadDeliveryWizard(models.TransientModel):
                         lot = self.env['stock.lot'].create({
                             'name': serial_name,
                             'product_id': product_id,
-                            'company_id': picking.company_id.id,
+
                         })
                         lot_map[key] = lot
                     else:
