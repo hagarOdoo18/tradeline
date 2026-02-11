@@ -512,7 +512,7 @@ class AccountMoveInherit(models.Model):
 				# line_price_total = round(line.price_total * currencyExchangeRate,4)
 				sales_total_amount = round(price_unit * currencyExchangeRate, 4) * quantity
 
-				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
+				line_price_total = line.price_unit * line.quantity * (1 - line.discount / 100) * (
 						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
 			price_unit_wo_discount = line.price_unit * (1 - (line.discount / 100.0))
 			discount_percentage = line.discount if line.discount else 0.00000
