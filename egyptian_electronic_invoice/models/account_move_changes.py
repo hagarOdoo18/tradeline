@@ -507,10 +507,10 @@ class AccountMoveInherit(models.Model):
 						price_unit -= tax_line['taxes'][0]['amount']
 				amountSold = price_unit if price_unit else 1.00
 				currencySold = line.currency_id.name
-				currencyExchangeRate = round(1 / line.currency_id.rate,5)
-				amountEGP = round(price_unit * currencyExchangeRate,5)
-				# line_price_total = round(line.price_total * currencyExchangeRate,5)
-				sales_total_amount = round(price_unit * currencyExchangeRate, 5) * quantity
+				currencyExchangeRate = round(1 / line.currency_id.rate,4)
+				amountEGP = round(price_unit * currencyExchangeRate,4)
+				# line_price_total = round(line.price_total * currencyExchangeRate,4)
+				sales_total_amount = round(price_unit * currencyExchangeRate, 4) * quantity
 
 				line_price_total = price_unit * line.quantity * (1 - line.discount / 100) * (
 						1 + sum_line_taxes_no_deduction) * currencyExchangeRate
@@ -546,21 +546,21 @@ class AccountMoveInherit(models.Model):
 					"unitType": unitType,
 					"quantity": quantity,
 					"internalCode": line.product_id.barcode or "",  # "ICO"/default_code
-					"salesTotal": round(sales_total_amount, 5),  # Total Quantity
-					"total": round(line_price_total, 5),
+					"salesTotal": round(sales_total_amount, 4),  # Total Quantity
+					"total": round(line_price_total, 4),
 					"valueDifference": 0.00,  # TODO::  لازم تبقى 0 دايما (خاصه بالعينات المجانيه)
 					"totalTaxableFees": 0.0,  # TODO::  In CASE of [T5:T12] must sent
-					"netTotal": round(netTotal, 5),
+					"netTotal": round(netTotal, 4),
 					"itemsDiscount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO خصم اضافى على المنتجات كقيمه
 					"unitValue": {
 						"currencySold": currencySold,  # Currency Code
-						"amountSold": round(amountSold, 5),  # amount value in currency
-						"currencyExchangeRate": round(currencyExchangeRate, 5),  # currency Rate
-						"amountEGP": round(amountEGP, 5)  # Amount in EGP
+						"amountSold": round(amountSold, 4),  # amount value in currency
+						"currencyExchangeRate": round(currencyExchangeRate, 4),  # currency Rate
+						"amountEGP": round(amountEGP, 4)  # Amount in EGP
 					},
 					"discount": {  # TODO::  الخصم قبل حساب الضريبه
-						"rate": round(discount_percentage, 5),
-						"amount": round(discount_amount, 5)},
+						"rate": round(discount_percentage, 4),
+						"amount": round(discount_amount, 4)},
 					"taxableItems": taxable_items_lines,
 				})
 		return invoice_lines, total_discount, total_sales_amount, totalAmount
@@ -599,9 +599,9 @@ class AccountMoveInherit(models.Model):
 	#
 	# 		if line.currency_id and line.currency_id != EGP:
 	# 			currencySold = line.currency_id.name
-	# 			currencyExchangeRate = round(1 / (line.currency_id.rate or 1), 5)
+	# 			currencyExchangeRate = round(1 / (line.currency_id.rate or 1), 4)
 	# 			amountSold = price_unit * (1 - discount_percentage / 100.0)
-	# 			amountEGP = round(amountSold * currencyExchangeRate, 5)
+	# 			amountEGP = round(amountSold * currencyExchangeRate, 4)
 	#
 	# 		# ========================
 	# 		# Taxes (ETA compliant)
@@ -619,7 +619,7 @@ class AccountMoveInherit(models.Model):
 	# 		line_price_total = taxes_res['total_included']
 	#
 	# 		if line.currency_id and line.currency_id != EGP:
-	# 			line_price_total = round(line_price_total * currencyExchangeRate, 5)
+	# 			line_price_total = round(line_price_total * currencyExchangeRate, 4)
 	#
 	# 		net_total = sales_total_after_discount  # ETA requires this
 	#
@@ -673,21 +673,21 @@ class AccountMoveInherit(models.Model):
 	# 				"unitType": uom or "D41",
 	# 				"quantity": quantity,
 	# 				"internalCode": line.product_id.barcode or "",
-	# 				"salesTotal": round(sales_total_after_discount, 5),
-	# 				"total": round(line_price_total, 5),
+	# 				"salesTotal": round(sales_total_after_discount, 4),
+	# 				"total": round(line_price_total, 4),
 	# 				"valueDifference": 0.0,
 	# 				"totalTaxableFees": 0.0,
-	# 				"netTotal": round(net_total, 5),
+	# 				"netTotal": round(net_total, 4),
 	# 				"itemsDiscount": 0.0,
 	# 				"unitValue": {
 	# 					"currencySold": currencySold,
-	# 					"amountSold": round(amountSold, 5),
-	# 					"currencyExchangeRate": round(currencyExchangeRate, 5),
-	# 					"amountEGP": round(amountEGP, 5),
+	# 					"amountSold": round(amountSold, 4),
+	# 					"currencyExchangeRate": round(currencyExchangeRate, 4),
+	# 					"amountEGP": round(amountEGP, 4),
 	# 				},
 	# 				"discount": {
-	# 					"rate": round(discount_percentage, 5),
-	# 					"amount": round(discount_amount, 5),
+	# 					"rate": round(discount_percentage, 4),
+	# 					"amount": round(discount_amount, 4),
 	# 				},
 	# 				"taxableItems": taxable_items_lines,
 	# 			})
@@ -700,7 +700,7 @@ class AccountMoveInherit(models.Model):
 			for line in tax_lines:
 				taxType = line.tax_line_id.type_code_id.code or "T1"
 				taxTotals.append({"taxType": taxType,
-				                  "amount": round(abs(line.balance), 5)})
+				                  "amount": round(abs(line.balance), 4)})
 		else:
 			taxType = self.env.company.type_code_id.code or "T1"
 			taxTotals.append({"taxType": taxType,
@@ -913,11 +913,11 @@ class AccountMoveInherit(models.Model):
 			"proformaInvoiceNumber": self.e_invoice_pref_no or "",
 			# TODO: ADD Payment
 			"invoiceLines": invoice_lines,
-			"totalDiscountAmount": round(totalDiscountAmount, 5),
-			"totalSalesAmount": round(totalSalesAmount, 5),
-			"netAmount": round(netAmount, 5),
+			"totalDiscountAmount": round(totalDiscountAmount, 4),
+			"totalSalesAmount": round(totalSalesAmount, 4),
+			"netAmount": round(netAmount, 4),
 			"taxTotals": tax_total_lines,
-			"totalAmount": round(totalAmount, 5),
+			"totalAmount": round(totalAmount, 4),
 			"extraDiscountAmount": 0.00,  # TODO::  THIS VALUE NOT USED IN ODOO
 			# الخصم الإضافى بعد حساب الضريبه(لاتؤثر على الضريبه نهائى)
 			"totalItemsDiscountAmount": 0.00,  # TODO::  لازم تبقى 0 دايما ومش عارفين السبب
@@ -1152,9 +1152,9 @@ class AccountMoveLineInherit(models.Model):
 				if not tax.is_deduction:
 					taxableItems.append({
 						"taxType": taxType,
-						"amount": round(amount, 5),
+						"amount": round(amount, 4),
 						"subType": subType,
-						"rate": round(rate, 5)
+						"rate": round(rate, 4)
 					})
 		else:
 			taxableItems = [{"taxType": self.env.company.type_code_id.code,
