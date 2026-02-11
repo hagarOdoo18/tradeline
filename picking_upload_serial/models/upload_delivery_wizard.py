@@ -204,7 +204,7 @@ class UploadDeliveryWizard(models.TransientModel):
         for ml in move_lines:
             move_line_map[ml.product_id.id].append(ml)
 
-        lots = self.env['stock.lot'].search([
+        lots = self.env['stock.lot'].sudo().search([
             ('name', 'in', list(excel_serials)),
             ('product_id', 'in', products.ids)
         ])
