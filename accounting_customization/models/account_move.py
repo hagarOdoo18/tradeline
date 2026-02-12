@@ -277,7 +277,10 @@ class AccountMove(models.Model):
         for rec in self:
             if rec.move_type in ('out_invoice', 'out_refund'):
                 # if rec.partner_id.company_type == 'company':
+                try:
                     rec.action_send_electronic_invoice()
+                except:
+                    pass
 
         return res
 
