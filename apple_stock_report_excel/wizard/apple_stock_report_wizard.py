@@ -66,7 +66,7 @@ class AppleStockReportWizard(models.TransientModel):
 
 
         quants = self.env['stock.quant'].search(domain).sorted(
-            key=lambda q: (q.product_id.id, q.location_id.id)
+            key=lambda q: (q.sudo().product_id.id, q.location_id.id)
         )
 
         row = 1
@@ -74,7 +74,7 @@ class AppleStockReportWizard(models.TransientModel):
 
         for quant in quants:
             key = (
-                quant.product_id.id,
+                quant.sudo().product_id.id,
                 quant.location_id.id,
                 quant.location_id.location_id.id if quant.location_id.location_id else False
             )
