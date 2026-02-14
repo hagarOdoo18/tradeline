@@ -83,7 +83,7 @@ class AppleStockReportWizard(models.TransientModel):
 
             same_quants = self.env['stock.quant'].search([
                 ('product_id', '=', quant.product_id.id),
-                ('location_id', '=', quant.location_id.id),
+                ('location_id', '=', quant.location_id.id),('company_id','=',self.env.company.id)
             ])
 
             quantity = sum(same_quants.mapped('quantity'))
