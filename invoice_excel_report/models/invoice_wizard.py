@@ -96,12 +96,12 @@ class AccountInvoiceWizard(models.TransientModel):
                 inv.invoice_origin or 'None',
                 inv.amount_untaxed_in_currency_signed  if show_residual else 0,
                 inv.tax_t1 * sign  if show_residual else 0,
-                inv.amount_total_in_currency_signed if show_residual else 0,
+                amount_total * sign if show_residual else 0,
                 inv.tax_t2 * sign  if show_residual else 0,
                 inv.tax_t3 * sign  if show_residual else 0,
                 inv.tax_t5 * sign  if show_residual else 0,
-                inv.amount_total_in_currency_signed  if show_residual else 0,
-                amount_total - inv.amount_total_in_currency_signed   if show_residual else 0,
+                 inv.amount_total_in_currency_signed  if show_residual else 0,
+                inv.amount_residual_signed   if show_residual else 0,
             ]
 
             for col, val in enumerate(values):
