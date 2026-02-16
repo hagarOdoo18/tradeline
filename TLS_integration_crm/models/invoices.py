@@ -1282,7 +1282,7 @@ class AccountInvoice(models.Model):
         if self._cr.dbname == "tradelinestores-production-25284095" :
 
 
-            tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),('branch_id','not in','(64,90,91,93)'),
+            tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('move_type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),('branch_id','not in','(64,90,91,93)'),
                                               ('is_installment','=', False),],order='invoice_date')
             self.post_credit(tvc_credits)
 
