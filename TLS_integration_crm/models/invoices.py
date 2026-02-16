@@ -1261,12 +1261,12 @@ class AccountInvoice(models.Model):
             if str (invoice_date) >= '2026-01-01' :
                 tvc_invoices = self.sudo ().search (
                     [('invoice_date', '=', invoice_date_today), ('move_type', '=', 'out_invoice'), ('state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
-                     ('is_tvc', '=', False),('amount_residual_signed','<=',1),('offer','=',False),
+                     ('is_tvc', '=', False),('amount_residual_signed','<=',1),
                     ], order='invoice_date')
                 self.post_invoiced (tvc_invoices)
                 tvc_sro_orders = self.sudo ().env ['sale.order'].search (
                     ['|', ('date_order', '=', invoice_date),('date_order', '=', invoice_date_today), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
-                     ('is_tvc', '=', False),('offer','=',False),
+                     ('is_tvc', '=', False),
                     ], order='date_order')
                 self.post_so (tvc_sro_orders)
 
