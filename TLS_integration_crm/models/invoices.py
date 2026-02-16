@@ -27,6 +27,9 @@ class AccountInvoice(models.Model):
     is_point = fields.Boolean(
          string='Is_point',
          required=False)
+    offer = fields.Boolean(
+         string='Offer',
+         required=False)
 
     def _get_token( self ):
         url = "https://api.tradelinestores.net/token"
@@ -831,10 +834,10 @@ class AccountInvoice(models.Model):
                                 tvc_amount = payment.amount / 1.14
                                 InvoiceAmount -= tvc_amount
 
-                            if payment.journal_id.id == 386:
+                            if payment.payment_method_id.journal_id.id == 386:
                                 Premium_offer = True
 
-                            if payment.journal_id.payment_type in ['visa', 'cash', 'installment', 'wallet', 'Trade-In',
+                            if payment.payment_method_id.journal_id.payment_type in ['visa', 'cash', 'installment', 'wallet', 'Trade-In',
                                                                    'credit'] and tvc_credit.branch_id.company_id.id == 6:
                                 xprs_offer = True
                             # for type in offer_object.payment_types:
@@ -1280,7 +1283,7 @@ class AccountInvoice(models.Model):
 
 
             tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),
-                                              ('is_installment','=', False), '|' ,('partner_id.customer_type', '=', 'Individual'),('partner_id.foreigner_type', '=', 'Person'),('partner_id.is_exempt_select', 'not in', ['true']),('team_id', '!=', 52)],order='invoice_date')
+                                              ('is_installment','=', False),],order='invoice_date')
             self.post_credit(tvc_credits)
 
 
