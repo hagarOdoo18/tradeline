@@ -59,43 +59,45 @@ class AccountInvoice(models.Model):
                        'Content-Type' : 'application/json'}
             pload = json.dumps (dict(tvc_dict))
             if tvc_invoice:
-                tvc_invoice_obj = self.env ['account.invoice.tvc'].search ([('invoice_number', '=', tvc_invoice.number)])
+                tvc_invoice_obj = self.env ['account.invoice.tvc'].search ([('invoice_number', '=', tvc_invoice.name)])
                 if not tvc_invoice_obj  :
                     if InvoiceAmount > 0:
                         if tvc_invoice.move_type =='out_refund' :
                             tvc_invoice_obj = self.env ['account.invoice.tvc'].create ({
                                 'sent_date' : datetime.today ().date (),
                                 'customer_number' : tvc_invoice.partner_id.mobile,
-                                'invoice_number' :  'Redemption-'+tvc_invoice.number,
+                                'invoice_number' :  'Redemption-'+tvc_invoice.name,
                                 'untaxed_amount' : InvoiceAmount,
                                 'state' : 'draft',
-                                'type':'debit'
+                                'type':'credit'
                             })
                         else:
                             tvc_invoice_obj = self.env ['account.invoice.tvc'].create ({
                             'sent_date': datetime.today().date() ,
                             'customer_number' : tvc_invoice.partner_id.mobile,
-                            'invoice_number' : tvc_invoice.number,
+                            'invoice_number' : tvc_invoice.name,
                             'untaxed_amount' : InvoiceAmount,
                             'state' : 'draft',
-                            'type': 'credit'
+                            'type': 'debit'
                         })
                     else:
-                        if tvc_invoice_obj.move_type =='out_invoice'  and tvc_invoice.number  :
+                        if tvc_invoice.move_type =='out_invoice'  and tvc_invoice.name  :
                             tvc_invoice_obj = self.env ['account.invoice.tvc'].create ({
                                 'sent_date' : datetime.today ().date (),
                                 'customer_number' : tvc_invoice.partner_id.mobile,
-                                'invoice_number' : 'Redemption-' + tvc_invoice.number,
+                                'invoice_number' : 'Redemption-' + tvc_invoice.name,
                                 'untaxed_amount' : InvoiceAmount,
-                                'state' : 'draft'
+                                'state' : 'draft',
+                                'type': 'debit'
                             })
                         else:
                             tvc_invoice_obj = self.env ['account.invoice.tvc'].create ({
                                 'sent_date' : datetime.today ().date (),
                                 'customer_number' : tvc_invoice.partner_id.mobile,
-                                'invoice_number' : tvc_invoice.number,
+                                'invoice_number' : tvc_invoice.name,
                                 'untaxed_amount' : InvoiceAmount,
-                                'state' : 'draft'
+                                'state' : 'draft',
+                                'type': 'credit'
                             })
             else:
                 tvc_so_obj = self.env ['account.invoice.tvc'].search (
@@ -174,7 +176,7 @@ class AccountInvoice(models.Model):
 
                     "InvoiceCustomerEmail" : str (tvc_invoice.partner_id.email),
 
-                    "InvoiceNumber" : 'Redemption-'+str (tvc_invoice.number),
+                    "InvoiceNumber" : 'Redemption-'+str (tvc_invoice.name),
 
                     "InvoiceAmount" : str (int (InvoiceAmount)),
 
@@ -193,7 +195,7 @@ class AccountInvoice(models.Model):
 
                 "InvoiceCustomerEmail" : str(tvc_invoice.partner_id.email),
 
-                "InvoiceNumber" : str(tvc_invoice.number),
+                "InvoiceNumber" : str(tvc_invoice.name),
 
                 "InvoiceAmount" : str(int(InvoiceAmount)),
 
@@ -213,7 +215,7 @@ class AccountInvoice(models.Model):
 
                     "InvoiceCustomerEmail" : str (tvc_invoice.partner_id.email),
 
-                    "InvoiceNumber" : 'Redemption-' + str (tvc_invoice.number),
+                    "InvoiceNumber" : 'Redemption-' + str (tvc_invoice.name),
 
                     "InvoiceAmount" : str (int (InvoiceAmount)),
 
@@ -232,7 +234,7 @@ class AccountInvoice(models.Model):
 
                     "InvoiceCustomerEmail" : str (tvc_invoice.partner_id.email),
 
-                    "InvoiceNumber" : str (tvc_invoice.number),
+                    "InvoiceNumber" : str (tvc_invoice.name),
 
                     "InvoiceAmount" : str (int (InvoiceAmount)),
 
@@ -531,7 +533,7 @@ class AccountInvoice(models.Model):
 
                 for line in tvc_invoice.invoice_line_ids :
                     if line.product_id.categ_id.id not in [ 36, 53,55,50] :
-                        if line.discount == 0 and line.amount_dis == 0  :
+                        if line.discount == 0   :
 
                             InvoiceAmount += line.price_subtotal
                         # elif line.product_id.categ_id.id == 4  and  item_card == 'black' :
@@ -542,9 +544,9 @@ class AccountInvoice(models.Model):
 
                 today = date.today()
 
-                offer_object = self.env['tvc.offer'].search(
-                    [('branches', 'in', tvc_invoice.user_id.id), ('start_date', '<=', fields.Date.to_string(today)), ('end_date', '>=', fields.Date.to_string(today))
-                        , ('min_amount', '<', InvoiceAmount),], limit=1)
+                # offer_object = self.env['tvc.offer'].search(
+                #     [('branches', 'in', tvc_invoice.user_id.id), ('start_date', '<=', fields.Date.to_string(today)), ('end_date', '>=', fields.Date.to_string(today))
+                #         , ('min_amount', '<', InvoiceAmount),], limit=1)
 
                 payments = tvc_invoice._get_reconciled_payments()
                 if payments:
@@ -573,13 +575,13 @@ class AccountInvoice(models.Model):
 
                             if payment.journal_id.payment_type in ['visa','cash','installment','wallet','Trade-In','credit'] and tvc_invoice.branch_id.id ==6 :
                                 xprs_offer = True
-                            for type in offer_object.payment_types:
-
-                                if payment.journal_id.payment_type == type.name:
-                                    offer =True
-                                    break
-                            if payment.journal_id.id in offer_object.journal_ids.ids:
-                                offer = True
+                            # for type in offer_object.payment_types:
+                            #
+                            #     if payment.journal_id.payment_type == type.name:
+                            #         offer =True
+                            #         break
+                            # if payment.journal_id.id in offer_object.journal_ids.ids:
+                            #     offer = True
                 else:
                     for payment in tvc_invoice.pos_order_ids.payment_ids:
                         if payment.payment_method_id.journal_id.payment_type:
@@ -619,26 +621,26 @@ class AccountInvoice(models.Model):
                                 tvc_amount = payment.amount / 1.14
                                 InvoiceAmount -= tvc_amount
 
-                            if payment.journal_id.id == 386:
+                            if payment.payment_method_id.journal_id.id == 386:
                                 Premium_offer = True
 
-                            if payment.journal_id.payment_type in ['visa', 'cash', 'installment', 'wallet', 'Trade-In',
+                            if payment.payment_method_id.journal_id.payment_type in ['visa', 'cash', 'installment', 'wallet', 'Trade-In',
                                                                    'credit'] and tvc_invoice.branch_id.company_id.id ==6:
                                 xprs_offer = True
-                            for type in offer_object.payment_types:
-
-                                if payment.journal_id.payment_type == type.name:
-                                    offer = True
-                                    break
-                            if payment.journal_id.id in offer_object.journal_ids.ids:
-                                offer = True
+                            # for type in offer_object.payment_types:
+                            #
+                            #     if payment.journal_id.payment_type == type.name:
+                            #         offer = True
+                            #         break
+                            # if payment.journal_id.id in offer_object.journal_ids.ids:
+                            #     offer = True
 
                 # if Premium_offer :
                 #
                 #     InvoiceAmount = 2 * InvoiceAmount
 
-                if offer:
-                    InvoiceAmount = InvoiceAmount * offer_object.amount
+                # if offer:
+                #     InvoiceAmount = InvoiceAmount * offer_object.amount
 
 
                 # if  xprs_offer and int(InvoiceAmount)!=0:
@@ -1254,18 +1256,18 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_TVC_invoice ( self ) :
-        if self._cr.dbname == "tradelinestores-production-25284095" :
+        # if self._cr.dbname == "tradelinestores-production-25284095" :
 
             invoice_date = datetime.today().date() - timedelta(days=30)
             invoice_date_today = datetime.today().date()
             if str (invoice_date) >= '2026-01-01' :
                 tvc_invoices = self.sudo ().search (
-                    [('invoice_date', '=', invoice_date_today), ('move_type', '=', 'out_invoice'), ('state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
-                     ('is_tvc', '=', False),('amount_residual_signed','>=',1),
+                    [('invoice_date', '=', invoice_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
+                     ('is_tvc', '=', False),
                     ], order='invoice_date')
                 self.post_invoiced (tvc_invoices)
                 tvc_sro_orders = self.sudo ().env ['sale.order'].search (
-                    ['|', ('date_order', '=', invoice_date),('date_order', '=', invoice_date_today), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
+                    ['|', ('date_order', '=', invoice_date),('date_order', '=', invoice_date), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
                      ('is_tvc', '=', False),
                     ], order='date_order')
                 self.post_so (tvc_sro_orders)

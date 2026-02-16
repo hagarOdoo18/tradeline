@@ -11,7 +11,7 @@ class AccountJournal(models.Model):
         selection=[('installment', 'Installment'),
                    ('cash', 'Cash'),
                    ('visa', 'Visa'),
-                   ('pints', 'Pints'),
+                   ('pints', 'Points'),
                    ('wallet', 'Wallet'),
                    ('Trade-In', 'Trade-In'),
                    ('credit', 'Credit'),
