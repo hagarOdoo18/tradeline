@@ -1259,19 +1259,19 @@ class AccountInvoice(models.Model):
 
     @api.model
     def sent_TVC_invoice ( self ) :
-        # if self._cr.dbname == "tradelinestores-production-25284095" :
+        if self._cr.dbname == "tradelinestores-production-25284095" :
 
             invoice_date = datetime.today().date() - timedelta(days=30)
             invoice_date_today = datetime.today().date()
             if str (invoice_date) >= '2026-01-01' :
                 tvc_invoices = self.sudo ().search (
                     [('invoice_date', '=', invoice_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
-                     ('is_tvc', '=', False),
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')
                     ], order='invoice_date')
                 self.post_invoiced (tvc_invoices)
                 tvc_sro_orders = self.sudo ().env ['sale.order'].search (
                     ['|', ('date_order', '=', invoice_date),('date_order', '=', invoice_date), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
-                     ('is_tvc', '=', False),
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')
                     ], order='date_order')
                 self.post_so (tvc_sro_orders)
 
@@ -1282,7 +1282,7 @@ class AccountInvoice(models.Model):
         if self._cr.dbname == "tradelinestores-production-25284095" :
 
 
-            tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),
+            tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('type','=','out_refund'),('state','=','paid'),('is_tvc','=',False),('branch_id','not in','(64,90,91,93)'),
                                               ('is_installment','=', False),],order='invoice_date')
             self.post_credit(tvc_credits)
 
