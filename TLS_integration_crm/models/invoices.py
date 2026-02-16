@@ -442,19 +442,19 @@ class AccountInvoice(models.Model):
         for green_card in green_cards:
             if green_card:
 
-                expiration_date = green_card.order_id.date_order.date + relativedelta (years=1)
+                expiration_date = green_card.order_id.date_order.date() + relativedelta (years=1)
                 if expiration_date >= invoice_date:
                     card = 'green'
         for green_card in green_cards:
             if green_card:
 
-                expiration_date = green_card.order_id.date_order.date + relativedelta(years=1)
+                expiration_date = green_card.order_id.date_order.date() + relativedelta(years=1)
                 if expiration_date >= invoice_date:
                     card = 'green'
         for Blue_card in Blue_cards:
             if Blue_card:
 
-                expiration_date = Blue_card.order_id.date_order.date + relativedelta(years=1)
+                expiration_date = Blue_card.order_id.date_order.date() + relativedelta(years=1)
                 if expiration_date >= invoice_date:
                     card = 'Blue'
         for org_card in ORG_cards:
@@ -466,11 +466,11 @@ class AccountInvoice(models.Model):
         for black_card in black_cards:
             if black_card:
                 if black_card.qty_delivered ==  2 and black_card.order_date.strftime("%Y-%m-%d 00:00:00") >= '2022-03-03':
-                    expiration_date = black_card.order_id.date_order.date + relativedelta (years=2)
+                    expiration_date = black_card.order_id.date_order.date() + relativedelta (years=2)
                     if expiration_date >= invoice_date :
                         card = 'black'
                 else:
-                    expiration_date = black_card.order_id.date_order.date + relativedelta(years= 1)
+                    expiration_date = black_card.order_id.date_order.date() + relativedelta(years= 1)
                     if expiration_date >= invoice_date:
                         card = 'black'
         black_cards = self.env ['pos.order.line'].sudo ().search (
@@ -494,13 +494,13 @@ class AccountInvoice(models.Model):
         for Blue_card in Blue_cards:
             if Blue_card:
 
-                expiration_date = Blue_card.order_id.date_order + relativedelta(years=1)
+                expiration_date = Blue_card.order_id.date_order.date() + relativedelta(years=1)
                 if expiration_date >= invoice_date:
                     card = 'Blue'
         for org_card in ORG_cards:
             if org_card:
 
-                expiration_date = org_card.order_id.date_order + relativedelta(years=1)
+                expiration_date = org_card.order_id.date_order.date() + relativedelta(years=1)
                 if expiration_date >= invoice_date:
                     card = 'ORG'
         for black_card in black_cards :
