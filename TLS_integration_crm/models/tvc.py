@@ -26,7 +26,7 @@ class AccountInvoice(models.Model):
     type = fields.Selection(
         string='Type',
         selection=[('debit', 'Debit'),
-                   ('Credit', 'credit'), ],
+                   ('credit', 'Credit'), ],
         required=False, )
 
     customer_number = fields.Char(
