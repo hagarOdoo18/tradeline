@@ -729,7 +729,7 @@ class AccountInvoice(models.Model):
             if not tvc_credit.offer:
                 for line in tvc_credit.invoice_line_ids :
                     if line.product_id.categ_id.id not in [36, 53, 55, 50]:
-                        if line.discount == 0 and line.amount_dis ==0:
+                        if line.discount == 0 :
                             InvoiceAmount += line.price_subtotal
                         # elif line.product_id.categ_id.id == 4 and item_card == 'black' :
                         #     InvoiceAmount += line.price_subtotal
@@ -877,7 +877,7 @@ class AccountInvoice(models.Model):
                 if tvc_credit.user_id.id == 110:
                     for line in tvc_credit.invoice_line_ids:
 
-                        if line.discount == 0 and line.amount_dis == 0:
+                        if line.discount == 0 :
                             discount =True
                         if line.product_id.barcode in product_item_code:
                             item_code=True
@@ -920,7 +920,7 @@ class AccountInvoice(models.Model):
 
                 for line in tvc_sro_order.sudo ().order_line :
 
-                    if line.product_id.categ_id.id not in [ 11,22,23,21] :
+                    if line.product_id.categ_id.id not in [36, 53, 55, 50] :
 
                         if line.discount == -14 and line.product_id.categ_id.id not in  [25,26]  :
                             saleAmount += line.new_subtotal / 1.14
