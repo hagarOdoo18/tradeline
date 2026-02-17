@@ -72,8 +72,11 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
             domain.append(('invoice_date', '>=', self.date_from))
         if self.date_to:
             domain.append(('invoice_date', '<=', self.date_to))
+        if self.sales_rep_ids:
+            invoice_lines = self.env['account.move.line'].sudo().search(domain, order="invoice_date desc")
+        else:
+            invoice_lines = self.env['account.move.line'].search(domain, order="invoice_date desc")
 
-        invoice_lines = self.env['account.move.line'].search(domain, order="invoice_date desc")
 
         if not invoice_lines:
             raise UserError(_("No invoices found for the selected criteria."))
