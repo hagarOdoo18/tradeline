@@ -1279,11 +1279,11 @@ class AccountInvoice(models.Model):
     @api.model
     def sent_TVC_credit( self ):
 
-        # if self._cr.dbname == "tradelinestores-production-25284095" :
+        if self._cr.dbname == "tradelinestores-production-25284095" :
 
 
             tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('move_type','=','out_refund'),('state','=','posted'),('is_tvc','=',False),('branch_id','not in','(64,90,91,93)'),
-                                              ('is_installment','=', False),],order='invoice_date')
+                                              ('is_installment','=', False),],order='invoice_date',limit=100)
             self.post_credit(tvc_credits)
 
 
