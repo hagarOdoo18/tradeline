@@ -922,7 +922,7 @@ class AccountInvoice(models.Model):
 
                     if line.product_id.categ_id.id not in [36, 53, 55, 50] :
 
-                        if line.discount == -14 and line.product_id.categ_id.id not in  [25,26]  :
+                        if line.discount == 0 and line.product_id.categ_id.id not in  [25,26]  :
                             saleAmount += line.new_subtotal / 1.14
                         # elif line.product_id.categ_id.id == 4 and item_card == 'black' :
                         #     saleAmount += line.new_subtotal / 1.14
