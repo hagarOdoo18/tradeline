@@ -129,13 +129,13 @@ class TVCSetting (models.Model) :
             #                 tvc_order = self.sudo ().env ['sale.order'].search (
             #                     [('id', '=', self.order_id.id)])
             #                 self.env ['account.move'].post_so_offer (tvc_order,self.offer_key)
-            #     else:
-            #         tvc_invoices = self.sudo ().env ['account.move'].search (
-            #             [('id', '=', self.invoice_id.id)])
-            #         self.env ['account.move'].post_invoiced (tvc_invoices)
-            #         tvc_order = self.sudo ().env ['sale.order'].search (
-            #             [('id', '=', self.order_id.id)])
-            #         self.env ['account.move'].post_so (tvc_order)
+            else:
+                tvc_invoices = self.sudo ().env ['account.move'].search (
+                    [('id', '=', self.invoice_id.id)])
+                self.env ['account.move'].post_invoiced (tvc_invoices)
+                tvc_order = self.sudo ().env ['sale.order'].search (
+                    [('id', '=', self.order_id.id)])
+                self.env ['account.move'].post_so (tvc_order)
 
 
     def post_file_point( self ,invoice,InvoiceAmount,point):
