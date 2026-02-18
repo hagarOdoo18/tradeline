@@ -1209,6 +1209,7 @@ class AccountInvoice(models.Model):
 
     def post_tvc_credit_invoice_point( self ,tvc_invoics_credits):
 
+
         for tvc_invoices_credit in tvc_invoics_credits:
 
             InvoiceAmount = 0
