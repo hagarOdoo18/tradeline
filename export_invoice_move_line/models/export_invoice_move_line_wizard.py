@@ -25,7 +25,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
     @api.depends('branch_ids')
     def _compute_sales_rep_domain(self):
         for rec in self:
-            rec.sales_rep_domain = [('id', 'in', rec.branch_ids.sales_rep_ids.ids)]
+            rec.sales_rep_domain = [('id', 'in', rec.sudo().branch_ids.sales_rep_ids.ids)]
     payment_journal_ids = fields.Many2many('account.journal', string="Payment Journal",  domain="[('type', 'in',['bank','cash'])]")
 
     categ_ids = fields.Many2many(
