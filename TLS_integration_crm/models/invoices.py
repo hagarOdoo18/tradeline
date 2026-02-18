@@ -1211,7 +1211,7 @@ class AccountInvoice(models.Model):
 
 
         for tvc_invoices_credit in tvc_invoics_credits:
-
+            tvc_invoices_credit.is_point =True
             InvoiceAmount = 0
 
             item_card = ''
@@ -1250,6 +1250,7 @@ class AccountInvoice(models.Model):
 
 
         for tvc_sro_order in tvc_sro_orders :
+            tvc_sro_order.is_point=True
             if tvc_sro_order.partner_id.vat:
                 saleAmount = 0
 
