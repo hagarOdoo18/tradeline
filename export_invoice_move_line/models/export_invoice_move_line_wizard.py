@@ -63,7 +63,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
             ('move_id.state', '=', 'posted'),('display_type', 'in', ['product', 'line_section', 'line_note'])
         ]
 
-        if self.branch_ids:
+        if self.branch_ids and not self.sales_rep_ids:
             domain.append(('move_id.branch_id', 'in', self.branch_ids.ids))
         if self.sales_rep_ids:
             domain.append(('move_id.sales_rep_id', 'in', self.sales_rep_ids.ids))
