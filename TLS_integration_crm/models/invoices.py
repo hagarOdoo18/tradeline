@@ -1217,15 +1217,29 @@ class AccountInvoice(models.Model):
 
             if self._get_card(tvc_invoices_credit.partner_id,tvc_invoices_credit.invoice_date) :
                 item_card = self._get_card(tvc_invoices_credit.partner_id,tvc_invoices_credit.invoice_date)
-            for payment in tvc_invoices_credit.payment_move_line_ids :
+            payments = tvc_invoices_credit._get_reconciled_payments()
+            if payments:
+                for payment in payments:
 
-                if payment.journal_id.payment_type == 'TVC' :
-                    if payment.credit != 0 :
-                        payment_amount = -payment.credit
-                    elif payment.debit != 0 :
-                        payment_amount = payment.debit
+                    if payment.journal_id.payment_type == 'TVC' :
+                        if tvc_invoices_credit.move_type =='out_refund' :
+                            payment_amount = payment.amount
+
+                        else:
+                            payment_amount = - payment.amount
 
                     InvoiceAmount += payment_amount
+            else:
+                for payment in tvc_invoices_credit.pos_order_ids.payment_ids:
+                    if payment.payment_method_id.journal_id.payment_type:
+                        if payment.payment_method_id.journal_id.payment_type == 'TVC':
+                            if tvc_invoices_credit.move_type == 'out_refund':
+                                payment_amount = payment.amount
+
+                            else:
+                                payment_amount = - payment.amount
+
+                        InvoiceAmount += payment_amount
             if int(InvoiceAmount)!=0:
                 tvc_dict = self._dict_invocie(tvc_invoices_credit, int (InvoiceAmount))
                 self.post_tvc_invoice(tvc_dict, tvc_invoices_credit,False, int (InvoiceAmount), item_card)
@@ -1288,26 +1302,22 @@ class AccountInvoice(models.Model):
 
 
 
-    # @api.model
-    # def sent_tvc_point( self ):
-    #     # if self._cr.dbname == "tradelinestores-production-25284095" :
-    #     if self._cr.dbname == "tradelinestores-production-25284095" :
-    #
-    #         tvc_bank_pays = self.env['account.bank.statement.line'].sudo ().search (
-    #             [ ('date', '>=', '2026-01-01'),('journal_id.payment_type', '=', 'TVC'), ('is_point', '=', False)
-    #              ], order='date')
-    #         self.post_tvc_point (tvc_bank_pays)
-    #         tvc_invoices = self.sudo ().search (
-    #             [('invoice_date', '>=', '2026-1-01'), ('state', '=', 'paid'),
-    #              ('is_point', '=', False), ('payment_journal', 'ilike', 'TVC'),
-    #              ('team_id', '!=', 52)], order='invoice_date')
-    #         self.post_tvc_credit_invoice_point (tvc_invoices)
-    #         tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
-    #             [('quotation_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2026-1-1'),
-    #              ('is_point', '=', False), ('payment_journal_text', 'ilike', 'TVC'),
-    #              ('team_id', '!=', 52)], order='create_date')
-    #
-    #         self.post_so_tev_pay (tvc_sro_orders_pay)
+    @api.model
+    def sent_tvc_point( self ):
+        if self._cr.dbname == "tradelinestores-production-25284095" :
+
+
+            tvc_invoices = self.sudo ().search (
+                [('invoice_date', '>=', '2026-1-01'), ('state', '=', 'paid'),
+                 ('is_point', '=', False),
+                 ('branch_id','not in','(64,90,91,93)')], order='invoice_date',limit=100)
+            self.post_tvc_credit_invoice_point (tvc_invoices)
+            tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
+                [('quotation_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2026-1-1'),
+                 ('is_point', '=', False),
+                 ('branch_id','not in','(64,90,91,93)')], order='create_date',limit=100)
+
+            self.post_so_tev_pay (tvc_sro_orders_pay)
 
 
 
