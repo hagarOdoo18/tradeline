@@ -15,10 +15,17 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
         'export_invoice_move_line_wizard_branch_rel',
         'wizard_id',
         'branch_id',  # ✅ Correct foreign key column name
-        string="Branches"
+        string="Branches",required=True
     )
 
     sales_rep_ids = fields.Many2many('sales.rep','wizard_id', 'sales_rep_id', 'export_invoice_move_line_wizard_sales_rep_rel',string='Sales Rep',  )
+
+    sales_rep_domain = fields.Binary(compute='_compute_sales_rep_domain', store=False)
+
+    @api.depends('branch_ids')
+    def _compute_sales_rep_domain(self):
+        for rec in self:
+            rec.sales_rep_domain = [('id', 'in', rec.branch_ids.sales_rep_ids.ids)]
     payment_journal_ids = fields.Many2many('account.journal', string="Payment Journal",  domain="[('type', 'in',['bank','cash'])]")
 
     categ_ids = fields.Many2many(

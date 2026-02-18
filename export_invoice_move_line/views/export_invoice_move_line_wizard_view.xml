@@ -7,7 +7,8 @@
                 <group>
                     <group>
                         <field name="branch_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
-                        <field name="sales_rep_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                        <field name="sales_rep_domain" invisible="1"/>
+                        <field name="sales_rep_ids" widget="many2many_tags" domain="sales_rep_domain" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
                         <field name="payment_journal_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
                         <field name="categ_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
                         <field name="family_ids" widget="many2many_tags" options   ="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
