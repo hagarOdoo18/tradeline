@@ -905,7 +905,7 @@ class AccountInvoice(models.Model):
 
 
         for tvc_sro_order in tvc_sro_orders :
-            if tvc_sro_order.partner_id.national_id:
+            if tvc_sro_order.partner_id.vat:
                 saleAmount = 0
                 card = False
                 installment = True
@@ -1250,7 +1250,7 @@ class AccountInvoice(models.Model):
 
 
         for tvc_sro_order in tvc_sro_orders :
-            if tvc_sro_order.partner_id.national_id:
+            if tvc_sro_order.partner_id.vat:
                 saleAmount = 0
 
                 if self._get_card (tvc_sro_order.partner_id,tvc_sro_order.create_date) :
