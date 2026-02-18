@@ -1253,8 +1253,8 @@ class AccountInvoice(models.Model):
             if tvc_sro_order.partner_id.vat:
                 saleAmount = 0
 
-                if self._get_card (tvc_sro_order.partner_id,tvc_sro_order.create_date) :
-                    item_card = self._get_card (tvc_sro_order.partner_id,tvc_sro_order.create_date)
+                if self._get_card (tvc_sro_order.partner_id,tvc_sro_order.create_date.date()) :
+                    item_card = self._get_card (tvc_sro_order.partner_id,tvc_sro_order.create_date.date())
                     card = True
                 payments = self.env ['account.payment'].sudo ().search ([('sale_order_id', '=', tvc_sro_order.id)])
                 if payments :
