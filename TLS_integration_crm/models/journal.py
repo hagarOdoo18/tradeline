@@ -16,5 +16,5 @@ class AccountJournal(models.Model):
                    ('Trade-In', 'Trade-In'),
                    ('credit', 'Credit'),
                    ('voucher', 'Voucher'),
-                   ('withholding_tax','Withholding Tax')],
+                   ('withholding_tax','Withholding Tax'),('TVC','TVC')],
         required=False, )
