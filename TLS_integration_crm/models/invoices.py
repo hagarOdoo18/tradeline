@@ -1213,6 +1213,7 @@ class AccountInvoice(models.Model):
         for tvc_invoices_credit in tvc_invoics_credits:
             tvc_invoices_credit.is_point =True
             InvoiceAmount = 0
+            payment_amount = 0
 
             item_card = ''
 
@@ -1221,7 +1222,7 @@ class AccountInvoice(models.Model):
             payments = tvc_invoices_credit._get_reconciled_payments()
             if payments:
                 for payment in payments:
-
+                    payment_amount=0
                     if payment.journal_id.payment_type == 'TVC' :
                         if tvc_invoices_credit.move_type =='out_refund' :
                             payment_amount = payment.amount
