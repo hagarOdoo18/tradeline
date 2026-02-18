@@ -463,7 +463,7 @@ class AccountInvoice(models.Model):
         for org_card in ORG_cards:
             if org_card:
 
-                expiration_date = org_card.order_id.date_order.date + relativedelta(years=1)
+                expiration_date = org_card.order_id.date_order.date() + relativedelta(years=1)
                 if expiration_date >= invoice_date:
                     card = 'ORG'
         for black_card in black_cards:
