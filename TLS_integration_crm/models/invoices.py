@@ -1313,12 +1313,12 @@ class AccountInvoice(models.Model):
                  ('is_point', '=', False),
                  ('branch_id','not in','(64,90,91,93)')], order='invoice_date',limit=100)
             self.post_tvc_credit_invoice_point (tvc_invoices)
-            # tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
-            #     [('inv_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2026-1-1'),
-            #      ('is_point', '=', False),
-            #      ('branch_id','not in','(64,90,91,93)')], order='create_date',limit=100)
-            #
-            # self.post_so_tev_pay (tvc_sro_orders_pay)
+            tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
+                [('inv_type', '=', 'sro'), ('state', '=', 'sale'), ('create_date', '>=', '2026-1-1'),
+                 ('is_point', '=', False),
+                 ('branch_id','not in','(64,90,91,93)')], order='create_date',limit=100)
+
+            self.post_so_tev_pay (tvc_sro_orders_pay)
 
 
 
