@@ -395,8 +395,8 @@ class AccountMoveLine(models.Model):
                 moves_to_redirect |= new_moves
 
             self.new_move_ids = moves_to_redirect
-            for move in self.new_move_ids:
-                move.action_post()
+            # for move in self.new_move_ids:
+            #     move.action_post()
             # Create action.
             action = {
                 'name': _('Reverse Moves'),

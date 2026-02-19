@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_order_form_inherit_payment_return" model="ir.ui.view">
+        <field name="name">sale.order.form.payment.return</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Stat button to view returned payments -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_returned_payments"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-undo"
+                        invisible="returned_payment_count == 0">
+                    <field name="returned_payment_count"
+                           widget="statinfo"
+                           string="Returns"/>
+                </button>
+            </xpath>
+
+            <!-- Hidden computed field -->
+            <xpath expr="//field[@name='partner_id']" position="before">
+                <field name="has_returnable_payments" invisible="1"/>
+            </xpath>
+
+            <!-- Return Payment button in the header -->
+            <xpath expr="//button[@name='action_cancel']" position="after">
+                <button name="action_return_payments"
+                        string="Return Payment"
+                        type="object"
+                        class="btn-warning"
+                        invisible="not has_returnable_payments"
+                        confirm="This will create outbound (refund) payments for all linked payments. Continue?"/>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- Add the reverse fields to payment form for traceability -->
+    <record id="view_account_payment_form_inherit_return" model="ir.ui.view">
+        <field name="name">account.payment.form.return.info</field>
+        <field name="model">account.payment</field>
+        <field name="inherit_id" ref="account.view_account_payment_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+
+                <field name="reversed_original_payment_id"
+                       readonly="1"
+                       invisible="not reversed_original_payment_id"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

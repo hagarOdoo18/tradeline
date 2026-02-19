@@ -46,7 +46,7 @@ class SaleOrder(models.Model):
 
     def _compute_payment_count(self):
         for order in self:
-            order.payment_count = self.env['account.payment'].search_count( [('sale_order_id', '=', self.id)])
+            order.payment_count = self.env['account.payment'].search_count( [('sale_order_id', '=', self.id),('payment_type','=','inbound')])
 
     def action_view_payments(self):
         self.ensure_one()
@@ -55,7 +55,7 @@ class SaleOrder(models.Model):
             'type': 'ir.actions.act_window',
             'res_model': 'account.payment',
             'view_mode': 'list,form',
-            'domain': [('sale_order_id', '=', self.id)],
+            'domain': [('sale_order_id', '=', self.id),('payment_type','=','inbound')],
             'context': {'default_sale_order_id': self.id},
         }
     def action_register_payment_so(self):
@@ -91,8 +91,9 @@ class SaleOrder(models.Model):
     def _compute_amount_paid(self):
         for order in self:
             paid = sum(
-                p.amount for p in order.payment_ids
-                if p.state == 'paid'
+                p.amount if p.payment_type == 'inbound' else -p.amount
+                for p in order.payment_ids
+                if p.state == 'posted'
             )
             order.amount_paid = paid
             order.amount_due = order.amount_total - paid
