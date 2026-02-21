@@ -19,7 +19,6 @@
         'point_of_sale','accounting_customization',
     ],
     'data': [
-        'security/ir.model.access.csv',
         'views/account_move_line_sales_view.xml',
     ],
     'installable': True,
