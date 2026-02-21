@@ -29,22 +29,22 @@
                 <field name="product_id" string="Description"/>
 
                 <!-- Quantities / Pricing -->
-<!--                <field name="signed_quantity" string="Quantity" sum="Total Qty"/>-->
-<!--                <field name="serial_display" string="Serial" optional="hide"/>-->
-<!--                <field name="standard_price" string="Unit Cost" optional="show"/>-->
-<!--                <field name="price_unit" string="Unit Price"/>-->
-<!--                <field name="discount" string="Discount (%)" optional="show"/>-->
-<!--                <field name="amount_signed" string="Amount Signed" sum="Total Amount"/>-->
-<!--                <field name="price_total_signed" string="Price Total Signed" sum="Total Price"/>-->
+                <field name="signed_quantity" string="Quantity" sum="Total Qty"/>
+                <field name="serial_display" string="Serial" optional="hide"/>
+                <field name="standard_price" string="Unit Cost" optional="show"/>
+                <field name="price_unit" string="Unit Price"/>
+                <field name="discount" string="Discount (%)" optional="show"/>
+                <field name="amount_signed" string="Amount Signed" sum="Total Amount"/>
+                <field name="price_total_signed" string="Price Total Signed" sum="Total Price"/>
 
-<!--                &lt;!&ndash; Invoice Level Totals &ndash;&gt;-->
-<!--                <field name="amount_untaxed_signed" string="Invoice Amount Signed" optional="show"/>-->
-<!--                <field name="total_cost" string="Total Cost" sum="Total Cost" optional="show"/>-->
-<!--                <field name="amount_total_signed_move" string="Invoice Price Total Signed" optional="show"/>-->
+                <!-- Invoice Level Totals -->
+                <field name="amount_untaxed_signed" string="Invoice Amount Signed" optional="show"/>
+                <field name="total_cost" string="Total Cost" sum="Total Cost" optional="show"/>
+                <field name="amount_total_signed_move" string="Invoice Price Total Signed" optional="show"/>
 
-<!--                &lt;!&ndash; Payment Info &ndash;&gt;-->
-<!--                <field name="payment_journals" string="Payment Journals" optional="show"/>-->
-<!--                <field name="payment_amount_journals" string="Payment Amount Journals" optional="show"/>-->
+                <!-- Payment Info -->
+                <field name="payment_journals" string="Payment Journals" optional="show"/>
+                <field name="payment_amount_journals" string="Payment Amount Journals" optional="show"/>
 
                 <!-- Other -->
                 <field name="sales_rep_id" string="Sales Rep" optional="show"/>
@@ -116,6 +116,7 @@
         <field name="context">{
             'search_default_invoices': 1,
         }</field>
+            <field name="view_id" ref="view_account_move_line_sales_tree"/>
         <field name="search_view_id" ref="view_account_move_line_sales_search"/>
     </record>
 
