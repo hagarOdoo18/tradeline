@@ -127,13 +127,13 @@ class AccountMoveLine(models.Model):
     # Compute Methods
     # =============================================
 
-    @api.depends('move_id', 'move_id.reversal_move_id')
+    @api.depends('move_id', 'move_id.reversed_entry_id')
     def _compute_credit_note(self):
         """Get linked credit note references for the invoice."""
         for line in self:
             credit = ''
-            if line.move_id and line.move_id.reversal_move_id:
-                credit = ', '.join(line.move_id.reversal_move_id.mapped('name'))
+            if line.move_id and line.move_id.reversed_entry_id:
+                credit = ', '.join(line.move_id.reversed_entry_id.mapped('name'))
             line.credit_note = credit
 
     @api.depends('product_id.standard_price', 'quantity', 'move_id.move_type')
