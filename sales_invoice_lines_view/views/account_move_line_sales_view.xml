@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Tree View -->
+    <record id="view_account_move_line_sales_tree" model="ir.ui.view">
+        <field name="name">account.move.line.sales.tree</field>
+        <field name="model">account.move.line</field>
+        <field name="arch" type="xml">
+            <list string="Sales Invoice Lines" create="false" edit="false" export_xlsx="1">
+
+
+                <!-- Date / Invoice Info -->
+                <field name="invoice_date" string="Date"/>
+                <field name="branch_id" string="Branch" optional="show"/>
+                <field name="move_name" string="Ref"/>
+<!--                <field name="credit_note" string="Credit" optional="show"/>-->
+                <field name="opportunity_id" string="Opportunity" optional="show"/>
+
+                <!-- Customer Info -->
+                <field name="partner_id" string="Customer Name"/>
+                <field name="partner_mobile" string="Customer Mobile" optional="hide"/>
+                <field name="partner_phone" string="Customer Phone" optional="hide"/>
+
+                <!-- Product Info -->
+                <field name="categ_id" string="Product Category" optional="show"/>
+                <field name="family_id" string="Family" optional="show"/>
+                <field name="product_upc" string="UPC" optional="show"/>
+                <field name="item_code" string="Item Code" optional="hide"/>
+                <field name="product_id" string="Description"/>
+
+                <!-- Quantities / Pricing -->
+<!--                <field name="signed_quantity" string="Quantity" sum="Total Qty"/>-->
+<!--                <field name="serial_display" string="Serial" optional="hide"/>-->
+<!--                <field name="standard_price" string="Unit Cost" optional="show"/>-->
+<!--                <field name="price_unit" string="Unit Price"/>-->
+<!--                <field name="discount" string="Discount (%)" optional="show"/>-->
+<!--                <field name="amount_signed" string="Amount Signed" sum="Total Amount"/>-->
+<!--                <field name="price_total_signed" string="Price Total Signed" sum="Total Price"/>-->
+
+<!--                &lt;!&ndash; Invoice Level Totals &ndash;&gt;-->
+<!--                <field name="amount_untaxed_signed" string="Invoice Amount Signed" optional="show"/>-->
+<!--                <field name="total_cost" string="Total Cost" sum="Total Cost" optional="show"/>-->
+<!--                <field name="amount_total_signed_move" string="Invoice Price Total Signed" optional="show"/>-->
+
+<!--                &lt;!&ndash; Payment Info &ndash;&gt;-->
+<!--                <field name="payment_journals" string="Payment Journals" optional="show"/>-->
+<!--                <field name="payment_amount_journals" string="Payment Amount Journals" optional="show"/>-->
+
+                <!-- Other -->
+                <field name="sales_rep_id" string="Sales Rep" optional="show"/>
+                <field name="reference_number" string="PO" optional="hide"/>
+                <field name="vendor_id" string="Vendor" optional="hide"/>
+                <field name="channel_id" string="Channel" optional="hide"/>
+                <field name="currency_id" string="Currency" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Search View -->
+    <record id="view_account_move_line_sales_search" model="ir.ui.view">
+        <field name="name">account.move.line.sales.search</field>
+        <field name="model">account.move.line</field>
+        <field name="arch" type="xml">
+            <search string="Sales Invoice Lines">
+                <field name="move_name" string="Invoice Reference"/>
+                <field name="partner_id" string="Customer"/>
+                <field name="product_id"/>
+                <field name="date"/>
+                <field name="sales_rep_id" string="Sales Rep"/>
+                <field name="branch_id" string="Branch"/>
+                <field name="channel_id" string="Channel"/>
+                <separator/>
+                <filter name="invoices" string="Invoices"
+                        domain="[('move_type', '=', 'out_invoice')]"/>
+                <filter name="credit_notes" string="Credit Notes"
+                        domain="[('move_type', '=', 'out_refund')]"/>
+                <separator/>
+                <filter name="this_month" string="This Month"
+                        domain="[('date', '&gt;=', (context_today() - relativedelta(day=1)).strftime('%%Y-%%m-%%d'))]"/>
+                <filter name="this_year" string="This Year"
+                        domain="[('date', '&gt;=', time.strftime('%%Y-01-01'))]"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="group_by_partner" string="Customer"
+                            context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_by_product" string="Product"
+                            context="{'group_by': 'product_id'}"/>
+                    <filter name="group_by_category" string="Product Category"
+                            context="{'group_by': 'product_categ_id'}"/>
+                    <filter name="group_by_family" string="Family"
+                            context="{'group_by': 'family_id'}"/>
+                    <filter name="group_by_date" string="Date"
+                            context="{'group_by': 'date:month'}"/>
+                    <filter name="group_by_branch" string="Branch"
+                            context="{'group_by': 'branch_id'}"/>
+                    <filter name="group_by_sales_rep" string="Sales Rep"
+                            context="{'group_by': 'sales_rep_id'}"/>
+                    <filter name="group_by_channel" string="Channel"
+                            context="{'group_by': 'channel_id'}"/>
+                    <filter name="group_by_vendor" string="Vendor"
+                            context="{'group_by': 'vendor_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_account_move_line_sales" model="ir.actions.act_window">
+        <field name="name">Sales Invoice Lines</field>
+        <field name="res_model">account.move.line</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="domain">[
+            ('move_type', 'in', ['out_invoice', 'out_refund']),
+            ('parent_state', '=', 'posted')
+        ]</field>
+        <field name="context">{
+            'search_default_invoices': 1,
+        }</field>
+        <field name="search_view_id" ref="view_account_move_line_sales_search"/>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_sales_invoice_lines"
+              name="Sales Invoice Lines"
+              action="action_account_move_line_sales"
+              parent="account.menu_finance_receivables"
+              sequence="50"/>
+
+</odoo>

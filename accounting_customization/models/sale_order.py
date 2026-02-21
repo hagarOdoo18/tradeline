@@ -247,8 +247,11 @@ class SaleOrderLine(models.Model):
         warranty = self.env['product.warranty'].search([('categ_ids', 'in', self.product_id.categ_id.id)])
 
         res['warranty_id'] = warranty.id if warranty else False
-        res['item_code'] =  self.product_id.default_code
+        res['product_upc'] =  self.product_id.default_code
+        res['item_code'] =  self.product_id.barcode
         res['family_id'] = self.product_id.product_tmpl_id.family_id.id
+        res['vendor_id'] = self.product_id.vendor_id.id
+        res['standard_price'] = self.product_id.standard_price
         res['categ_id'] = self.product_id.categ_id.id
         return res
 
