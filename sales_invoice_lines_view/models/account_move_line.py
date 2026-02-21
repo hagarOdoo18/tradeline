@@ -55,6 +55,8 @@ class AccountMoveLine(models.Model):
     )
     vendor_id = fields.Many2one(
         string='Vendor',
+        comodel_name='res.partner',
+
         store=True,
         readonly=True,
     )
