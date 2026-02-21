@@ -468,7 +468,7 @@ class AccountInvoice(models.Model):
                     card = 'ORG'
         for black_card in black_cards:
             if black_card:
-                if black_card.qty_delivered ==  2 and black_card.order_id.order_date.strftime("%Y-%m-%d 00:00:00") >= '2022-03-03':
+                if black_card.qty_delivered ==  2 and black_card.order_id.date_order.strftime("%Y-%m-%d 00:00:00") >= '2022-03-03':
                     expiration_date = black_card.order_id.date_order.date() + relativedelta (years=2)
                     if expiration_date >= invoice_date :
                         card = 'black'
