@@ -40,7 +40,7 @@ class AccountPayment(models.Model):
                 raise UserError(_('Voucher serial is expired'))
             if payments:
                 raise UserError(_('This Serial IS Used Before !!'))
-            max_amount = round(rec.lot_id.product_id.product_tmpl_id.price_with_taxes)
+            max_amount = round(self.lot_id.product_id.lst_price)
             if rec.amount > max_amount:
                 raise UserError(
                     _('Amount Must Be less Than Or equal %s', max_amount)
