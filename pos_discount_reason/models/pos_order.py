@@ -61,7 +61,7 @@ class PosOrder(models.Model):
             line.family_id = line.product_id.product_tmpl_id.family_id.id
             line.categ_id = line.product_id.categ_id.id
             line.product_upc = line.product_id.default_code
-            line.item_code = line.product_id.item_code
+            line.item_code = line.product_id.barcode
             line.vendor_id = line.product_id.vendor_id
             line.standard_price = line.product_id.standard_price
             line.warranty_id = warranty if warranty else False
