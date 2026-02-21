@@ -86,7 +86,7 @@
                     <filter name="group_by_product" string="Product"
                             context="{'group_by': 'product_id'}"/>
                     <filter name="group_by_category" string="Product Category"
-                            context="{'group_by': 'product_categ_id'}"/>
+                            context="{'group_by': 'categ_id'}"/>
                     <filter name="group_by_family" string="Family"
                             context="{'group_by': 'family_id'}"/>
                     <filter name="group_by_date" string="Date"
