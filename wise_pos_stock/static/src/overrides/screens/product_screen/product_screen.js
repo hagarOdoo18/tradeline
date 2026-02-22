@@ -59,9 +59,9 @@ patch(ProductScreen.prototype, {
       if (products && products.length > 0) {
         products.forEach((product) => {
           if (all_products[product.id]) {
-            this.pos.db.product_by_id[product.id].qty_available =
+            this.pos.models['product.product'].get(product.id).qty_available =
               product.qty_available;
-            this.pos.db.product_by_id[product.id].virtual_available =
+             this.pos.models['product.product'].get(product.id).virtual_available =
               product.virtual_available;
           }
         });
