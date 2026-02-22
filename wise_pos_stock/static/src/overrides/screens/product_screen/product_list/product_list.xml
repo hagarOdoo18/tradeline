@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+  <t t-inherit="point_of_sale.ProductScreen" t-inherit-mode="extension">
+    <xpath expr="//ProductCard" position="attributes">
+      <attribute name="class">this.getClass(product)</attribute>
+      <attribute name="quantity">this.getProductLatestQty(product)</attribute>
+      <attribute name="is_display_stock">this.pos.config.is_display_stock</attribute>
+
+    </xpath>
+  </t>
+
+</templates>

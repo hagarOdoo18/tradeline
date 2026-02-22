@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <record id="res_config_settings_view_form" model="ir.ui.view">
+    <field name="name">res.config.settings.view.form.inherit.wise_pos_stock</field>
+    <field name="model">res.config.settings</field>
+    <field name="inherit_id" ref="point_of_sale.res_config_settings_view_form"/>
+    <field name="arch" type="xml">
+      <xpath expr="//setting[@id='update_quantities_stock_setting']" position="attributes">
+        <attribute name="groups"></attribute>
+      </xpath>
+
+      <xpath expr="//setting[@id='update_quantities_stock_setting']" position="inside">
+        <div class="content-group mt16" invisible="update_stock_quantities != 'real'">
+          <div class="row">
+            <label for="stock_quantities_refresh_rate" class="col-lg-4 o_light_label"></label>
+            <field name="stock_quantities_refresh_rate"/>
+          </div>
+        </div>
+      </xpath>
+
+
+      <xpath expr="//block[@id='pos_inventory_section']" position="after">
+        <block title="Stock Configuration" id="pos_stock_configuration">
+          <setting string="Display Stock" help="Enable to show the stock on the product card">
+            <field name="is_display_stock"/>
+            <div class="content-group mt16" invisible="not is_display_stock">
+              <div class="row">
+                <label for="low_stock_color" class="col-lg-4 o_light_label"></label>
+                <field name="low_stock_color" widget="color_picker"/>
+              </div>
+              <div class="row mt16">
+                <label for="in_stock_color" class="col-lg-4 o_light_label"></label>
+                <field name="in_stock_color" widget="color_picker"/>
+              </div>
+            </div>
+          </setting>
+          <setting help="Select to show on-hand or forecasted stock on the POS screen">
+            <field name="stock_type" colspan="4" widget="radio"/>
+          </setting>
+          <setting string="Restrict Product Out of Stock" help="Restrict ordering of out-of-stock products based on displayed quantity">
+            <field name="is_restrict_out_of_stock_products"/>
+          </setting>
+          <setting string="Low Stock Products Screen" help="Enable to display products with low stock levels on the POS screen">
+            <field name="is_low_stock_screen_visible"/>
+            <div class="content-group mt16" invisible="not is_low_stock_screen_visible">
+              <div class="row">
+                <label for="low_stock_threshold" class="col-lg-4 o_light_label"></label>
+                <field name="low_stock_threshold"/>
+              </div>
+            </div>
+          </setting>
+          <setting string="Warehouse Location" help="Select the warehouse to manage inventory for this point of sale">
+            <field name="stock_warehouse" widget="radio"/>
+            <div class="content-group mt16" invisible="stock_warehouse == 'all'">
+              <div class="row">
+                <label for="picking_type_location_id" class="col-lg-4 o_light_label"></label>
+                <field name="picking_type_location_id"/>
+              </div>
+            </div>
+          </setting>
+
+        </block>
+      </xpath>
+    </field>
+  </record>
+</odoo>
