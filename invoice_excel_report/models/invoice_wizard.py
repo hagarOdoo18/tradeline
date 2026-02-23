@@ -44,10 +44,65 @@ class AccountInvoiceWizard(models.TransientModel):
             domain.append(('branch_id', '=', self.branch_id.id))
         invoices = self.env['account.move'].search(domain)
         if self.journal_id:
-            invoices = invoices.filtered(lambda inv: inv.journal_id.id in self.journal_id.ids)
+            invoices = self.get_invoices_by_journal(self.journal_id,self.date_from,self.date_to)
         return invoices
 
 
+
+    @api.model
+    def get_invoices_by_journal(self, journal_id, date_from=None, date_to=None):
+        """
+        Utility method: find all invoices linked to payments made through a specific journal.
+
+        Usage:
+            invoices = env['invoice.payment.search.wizard'].get_invoices_by_journal(5)
+            invoices = env['invoice.payment.search.wizard'].get_invoices_by_journal(
+                journal_id=5,
+                date_from='2024-01-01',
+                date_to='2024-12-31'
+            )
+        """
+        domain = [('journal_id', '=', journal_id)]
+        if date_from:
+            domain += [('date', '>=', date_from)]
+        if date_to:
+            domain += [('date', '<=', date_to)]
+
+        payments = self.env['account.payment'].search(domain)
+        invoices = self.env['account.move']
+        for payment in payments:
+            invoices |= self._get_linked_invoices_from_payment(payment)
+        return invoices
+
+    def _get_linked_invoices_from_payment(self, payment):
+        """
+        Return all invoices (account.move) reconciled with the given payment.
+
+        In Odoo 18, a payment creates journal items (account.move.line).
+        Invoices are linked via the reconciliation of those journal items
+        with the invoice's receivable/payable lines.
+        """
+        invoices = self.env['account.move']
+
+        # Get all move lines of the payment
+        payment_lines = payment.move_id.line_ids.filtered(
+            lambda l: l.account_id.account_type in (
+                'asset_receivable', 'liability_payable'
+            )
+        )
+
+        # Find all matched move lines (reconciled counterparts)
+        for line in payment_lines:
+            # matched_debit_ids / matched_credit_ids hold reconciliation records
+            reconciled_lines = (
+                    line.matched_debit_ids.mapped('debit_move_id') +
+                    line.matched_credit_ids.mapped('credit_move_id')
+            )
+            for rec_line in reconciled_lines:
+                if rec_line.move_id != payment.move_id:
+                    invoices |= rec_line.move_id
+
+        return invoices
 
     def generate_excel(self, invoices):
         filename = 'Account Invoices'
