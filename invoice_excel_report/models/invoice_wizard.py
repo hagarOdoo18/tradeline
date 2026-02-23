@@ -69,9 +69,13 @@ class AccountInvoiceWizard(models.TransientModel):
             domain += [('date', '<=', date_to)]
 
         payments = self.env['account.payment'].search(domain)
+        pos_payments = self.env['pos.payment'].search(([('payment_method_id.journal_id','=',journal_id.id),('payment_date', '>=', date_from),('payment_date', '<=', date_to)]))
         invoices = self.env['account.move']
         for payment in payments:
             invoices |= self._get_linked_invoices_from_payment(payment)
+        pos_orders = pos_payments.mapped('pos_order_id')
+        invoices |= pos_orders.mapped('account_move').filtered(lambda m: m.exists())
+
         return invoices
 
     def _get_linked_invoices_from_payment(self, payment):
@@ -99,8 +103,10 @@ class AccountInvoiceWizard(models.TransientModel):
                     line.matched_credit_ids.mapped('credit_move_id')
             )
             for rec_line in reconciled_lines:
-                if rec_line.move_id != payment.move_id:
-                    invoices |= rec_line.move_id
+                if line.move_id.move_type in ('out_invoice', 'out_refund'):
+                    if rec_line.move_id != payment.move_id:
+                        invoices |= rec_line.move_id
+
 
         return invoices
 
