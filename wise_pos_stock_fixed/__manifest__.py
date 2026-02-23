@@ -34,7 +34,7 @@
     'data': ["views/res_config_settings_views.xml"],
     'assets': {
         'point_of_sale._assets_pos': [
-            'wise_pos_stock/static/src/**/*',
+            'wise_pos_stock_fixed/static/src/**/*',
         ]
     },
     'images': ['static/description/banner.gif'],

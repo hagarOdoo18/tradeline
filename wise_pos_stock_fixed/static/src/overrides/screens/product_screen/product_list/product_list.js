@@ -1,7 +1,7 @@
 /** @odoo-module */
 import { patch } from '@web/core/utils/patch';
 import { ProductScreen } from '@point_of_sale/app/screens/product_screen/product_screen';
-import { getProductQty } from '@wise_pos_stock/utils';
+import { getProductQty } from '@wise_pos_stock_fixed/utils';
 
 patch(ProductScreen.prototype, {
   getCurrentOrderProductQty(productId) {
