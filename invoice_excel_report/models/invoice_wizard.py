@@ -92,7 +92,7 @@ class AccountInvoiceWizard(models.TransientModel):
                 inv.partner_id.name or 'None',
                 inv.partner_id.phone or 'None',
                 journal or 'None',
-                payment_amount if payment_amount>0 else payment_amount *sign ,
+                payment_amount if payment_amount < 0 else payment_amount *sign ,
                 inv.invoice_origin or 'None',
                 inv.amount_untaxed_in_currency_signed  if show_residual else 0,
                 inv.tax_t1 * sign  if show_residual else 0,
