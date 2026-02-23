@@ -82,7 +82,7 @@ class AccountInvoiceWizard(models.TransientModel):
         def write_row(row, idx, inv, journal, payment_amount, show_residual):
 
             sign = 1 if inv.move_type == 'out_invoice' else -1
-            amount_total = inv.amount_untaxed_in_currency_signed +inv.tax_t1
+            amount_total = inv.amount_untaxed_in_currency_signed +inv.tax_t1  * sign
 
             values = [
                 idx,
