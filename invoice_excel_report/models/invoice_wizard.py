@@ -62,7 +62,7 @@ class AccountInvoiceWizard(models.TransientModel):
                 date_to='2024-12-31'
             )
         """
-        domain = [('journal_id', '=', journal_id)]
+        domain = [('journal_id', '=', journal_id.id)]
         if date_from:
             domain += [('date', '>=', date_from)]
         if date_to:
