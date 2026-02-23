@@ -125,7 +125,7 @@ class AccountInvoiceWizard(models.TransientModel):
                     )
                     printed_invoices.add(inv.id)
                     row += 1
-            else:
+            elif inv.pos_order_ids.payment_ids:
                 for payment in inv.pos_order_ids.payment_ids:
                     write_row(
                         row=row,
@@ -137,6 +137,17 @@ class AccountInvoiceWizard(models.TransientModel):
                     )
                     printed_invoices.add(inv.id)
                     row += 1
+            else:
+                write_row(
+                    row=row,
+                    idx=idx,
+                    inv=inv,
+                    journal='',
+                    payment_amount=0,
+                    show_residual=inv.id not in printed_invoices
+                )
+                printed_invoices.add(inv.id)
+                row += 1
 
         workbook.close()
         output.seek(0)
