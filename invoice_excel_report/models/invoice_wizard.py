@@ -93,7 +93,7 @@ class AccountInvoiceWizard(models.TransientModel):
                 inv.partner_id.phone or 'None',
                 journal or 'None',
                 payment_amount if payment_amount < 0 else payment_amount *sign ,
-                inv.invoice_origin or inv.payment_reference,
+                inv.invoice_origin or inv.ref,
                 inv.amount_untaxed_in_currency_signed  if show_residual else 0,
                 round( inv.tax_t1 * sign ,2) if show_residual else 0,
                 round(amount_total,2)  if show_residual else 0,
