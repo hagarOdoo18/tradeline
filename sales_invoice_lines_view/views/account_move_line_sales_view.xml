@@ -110,7 +110,7 @@
         <field name="res_model">account.move.line</field>
         <field name="view_mode">list,pivot,graph</field>
         <field name="domain">[
-            ('move_type', 'in', ['out_invoice', 'out_refund']),
+            ('move_type', 'in', ['out_invoice', 'out_refund']), ('product_id', '!=', False),
             ('parent_state', '=', 'posted')
         ]</field>
         <field name="context">{
