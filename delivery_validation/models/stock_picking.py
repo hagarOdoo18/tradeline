@@ -68,16 +68,27 @@ class StockPicking(models.Model):
             errors.append('العملية ملغية.')
 
         # Check for duplicate serial numbers across all move lines
+        # Check for duplicate serial numbers across all move lines
         serials = [
             ml.lot_id.name
             for ml in self.move_line_ids
             if ml.lot_id and ml.lot_id.name
         ]
         duplicates = {s for s in serials if serials.count(s) > 1}
+
         if duplicates:
-            errors.append(
-                'أرقام تسلسلية مكررة: %s' % ', '.join(sorted(duplicates))
+            lines_to_unlink = self.move_line_ids.filtered(
+                lambda ml: ml.lot_id and ml.lot_id.name in duplicates
             )
+            # احتفظ بأول سطر لكل تسلسل، واحذف الباقي
+            seen = set()
+            lines_to_remove = self.env['stock.move.line']
+            for ml in lines_to_unlink:
+                if ml.lot_id.name in seen:
+                    lines_to_remove |= ml
+                else:
+                    seen.add(ml.lot_id.name)
+            lines_to_remove.unlink()
 
         # Check that all demand quantities are filled
         for line in self.move_ids:
