@@ -62,7 +62,7 @@ class AccountMoveLine(models.Model):
     )
     amount_untaxed_signed = fields.Monetary(
         related='move_id.amount_untaxed_signed',
-        string='Invoice Amount Signed',
+        string='Untaxed Amount Signed',
         store=True,
         readonly=True,
     )
