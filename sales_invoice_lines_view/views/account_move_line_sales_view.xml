@@ -32,6 +32,7 @@
                 <field name="signed_quantity" string="Quantity" sum="Total Qty"/>
                 <field name="serial_display" string="Serial" optional="hide"/>
                 <field name="standard_price" string="Unit Cost" optional="show"/>
+                <field name="product_point" string="Point"/>
                 <field name="price_unit" string="Unit Price"/>
                 <field name="discount" string="Discount (%)" optional="show"/>
                 <field name="amount_signed" string="Amount Signed" sum="Total Amount"/>
