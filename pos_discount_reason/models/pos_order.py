@@ -64,6 +64,11 @@ class PosOrder(models.Model):
             line.item_code = line.product_id.barcode
             line.vendor_id = line.product_id.vendor_id
             line.standard_price = line.product_id.standard_price
+            if move.move_type =='out_refund' :
+                line.product_point = line.product_id.product_point *line.quantity *-1
+            else:
+                line.product_point = line.product_id.product_point *line.quantity
+
             line.warranty_id = warranty if warranty else False
 
         # Auto print the invoice after creation

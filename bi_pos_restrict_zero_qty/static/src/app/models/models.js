@@ -23,14 +23,16 @@ patch(PosStore.prototype, {
                    if(line.qty >=1){
                        if (prd.type == 'consu'){
                            if(prd.id in prod_used_qty){
+                                                console.log("prd.free_qty:", prd.free_qty);
+
                                let old_qty = prod_used_qty[prd.id][1];
-                               prod_used_qty[prd.id] = [prd.qty_available,line.qty+old_qty]
+                               prod_used_qty[prd.id] = [prd.free_qty,line.qty+old_qty]
                            }else{
-                               prod_used_qty[prd.id] = [prd.qty_available,line.qty]
+                               prod_used_qty[prd.id] = [prd.free_qty,line.qty]
                            }
                        }
                        if (prd.type == 'consu'){
-                       if(prd.qty_available <= 0){
+                       if(prd.free_qty <= 0){
                            restrict = true;
                            call_super = false;
                            let warning = prd.display_name + ' is out of stock.';

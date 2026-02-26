@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+  <t t-name="wise_pos_stock.StockListScreen">
+    <div class="stocklist-screen screen h-100 d-flex flex-column bg-100">
+      <div class="top-content d-flex align-items-center p-2 border-bottom text-center">
+        <div class="button back btn btn-lg btn-secondary mx-2"  t-on-click="() => this.back()">
+          <i t-if="ui.isSmall" class="fa fa-angle-double-left"/>
+          <t t-else=""> Discard</t>
+        </div>
+      </div>
+      <section class="overflow-auto">
+        <table class="table table-striped w-100">
+          <thead>
+            <tr>
+              <th class="py-2">Product</th>
+              <th class="py-2">On Hand Quantity</th>
+              <th class="py-2">Forecasted Quantity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <t t-foreach="products" t-as="product" t-key="product.id">
+
+              <tr t-attf-class="gap-2 gap-lg-0 align-top">
+                <td>
+                  <b>
+                    <t t-out="product.display_name"/>
+                  </b>
+                </td>
+                <td t-out="product.qty_available"></td>
+                <td t-out="product.virtual_available"></td>
+              </tr>
+            </t>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </t>
+</templates>

@@ -252,6 +252,7 @@ class SaleOrderLine(models.Model):
         res['family_id'] = self.product_id.product_tmpl_id.family_id.id
         res['vendor_id'] = self.product_id.vendor_id.id
         res['standard_price'] = self.product_id.standard_price
+        res['product_point'] =  self.product_id.product_point * self.qty_to_invoice
         res['categ_id'] = self.product_id.categ_id.id
         return res
 

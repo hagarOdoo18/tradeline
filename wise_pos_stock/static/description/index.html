@@ -1,0 +1,265 @@
+<div class="container my-5">
+  <div class="row pb-0 pe-lg-0 align-items-center rounded-3 border shadow-lg">
+    <div class="col-lg-6 p-5">
+      <h1 class="display-4 fw-bold lh-1 text-body-emphasis">POS Stock</h1>
+      <p class="lead">
+        Effortlessly monitor your inventory directly from your Point of Sale
+        (POS) interface with the Odoo POS Stock module. Seamlessly integrated
+        into your system, it enables the display of real-time product quantities
+        according to the default update options in Odoo. Identify low stock
+        items on a separate screen and take prompt action to ensure smooth
+        operations. Prevent sales of out-of-stock items and streamline your
+        processes with ease. Empower your business with Odoo POS Stock and
+        revolutionize your inventory visibility today
+      </p>
+      <div class="d-grid gap-2 d-md-flex justify-content-md-start mb-4 mb-lg-3">
+        <a
+          class="shadow rounded py-3 px-4 d-flex justify-content-center align-items-center mb-2"
+          style="
+            text-decoration: none;
+            font-size: 20px;
+            font-weight: bold;
+            width: 100%;
+            background-color: #0cc0df;
+          "
+          href="mailto:info@wisenetic.com"
+          target="_blank"
+          ><span
+            class="fa fa-envelope mr-3 text-black"
+            style="font-size: 30px"
+          ></span
+          ><span class="align-middle mx-3 text-black">Email</span></a
+        >
+        <a
+          class="shadow rounded py-3 px-4 d-flex justify-content-center align-items-center mb-2 d-none"
+          style="
+            text-decoration: none;
+            font-size: 20px;
+            font-weight: bold;
+            width: 100%;
+            background-color: #ff0000;
+          "
+          href="https://youtu.be/yXCQkNlO5_8"
+          target="_blank"
+          ><span
+            class="fa fa-youtube mr-3 text-black"
+            style="font-size: 30px"
+          ></span
+          ><span class="align-middle mx-3 text-black">YouTube</span></a
+        >
+      </div>
+    </div>
+    <div class="col-lg-6 p-0 overflow-hidden shadow-lg">
+      <img
+        class="rounded-lg-3 w-100"
+        src="hero.webp"
+        alt="POS Product Variants Popup Demo Image"
+      />
+    </div>
+  </div>
+</div>
+
+<div class="container px-4 py-5 rounded-3 border shadow-lg my-5">
+  <h2 class="pb-2 border-bottom">Features</h2>
+  <div class="row g-4 py-5 row-cols-1 row-cols-lg-3">
+    <div class="col">
+      <div
+        class="d-inline-flex align-items-center justify-content-center fs-4 mb-3"
+      >
+        <img class="rounded-lg-3" src="icon/time-svgrepo-com.svg" width="64" />
+      </div>
+      <h3 class="fs-4 text-body-emphasis">Real-Time Stock Display</h3>
+      <p>
+        View product quantities in real-time according to Odoo’s default update
+        options, providing up-to-date inventory information directly on the POS
+        interface.
+      </p>
+    </div>
+    <div class="col">
+      <div
+        class="d-inline-flex align-items-center justify-content-center fs-4 mb-3"
+      >
+        <img
+          class="rounded-lg-3"
+          src="icon/location-check-svgrepo-com.svg"
+          width="64"
+        />
+      </div>
+      <h3 class="fs-4 text-body-emphasis">Stock Location Selection</h3>
+      <p>
+        Choose a stock location for each session to keep inventory management
+        accurate and efficient. The POS will show stock only from the location
+        selected for the current session.
+      </p>
+    </div>
+    <div class="col">
+      <div
+        class="d-inline-flex align-items-center justify-content-center fs-4 mb-3"
+      >
+        <img
+          class="rounded-lg-3"
+          src="icon/stock-out-svgrepo-com.svg"
+          width="64"
+        />
+      </div>
+      <h3 class="fs-4 text-body-emphasis">Out-of-Stock Management</h3>
+      <p>
+        Configure settings to disable product selection for out-of-stock items,
+        ensuring customers are promptly informed about product availability.
+      </p>
+    </div>
+    <div class="col">
+      <div
+        class="d-inline-flex align-items-center justify-content-center fs-4 mb-3"
+      >
+        <img
+          class="rounded-lg-3"
+          src="icon/down-arrow-svgrepo-com.svg"
+          width="64"
+        />
+      </div>
+      <h3 class="fs-4 text-body-emphasis">Low Stock Screen</h3>
+      <p>
+        Select the type of stock to be displayed on the POS interface, with
+        options for On Hand and Forecasted stock levels, providing flexibility
+        in how inventory information is presented.
+      </p>
+    </div>
+    <div class="col">
+      <div
+        class="d-inline-flex align-items-center justify-content-center fs-4 mb-3"
+      >
+        <img
+          class="rounded-lg-3"
+          src="icon/color-palette-svgrepo-com.svg"
+          width="64"
+        />
+      </div>
+      <h3 class="fs-4 text-body-emphasis">Color Customization</h3>
+      <p>
+        Tailor low stock and in-stock item indicators with personalized color
+        options, ensuring efficient inventory management and visual clarity on
+        the POS interface
+      </p>
+    </div>
+  </div>
+</div>
+<div class="container px-4 py-5 rounded-3 border shadow-lg my-5">
+  <h2 class="pb-2 mb-5 border-bottom">Screens</h2>
+  <h4 class="mb-4">1. Stock Configuration</h4>
+  <ol class="list-group list-group-flush">
+    <li class="list-group-item">
+      <h5 class="text-muted">1.1 Inventory Management</h5>
+      <p class="text-muted">
+        The Inventory Management setting controls how stock quantities are
+        updated, offering two options: <b>At the session closing (faster)</b>,
+        which updates stock at the end of each session for improved speed but
+        less real-time accuracy, and <b>In real time (accurate but slower)</b>,
+        which updates stock immediately with each transaction for the most
+        accurate levels but slower performance. Users can choose based on their
+        need for speed versus accuracy.
+      </p>
+    </li>
+    <li class="list-group-item">
+      <h5 class="text-muted">1.2 Display Stock</h5>
+      <p class="text-muted">
+        The Display Stock setting enables the visibility of stock levels
+        directly on the product card. This feature includes two customizable
+        settings: <b>Low Stock Color</b>, which allows users to select a color
+        to indicate when stock levels are low, and <b>In Stock Color</b>, which
+        lets users choose a color to signify sufficient stock levels. By
+        visually differentiating stock statuses, this setting helps users
+        quickly assess inventory levels and manage stock more effectively.
+      </p>
+    </li>
+    <li class="list-group-item">
+      <h5 class="text-muted">1.3 Stock Type</h5>
+      <p class="text-muted">
+        The Stock Type setting in the POS system determines whether to display
+        actual stock quantities ("On Hand") or anticipated levels based on
+        pending transactions ("Forecasted"). "On Hand" provides real-time stock
+        information, while "Forecasted" offers predictive insights by
+        considering incoming and outgoing stock movements. Choosing the right
+        option supports effective inventory management and operational
+        efficiency.
+      </p>
+    </li>
+
+    <li class="list-group-item">
+      <h5 class="text-muted">1.4 Restrict Product Out of Stock</h5>
+      <p class="text-muted">
+        The Restrict Product Out of Stock setting in the POS system prevents
+        customers from ordering products that are not currently available in
+        inventory. This functionality ensures that orders can only be placed for
+        items that are in stock, based on the displayed quantity. By restricting
+        out-of-stock purchases, the setting helps manage customer expectations
+        and enhances operational efficiency by preventing backorders and
+        potential delays in fulfillment.
+      </p>
+    </li>
+    <li class="list-group-item">
+      <h5 class="text-muted">1.5 Low Stock Products Screen</h5>
+      <p class="text-muted">
+        The Low Stock Products Screen setting in the POS system displays
+        products with inventory levels below a defined threshold, such as 5
+        items. This feature aids in proactive inventory management by
+        highlighting items approaching depletion, ensuring timely replenishment
+        and maintaining optimal stock levels.
+      </p>
+    </li>
+    <li class="list-group-item">
+      <h5 class="text-muted">1.6 Warehouse Location</h5>
+      <p class="text-muted">
+        The warehouse location options in the POS system provide flexibility in
+        managing inventory display. Selecting All Warehouses shows stock from
+        all available warehouses, offering a comprehensive view of total
+        inventory. Alternatively, choosing Current Session Warehouse displays
+        stock only from the default source location assigned to the current
+        session. This option ensures that the POS interface reflects inventory
+        specific to the selected warehouse for that session, promoting accurate
+        inventory management and efficient stock tracking.
+      </p>
+    </li>
+  </ol>
+  <img src="screen1.webp" class="w-100 mb-5" />
+
+  <h4>2. POS Front End Screen</h4>
+  <p class="text-muted">
+    The POS front end screen provides a comprehensive view of product
+    availability, enhanced by visual indicators based on inventory settings.
+    Each product card displays stock levels, with colors configured to indicate
+    status. Items in sufficient stock appear with the "In Stock Color," while
+    items below the set low stock threshold are highlighted in the "Low Stock
+    Color." Additionally, products that are out of stock are grayed out and
+    disabled, preventing customers from ordering unavailable items. This
+    intuitive display system ensures clear communication of stock status,
+    enabling efficient inventory management and smooth customer interactions.
+  </p>
+  <img src="screen2.webp" class="w-100 mb-5" />
+
+  <h4>3. Low Stock Menu</h4>
+  <p class="text-muted">
+    The Low Stock Menu in the POS system highlights products with inventory
+    levels below a defined threshold.
+  </p>
+  <img src="screen3.webp" class="w-100 mb-5" />
+  <h4>4. Low Stock Screen</h4>
+  <p class="text-muted">
+    When the Low Stock Menu is clicked, a new popup screen appears displaying
+    detailed information about products with low inventory levels. The screen
+    shows the product name, on-hand quantity, and forecasted quantity, providing
+    a comprehensive view of current and expected stock levels.
+  </p>
+  <img src="screen4.webp" class="w-100 mb-5" />
+</div>
+
+<div class="container px-4 py-5 rounded-3 border shadow-lg my-5">
+  <img
+    class="d-block mx-auto mb-4 w-50"
+    src="./icon/Wisenetic_logo.png"
+    alt="Wisenetic Logo"
+  />
+  <h1 class="display-5 text-center">
+    Harnessing Wise Technology, Attracting Success
+  </h1>
+</div>
