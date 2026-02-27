@@ -440,6 +440,8 @@ class AccountInvoice(models.Model):
                                                   ('product_id.barcode','=','Tls-BLU')])
         ORG_cards  = self.env['sale.order.line'].sudo().search([('order_id.state','=','sale'),('order_id.partner_id','=',customer_id.id),('qty_delivered','!=',0),
                                                   ('product_id.barcode','=','TLS-ORG')])
+        if not invoice_date:
+            return False
         card = False
 
         for green_card in green_cards:
@@ -510,9 +512,9 @@ class AccountInvoice(models.Model):
             if black_card :
                 if black_card.qty == 2 and black_card.order_id.date_order.strftime("%Y-%m-%d 00:00:00") >= '2022-03-03':
                     expiration_date = black_card.order_id.date_order.date() + relativedelta(years=2)
-                    if invoice_date and expiration_date:
-                        if expiration_date >= invoice_date :
-                            card = 'black'
+
+                    if expiration_date >= invoice_date :
+                        card = 'black'
                 else:
                     expiration_date = black_card.order_id.date_order.date() + relativedelta(years=1)
                     if expiration_date >= invoice_date :
