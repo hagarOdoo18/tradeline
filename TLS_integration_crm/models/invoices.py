@@ -510,8 +510,9 @@ class AccountInvoice(models.Model):
             if black_card :
                 if black_card.qty == 2 and black_card.order_id.date_order.strftime("%Y-%m-%d 00:00:00") >= '2022-03-03':
                     expiration_date = black_card.order_id.date_order.date() + relativedelta(years=2)
-                    if expiration_date >= invoice_date :
-                        card = 'black'
+                    if invoice_date and expiration_date:
+                        if expiration_date >= invoice_date :
+                            card = 'black'
                 else:
                     expiration_date = black_card.order_id.date_order.date() + relativedelta(years=1)
                     if expiration_date >= invoice_date :
