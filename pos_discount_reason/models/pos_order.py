@@ -60,10 +60,10 @@ class PosOrder(models.Model):
 
             line.family_id = line.product_id.product_tmpl_id.family_id.id
             line.categ_id = line.product_id.categ_id.id
-            # line.product_upc = line.product_id.default_code
-            # line.item_code = line.product_id.barcode
-            # line.vendor_id = line.product_id.vendor_id
-            # line.standard_price = line.product_id.standard_price
+            line.product_upc = line.product_id.default_code
+            line.item_code = line.product_id.barcode
+            line.vendor_id = line.product_id.vendor_id
+            line.standard_price = line.product_id.standard_price
             if move.move_type =='out_refund' :
                 line.product_point = line.product_id.product_point *line.quantity *-1
             else:
