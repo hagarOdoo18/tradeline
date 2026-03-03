@@ -30,7 +30,6 @@
             <!-- Searchable fields -->
             <xpath expr="//search/field[last()]" position="after">
                 <field name="item_code"        string="Item Code"/>
-                <field name="product_categ_id" string="Category"/>
                 <field name="vendor_id"        string="Vendor"/>
             </xpath>
 
