@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── List View ─────────────────────────────────────────────────────────── -->
+    <record id="stock_valuation_layer_list_view_extend" model="ir.ui.view">
+        <field name="name">stock.valuation.layer.list.extend</field>
+        <field name="model">stock.valuation.layer</field>
+        <field name="inherit_id" ref="stock_account.stock_valuation_layer_tree"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//field[@name='product_id']" position="after">
+                <field name="item_code"         optional="show"  string="Item Code"/>
+                <field name="categ_id"  optional="show"  string="Category"/>
+                <field name="product_family_id" optional="show"  string="Family"/>
+                <field name="vendor_id"         optional="show"  string="Vendor"/>
+                <field name="last_po_cost"      optional="show"  string="Last PO Cost"/>
+                <field name="available_qty"     optional="show"  string="Available Qty"/>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ── Search View ───────────────────────────────────────────────────────── -->
+    <record id="stock_valuation_layer_search_view_extend" model="ir.ui.view">
+        <field name="name">stock.valuation.layer.search.extend</field>
+        <field name="model">stock.valuation.layer</field>
+        <field name="inherit_id" ref="stock_account.view_inventory_valuation_search"/>
+        <field name="arch" type="xml">
+
+            <!-- Searchable fields -->
+            <xpath expr="//search/field[last()]" position="after">
+                <field name="item_code"        string="Item Code"/>
+                <field name="product_categ_id" string="Category"/>
+                <field name="vendor_id"        string="Vendor"/>
+            </xpath>
+
+            <!-- Group By -->
+            <xpath expr="//group" position="inside">
+                <filter string="Item Code"
+                        name="group_by_item_code"
+                        context="{'group_by': 'item_code'}"/>
+
+                <filter string="Family"
+                        name="group_by_product_family"
+                        context="{'group_by': 'product_family_id'}"/>
+                <filter string="Vendor"
+                        name="group_by_vendor"
+                        context="{'group_by': 'vendor_id'}"/>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>
