@@ -76,7 +76,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
         headers = [
             'Invoice Date', 'Invoice No.', 'NUM.', 'Customer Name', 'Mobile',
             'Tax ID ','National ID',  'Passport No.', 'Untaxed', 'Tax14', 'Total',
-            'Tax1', 'Tax3','Tax5', 'Total Net', 'Net Converted', 'Currency'
+            'Tax1', 'Tax2','Tax3','Tax5', 'Total Net', 'Net Converted', 'Currency'
         ]
 
         for col, head in enumerate(headers):
@@ -113,6 +113,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
             # ===== Taxes =====
             tax_t1 = sign * (inv.tax_t1 or 0)
             tax_t2 = sign * (inv.tax_t2 or 0)
+            tax_t2_t = sign * (inv.tax_t2_t or 0)
             tax_t3 = sign * (inv.tax_t3 or 0)
             tax_t5 = sign * (inv.tax_t5 or 0)
             amount_total = inv.amount_untaxed_in_currency_signed +tax_t1
@@ -139,6 +140,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 round(tax_t1,2),
                 round(amount_total,2),
                 round(tax_t2,2),
+                round(tax_t2_t,2),
                 round(tax_t3,2),
                 round(tax_t5,2),
                 inv.amount_total_in_currency_signed ,

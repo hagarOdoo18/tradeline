@@ -132,7 +132,7 @@ class AccountInvoiceWizard(models.TransientModel):
         headers = [
             'No', 'Date', 'Invoice Number', 'Branch', 'Customer Name', 'Phone',
             'Payment', 'Payment Amount', 'Ref', 'Tax Excluded', 'Tax14',
-            'Total', 'Tax1', 'Tax3', 'Tax5', 'Total Net', 'Amount Due'
+            'Total', 'Tax1','Tax2', 'Tax3', 'Tax5', 'Total Net', 'Amount Due'
         ]
         sheet.set_column(1, 50, 20)
         for col, header in enumerate(headers):
@@ -159,6 +159,7 @@ class AccountInvoiceWizard(models.TransientModel):
                 round( inv.tax_t1 * sign ,2) if show_residual else 0,
                 round(amount_total,2)  if show_residual else 0,
                 round(inv.tax_t2 * sign,2)  if show_residual else 0,
+                round(inv.tax_t2_t * sign,2)  if show_residual else 0,
                 round(inv.tax_t3 * sign,2)  if show_residual else 0,
                 round( inv.tax_t5 * sign,2)  if show_residual else 0,
                 round(inv.amount_total_in_currency_signed,2)  if show_residual else 0,
