@@ -3,7 +3,7 @@ from random import randint
 from odoo.exceptions import UserError
 
 from odoo.http import Controller, request, route
-
+from odoo.exceptions import ValidationError
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
@@ -223,7 +223,16 @@ class SaleOrderLine(models.Model):
         store=True
     )
 
-
+    @api.constrains('tax_id')
+    def _check_tax_required(self):
+        for line in self:
+            if not line.tax_id:
+                raise ValidationError(
+                    "Tax is required on order line '%s' in quotation '%s'. "
+                    "Please set a tax before saving." % (
+                        line.name, line.order_id.name
+                    )
+                )
 
     @api.depends('order_id.warehouse_id')
     def _compute_location_id(self):

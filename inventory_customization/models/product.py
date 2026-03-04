@@ -10,7 +10,7 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-
+from odoo.exceptions import ValidationError
 class ProductTemplateInherit(models.Model):
     _inherit = 'product.template'
 
@@ -20,8 +20,14 @@ class ProductTemplateInherit(models.Model):
     sub_categ_id = fields.Many2one(comodel_name='sub.category', string='Sub Category')
     default_code = fields.Char('UPC', index=True)
 
-
-
+    @api.constrains('taxes_id')
+    def _check_taxes_required(self):
+        for product in self:
+            if not product.taxes_id:
+                raise ValidationError(
+                    "Tax is required on product '%s'. "
+                    "Please set a customer tax before saving." % product.name
+                )
 
     def _create_variant_ids(self):
         if not self:
