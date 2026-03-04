@@ -16,11 +16,11 @@ class StockValuationLayerReport(models.Model):
     product_family_id = fields.Many2one('product.family', string='Family',            readonly=True)
     vendor_id         = fields.Many2one('res.partner',      string='Vendor',            readonly=True)
     company_id        = fields.Many2one('res.company',      string='Company',           readonly=True)
-    currency_id       = fields.Many2one('res.currency',     string='Currency',          readonly=True)
+    # currency_id       = fields.Many2one('res.currency',     string='Currency',          readonly=True)
 
     # ── Measures ───────────────────────────────────────────────────────────────
     quantity          = fields.Float(  string='Total Quantity',    readonly=True, group_operator='sum')
-    # value         = fields.Float(  string='Total Value',    readonly=True, group_operator='sum',  digits='Product Price')
+    value         = fields.Float(  string='Total Value',    readonly=True, group_operator='sum',  digits='Product Price')
     last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, group_operator=False, digits='Product Price')
     unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
     available_qty     = fields.Float(  string='Available Qty',     readonly=True, group_operator=False, digits='Product Unit of Measure')
@@ -40,14 +40,14 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id                                     AS product_categ_id,
                 pt.family_id                                    AS product_family_id,
                 svl.company_id                                  AS company_id,
-                rc.currency_id                                  AS currency_id, 
+                -- rc.currency_id                                  AS currency_id, 
 
                 pp.vendor_id                                      AS vendor_id,
                 pp.standard_price                                  AS unit_cost,
 
                 -- Measures
                 COALESCE(SUM(svl.quantity), 0.0)::double precision    AS quantity,
-                -- COALESCE(SUM(svl.value), 0.0)::double precision        AS value,
+                COALESCE(SUM(svl.value), 0.0)::double precision        AS value,
                 COUNT(svl.id)                                   AS layers_count,
 
                 -- Last PO cost per product
@@ -82,7 +82,7 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id,
                 pt.family_id,
                 svl.company_id,
-                rc.currency_id,
+               -- rc.currency_id,
                 pp.vendor_id,
                 pp.standard_price ,
                 pt.id
