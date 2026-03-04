@@ -112,6 +112,7 @@
                 <field name="amount_total_in_currency_signed" position="after">
                     <field name="tax_t1" optional="show" />
                     <field name="tax_t2" optional="show" />
+                    <field name="tax_t2_t" optional="show" />
                     <field name="tax_t3" optional="show" />
                     <field name="tax_t5" optional="show" />
                 </field>
