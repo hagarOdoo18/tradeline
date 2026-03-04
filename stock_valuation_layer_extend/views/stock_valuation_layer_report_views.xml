@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── List View ─────────────────────────────────────────────────────────── -->
+    <record id="stock_valuation_layer_report_tree" model="ir.ui.view">
+        <field name="name">stock.valuation.layer.report.tree</field>
+        <field name="model">stock.valuation.layer.report</field>
+        <field name="arch" type="xml">
+            <list string="Valuation by Product" create="false" edit="false" delete="false">
+                <field name="product_id"        string="Product"/>
+                <field name="item_code"         string="Item Code"       optional="show"/>
+                <field name="product_categ_id"  string="Category"        optional="show"/>
+                <field name="product_family_id" string="Family"          optional="show"/>
+                <field name="vendor_id"         string="Vendor"          optional="show"/>
+                <field name="currency_id"       invisible="1"/>
+                <field name="quantity"          string="Total Qty"       sum="Total Qty"/>
+                <field name="value"             string="Total Value"     sum="Total Value" widget="monetary"/>
+                <field name="unit_cost"      string="Unit Cost"    optional="show"/>
+                <field name="last_po_cost"      string="Last PO Cost"    optional="show"/>
+                <field name="available_qty"     string="Available Qty"   optional="show"/>
+                <field name="layers_count"      string="# Layers"        optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ── Search View ───────────────────────────────────────────────────────── -->
+    <record id="stock_valuation_layer_report_search" model="ir.ui.view">
+        <field name="name">stock.valuation.layer.report.search</field>
+        <field name="model">stock.valuation.layer.report</field>
+        <field name="arch" type="xml">
+            <search string="Valuation by Product">
+                <field name="product_id"        string="Product"/>
+                <field name="item_code"         string="Item Code"/>
+                <field name="product_categ_id"  string="Category"/>
+                <field name="vendor_id"         string="Vendor"/>
+                <field name="company_id"        string="Company"/>
+
+                <group string="Group By">
+                    <filter string="Category"
+                            name="group_by_categ"
+                            context="{'group_by': 'product_categ_id'}"/>
+                    <filter string="Family"
+                            name="group_by_family"
+                            context="{'group_by': 'product_family_id'}"/>
+                    <filter string="Vendor"
+                            name="group_by_vendor"
+                            context="{'group_by': 'vendor_id'}"/>
+                    <filter string="Company"
+                            name="group_by_company"
+                            context="{'group_by': 'company_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ── Action ────────────────────────────────────────────────────────────── -->
+    <record id="action_stock_valuation_layer_report" model="ir.actions.act_window">
+        <field name="name">Valuation by Product</field>
+        <field name="res_model">stock.valuation.layer.report</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="stock_valuation_layer_report_tree"/>
+        <field name="search_view_id" ref="stock_valuation_layer_report_search"/>
+        <field name="context">{}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No valuation entries found.
+            </p>
+        </field>
+    </record>
+
+    <!-- ── Menu Item ─────────────────────────────────────────────────────────── -->
+    <menuitem
+        id="menu_stock_valuation_layer_report"
+        name="Valuation by Product"
+        parent="stock.menu_valuation"
+        groups="inventory_customization.group_menu_valuation"
+        action="action_stock_valuation_layer_report"
+        sequence="20"/>
+
+</odoo>
