@@ -14,7 +14,7 @@
                 <field name="vendor_id"         string="Vendor"          optional="show"/>
                 <field name="currency_id"        column_invisible="1"/>
                 <field name="quantity"          string="Total Qty"       sum="Total Qty"/>
-                <field name="value"     />
+<!--                <field name="value"     />-->
                 <field name="last_po_cost" />
                 <field name="unit_cost"      string="Unit Cost"    optional="show"/>
                 <field name="available_qty"     string="Available Qty"   optional="show"/>
