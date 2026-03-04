@@ -7,6 +7,7 @@
     'author': 'Custom',
     'depends': ['stock_account', 'purchase','inventory_customization'],
     'data': [
+        'security/ir.model.access.csv',
         'views/stock_valuation_layer_views.xml',
         'views/stock_valuation_layer_report_views.xml',
     ],
