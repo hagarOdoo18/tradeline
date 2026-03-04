@@ -84,5 +84,6 @@ class StockValuationLayerReport(models.Model):
                 svl.company_id,
                 rc.currency_id,
                 pp.vendor_id,
+                pp.standard_price ,
                 pt.id
         """)
