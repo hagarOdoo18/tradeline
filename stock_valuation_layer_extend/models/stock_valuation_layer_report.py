@@ -78,9 +78,9 @@ class StockValuationLayerReport(models.Model):
             JOIN res_company rc  ON rc.id = svl.company_id
             GROUP BY
                 svl.product_id,
-                pt.default_code,
+                pp.barcode,
                 pt.categ_id,
-                pc.parent_id,
+                pt.family_id,
                 svl.company_id,
                 rc.currency_id,
                 pt.id
