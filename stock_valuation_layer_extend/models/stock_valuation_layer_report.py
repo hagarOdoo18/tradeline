@@ -20,7 +20,7 @@ class StockValuationLayerReport(models.Model):
 
     # ── Measures ───────────────────────────────────────────────────────────────
     quantity          = fields.Float(  string='Total Quantity',    readonly=True, group_operator='sum')
-    value             = fields.Monetary(string='Total Value',      readonly=True, group_operator='sum')
+    value         = fields.Float(  string='Total Value',    readonly=True, group_operator='sum',  digits='Product Price')
     last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, group_operator=False, digits='Product Price')
     unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
     available_qty     = fields.Float(  string='Available Qty',     readonly=True, group_operator=False, digits='Product Unit of Measure')
@@ -46,8 +46,8 @@ class StockValuationLayerReport(models.Model):
                 pp.standard_price                                  AS unit_cost,
 
                 -- Measures
-                COALESCE(SUM(svl.quantity), 0.0)::numeric   AS quantity,
-                COALESCE(SUM(svl.value), 0.0)::numeric       AS value,
+                COALESCE(SUM(svl.quantity), 0.0)::double precision    AS quantity,
+                COALESCE(SUM(svl.value), 0.0)::double precision        AS value,
                 COUNT(svl.id)                                   AS layers_count,
 
                 -- Last PO cost per product
@@ -59,7 +59,7 @@ class StockValuationLayerReport(models.Model):
                       AND po.state IN ('purchase', 'done')
                     ORDER BY po.date_approve DESC, pol.id DESC
                     LIMIT 1
-                )   ,0.0)::numeric                                           AS last_po_cost,
+                )   ,0.0)::double precision                                            AS last_po_cost,
 
                 -- Available qty (qty_available = sum of quants on hand)
                 COALESCE((
@@ -69,7 +69,7 @@ class StockValuationLayerReport(models.Model):
                     WHERE sq.product_id = svl.product_id
                       AND sl.usage = 'internal'
                       AND sq.company_id = svl.company_id
-                ), 0)                                           AS available_qty
+                ), 0.0)::double precision                               AS available_qt
 
             FROM stock_valuation_layer svl
             JOIN product_product pp      ON pp.id  = svl.product_id
