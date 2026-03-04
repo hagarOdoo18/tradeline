@@ -40,14 +40,14 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id                                     AS product_categ_id,
                 pt.family_id                                    AS product_family_id,
                 svl.company_id                                  AS company_id,
-                rc.currency_id                                 AS currency_id,
+                COALESCE(rc.currency_id, 1)                  AS currency_id, 
 
                 pp.vendor_id                                      AS vendor_id,
                 pp.standard_price                                  AS unit_cost,
 
                 -- Measures
-                COALESCE(SUM(svl.quantity), 0.0)   AS quantity,
-                COALESCE(SUM(svl.value), 0.0)      AS value,
+                COALESCE(SUM(svl.quantity), 0.0)::numeric   AS quantity,
+                COALESCE(SUM(svl.value), 0.0)::numeric       AS value,
                 COUNT(svl.id)                                   AS layers_count,
 
                 -- Last PO cost per product
@@ -59,7 +59,7 @@ class StockValuationLayerReport(models.Model):
                       AND po.state IN ('purchase', 'done')
                     ORDER BY po.date_approve DESC, pol.id DESC
                     LIMIT 1
-                )   ,0.0)                                            AS last_po_cost,
+                )   ,0.0)::numeric                                           AS last_po_cost,
 
                 -- Available qty (qty_available = sum of quants on hand)
                 COALESCE((
