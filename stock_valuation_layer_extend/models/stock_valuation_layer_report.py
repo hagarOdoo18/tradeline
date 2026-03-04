@@ -40,10 +40,10 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id                                     AS product_categ_id,
                 pt.family_id                                    AS product_family_id,
                 svl.company_id                                  AS company_id,
-                COALESCE(rc.currency_id, 1)                  AS currency_id, 
+                rc.currency_id                                  AS currency_id, 
 
                 pp.vendor_id                                      AS vendor_id,
-                pp.standard_price                                  AS unit_cost,
+                pt.standard_price                                  AS unit_cost,
 
                 -- Measures
                 COALESCE(SUM(svl.quantity), 0.0)::double precision    AS quantity,
@@ -84,6 +84,6 @@ class StockValuationLayerReport(models.Model):
                 svl.company_id,
                 rc.currency_id,
                 pp.vendor_id,
-                pp.standard_price ,
+                pt.standard_price ,
                 pt.id
         """)

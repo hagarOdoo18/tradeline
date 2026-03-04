@@ -54,14 +54,36 @@ class PosOrder(models.Model):
 
 
         for line_cmd in lines:
-            if line_cmd[2]['refunded_orderline_id']:
-                return True
             if isinstance(line_cmd, (list, tuple)) and len(line_cmd) == 3:
                 line_vals = line_cmd[2] if line_cmd[2] else {}
             elif isinstance(line_cmd, dict):
                 line_vals = line_cmd
             else:
                 continue
+            product_id   = line_vals.get('product_id')
+            pack_lot_ids = line_vals.get('pack_lot_ids', [])
+
+            if line_cmd[2]['refunded_orderline_id']:
+                for lot_cmd in pack_lot_ids:
+                    if isinstance(lot_cmd, (list, tuple)) and len(lot_cmd) == 3:
+                        lot_vals = lot_cmd[2] if lot_cmd[2] else {}
+                    elif isinstance(lot_cmd, dict):
+                        lot_vals = lot_cmd
+                    else:
+                        continue
+                    lot_name = lot_vals.get('lot_name') or lot_vals.get('lot_id')
+                    if not lot_name:
+                        continue
+
+                    serial_key = (str(lot_name), product_id)
+                    if serial_key in seen_serials:
+                        raise UserError(_(
+                            'الرقم التسلسلي "%s" مكرر داخل نفس الفاتورة.'
+                        ) % lot_name)
+                    seen_serials.add(serial_key)
+
+                return True
+
 
             qty = line_vals.get('qty', 0)
 
@@ -69,8 +91,6 @@ class PosOrder(models.Model):
             if qty < 0:
                 continue
 
-            pack_lot_ids = line_vals.get('pack_lot_ids', [])
-            product_id   = line_vals.get('product_id')
             if not product_id:
                 continue
 
