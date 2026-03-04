@@ -75,7 +75,7 @@ class AccountInvoiceReportWizard(models.TransientModel):
 
         headers = [
             'Invoice Date', 'Invoice No.', 'NUM.', 'Customer Name', 'Mobile',
-            'Tax ID or National ID',  'Passport No.', 'Untaxed', 'Tax14', 'Total',
+            'Tax ID ','National ID',  'Passport No.', 'Untaxed', 'Tax14', 'Total',
             'Tax1', 'Tax3','Tax5', 'Total Net', 'Net Converted', 'Currency'
         ]
 
@@ -132,7 +132,8 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 number,
                 partner.name or '',
                 partner.mobile or '',
-                local_vat,
+                local_vat if partner.company_type =='company' else'',
+                local_vat if partner.company_type !='company' else'',
                 foreign_vat,
                 inv.amount_untaxed_in_currency_signed,
                 round(tax_t1,2),
