@@ -22,7 +22,7 @@ class StockValuationLayerReport(models.Model):
     quantity          = fields.Float(  string='Total Quantity',    readonly=True, group_operator='sum')
     value         = fields.Float(  string='Total Value',    readonly=True, group_operator='sum',  digits='Product Price')
     last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, group_operator=False, digits='Product Price')
-    unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
+    # unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
     available_qty     = fields.Float(  string='Available Qty',     readonly=True, group_operator=False, digits='Product Unit of Measure')
     layers_count      = fields.Integer(string='# Layers',          readonly=True, group_operator='sum')
 
@@ -43,7 +43,7 @@ class StockValuationLayerReport(models.Model):
                 -- rc.currency_id                                  AS currency_id, 
 
                 pp.vendor_id                                      AS vendor_id,
-                pp.standard_price                                  AS unit_cost,
+               -- pp.standard_price                                  AS unit_cost,
 
                 -- Measures
                 COALESCE(SUM(svl.quantity), 0.0)::double precision    AS quantity,
@@ -84,6 +84,6 @@ class StockValuationLayerReport(models.Model):
                 svl.company_id,
                -- rc.currency_id,
                 pp.vendor_id,
-                pp.standard_price ,
+                --pp.standard_price ,
                 pt.id
         """)
