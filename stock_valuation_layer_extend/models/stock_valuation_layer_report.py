@@ -40,7 +40,7 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id                                     AS product_categ_id,
                 pt.family_id                                    AS product_family_id,
                 svl.company_id                                  AS company_id,
-                svl.currency_id                                 AS currency_id,
+                rc.currency_id                                 AS currency_id,
 
                 pt.vendor_id                                      AS vendor_id,
                 pp.standard_price                                  AS unit_cost,
@@ -75,12 +75,13 @@ class StockValuationLayerReport(models.Model):
             JOIN product_product pp      ON pp.id  = svl.product_id
             JOIN product_template pt     ON pt.id  = pp.product_tmpl_id
             JOIN product_category pc     ON pc.id  = pt.categ_id
+            JOIN res_company rc  ON rc.id = svl.company_id
             GROUP BY
                 svl.product_id,
                 pt.default_code,
                 pt.categ_id,
                 pc.parent_id,
                 svl.company_id,
-                svl.currency_id,
+                rc.currency_id,
                 pt.id
         """)
