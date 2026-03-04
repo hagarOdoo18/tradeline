@@ -69,7 +69,7 @@ class StockValuationLayerReport(models.Model):
                     WHERE sq.product_id = svl.product_id
                       AND sl.usage = 'internal'
                       AND sq.company_id = svl.company_id
-                ), 0.0)::double precision                               AS available_qt
+                ), 0.0)::double precision                               AS available_qty
 
             FROM stock_valuation_layer svl
             JOIN product_product pp      ON pp.id  = svl.product_id
