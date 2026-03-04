@@ -12,6 +12,7 @@
                 <field name="product_categ_id"  string="Category"        optional="show"/>
                 <field name="product_family_id" string="Family"          optional="show"/>
                 <field name="vendor_id"         string="Vendor"          optional="show"/>
+                <field name="company_id"         string="Company"          optional="show"/>
 <!--                <field name="currency_id"        column_invisible="1"/>-->
                 <field name="quantity"          string="Total Qty"       sum="Total Qty"/>
                 <field name="value"     />
@@ -76,5 +77,13 @@
         groups="inventory_customization.group_menu_valuation"
         action="action_stock_valuation_layer_report"
         sequence="20"/>
+
+      <record id="stock_valuation_layer_report_company_rule" model="ir.rule">
+        <field name="name">Stock Valuation Layer Report: Multi-Company</field>
+        <field name="model_id" ref="model_stock_valuation_layer_report"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+
 
 </odoo>
