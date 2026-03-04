@@ -42,7 +42,7 @@ class StockValuationLayerReport(models.Model):
                 svl.company_id                                  AS company_id,
                 rc.currency_id                                 AS currency_id,
 
-                pt.vendor_id                                      AS vendor_id,
+                pp.vendor_id                                      AS vendor_id,
                 pp.standard_price                                  AS unit_cost,
 
                 -- Measures
