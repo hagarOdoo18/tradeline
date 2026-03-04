@@ -46,12 +46,12 @@ class StockValuationLayerReport(models.Model):
                 pp.standard_price                                  AS unit_cost,
 
                 -- Measures
-                SUM(svl.quantity)                               AS quantity,
-                SUM(svl.value)                                  AS value,
+                COALESCE(SUM(svl.quantity), 0.0)   AS quantity,
+                COALESCE(SUM(svl.value), 0.0)      AS value,
                 COUNT(svl.id)                                   AS layers_count,
 
                 -- Last PO cost per product
-                (
+                COALESCE((
                     SELECT pol.price_unit
                     FROM purchase_order_line pol
                     JOIN purchase_order po ON po.id = pol.order_id
@@ -59,7 +59,7 @@ class StockValuationLayerReport(models.Model):
                       AND po.state IN ('purchase', 'done')
                     ORDER BY po.date_approve DESC, pol.id DESC
                     LIMIT 1
-                )                                               AS last_po_cost,
+                )   ,0.0)                                            AS last_po_cost,
 
                 -- Available qty (qty_available = sum of quants on hand)
                 COALESCE((
