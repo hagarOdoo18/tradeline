@@ -83,5 +83,6 @@ class StockValuationLayerReport(models.Model):
                 pt.family_id,
                 svl.company_id,
                 rc.currency_id,
+                pp.vendor_id,
                 pt.id
         """)
