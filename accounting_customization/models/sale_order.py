@@ -226,13 +226,14 @@ class SaleOrderLine(models.Model):
     @api.constrains('tax_id')
     def _check_tax_required(self):
         for line in self:
-            if not line.tax_id:
-                raise ValidationError(
-                    "Tax is required on order line '%s' in quotation '%s'. "
-                    "Please set a tax before saving." % (
-                        line.name, line.order_id.name
+            if line.product_id and line.order_id.inv_type !='sro' and line.product_id.type != 'service'  :
+                if not line.tax_id:
+                    raise ValidationError(
+                        "Tax is required on order line '%s' in quotation '%s'. "
+                        "Please set a tax before saving." % (
+                            line.name, line.order_id.name
+                        )
                     )
-                )
 
     @api.depends('order_id.warehouse_id')
     def _compute_location_id(self):
