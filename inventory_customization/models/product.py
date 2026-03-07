@@ -139,20 +139,7 @@ class ProductTemplateInherit(models.Model):
 
         return variant_dict
 
-    @api.model
-    def _name_search(self, name, domain=None, operator='ilike', limit=None, order=None):
-        # private implementation of name_search, allows passing a dedicated user
-        # for the name_get part to solve some access rights issues
-        # optimize out the default criterion of ``ilike ''`` that matches everything
-        domain = domain or []
 
-        if not self._rec_name:
-            _logger.warning("Cannot execute name_search, no _rec_name defined on %s", self._name)
-        elif operator != 'ilike' or (name or '').strip():
-            criteria_operator = ['|'] if operator not in expression.NEGATIVE_TERM_OPERATORS else ['&', '!']
-            name_domain = ['|', ('name', operator, name), ('barcode', operator, name)]
-            domain = expression.AND([name_domain, domain])
-        return self._search(domain, limit=limit, order=order)
 
 
 class StockValuationLayer(models.Model):
