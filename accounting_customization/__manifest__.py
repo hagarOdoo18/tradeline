@@ -25,6 +25,5 @@
         'security/security.xml',
         'views/account_move.xml',
         'views/sale_order.xml',
-        'views/inherited_account_invoice_report_views.xml',
     ],
 }

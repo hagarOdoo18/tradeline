@@ -10,7 +10,7 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-from odoo.exceptions import ValidationError
+
 class ProductTemplateInherit(models.Model):
     _inherit = 'product.template'
 
@@ -20,14 +20,8 @@ class ProductTemplateInherit(models.Model):
     sub_categ_id = fields.Many2one(comodel_name='sub.category', string='Sub Category')
     default_code = fields.Char('UPC', index=True)
 
-    @api.constrains('taxes_id')
-    def _check_taxes_required(self):
-        for product in self:
-            if not product.taxes_id:
-                raise ValidationError(
-                    "Tax is required on product '%s'. "
-                    "Please set a customer tax before saving." % product.name
-                )
+
+
 
     def _create_variant_ids(self):
         if not self:
@@ -139,7 +133,20 @@ class ProductTemplateInherit(models.Model):
 
         return variant_dict
 
+    @api.model
+    def _name_search(self, name, domain=None, operator='ilike', limit=None, order=None):
+        # private implementation of name_search, allows passing a dedicated user
+        # for the name_get part to solve some access rights issues
+        # optimize out the default criterion of ``ilike ''`` that matches everything
+        domain = domain or []
 
+        if not self._rec_name:
+            _logger.warning("Cannot execute name_search, no _rec_name defined on %s", self._name)
+        elif operator != 'ilike' or (name or '').strip():
+            criteria_operator = ['|'] if operator not in expression.NEGATIVE_TERM_OPERATORS else ['&', '!']
+            name_domain = ['|', ('name', operator, name), ('barcode', operator, name)]
+            domain = expression.AND([name_domain, domain])
+        return self._search(domain, limit=limit, order=order)
 
 
 class StockValuationLayer(models.Model):
@@ -168,32 +175,6 @@ class Serial(models.Model):
 
 class ProductProduct(models.Model):
     _inherit = 'product.product'
-
-    @api.model
-    def _search(self, domain, offset=0, limit=None, order=None):
-        """
-        Smarter global search: handle cases where the user types a variant string 
-        and hits 'Enter' without selecting a suggestion.
-        """
-        new_domain = []
-        for leaf in domain:
-            if (isinstance(leaf, (list, tuple)) and len(leaf) == 3 and 
-                leaf[0] in ('name', 'display_name') and leaf[1] in ('ilike', 'like', '=like', '=ilike') and
-                isinstance(leaf[2], str) and leaf[2]):
-                
-                name = leaf[2]
-                if ' ' in name or ',' in name:
-                    pieces = [p.strip() for p in name.replace(',', ' ').split() if p.strip()]
-                    if len(pieces) > 1:
-                        sub_domain = []
-                        for piece in pieces:
-                            sub_domain.append('|')
-                            sub_domain.append(('name', leaf[1], piece))
-                            sub_domain.append(('product_template_attribute_value_ids.name', leaf[1], piece))
-                        new_domain.extend(expression.AND([sub_domain, []]))
-                        continue
-            new_domain.append(leaf)
-        return super()._search(new_domain, offset=offset, limit=limit, order=order)
 
 
     @api.model
@@ -317,7 +298,7 @@ class ProductProduct(models.Model):
 
         # Prefetch the fields used by the `name_get`, so `browse` doesn't fetch other fields
         # Use `load=False` to not call `name_get` for the `product_tmpl_id`
-        self.sudo().read(['name', 'barcode', 'product_tmpl_id', 'product_template_attribute_value_ids'],
+        self.sudo().read(['name', 'barcode', 'product_tmpl_id', 'attribute_value_ids', 'attribute_line_ids'],
                          load=False)
 
         product_template_ids = self.sudo().mapped('product_tmpl_id').ids
@@ -335,7 +316,9 @@ class ProductProduct(models.Model):
                 supplier_info_by_template.setdefault(r.product_tmpl_id, []).append(r)
         for product in self.sudo():
             # display only the attributes with multiple possible values on the template
-            variant = product.product_template_attribute_value_ids._get_combination_name()
+            variable_attributes = product.attribute_line_ids.filtered(lambda l: len(l.value_ids) > 1).mapped(
+                'attribute_id')
+            variant = product.attribute_value_ids._variant_name(variable_attributes)
 
             name = variant and "%s (%s)" % (product.name, variant) or product.name
             sellers = []
@@ -371,32 +354,25 @@ class ProductProduct(models.Model):
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-        args = args or []
-        domain = []
-
-        if name:
-            # 1. Custom Variant Aware Search Logic
-            # Split the string (e.g., 'Apple iPhone 16e 128GB, White')
-            pieces = [p.strip() for p in name.replace(',', ' ').split() if p.strip()]
-            for piece in pieces:
-                domain.append('|')
-                domain.append(('name', operator, piece))
-                domain.append(('product_template_attribute_value_ids.name', operator, piece))
-            
-            # Combine the custom domain with any core args passed in
-            domain = expression.AND([domain, args])
-            
-            # 2. Add custom logic: if name matches a Lot/Serial Number, include its product
-            lot_products = self.env['stock.lot'].search([('name', '=', name)]).mapped('product_id')
-            if lot_products:
-                domain = expression.OR([domain, [('id', 'in', lot_products.ids)]])
-                
-            # Execute the search on our custom domain
-            products = self.search(domain, limit=limit)
-            return products.name_get()
-
-        # If no name provided, fallback to standard behavior
-        return super(ProductProduct, self).name_search(name=name, args=args, operator=operator, limit=limit)
+        args = list(args or [])
+        if not name:
+            # When no name is provided, call the parent implementation
+            return super().name_search(name=name, args=args, operator=operator,
+                                       limit=limit)
+        product = self.env['stock.lot'].search([('name','=',name)]).product_id.id
+        # Add search criteria for name, email, and phone
+        domain = ['|','|',
+                  ('name', operator, name),
+                  ('barcode', operator, name),
+                  ('id','=',product)
+                  ]
+        # Combine with existing args
+        if args:
+            domain = ['&'] + args + domain
+        # Use search_fetch to get both IDs and display_name efficiently
+        products = self.search_fetch(domain, ['barcode','display_name','name'], limit=limit)
+        # Return in the expected format: [(id, display_name), ...]
+        return [(product.id, product.display_name) for product in products]
 
 
 class ProductTemplateAttributeValue(models.Model):
