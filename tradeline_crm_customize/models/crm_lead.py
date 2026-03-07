@@ -586,7 +586,7 @@ class CrmLeadLine(models.Model):
                                 'message': 'Insufficient Product Quantity'
                             }
                             # return {'warning': warning_mess}
-                            raise ValidationError(_("Not enough inventory!\ Insufficient Product Quantity."
+                            raise ValidationError(_("Not enough inventory! Insufficient Product Quantity."
                             ))
                         else:
                             stock_quant_reserved_quantity_by_crm = sum(
