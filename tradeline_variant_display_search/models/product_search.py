@@ -18,6 +18,7 @@ def _build_product_candidate_domain(name, operator, lot_product):
     domains = [
         [("display_name", operator, name)],
         [("name", operator, name)],
+        [("product_tmpl_id.name", operator, name)],
         [("barcode", operator, name)],
         [("default_code", operator, name)],
         [("product_template_variant_value_ids.name", operator, name)],
@@ -27,9 +28,26 @@ def _build_product_candidate_domain(name, operator, lot_product):
     if len(tokens) > 1:
         domains.append(expression.AND([[("display_name", operator, token)] for token in tokens]))
         domains.append(expression.AND([[("name", operator, token)] for token in tokens]))
+        domains.append(expression.AND([[("product_tmpl_id.name", operator, token)] for token in tokens]))
         domains.append(
             expression.AND([[("product_template_variant_value_ids.name", operator, token)] for token in tokens])
         )
+        # Critical: allow tokens to be distributed across template name + variant values.
+        per_token_any_field = []
+        for token in tokens:
+            per_token_any_field.append(
+                expression.OR(
+                    [
+                        [("display_name", operator, token)],
+                        [("name", operator, token)],
+                        [("product_tmpl_id.name", operator, token)],
+                        [("product_template_variant_value_ids.name", operator, token)],
+                        [("barcode", operator, token)],
+                        [("default_code", operator, token)],
+                    ]
+                )
+            )
+        domains.append(expression.AND(per_token_any_field))
 
     if lot_product:
         domains.append([("id", "=", lot_product.id)])
@@ -50,6 +68,7 @@ def _token_present(text, token):
 def _score_product(product, full_term, tokens):
     display_name = (product.display_name or "").lower()
     name = (product.name or "").lower()
+    template_name = (product.product_tmpl_id.name or "").lower()
     barcode = (product.barcode or "").lower()
     default_code = (product.default_code or "").lower()
     attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name")).lower()
@@ -66,23 +85,31 @@ def _score_product(product, full_term, tokens):
         score += 700
     if full_term and full_term in name:
         score += 600
+    if full_term and full_term in template_name:
+        score += 580
     if full_term and full_term in attrs_text:
         score += 550
 
     display_hits = sum(1 for token in tokens if _token_present(display_name, token))
     name_hits = sum(1 for token in tokens if _token_present(name, token))
+    template_hits = sum(1 for token in tokens if _token_present(template_name, token))
     attr_hits = sum(1 for token in tokens if _token_present(attrs_text, token))
 
     score += display_hits * 50
     score += name_hits * 35
+    score += template_hits * 35
     score += attr_hits * 20
 
     if tokens and display_hits == len(tokens):
         score += 300
     if tokens and name_hits == len(tokens):
         score += 220
+    if tokens and template_hits == len(tokens):
+        score += 220
     if tokens and attr_hits == len(tokens):
         score += 160
+    if tokens and (template_hits + attr_hits) >= len(tokens):
+        score += 260
 
     return score
 
