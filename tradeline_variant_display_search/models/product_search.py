@@ -116,8 +116,6 @@ class ProductTemplate(models.Model):
         )
         if not name or operator not in SUPPORTED_TEXT_OPERATORS:
             return result_ids
-        if result_ids and (not limit or len(result_ids) < limit):
-            return result_ids
 
         lot_product = self.env["stock.lot"].search([("name", "=", name)], limit=1).product_id
         product_domain = _build_product_candidate_domain(name, operator, lot_product)
@@ -165,8 +163,6 @@ class ProductProduct(models.Model):
         args = list(args or [])
         result = super().name_search(name=name, args=args, operator=operator, limit=limit)
         if not name or operator not in SUPPORTED_TEXT_OPERATORS:
-            return result
-        if result and (not limit or len(result) < limit):
             return result
 
         lot_product = self.env["stock.lot"].search([("name", "=", name)], limit=1).product_id
