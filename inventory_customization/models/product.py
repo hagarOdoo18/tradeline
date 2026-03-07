@@ -347,18 +347,32 @@ class ProductProduct(models.Model):
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-        # 1. Call standard name_search so Odoo can match variants and display_name naturally
-        res = super(ProductProduct, self).name_search(name=name, args=args, operator=operator, limit=limit)
-        
-        # 2. Add custom logic: if name matches a Lot/Serial Number, include its product
+        args = args or []
+        domain = []
+
         if name:
+            # 1. Custom Variant Aware Search Logic
+            # Split the string (e.g., 'Apple iPhone 16e 128GB, White')
+            pieces = [p.strip() for p in name.replace(',', ' ').split() if p.strip()]
+            for piece in pieces:
+                domain.append('|')
+                domain.append(('name', operator, piece))
+                domain.append(('product_template_attribute_value_ids.name', operator, piece))
+            
+            # Combine the custom domain with any core args passed in
+            domain = expression.AND([domain, args])
+            
+            # 2. Add custom logic: if name matches a Lot/Serial Number, include its product
             lot_products = self.env['stock.lot'].search([('name', '=', name)]).mapped('product_id')
             if lot_products:
-                existing_ids = [r[0] for r in res]
-                for p in lot_products:
-                    if p.id not in existing_ids:
-                        res.append((p.id, p.display_name))
-        return res
+                domain = expression.OR([domain, [('id', 'in', lot_products.ids)]])
+                
+            # Execute the search on our custom domain
+            products = self.search(domain, limit=limit)
+            return products.name_get()
+
+        # If no name provided, fallback to standard behavior
+        return super(ProductProduct, self).name_search(name=name, args=args, operator=operator, limit=limit)
 
 
 class ProductTemplateAttributeValue(models.Model):
