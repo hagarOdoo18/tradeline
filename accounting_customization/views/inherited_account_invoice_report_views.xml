@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_account_invoice_report_search_inherit_custom" model="ir.ui.view">
+        <field name="name">account.invoice.report.search.inherit.custom</field>
+        <field name="model">account.invoice.report</field>
+        <field name="inherit_id" ref="account.view_account_invoice_report_search"/>
+        <field name="arch" type="xml">
+            
+            <!-- Force the product_id search to use standard operator to hit name_search properly -->
+            <xpath expr="//field[@name='product_id']" position="replace">
+                <field name="product_id" string="Product" operator="ilike"/>
+            </xpath>
+
+            <!-- Add Branch to the Group By menu so users don't have to rely on custom groups for it -->
+            <xpath expr="//group" position="inside">
+                <filter string="Branch" name="branch_id" context="{'group_by':'branch_id'}"/>
+            </xpath>
+
+        </field>
+    </record>
+</odoo>

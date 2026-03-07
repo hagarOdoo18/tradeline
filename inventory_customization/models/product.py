@@ -354,25 +354,18 @@ class ProductProduct(models.Model):
 
     @api.model
     def name_search(self, name='', args=None, operator='ilike', limit=100):
-        args = list(args or [])
-        if not name:
-            # When no name is provided, call the parent implementation
-            return super().name_search(name=name, args=args, operator=operator,
-                                       limit=limit)
-        product = self.env['stock.lot'].search([('name','=',name)]).product_id.id
-        # Add search criteria for name, email, and phone
-        domain = ['|','|',
-                  ('name', operator, name),
-                  ('barcode', operator, name),
-                  ('id','=',product)
-                  ]
-        # Combine with existing args
-        if args:
-            domain = ['&'] + args + domain
-        # Use search_fetch to get both IDs and display_name efficiently
-        products = self.search_fetch(domain, ['barcode','display_name','name'], limit=limit)
-        # Return in the expected format: [(id, display_name), ...]
-        return [(product.id, product.display_name) for product in products]
+        # 1. Call standard name_search so Odoo can match variants and display_name naturally
+        res = super(ProductProduct, self).name_search(name=name, args=args, operator=operator, limit=limit)
+        
+        # 2. Add custom logic: if name matches a Lot/Serial Number, include its product
+        if name:
+            lot_products = self.env['stock.lot'].search([('name', '=', name)]).mapped('product_id')
+            if lot_products:
+                existing_ids = [r[0] for r in res]
+                for p in lot_products:
+                    if p.id not in existing_ids:
+                        res.append((p.id, p.display_name))
+        return res
 
 
 class ProductTemplateAttributeValue(models.Model):
