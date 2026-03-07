@@ -4,16 +4,10 @@
         <record id="view_stock_quant_filter_product_first_apple" model="ir.ui.view">
             <field name="name">stock.quant.filter.product.first.apple</field>
             <field name="model">stock.quant</field>
-            <field name="inherit_id" ref="stock.view_stock_quant_filter"/>
+            <field name="inherit_id" ref="stock.view_stock_quant_search"/>
             <field name="arch" type="xml">
                 <xpath expr="//search/field[not(@name='product_id')][1]" position="before">
                     <xpath expr="//search/field[@name='product_id'][1]" position="move"/>
-                </xpath>
-                <xpath expr="//search/field[@name='product_id'][1]" position="after">
-                    <field name="default_code" string="Item Code"/>
-                    <field name="category_id" string="Category"/>
-                    <field name="family_id" string="Family"/>
-                    <field name="vendor_id" string="Vendor"/>
                 </xpath>
             </field>
         </record>
