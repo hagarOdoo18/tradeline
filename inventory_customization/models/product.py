@@ -169,6 +169,32 @@ class Serial(models.Model):
 class ProductProduct(models.Model):
     _inherit = 'product.product'
 
+    @api.model
+    def _search(self, domain, offset=0, limit=None, order=None):
+        """
+        Smarter global search: handle cases where the user types a variant string 
+        and hits 'Enter' without selecting a suggestion.
+        """
+        new_domain = []
+        for leaf in domain:
+            if (isinstance(leaf, (list, tuple)) and len(leaf) == 3 and 
+                leaf[0] in ('name', 'display_name') and leaf[1] in ('ilike', 'like', '=like', '=ilike') and
+                isinstance(leaf[2], str) and leaf[2]):
+                
+                name = leaf[2]
+                if ' ' in name or ',' in name:
+                    pieces = [p.strip() for p in name.replace(',', ' ').split() if p.strip()]
+                    if len(pieces) > 1:
+                        sub_domain = []
+                        for piece in pieces:
+                            sub_domain.append('|')
+                            sub_domain.append(('name', leaf[1], piece))
+                            sub_domain.append(('product_template_attribute_value_ids.name', leaf[1], piece))
+                        new_domain.extend(expression.AND([sub_domain, []]))
+                        continue
+            new_domain.append(leaf)
+        return super()._search(new_domain, offset=offset, limit=limit, order=order)
+
 
     @api.model
     def action_update_vendor(self):
