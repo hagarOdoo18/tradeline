@@ -6,10 +6,12 @@ from odoo.osv import expression
 
 
 SUPPORTED_TEXT_OPERATORS = {"ilike", "like", "=ilike", "=like"}
+TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
 
 
 def _split_search_tokens(name):
-    return [token for token in re.split(r"[\s,;/|()\-]+", (name or "").strip()) if token]
+    tokens = [token.lower() for token in re.split(r"[\s,;/|()\-]+", (name or "").strip()) if token]
+    return [token for token in tokens if len(token) >= 2]
 
 
 def _build_product_candidate_domain(name, operator, lot_product):
@@ -24,6 +26,7 @@ def _build_product_candidate_domain(name, operator, lot_product):
     tokens = _split_search_tokens(name)
     if len(tokens) > 1:
         domains.append(expression.AND([[("display_name", operator, token)] for token in tokens]))
+        domains.append(expression.AND([[("name", operator, token)] for token in tokens]))
         domains.append(
             expression.AND([[("product_template_variant_value_ids.name", operator, token)] for token in tokens])
         )
@@ -32,6 +35,70 @@ def _build_product_candidate_domain(name, operator, lot_product):
         domains.append([("id", "=", lot_product.id)])
 
     return expression.OR(domains)
+
+
+def _token_present(text, token):
+    haystack = (text or "").lower()
+    if not haystack:
+        return False
+    if re.fullmatch(r"[a-z0-9]+", token):
+        pattern = TOKEN_BOUNDARY_RE % re.escape(token)
+        return bool(re.search(pattern, haystack))
+    return token in haystack
+
+
+def _score_product(product, full_term, tokens):
+    display_name = (product.display_name or "").lower()
+    name = (product.name or "").lower()
+    barcode = (product.barcode or "").lower()
+    default_code = (product.default_code or "").lower()
+    attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name")).lower()
+
+    score = 0
+    if display_name == full_term:
+        score += 1000
+    if name == full_term:
+        score += 900
+    if barcode == full_term or default_code == full_term:
+        score += 900
+
+    if full_term and full_term in display_name:
+        score += 700
+    if full_term and full_term in name:
+        score += 600
+    if full_term and full_term in attrs_text:
+        score += 550
+
+    display_hits = sum(1 for token in tokens if _token_present(display_name, token))
+    name_hits = sum(1 for token in tokens if _token_present(name, token))
+    attr_hits = sum(1 for token in tokens if _token_present(attrs_text, token))
+
+    score += display_hits * 50
+    score += name_hits * 35
+    score += attr_hits * 20
+
+    if tokens and display_hits == len(tokens):
+        score += 300
+    if tokens and name_hits == len(tokens):
+        score += 220
+    if tokens and attr_hits == len(tokens):
+        score += 160
+
+    return score
+
+
+def _rank_products(products, search_term, base_order):
+    tokens = _split_search_tokens(search_term)
+    full_term = (search_term or "").strip().lower()
+
+    ranked = []
+    for product in products:
+        score = _score_product(product, full_term, tokens)
+        base_index = base_order.get(product.id, 10**6)
+        ranked.append((score, base_index, product))
+
+    ranked.sort(key=lambda item: (-item[0], item[1], item[2].id))
+    return [item[2] for item in ranked]
 
 
 class ProductTemplate(models.Model):
@@ -49,23 +116,40 @@ class ProductTemplate(models.Model):
         )
         if not name or operator not in SUPPORTED_TEXT_OPERATORS:
             return result_ids
+        if result_ids and (not limit or len(result_ids) < limit):
+            return result_ids
 
         lot_product = self.env["stock.lot"].search([("name", "=", name)], limit=1).product_id
         product_domain = _build_product_candidate_domain(name, operator, lot_product)
-        product_ids = self.env["product.product"]._search(
-            product_domain,
-            limit=limit or 100,
+        product_limit = max((limit or 100) * 10, 200)
+        products = self.env["product.product"].search(
+            expression.AND([product_domain]),
+            limit=product_limit,
         )
-        if not product_ids:
+        if not products:
             return result_ids
 
-        template_domain = expression.AND([domain, [("product_variant_ids", "in", product_ids)]])
-        variant_template_ids = self._search(template_domain, limit=limit or 100, order=order)
+        base_order = {template_id: idx for idx, template_id in enumerate(result_ids)}
+        product_base_order = {product.id: idx for idx, product in enumerate(products)}
+        ranked_products = _rank_products(products, name, product_base_order)
+        template_ids_by_rank = [product.product_tmpl_id.id for product in ranked_products]
 
-        # Prioritize variant-driven matches, then keep original behavior.
+        # Keep template record rules/domains intact for caller context.
+        visible_template_ids = self._search(
+            expression.AND([domain, [("id", "in", template_ids_by_rank + result_ids)]]),
+            order=order,
+        )
+        visible_set = set(visible_template_ids)
+
         merged = []
         seen = set()
-        for template_id in variant_template_ids + result_ids:
+        for template_id in template_ids_by_rank + result_ids:
+            if template_id in visible_set and template_id not in seen:
+                seen.add(template_id)
+                merged.append(template_id)
+
+        # Append remaining visible templates if any.
+        for template_id in visible_template_ids:
             if template_id not in seen:
                 seen.add(template_id)
                 merged.append(template_id)
@@ -82,17 +166,24 @@ class ProductProduct(models.Model):
         result = super().name_search(name=name, args=args, operator=operator, limit=limit)
         if not name or operator not in SUPPORTED_TEXT_OPERATORS:
             return result
+        if result and (not limit or len(result) < limit):
+            return result
 
         lot_product = self.env["stock.lot"].search([("name", "=", name)], limit=1).product_id
         product_domain = _build_product_candidate_domain(name, operator, lot_product)
         fallback_domain = expression.AND([args, product_domain])
-        products = self.search(fallback_domain, limit=limit or 100)
+        product_limit = max((limit or 100) * 10, 200)
+        products = self.search(fallback_domain, limit=product_limit)
+        if not products:
+            return result
 
-        variant_results = [(product.id, product.display_name) for product in products]
+        base_order = {product_id: idx for idx, (product_id, _) in enumerate(result)}
+        ranked_products = _rank_products(products, name, base_order)
+        variant_results = [(product.id, product.display_name) for product in ranked_products]
         merged = []
         seen = set()
 
-        # Prioritize variant/display-name matches, then keep base name_search output.
+        # Prioritize strong variant/display-name matches, then keep base name_search output.
         for product_id, product_name in variant_results + result:
             if product_id not in seen:
                 seen.add(product_id)
