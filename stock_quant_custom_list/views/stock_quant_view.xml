@@ -23,14 +23,13 @@
         <record id="view_stock_quant_search_custom" model="ir.ui.view">
             <field name="name">stock.quant.search.custom</field>
             <field name="model">stock.quant</field>
+            <field name="inherit_id" ref="stock.quant_search_view"/>
+            <field name="mode">primary</field>
             <field name="arch" type="xml">
-                <search string="Apple Stock Report Search">
-                    <field name="product_id" string="Product" />
-                    <field name="default_code" string="Item Code" />
-                    <field name="location_id" string="Store Name"/>
-                    <field name="vendor_id" string="Vendor"/>
-                    <field name="lot_id" string="Lot/Serial Number"/>
-                </search>
+                <xpath expr="//field[@name='product_id']" position="replace"/>
+                <xpath expr="//field[1]" position="before">
+                    <field name="product_id" string="Product"/>
+                </xpath>
             </field>
         </record>
 
