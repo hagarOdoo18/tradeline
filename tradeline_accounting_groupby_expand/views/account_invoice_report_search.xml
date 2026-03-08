@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_account_invoice_report_search_groupby_expanded" model="ir.ui.view">
+            <field name="name">account.invoice.report.search.groupby.expanded</field>
+            <field name="model">account.invoice.report</field>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search/group[1]" position="replace">
+                    <group expand="0" string="Group By">
+                        <filter name="group_by_branch_id" string="Branch" context="{'group_by': 'branch_id'}"/>
+                        <filter name="group_by_company_id" string="Company" context="{'group_by': 'company_id'}"/>
+                        <filter name="group_by_company_currency_id" string="Company Currency" context="{'group_by': 'company_currency_id'}"/>
+                        <filter name="group_by_country_id" string="Country" context="{'group_by': 'country_id'}"/>
+                        <filter name="group_by_currency_id" string="Currency" context="{'group_by': 'currency_id'}"/>
+                        <filter name="group_by_discount_id" string="Discount Reason" context="{'group_by': 'discount_id'}"/>
+                        <filter name="group_by_invoice_date_due" string="Due Date" context="{'group_by': 'invoice_date_due:month'}"/>
+                        <filter name="group_by_family_id" string="Family" context="{'group_by': 'family_id'}"/>
+                        <filter name="group_by_fiscal_position_id" string="Fiscal Position" context="{'group_by': 'fiscal_position_id'}"/>
+                        <filter name="group_by_invoice_date" string="Invoice Date" context="{'group_by': 'invoice_date:month'}"/>
+                        <filter name="group_by_invoice_number" string="Invoice Number" context="{'group_by': 'invoice_number'}"/>
+                        <filter name="group_by_state" string="Invoice Status" context="{'group_by': 'state'}"/>
+                        <filter name="group_by_journal_id" string="Journal" context="{'group_by': 'journal_id'}"/>
+                        <filter name="group_by_commercial_partner_id" string="Main Partner" context="{'group_by': 'commercial_partner_id'}"/>
+                        <filter name="group_by_move_id" string="Move" context="{'group_by': 'move_id'}"/>
+                        <filter name="group_by_move_type" string="Move Type" context="{'group_by': 'move_type'}"/>
+                        <filter name="group_by_partner_id" string="Partner" context="{'group_by': 'partner_id'}"/>
+                        <filter name="group_by_preferred_payment_method_line_id" string="Payment Method" context="{'group_by': 'preferred_payment_method_line_id'}"/>
+                        <filter name="group_by_payment_state" string="Payment Status" context="{'group_by': 'payment_state'}"/>
+                        <filter name="group_by_point" string="Point" context="{'group_by': 'point'}"/>
+                        <filter name="group_by_pricelist_id" string="Pricelist" context="{'group_by': 'pricelist_id'}"/>
+                        <filter name="group_by_product_id" string="Product" context="{'group_by': 'product_id'}"/>
+                        <filter name="group_by_product_categ_id" string="Product Category" context="{'group_by': 'product_categ_id'}"/>
+                        <filter name="group_by_reference_number" string="Reference Number" context="{'group_by': 'reference_number'}"/>
+                        <filter name="group_by_account_id" string="Revenue/Expense Account" context="{'group_by': 'account_id'}"/>
+                        <filter name="group_by_sales_rep_id" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
+                        <filter name="group_by_team_id" string="Sales Team" context="{'group_by': 'team_id'}"/>
+                        <filter name="group_by_invoice_user_id" string="Salesperson" context="{'group_by': 'invoice_user_id'}"/>
+                        <filter name="group_by_product_uom_id" string="Unit of Measure" context="{'group_by': 'product_uom_id'}"/>
+                        <filter name="group_by_vendor_id" string="Vendor" context="{'group_by': 'vendor_id'}"/>
+                    </group>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

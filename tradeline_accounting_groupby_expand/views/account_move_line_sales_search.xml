@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_account_move_line_sales_search_groupby_expanded" model="ir.ui.view">
+            <field name="name">account.move.line.sales.search.groupby.expanded</field>
+            <field name="model">account.move.line</field>
+            <field name="inherit_id" ref="sales_invoice_lines_view.view_account_move_line_sales_search"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search/group[1]" position="replace">
+                    <group expand="0" string="Group By">
+                        <filter name="group_by_branch_id" string="Branch" context="{'group_by': 'branch_id'}"/>
+                        <filter name="group_by_channel_id" string="Channel" context="{'group_by': 'channel_id'}"/>
+                        <filter name="group_by_company_id" string="Company" context="{'group_by': 'company_id'}"/>
+                        <filter name="group_by_currency_id" string="Currency" context="{'group_by': 'currency_id'}"/>
+                        <filter name="group_by_partner_id" string="Customer" context="{'group_by': 'partner_id'}"/>
+                        <filter name="group_by_date" string="Date" context="{'group_by': 'date:month'}"/>
+                        <filter name="group_by_family_id" string="Family" context="{'group_by': 'family_id'}"/>
+                        <filter name="group_by_move_id" string="Invoice" context="{'group_by': 'move_id'}"/>
+                        <filter name="group_by_move_name" string="Invoice Reference" context="{'group_by': 'move_name'}"/>
+                        <filter name="group_by_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
+                        <filter name="group_by_move_type" string="Move Type" context="{'group_by': 'move_type'}"/>
+                        <filter name="group_by_product_id" string="Product" context="{'group_by': 'product_id'}"/>
+                        <filter name="group_by_categ_id" string="Product Category" context="{'group_by': 'categ_id'}"/>
+                        <filter name="group_by_sales_rep_id" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
+                        <filter name="group_by_vendor_id" string="Vendor" context="{'group_by': 'vendor_id'}"/>
+                    </group>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>
