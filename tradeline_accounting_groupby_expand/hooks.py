@@ -19,15 +19,25 @@ def _merge_context(action):
 
     if not isinstance(parsed_context, dict):
         parsed_context = {}
-    if parsed_context.get("tradeline_groupby_expanded"):
-        return
 
-    parsed_context["tradeline_groupby_expanded"] = True
-    action.context = parsed_context
+    changed = False
+    if not parsed_context.get("tradeline_groupby_expanded"):
+        parsed_context["tradeline_groupby_expanded"] = True
+        changed = True
+    if not parsed_context.get("tradeline_branch_group_alpha"):
+        parsed_context["tradeline_branch_group_alpha"] = True
+        changed = True
+
+    if changed:
+        action.context = parsed_context
 
 
-def post_init_hook(cr, registry):
-    env = api.Environment(cr, SUPERUSER_ID, {})
+def post_init_hook(env_or_cr, registry=None):
+    if registry is None and hasattr(env_or_cr, "cr"):
+        env = env_or_cr
+    else:
+        env = api.Environment(env_or_cr, SUPERUSER_ID, {})
+
     actions = env["ir.actions.act_window"]
     touched_actions = actions.browse()
 
