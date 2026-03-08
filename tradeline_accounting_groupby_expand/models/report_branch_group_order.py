@@ -1,4 +1,4 @@
-from odoo import models
+from odoo import api, models
 
 
 def _normalize_groupby_token(token):
@@ -30,6 +30,7 @@ def _branch_sort_key(group):
 class AccountInvoiceReport(models.Model):
     _inherit = "account.invoice.report"
 
+    @api.model
     def read_group(
         self,
         domain,
@@ -57,6 +58,7 @@ class AccountInvoiceReport(models.Model):
 class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
 
+    @api.model
     def read_group(
         self,
         domain,
