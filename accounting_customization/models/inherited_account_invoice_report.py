@@ -64,8 +64,8 @@ class AccountInvoiceReport(models.Model):
                        ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
                        "move.discount_id as discount_id,line.family_id,move.sales_rep_id as sales_rep_id , line.product_point as point ,product.vendor_id as vendor_id,"
                        " CASE WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) "
-                       "* COALESCE(product.standard_price-> line.company_id::text, to_jsonb(0.0)) ::float)/1.14 "
-                       " ELSE account_currency_table.rate * (-line.balance - (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) * COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0)) ::float)/1.14 "
+                       "* COALESCE(product.standard_price-> line.company_id::text, to_jsonb(0.0)) ::float) "
+                       " ELSE account_currency_table.rate * (-line.balance - (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) * COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0)) ::float) "
                        "END  AS price_margin_taxed,  CASE WHEN move.move_type IN ('in_invoice','out_refund','in_receipt') THEN (line.price_total * account_currency_table.rate ) * -1 ELSE line.price_total * account_currency_table.rate   END AS price_total_converted ",
                        super()._select())
 
