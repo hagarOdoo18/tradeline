@@ -55,6 +55,23 @@ def _merge_context(
     if enable_time_ranges and not parsed_context.get("tradeline_time_ranges_enabled"):
         parsed_context["tradeline_time_ranges_enabled"] = True
         changed = True
+    if enable_time_ranges and not parsed_context.get("tradeline_time_engine_enabled"):
+        parsed_context["tradeline_time_engine_enabled"] = True
+        changed = True
+    if enable_time_ranges and not parsed_context.get("tradeline_time_compare"):
+        parsed_context["tradeline_time_compare"] = "none"
+        changed = True
+    if enable_time_ranges and not parsed_context.get("tradeline_time_compare_output"):
+        parsed_context["tradeline_time_compare_output"] = "current"
+        changed = True
+
+    if enable_time_ranges and not parsed_context.get("tradeline_time_based_on"):
+        if action.res_model == "account.invoice.report":
+            parsed_context["tradeline_time_based_on"] = "invoice_date"
+            changed = True
+        elif action.res_model == "account.move.line":
+            parsed_context["tradeline_time_based_on"] = "date"
+            changed = True
 
     if changed:
         action.context = parsed_context

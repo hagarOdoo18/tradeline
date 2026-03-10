@@ -1,4 +1,254 @@
-from odoo import api, models
+from datetime import datetime, time
+
+from dateutil.relativedelta import relativedelta
+
+from odoo import api, fields, models
+from odoo.osv import expression
+
+
+_NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
+
+
+def _is_time_engine_enabled(model):
+    ctx = model.env.context
+    return bool(ctx.get("tradeline_time_ranges_enabled") or ctx.get("tradeline_time_engine_enabled"))
+
+
+def _is_date_field(model, field_name):
+    field = model._fields.get(field_name)
+    return bool(field and field.type in {"date", "datetime"})
+
+
+def _resolve_based_on_field(model, default_field):
+    based_on = model.env.context.get("tradeline_time_based_on")
+    if _is_date_field(model, based_on):
+        return based_on
+    if _is_date_field(model, default_field):
+        return default_field
+    for field_name, field in model._fields.items():
+        if field.type in {"date", "datetime"}:
+            return field_name
+    return None
+
+
+def _range_key(model):
+    return model.env.context.get("tradeline_time_range")
+
+
+def _safe_to_date(value):
+    try:
+        return fields.Date.to_date(value)
+    except Exception:
+        return None
+
+
+def _month_start(day):
+    return day + relativedelta(day=1)
+
+
+def _quarter_start(day):
+    first_month = ((day.month - 1) // 3) * 3 + 1
+    return day + relativedelta(month=first_month, day=1)
+
+
+def _year_start(day):
+    return day + relativedelta(month=1, day=1)
+
+
+def _compute_interval(model, range_key):
+    if not range_key:
+        return None
+
+    today = fields.Date.context_today(model)
+    tomorrow = today + relativedelta(days=1)
+
+    if range_key == "last_7_days":
+        return (today - relativedelta(days=6), tomorrow)
+    if range_key == "last_30_days":
+        return (today - relativedelta(days=29), tomorrow)
+    if range_key == "last_365_days":
+        return (today - relativedelta(days=364), tomorrow)
+    if range_key == "today":
+        return (today, tomorrow)
+    if range_key == "this_week":
+        week_start = today - relativedelta(days=today.weekday())
+        return (week_start, tomorrow)
+    if range_key == "this_month":
+        return (_month_start(today), tomorrow)
+    if range_key == "this_quarter":
+        return (_quarter_start(today), tomorrow)
+    if range_key == "this_year":
+        return (_year_start(today), tomorrow)
+    if range_key == "yesterday":
+        return (today - relativedelta(days=1), today)
+    if range_key == "last_week":
+        this_week_start = today - relativedelta(days=today.weekday())
+        return (this_week_start - relativedelta(days=7), this_week_start)
+    if range_key == "last_month":
+        this_month_start = _month_start(today)
+        return (this_month_start - relativedelta(months=1), this_month_start)
+    if range_key == "last_quarter":
+        this_quarter_start = _quarter_start(today)
+        return (this_quarter_start - relativedelta(months=3), this_quarter_start)
+    if range_key == "last_year":
+        this_year_start = _year_start(today)
+        return (this_year_start - relativedelta(years=1), this_year_start)
+    if range_key == "custom":
+        start = _safe_to_date(model.env.context.get("tradeline_time_date_from"))
+        end = _safe_to_date(model.env.context.get("tradeline_time_date_to"))
+        if not start or not end:
+            return None
+        if end < start:
+            start, end = end, start
+        return (start, end + relativedelta(days=1))
+    return None
+
+
+def _compare_mode(model):
+    return model.env.context.get("tradeline_time_compare") or "none"
+
+
+def _compare_interval(model, current_interval):
+    mode = _compare_mode(model)
+    if mode in (None, False, "none"):
+        return (None, mode)
+
+    if not current_interval:
+        return (None, mode)
+    start, end = current_interval
+
+    if mode == "previous_period":
+        length_days = max((end - start).days, 1)
+        return ((start - relativedelta(days=length_days), start), mode)
+    if mode == "previous_year":
+        return ((start - relativedelta(years=1), end - relativedelta(years=1)), mode)
+    if mode == "custom":
+        cmp_start = _safe_to_date(model.env.context.get("tradeline_time_compare_from"))
+        cmp_end = _safe_to_date(model.env.context.get("tradeline_time_compare_to"))
+        if not cmp_start or not cmp_end:
+            return (None, mode)
+        if cmp_end < cmp_start:
+            cmp_start, cmp_end = cmp_end, cmp_start
+        return ((cmp_start, cmp_end + relativedelta(days=1)), mode)
+    return (None, mode)
+
+
+def _interval_domain(model, field_name, interval):
+    if not interval:
+        return []
+
+    start, end = interval
+    field = model._fields.get(field_name)
+    if not field:
+        return []
+
+    if field.type == "datetime":
+        start_dt = datetime.combine(start, time.min)
+        end_dt = datetime.combine(end, time.min)
+        return [
+            (field_name, ">=", fields.Datetime.to_string(start_dt)),
+            (field_name, "<", fields.Datetime.to_string(end_dt)),
+        ]
+    return [
+        (field_name, ">=", fields.Date.to_string(start)),
+        (field_name, "<", fields.Date.to_string(end)),
+    ]
+
+
+def _apply_time_domain(model, base_domain, default_field):
+    if not _is_time_engine_enabled(model):
+        return (base_domain, None, None)
+
+    based_on = _resolve_based_on_field(model, default_field)
+    if not based_on:
+        return (base_domain, None, None)
+
+    interval = _compute_interval(model, _range_key(model))
+    if not interval:
+        return (base_domain, based_on, None)
+
+    current_domain = expression.AND([base_domain or [], _interval_domain(model, based_on, interval)])
+    return (current_domain, based_on, interval)
+
+
+def _measure_field_names(model, requested_fields):
+    fields_seen = []
+    for requested in requested_fields or []:
+        if not isinstance(requested, str):
+            continue
+        field_name = requested.split(":", 1)[0]
+        field = model._fields.get(field_name)
+        if not field or field.type not in _NUMERIC_FIELD_TYPES:
+            continue
+        if field_name not in fields_seen:
+            fields_seen.append(field_name)
+    return fields_seen
+
+
+def _signature_value(value):
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return False
+        return value[0]
+    return value
+
+
+def _group_signature(row, groupby):
+    tokens = _groupby_list(groupby)
+    signature = []
+    for token in tokens:
+        normalized = _normalize_groupby_token(token)
+        value = row.get(token, row.get(normalized))
+        signature.append(_signature_value(value))
+    return tuple(signature)
+
+
+def _attach_compare_payload(model, current_results, compare_results, requested_fields, groupby, compare_mode):
+    if not current_results or not compare_results:
+        return current_results
+
+    numeric_fields = _measure_field_names(model, requested_fields)
+    if not numeric_fields:
+        return current_results
+
+    compare_map = {}
+    for compare_row in compare_results:
+        compare_map[_group_signature(compare_row, groupby)] = compare_row
+
+    output_mode = model.env.context.get("tradeline_time_compare_output") or "current"
+
+    for row in current_results:
+        counterpart = compare_map.get(_group_signature(row, groupby), {})
+        payload = {}
+        for field_name in numeric_fields:
+            current_value = row.get(field_name) or 0.0
+            previous_value = counterpart.get(field_name) or 0.0
+            if not isinstance(current_value, (int, float)):
+                current_value = 0.0
+            if not isinstance(previous_value, (int, float)):
+                previous_value = 0.0
+            delta = current_value - previous_value
+            delta_pct = (delta / previous_value * 100.0) if previous_value else False
+
+            row[f"{field_name}__previous"] = previous_value
+            row[f"{field_name}__delta"] = delta
+            row[f"{field_name}__delta_pct"] = delta_pct
+            payload[field_name] = {
+                "current": current_value,
+                "previous": previous_value,
+                "delta": delta,
+                "delta_pct": delta_pct,
+            }
+            if output_mode == "delta":
+                row[field_name] = delta
+            elif output_mode == "previous":
+                row[field_name] = previous_value
+            elif output_mode == "delta_pct":
+                row[field_name] = delta_pct or 0.0
+
+        row["tradeline_compare_mode"] = compare_mode
+        row["tradeline_compare"] = payload
+    return current_results
 
 
 def _normalize_groupby_token(token):
@@ -74,6 +324,11 @@ class AccountInvoiceReport(models.Model):
     _inherit = "account.invoice.report"
 
     @api.model
+    def search(self, domain, offset=0, limit=None, order=None):
+        domain, _, _ = _apply_time_domain(self, domain, default_field="invoice_date")
+        return super().search(domain, offset=offset, limit=limit, order=order)
+
+    @api.model
     def read_group(
         self,
         domain,
@@ -84,8 +339,13 @@ class AccountInvoiceReport(models.Model):
         orderby=False,
         lazy=True,
     ):
-        results = super().read_group(
+        scoped_domain, based_on, current_interval = _apply_time_domain(
+            self,
             domain,
+            default_field="invoice_date",
+        )
+        results = super().read_group(
+            scoped_domain,
             fields,
             groupby,
             offset=offset,
@@ -93,6 +353,20 @@ class AccountInvoiceReport(models.Model):
             orderby=orderby,
             lazy=lazy,
         )
+        compare_interval, compare_mode = _compare_interval(self, current_interval)
+        if compare_interval and based_on:
+            compare_domain = expression.AND([domain or [], _interval_domain(self, based_on, compare_interval)])
+            compare_results = super().read_group(
+                compare_domain,
+                fields,
+                groupby,
+                offset=offset,
+                limit=limit,
+                orderby=orderby,
+                lazy=lazy,
+            )
+            results = _attach_compare_payload(self, results, compare_results, fields, groupby, compare_mode)
+
         if _is_current_group_branch(groupby):
             return sorted(results, key=lambda row: _branch_sort_key_from_value(row.get("branch_id")))
         return _sort_groups_by_branch(results, groupby)
@@ -106,6 +380,11 @@ class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
 
     @api.model
+    def search(self, domain, offset=0, limit=None, order=None):
+        domain, _, _ = _apply_time_domain(self, domain, default_field="date")
+        return super().search(domain, offset=offset, limit=limit, order=order)
+
+    @api.model
     def read_group(
         self,
         domain,
@@ -116,8 +395,13 @@ class AccountMoveLine(models.Model):
         orderby=False,
         lazy=True,
     ):
-        results = super().read_group(
+        scoped_domain, based_on, current_interval = _apply_time_domain(
+            self,
             domain,
+            default_field="date",
+        )
+        results = super().read_group(
+            scoped_domain,
             fields,
             groupby,
             offset=offset,
@@ -125,6 +409,20 @@ class AccountMoveLine(models.Model):
             orderby=orderby,
             lazy=lazy,
         )
+        compare_interval, compare_mode = _compare_interval(self, current_interval)
+        if compare_interval and based_on:
+            compare_domain = expression.AND([domain or [], _interval_domain(self, based_on, compare_interval)])
+            compare_results = super().read_group(
+                compare_domain,
+                fields,
+                groupby,
+                offset=offset,
+                limit=limit,
+                orderby=orderby,
+                lazy=lazy,
+            )
+            results = _attach_compare_payload(self, results, compare_results, fields, groupby, compare_mode)
+
         if not _enable_branch_alpha_on_model(self):
             return results
 

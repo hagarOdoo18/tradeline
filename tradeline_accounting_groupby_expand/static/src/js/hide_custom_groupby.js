@@ -12,10 +12,15 @@ patch(SearchModel.prototype, {
         }
         if (config?.context?.tradeline_time_ranges_enabled) {
             const searchItems = Array.isArray(this.searchItems) ? this.searchItems : [];
-            const hasExplicitTimeRanges = searchItems.some(
-                (item) => item?.name?.startsWith?.("tradeline_time_ranges_")
+            const hasCustomTimeEngine = searchItems.some(
+                (item) =>
+                    item?.name?.startsWith?.("tradeline_time_based_on_") ||
+                    item?.name?.startsWith?.("tradeline_time_ranges_") ||
+                    item?.name?.startsWith?.("tradeline_time_compare_")
             );
-            if (!hasExplicitTimeRanges) {
+            if (hasCustomTimeEngine) {
+                this.searchItems = searchItems.filter((item) => item?.type !== "dateFilter");
+            } else {
                 const firstDateFilter = searchItems.find((item) => item?.type === "dateFilter");
                 if (firstDateFilter && firstDateFilter.description !== _t("Time Ranges")) {
                     firstDateFilter.description = _t("Time Ranges");
