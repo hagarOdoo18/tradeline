@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_account_invoice_report_pivot_inventory_value_untaxed" model="ir.ui.view">
+            <field name="name">account.invoice.report.pivot.inventory.value.untaxed</field>
+            <field name="model">account.invoice.report</field>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'pivot')]"/>
+            <field name="arch" type="xml">
+                <xpath expr="//pivot" position="inside">
+                    <field name="inventory_value_untaxed" type="measure"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

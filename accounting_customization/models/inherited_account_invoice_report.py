@@ -1,7 +1,12 @@
 # Part of BrowseInfo. See LICENSE file for full copyright and licensing details.
 
-from odoo import fields, models,api
+from odoo import api, fields, models
 from odoo.tools.sql import SQL
+
+
+UNTAX_COST_DIVISOR = 1.10
+
+
 class AccountInvoiceReport(models.Model):
     _inherit = "account.invoice.report"
 
@@ -51,6 +56,11 @@ class AccountInvoiceReport(models.Model):
     price_average = fields.Float(string='Average Price', groups='accounting_customization.group_accounting_reporting_avarage',readonly=True, aggregator="avg")
     price_margin = fields.Float(string='Margin', groups="accounting_customization.group_accounting_reporting_old_Margin",readonly=True)
     inventory_value = fields.Float(string='Inventory Value', groups='accounting_customization.group_accounting_reporting_valuation', readonly=True)
+    inventory_value_untaxed = fields.Float(
+        string="Inventory Value (Untaxed)",
+        groups="accounting_customization.group_accounting_reporting_valuation",
+        readonly=True,
+    )
     price_margin_taxed = fields.Float(
         string="Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
         readonly=True
@@ -60,12 +70,41 @@ class AccountInvoiceReport(models.Model):
 
 
     def _select(self) -> SQL:
-            return SQL("%s, move.branch_id AS branch_id, move.reference_number AS reference_number,move.name AS invoice_number "
-                       ",move.preferred_payment_method_line_id as preferred_payment_method_line_id,move.pricelist_id as pricelist_id,"
-                       "move.discount_id as discount_id,line.family_id,move.sales_rep_id as sales_rep_id , line.product_point as point ,product.vendor_id as vendor_id,"
-                       " CASE WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) "
-                       "* COALESCE(product.standard_price-> line.company_id::text, to_jsonb(0.0)) ::float) "
-                       " ELSE account_currency_table.rate * (-line.balance - (line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0)) * COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0)) ::float) "
-                       "END  AS price_margin_taxed,  CASE WHEN move.move_type IN ('in_invoice','out_refund','in_receipt') THEN (line.price_total * account_currency_table.rate ) * -1 ELSE line.price_total * account_currency_table.rate   END AS price_total_converted ",
-                       super()._select())
+            cost_qty_expr = "(line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0))"
+            std_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
+            untaxed_cost_expr = f"({cost_qty_expr} * ({std_price_expr} / {UNTAX_COST_DIVISOR}))"
+
+            return SQL(
+                "%s, "
+                "move.branch_id AS branch_id, "
+                "move.reference_number AS reference_number, "
+                "move.name AS invoice_number, "
+                "move.preferred_payment_method_line_id as preferred_payment_method_line_id, "
+                "move.pricelist_id as pricelist_id, "
+                "move.discount_id as discount_id, "
+                "line.family_id, "
+                "move.sales_rep_id as sales_rep_id, "
+                "line.product_point as point, "
+                "product.vendor_id as vendor_id, "
+                "CASE "
+                "  WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 "
+                "  WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-1 * %s) "
+                "  ELSE account_currency_table.rate * (%s) "
+                "END AS inventory_value_untaxed, "
+                "CASE "
+                "  WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 "
+                "  WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + %s) "
+                "  ELSE account_currency_table.rate * (-line.balance - %s) "
+                "END AS price_margin_taxed, "
+                "CASE "
+                "  WHEN move.move_type IN ('in_invoice', 'out_refund', 'in_receipt') "
+                "  THEN (line.price_total * account_currency_table.rate) * -1 "
+                "  ELSE line.price_total * account_currency_table.rate "
+                "END AS price_total_converted ",
+                super()._select(),
+                SQL(untaxed_cost_expr),
+                SQL(untaxed_cost_expr),
+                SQL(untaxed_cost_expr),
+                SQL(untaxed_cost_expr),
+            )
 

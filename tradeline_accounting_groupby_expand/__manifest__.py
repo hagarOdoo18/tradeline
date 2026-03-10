@@ -14,6 +14,7 @@
     "data": [
         "views/account_invoice_report_search.xml",
         "views/account_move_line_sales_search.xml",
+        "views/account_invoice_report_pivot.xml",
     ],
     "assets": {
         "web.assets_backend": [
