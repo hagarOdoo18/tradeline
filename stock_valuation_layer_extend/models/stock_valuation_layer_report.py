@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, tools
+from odoo import api, fields, models, tools
+
+from .search_helpers import rewrite_product_id_text_domain, search_product_ids_by_text
 
 
 class StockValuationLayerReport(models.Model):
@@ -17,6 +19,12 @@ class StockValuationLayerReport(models.Model):
     vendor_id         = fields.Many2one('res.partner',      string='Vendor',            readonly=True)
     company_id        = fields.Many2one('res.company',      string='Company',           readonly=True)
     # currency_id       = fields.Many2one('res.currency',     string='Currency',          readonly=True)
+    product_search_text = fields.Char(
+        string='Product',
+        compute='_compute_product_search_text',
+        search='_search_product_search_text',
+        store=False,
+    )
 
     # ── Measures ───────────────────────────────────────────────────────────────
     quantity          = fields.Float(  string='Total Quantity',    readonly=True, group_operator='sum')
@@ -25,6 +33,51 @@ class StockValuationLayerReport(models.Model):
     unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
     available_qty     = fields.Float(  string='Available Qty',     readonly=True, group_operator=False, digits='Product Unit of Measure')
     layers_count      = fields.Integer(string='# Layers',          readonly=True, group_operator='sum')
+
+    @api.depends('product_id')
+    def _compute_product_search_text(self):
+        for rec in self:
+            rec.product_search_text = rec.product_id.display_name or ''
+
+    def _search_product_search_text(self, operator, value):
+        value = (value or '').strip()
+        if not value:
+            return []
+        product_ids = search_product_ids_by_text(self.env, value, operator=operator, limit=5000)
+        if not product_ids:
+            return [('id', '=', 0)]
+        return [('product_id', 'in', product_ids)]
+
+    @api.model
+    def _rewrite_product_id_text_domain(self, domain):
+        return rewrite_product_id_text_domain(self.env, domain)
+
+    @api.model
+    def search(self, domain, offset=0, limit=None, order=None):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().search(domain, offset=offset, limit=limit, order=order)
+
+    @api.model
+    def read_group(
+        self,
+        domain,
+        fields,
+        groupby,
+        offset=0,
+        limit=None,
+        orderby=False,
+        lazy=True,
+    ):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().read_group(
+            domain,
+            fields,
+            groupby,
+            offset=offset,
+            limit=limit,
+            orderby=orderby,
+            lazy=lazy,
+        )
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)

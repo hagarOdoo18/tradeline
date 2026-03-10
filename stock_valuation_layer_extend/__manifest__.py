@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Stock Valuation Layer - Category, Family & Vendor',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
     'summary': 'Add Item Code, Category, Family, Vendor, Last PO Cost, Available Qty to Stock Valuation Layer',
     'category': 'Inventory/Valuation',
     'author': 'Custom',
