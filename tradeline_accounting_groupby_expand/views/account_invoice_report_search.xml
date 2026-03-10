@@ -42,5 +42,21 @@
                 </xpath>
             </field>
         </record>
+
+        <record id="view_account_invoice_report_search_time_ranges" model="ir.ui.view">
+            <field name="name">account.invoice.report.search.time.ranges</field>
+            <field name="model">account.invoice.report</field>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search/filter[@date][1]" position="before">
+                    <separator/>
+                    <filter
+                        name="tradeline_time_ranges_invoice_date"
+                        string="Time Ranges"
+                        date="invoice_date"
+                    />
+                </xpath>
+            </field>
+        </record>
     </data>
 </odoo>

@@ -6,6 +6,14 @@
             <field name="model">account.move.line</field>
             <field name="inherit_id" ref="sales_invoice_lines_view.view_account_move_line_sales_search"/>
             <field name="arch" type="xml">
+                <xpath expr="//search/separator[1]" position="before">
+                    <filter
+                        name="tradeline_time_ranges_move_line_date"
+                        string="Time Ranges"
+                        date="date"
+                    />
+                    <separator/>
+                </xpath>
                 <xpath expr="//search/group[1]" position="replace">
                     <group expand="0" string="Group By">
                         <filter name="group_by_branch_id" string="Branch" context="{'group_by': 'branch_id'}"/>
