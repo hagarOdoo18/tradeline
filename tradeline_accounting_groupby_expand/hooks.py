@@ -184,11 +184,11 @@ def _build_auto_quick_range_arch(date_field, prefix):
 <data>
     <xpath expr="//search/filter[@date='{date_field}'][1]" position="inside">
         <filter name="{prefix}_last_7_days" string="Last 7 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=6)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
+                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=6)).strftime(\'%Y-%m-%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%Y-%m-%d\'))]"/>
         <filter name="{prefix}_last_30_days" string="Last 30 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=29)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
+                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=29)).strftime(\'%Y-%m-%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%Y-%m-%d\'))]"/>
         <filter name="{prefix}_last_365_days" string="Last 365 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=364)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
+                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=364)).strftime(\'%Y-%m-%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%Y-%m-%d\'))]"/>
     </xpath>
 </data>
 """.strip()
@@ -204,7 +204,6 @@ def _upsert_auto_quick_range_view(env, search_view, date_field):
         "model": search_view.model,
         "mode": "extension",
         "inherit_id": search_view.id,
-        "arch_base": arch_base,
         "arch": arch_base,
     }
 

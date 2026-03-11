@@ -9,19 +9,19 @@
                 <xpath expr="//search/separator[1]" position="before">
                     <filter name="tradeline_time_ranges_move_line_date" string="Date" date="date">
                         <filter name="tradeline_move_line_date_last_7_days" string="Last 7 Days"
-                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%Y-%m-%d')), ('date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                         <filter name="tradeline_move_line_date_last_30_days" string="Last 30 Days"
-                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%Y-%m-%d')), ('date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                         <filter name="tradeline_move_line_date_last_365_days" string="Last 365 Days"
-                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%Y-%m-%d')), ('date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                     </filter>
                     <filter name="tradeline_time_ranges_move_line_invoice_date" string="Invoice Date" date="invoice_date">
                         <filter name="tradeline_move_line_invoice_date_last_7_days" string="Last 7 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                         <filter name="tradeline_move_line_invoice_date_last_30_days" string="Last 30 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                         <filter name="tradeline_move_line_invoice_date_last_365_days" string="Last 365 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
                     </filter>
                     <separator/>
                 </xpath>
