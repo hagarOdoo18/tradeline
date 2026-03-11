@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_product_product_search_product_lookup_first" model="ir.ui.view">
+            <field name="name">product.product.search.product.lookup.first</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="product.product_search_form_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search/field[1]" position="before">
+                    <field name="product_lookup_id" string="Product"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

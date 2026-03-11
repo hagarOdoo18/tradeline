@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import re
 
-from odoo import api, models
+from odoo import api, fields, models
 from odoo.osv import expression
 
 
@@ -184,6 +184,44 @@ class ProductTemplate(models.Model):
 
 class ProductProduct(models.Model):
     _inherit = "product.product"
+
+    product_lookup_id = fields.Many2one(
+        "product.product",
+        string="Product",
+        compute="_compute_product_lookup_id",
+        search="_search_product_lookup_id",
+        store=False,
+    )
+
+    @api.depends("id")
+    def _compute_product_lookup_id(self):
+        for product in self:
+            product.product_lookup_id = product
+
+    def _search_product_lookup_id(self, operator, value):
+        if operator in {"=", "=="} and isinstance(value, int):
+            return [("id", "=", value)]
+        if operator in {"!=", "<>"} and isinstance(value, int):
+            return [("id", "!=", value)]
+        if operator == "in" and isinstance(value, (list, tuple, set)):
+            product_ids = [product_id for product_id in value if isinstance(product_id, int)]
+            if not product_ids:
+                return [("id", "=", 0)]
+            return [("id", "in", product_ids)]
+
+        if not isinstance(value, str):
+            return []
+
+        search_term = value.strip()
+        if not search_term:
+            return []
+
+        effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
+        matches = self.name_search(name=search_term, args=[], operator=effective_operator, limit=5000)
+        product_ids = [product_id for product_id, _name in matches]
+        if not product_ids:
+            return [("id", "=", 0)]
+        return [("id", "in", product_ids)]
 
     @api.model
     def name_search(self, name="", args=None, operator="ilike", limit=100):
