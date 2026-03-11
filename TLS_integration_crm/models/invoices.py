@@ -11,7 +11,6 @@ from dateutil.relativedelta import relativedelta
 
 _logger = logging.getLogger(__name__)
 
-EXCLUDED_TVC_BRANCH_IDS = [64, 90, 91, 93]
 
 
 
@@ -125,8 +124,8 @@ class AccountInvoice(models.Model):
                             'state' : 'draft'
                         })
 
-            try:
-                r = requests.post(url=url, data=pload, headers=headers, verify=False)
+            try :
+                r = requests.post (url=url , data=pload , headers=headers , verify=False)
 
                 if r.status_code == 200:
                     if tvc_invoice:
@@ -138,6 +137,7 @@ class AccountInvoice(models.Model):
                             tvc_invoice_obj.state = 'done'
                             tvc_invoice_obj.note = r.text
                             tvc_invoice_obj.card = item_code
+                            self._cr.commit()
                     else:
                         if InvoiceAmount > 0 :
                             tvc_so.is_tvc = True
@@ -148,17 +148,22 @@ class AccountInvoice(models.Model):
                             tvc_invoice_obj.state = 'done'
                             tvc_invoice_obj.note = r.text
                             tvc_invoice_obj.card = item_code
+                            self._cr.commit ()
 
                 else:
-                    if tvc_invoice_obj:
-                        tvc_invoice_obj.note = str(r.status_code)
+                    tvc_invoice_obj.note = r.status_code
+                    self._cr.commit()
                     time.sleep (10)
-                    _logger.warning("TVC API non-200 response: %s", r.status_code)
-            except Exception as exc:
+                    _logger.info (r)
+            except :
                 if tvc_invoice_obj :
-                    tvc_invoice_obj.state = 'error'
-                    tvc_invoice_obj.note = str(exc)
-                _logger.exception("error at Post Api")
+
+                    if 'state' in tvc_invoice_obj:
+                        self._cr.commit ()
+                        tvc_invoice_obj.state = 'error'
+                        tvc_invoice_obj.note = r.text
+
+                _logger.info ("error at Post Api")
         else:
             _logger.info ("error at Token")
 
@@ -1275,59 +1280,50 @@ class AccountInvoice(models.Model):
     @api.model
     def sent_TVC_invoice ( self ) :
         if self._cr.dbname == "tradelinestores-production-25284095" :
-            try:
-                invoice_date = datetime.today().date() - timedelta(days=30)
-                if str (invoice_date) >= '2026-01-01' :
-                    tvc_invoices = self.sudo ().search (
-                        [('invoice_date', '=', invoice_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
-                         ('is_tvc', '=', False), ('branch_id', 'not in', EXCLUDED_TVC_BRANCH_IDS)
-                        ], order='invoice_date')
-                    self.post_invoiced (tvc_invoices)
-                    tvc_sro_orders = self.sudo ().env ['sale.order'].search (
-                        [('date_order', '=', invoice_date), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
-                         ('is_tvc', '=', False), ('branch_id', 'not in', EXCLUDED_TVC_BRANCH_IDS)
-                        ], order='date_order')
-                    self.post_so (tvc_sro_orders)
-            except Exception:
-                _logger.exception("sent_TVC_invoice cron failed")
+
+            invoice_date = datetime.today().date() - timedelta(days=30)
+            invoice_date_today = datetime.today().date()
+            if str (invoice_date) >= '2026-01-01' :
+                tvc_invoices = self.sudo ().search (
+                    [('invoice_date', '=', invoice_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')
+                    ], order='invoice_date')
+                self.post_invoiced (tvc_invoices)
+                tvc_sro_orders = self.sudo ().env ['sale.order'].search (
+                    ['|', ('date_order', '=', invoice_date),('date_order', '=', invoice_date), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')
+                    ], order='date_order')
+                self.post_so (tvc_sro_orders)
 
 
     @api.model
     def sent_TVC_credit( self ):
 
         if self._cr.dbname == "tradelinestores-production-25284095" :
-            try:
-                tvc_credits = self.sudo().search([
-                    ('invoice_date', '>=', '2026-01-01'),
-                    ('move_type', '=', 'out_refund'),
-                    ('state', '=', 'posted'),
-                    ('is_tvc', '=', False),
-                    ('branch_id', 'not in', EXCLUDED_TVC_BRANCH_IDS),
-                    ('is_installment', '=', False),
-                ], order='invoice_date', limit=100)
-                self.post_credit(tvc_credits)
-            except Exception:
-                _logger.exception("sent_TVC_credit cron failed")
+
+
+            tvc_credits = self.sudo().search([('invoice_date','>=','2026-1-1'),('move_type','=','out_refund'),('state','=','posted'),('is_tvc','=',False),('branch_id','not in','(64,90,91,93)'),
+                                              ('is_installment','=', False),],order='invoice_date',limit=100)
+            self.post_credit(tvc_credits)
 
 
 
     @api.model
     def sent_tvc_point( self ):
         if self._cr.dbname == "tradelinestores-production-25284095" :
-            try:
-                tvc_invoices = self.sudo ().search (
-                    [ ('state', '=', 'posted'),
-                     ('is_point', '=', False),
-                     ('branch_id', 'not in', EXCLUDED_TVC_BRANCH_IDS)], order='invoice_date',limit=100)
-                self.post_tvc_credit_invoice_point (tvc_invoices)
-                tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
-                    [('inv_type', '=', 'sro'), ('state', '=', 'sale'),
-                     ('is_point', '=', False),
-                     ('branch_id', 'not in', EXCLUDED_TVC_BRANCH_IDS)], order='create_date',limit=100)
 
-                self.post_so_tev_pay (tvc_sro_orders_pay)
-            except Exception:
-                _logger.exception("sent_tvc_point cron failed")
+
+            tvc_invoices = self.sudo ().search (
+                [ ('state', '=', 'posted'),
+                 ('is_point', '=', False),
+                 ('branch_id','not in','(64,90,91,93)')], order='invoice_date',limit=100)
+            self.post_tvc_credit_invoice_point (tvc_invoices)
+            tvc_sro_orders_pay = self.sudo ().env ['sale.order'].search (
+                [('inv_type', '=', 'sro'), ('state', '=', 'sale'),
+                 ('is_point', '=', False),
+                 ('branch_id','not in','(64,90,91,93)')], order='create_date',limit=100)
+
+            self.post_so_tev_pay (tvc_sro_orders_pay)
 
 
 

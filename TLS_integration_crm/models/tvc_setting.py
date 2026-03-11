@@ -84,12 +84,12 @@ class TVCSetting (models.Model) :
                 #     # self.env ['account.invoice'].post_so_offer (tvc_sro_orders,self.offer_key)
                 if str (self.from_date) >= '2022-01-01' :
                     tvc_invoices = self.sudo ().env ['account.move'].search (
-                        [('invoice_date', '>=', self.from_date), ('invoice_date', '<=', self.to_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
-                     ('is_tvc', '=', False), ('branch_id', 'not in', [64, 90, 91, 93])], order='invoice_date')
+                        [('invoice_date', '>=', self.from_date),('date_invoice', '<=', self.to_date), ('move_type', '=', 'out_invoice'), ('payment_state', 'in', ['not_paid','paid','in_payment','partial','reversed']),
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')], order='invoice_date')
                     self.env ['account.move'].post_invoiced(tvc_invoices)
                     tvc_sro_orders = self.sudo ().env ['sale.order'].search (
                         [('date_order', '>=', self.from_date), ('date_order', '<=', self.to_date), ('inv_type', '=', 'sro'), ('state', '=', 'sale'),
-                     ('is_tvc', '=', False), ('branch_id', 'not in', [64, 90, 91, 93])], order='date_order')
+                     ('is_tvc', '=', False),('branch_id','not in','(64,90,91,93)')], order='date_order')
                     self.env ['account.move'].post_so (tvc_sro_orders)
             # else:
             #     if self.offer:
@@ -141,8 +141,8 @@ class TVCSetting (models.Model) :
     def post_file_point( self ,invoice,InvoiceAmount,point):
             item_card = ''
 
-            if invoice._get_card(invoice.partner_id, invoice.invoice_date) :
-                item_card = invoice._get_card(invoice.partner_id, invoice.invoice_date)
+            if invoice._get_card(invoice.partner_id,invoice.date_invoice) :
+                item_card = invoice._get_card(invoice.partner_id,invoice.date_invoice)
             if int(InvoiceAmount)!=0:
                 tvc_dict = invoice._dict_invocie(invoice, int (InvoiceAmount))
                 invoice.post_tvc_invoice(tvc_dict, invoice,False, int (InvoiceAmount), item_card)
