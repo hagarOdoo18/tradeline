@@ -52,19 +52,19 @@
                     <separator/>
                     <filter name="tradeline_time_ranges_invoice_date" string="Invoice Date" date="invoice_date">
                         <filter name="tradeline_invoice_date_last_7_days" string="Last 7 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                         <filter name="tradeline_invoice_date_last_30_days" string="Last 30 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                         <filter name="tradeline_invoice_date_last_365_days" string="Last 365 Days"
-                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%Y-%m-%d')), ('invoice_date', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                     </filter>
                     <filter name="tradeline_time_ranges_due_date" string="Due Date" date="invoice_date_due">
                         <filter name="tradeline_due_date_last_7_days" string="Last 7 Days"
-                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%Y-%m-%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                         <filter name="tradeline_due_date_last_30_days" string="Last 30 Days"
-                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%Y-%m-%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                         <filter name="tradeline_due_date_last_365_days" string="Last 365 Days"
-                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%Y-%m-%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                     </filter>
                 </xpath>
             </field>
