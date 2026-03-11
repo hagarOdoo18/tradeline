@@ -193,7 +193,6 @@ class ProductProduct(models.Model):
         store=False,
     )
 
-    @api.depends("id")
     def _compute_product_lookup_id(self):
         for product in self:
             product.product_lookup_id = product
