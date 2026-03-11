@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Accounting GroupBy Expand",
     "summary": "Expand Group By options for targeted accounting reports",
-    "version": "18.0.1.3.1",
+    "version": "18.0.1.6.0",
     "category": "Accounting",
     "author": "Tradeline",
     "license": "LGPL-3",
@@ -15,6 +15,7 @@
         "views/account_invoice_report_search.xml",
         "views/account_move_line_sales_search.xml",
         "views/account_invoice_report_pivot.xml",
+        "data/time_range_sync.xml",
     ],
     "assets": {
         "web.assets_backend": [

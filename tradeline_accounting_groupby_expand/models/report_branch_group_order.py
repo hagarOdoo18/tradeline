@@ -9,9 +9,24 @@ from odoo.osv import expression
 _NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
 
 
+def _has_legacy_time_keys(ctx):
+    return bool(
+        ctx.get("tradeline_time_range")
+        or ctx.get("tradeline_time_based_on")
+        or (ctx.get("tradeline_time_compare") and ctx.get("tradeline_time_compare") != "none")
+    )
+
+
 def _is_time_engine_enabled(model):
     ctx = model.env.context
-    return bool(ctx.get("tradeline_time_ranges_enabled") or ctx.get("tradeline_time_engine_enabled"))
+    if ctx.get("tradeline_time_ranges_native") and not ctx.get("tradeline_time_legacy_mode"):
+        return _has_legacy_time_keys(ctx)
+    return bool(
+        ctx.get("tradeline_time_legacy_mode")
+        or ctx.get("tradeline_time_ranges_enabled")
+        or ctx.get("tradeline_time_engine_enabled")
+        or _has_legacy_time_keys(ctx)
+    )
 
 
 def _is_date_field(model, field_name):
