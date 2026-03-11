@@ -50,110 +50,21 @@
             <field name="arch" type="xml">
                 <xpath expr="//search/filter[@date][1]" position="before">
                     <separator/>
-                    <filter
-                        name="tradeline_time_based_on_invoice_report"
-                        string="Based On"
-                    >
-                        <filter
-                            name="tradeline_based_on_invoice_date"
-                            string="Invoice Date"
-                            context="{'tradeline_time_based_on': 'invoice_date'}"
-                        />
-                        <filter
-                            name="tradeline_based_on_due_date"
-                            string="Due Date"
-                            context="{'tradeline_time_based_on': 'invoice_date_due'}"
-                        />
+                    <filter name="tradeline_time_ranges_invoice_date" string="Invoice Date" date="invoice_date">
+                        <filter name="tradeline_invoice_date_last_7_days" string="Last 7 Days"
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                        <filter name="tradeline_invoice_date_last_30_days" string="Last 30 Days"
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                        <filter name="tradeline_invoice_date_last_365_days" string="Last 365 Days"
+                                domain="[('invoice_date', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('invoice_date', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                     </filter>
-                    <filter
-                        name="tradeline_time_ranges_invoice_date"
-                        string="Range"
-                    >
-                        <filter
-                            name="tradeline_invoice_date_last_7_days"
-                            string="Last 7 Days"
-                            context="{'tradeline_time_range': 'last_7_days'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_30_days"
-                            string="Last 30 Days"
-                            context="{'tradeline_time_range': 'last_30_days'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_365_days"
-                            string="Last 365 Days"
-                            context="{'tradeline_time_range': 'last_365_days'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_today"
-                            string="Today"
-                            context="{'tradeline_time_range': 'today'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_this_week"
-                            string="This Week"
-                            context="{'tradeline_time_range': 'this_week'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_this_month"
-                            string="This Month"
-                            context="{'tradeline_time_range': 'this_month'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_this_quarter"
-                            string="This Quarter"
-                            context="{'tradeline_time_range': 'this_quarter'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_this_year"
-                            string="This Year"
-                            context="{'tradeline_time_range': 'this_year'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_yesterday"
-                            string="Yesterday"
-                            context="{'tradeline_time_range': 'yesterday'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_week"
-                            string="Last Week"
-                            context="{'tradeline_time_range': 'last_week'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_month"
-                            string="Last Month"
-                            context="{'tradeline_time_range': 'last_month'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_quarter"
-                            string="Last Quarter"
-                            context="{'tradeline_time_range': 'last_quarter'}"
-                        />
-                        <filter
-                            name="tradeline_invoice_date_last_year"
-                            string="Last Year"
-                            context="{'tradeline_time_range': 'last_year'}"
-                        />
-                    </filter>
-                    <filter
-                        name="tradeline_time_compare_invoice_report"
-                        string="Compare To"
-                    >
-                        <filter
-                            name="tradeline_compare_none"
-                            string="No Comparison"
-                            context="{'tradeline_time_compare': 'none', 'tradeline_time_compare_output': 'current'}"
-                        />
-                        <filter
-                            name="tradeline_compare_previous_period"
-                            string="Previous Period"
-                            context="{'tradeline_time_compare': 'previous_period', 'tradeline_time_compare_output': 'delta'}"
-                        />
-                        <filter
-                            name="tradeline_compare_previous_year"
-                            string="Previous Year"
-                            context="{'tradeline_time_compare': 'previous_year', 'tradeline_time_compare_output': 'delta'}"
-                        />
+                    <filter name="tradeline_time_ranges_due_date" string="Due Date" date="invoice_date_due">
+                        <filter name="tradeline_due_date_last_7_days" string="Last 7 Days"
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                        <filter name="tradeline_due_date_last_30_days" string="Last 30 Days"
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                        <filter name="tradeline_due_date_last_365_days" string="Last 365 Days"
+                                domain="[('invoice_date_due', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('invoice_date_due', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]"/>
                     </filter>
                 </xpath>
             </field>
