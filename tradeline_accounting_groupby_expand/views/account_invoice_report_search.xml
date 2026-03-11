@@ -76,7 +76,13 @@
             <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
             <field name="arch" type="xml">
                 <xpath expr="//search/field[1]" position="before">
+                    <field name="product_search_text" string="Product"/>
+                </xpath>
+                <xpath expr="//search/field[not(@name='product_id')][1]" position="before">
                     <xpath expr="//search/field[@name='product_id'][1]" position="move"/>
+                </xpath>
+                <xpath expr="//search/field[@name='product_id'][1]" position="before">
+                    <xpath expr="//search/field[@name='product_search_text'][1]" position="move"/>
                 </xpath>
             </field>
         </record>

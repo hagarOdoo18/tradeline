@@ -245,7 +245,19 @@ def _upsert_auto_quick_range_view(env, search_view, date_field):
     return view_model.create(values)
 
 
-def _build_pin_product_first_arch():
+def _build_pin_product_first_arch(has_product_search_text=False):
+    if has_product_search_text:
+        return """
+<data>
+    <xpath expr="//search/field[not(@name='product_id')][1]" position="before">
+        <xpath expr="//search/field[@name='product_id'][1]" position="move"/>
+    </xpath>
+    <xpath expr="//search/field[@name='product_id'][1]" position="before">
+        <xpath expr="//search/field[@name='product_search_text'][1]" position="move"/>
+    </xpath>
+</data>
+""".strip()
+
     return """
 <data>
     <xpath expr="//search/field[1]" position="before">
@@ -255,7 +267,7 @@ def _build_pin_product_first_arch():
 """.strip()
 
 
-def _upsert_pin_product_first_view(env, search_view):
+def _upsert_pin_product_first_view(env, search_view, has_product_search_text=False):
     view_name = f"tradeline.reporting.search.pin.product.first.{search_view.id}"
     values = {
         "name": view_name,
@@ -263,7 +275,7 @@ def _upsert_pin_product_first_view(env, search_view):
         "model": search_view.model,
         "mode": "extension",
         "inherit_id": search_view.id,
-        "arch": _build_pin_product_first_arch(),
+        "arch": _build_pin_product_first_arch(has_product_search_text=has_product_search_text),
     }
 
     view_model = env["ir.ui.view"]
@@ -387,9 +399,15 @@ def sync_native_time_ranges(env):
             continue
         processed_search_view_ids.add(search_view.id)
 
-        if _search_view_has_field(search_view, "product_id"):
+        has_product_id = _search_view_has_field(search_view, "product_id")
+        has_product_search_text = _search_view_has_field(search_view, "product_search_text")
+        if has_product_id:
             try:
-                _upsert_pin_product_first_view(env, search_view)
+                _upsert_pin_product_first_view(
+                    env,
+                    search_view,
+                    has_product_search_text=has_product_search_text,
+                )
             except Exception:
                 _logger.warning(
                     "tradeline_time_ranges: skipped product pin extension for view=%s model=%s",

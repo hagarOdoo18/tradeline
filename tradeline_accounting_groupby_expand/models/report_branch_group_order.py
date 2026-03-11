@@ -7,6 +7,53 @@ from odoo.osv import expression
 
 
 _NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
+SUPPORTED_TEXT_OPERATORS = {"ilike", "like", "=ilike", "=like"}
+
+
+def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
+    value = (value or "").strip()
+    if not value:
+        return []
+
+    product_matches = model.env["product.product"].name_search(
+        name=value,
+        operator=operator,
+        limit=limit,
+    )
+    return [product_id for product_id, _name in product_matches]
+
+
+def _rewrite_product_id_text_domain(model, domain):
+    if not domain:
+        return domain
+
+    def _rewrite_leaf(term):
+        if not isinstance(term, (list, tuple)) or len(term) < 3:
+            return term
+
+        field_name, operator, value = term[0], term[1], term[2]
+        if field_name != "product_id":
+            return term
+        if operator not in SUPPORTED_TEXT_OPERATORS:
+            return term
+        if not isinstance(value, str):
+            return term
+
+        product_ids = _search_product_ids_by_text(model, value, operator=operator, limit=5000)
+        if not product_ids:
+            return ("id", "=", 0)
+        return ("product_id", "in", product_ids)
+
+    def _rewrite(node):
+        rewritten_leaf = _rewrite_leaf(node)
+        if rewritten_leaf is not node:
+            return rewritten_leaf
+
+        if isinstance(node, list):
+            return [_rewrite(item) for item in node]
+        return node
+
+    return _rewrite(domain)
 
 
 def _has_legacy_time_keys(ctx):
@@ -338,8 +385,34 @@ def _sort_groups_by_branch(results, groupby):
 class AccountInvoiceReport(models.Model):
     _inherit = "account.invoice.report"
 
+    product_search_text = fields.Char(
+        string="Product",
+        compute="_compute_product_search_text",
+        search="_search_product_search_text",
+        store=False,
+    )
+
+    @api.depends("product_id")
+    def _compute_product_search_text(self):
+        for rec in self:
+            rec.product_search_text = rec.product_id.display_name or ""
+
+    def _search_product_search_text(self, operator, value):
+        value = (value or "").strip()
+        if not value:
+            return []
+        product_ids = _search_product_ids_by_text(self, value, operator=operator, limit=5000)
+        if not product_ids:
+            return [("id", "=", 0)]
+        return [("product_id", "in", product_ids)]
+
+    @api.model
+    def _rewrite_product_id_text_domain(self, domain):
+        return _rewrite_product_id_text_domain(self, domain)
+
     @api.model
     def search(self, domain, offset=0, limit=None, order=None):
+        domain = self._rewrite_product_id_text_domain(domain)
         domain, _, _ = _apply_time_domain(self, domain, default_field="invoice_date")
         return super().search(domain, offset=offset, limit=limit, order=order)
 
@@ -354,6 +427,7 @@ class AccountInvoiceReport(models.Model):
         orderby=False,
         lazy=True,
     ):
+        domain = self._rewrite_product_id_text_domain(domain)
         scoped_domain, based_on, current_interval = _apply_time_domain(
             self,
             domain,
@@ -394,8 +468,34 @@ def _enable_branch_alpha_on_model(model):
 class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
 
+    product_search_text = fields.Char(
+        string="Product",
+        compute="_compute_product_search_text",
+        search="_search_product_search_text",
+        store=False,
+    )
+
+    @api.depends("product_id")
+    def _compute_product_search_text(self):
+        for rec in self:
+            rec.product_search_text = rec.product_id.display_name or ""
+
+    def _search_product_search_text(self, operator, value):
+        value = (value or "").strip()
+        if not value:
+            return []
+        product_ids = _search_product_ids_by_text(self, value, operator=operator, limit=5000)
+        if not product_ids:
+            return [("id", "=", 0)]
+        return [("product_id", "in", product_ids)]
+
+    @api.model
+    def _rewrite_product_id_text_domain(self, domain):
+        return _rewrite_product_id_text_domain(self, domain)
+
     @api.model
     def search(self, domain, offset=0, limit=None, order=None):
+        domain = self._rewrite_product_id_text_domain(domain)
         domain, _, _ = _apply_time_domain(self, domain, default_field="date")
         return super().search(domain, offset=offset, limit=limit, order=order)
 
@@ -410,6 +510,7 @@ class AccountMoveLine(models.Model):
         orderby=False,
         lazy=True,
     ):
+        domain = self._rewrite_product_id_text_domain(domain)
         scoped_domain, based_on, current_interval = _apply_time_domain(
             self,
             domain,
