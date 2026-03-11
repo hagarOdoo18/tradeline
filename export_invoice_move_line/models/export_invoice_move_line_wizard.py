@@ -59,7 +59,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
 
     def action_export_excel(self):
         domain = [
-            ('move_id.move_type', 'in', ['out_invoice','out_refund']), ('move_id.status_in_payment', 'in', ['paid', 'partial','in_payment','reversed']),
+            ('move_id.move_type', 'in', ['out_invoice', 'out_refund']),
+            ('move_id.payment_state', 'in', ['paid', 'partial', 'in_payment', 'reversed']),
             ('move_id.state', '=', 'posted'),('display_type', 'in', ['product', 'line_section', 'line_note'])
         ]
 

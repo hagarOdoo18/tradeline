@@ -45,7 +45,7 @@ class StockValuationLayer(models.Model):
 
     last_po_cost = fields.Float(
         string='Last PO Cost',
-        digits='Product Price', group_operator = False,
+        digits='Product Price', aggregator=False,
         compute='_compute_last_po_cost',
         store=True,
         readonly=True,
@@ -54,7 +54,7 @@ class StockValuationLayer(models.Model):
     available_qty = fields.Float(
         string='Available Qty',
         digits='Product Unit of Measure',
-        compute='_compute_available_qty',group_operator = False,
+        compute='_compute_available_qty', aggregator=False,
         store=False,
         readonly=True,
     )
