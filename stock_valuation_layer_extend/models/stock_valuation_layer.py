@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models
 
-from .search_helpers import search_product_ids_by_text
+from .search_helpers import rewrite_product_id_text_domain, search_product_ids_by_text
 
 
 class StockValuationLayer(models.Model):
@@ -103,3 +103,34 @@ class StockValuationLayer(models.Model):
         """Real-time qty on hand."""
         for rec in self:
             rec.available_qty = rec.product_id.qty_available if rec.product_id else 0.0
+
+    @api.model
+    def _rewrite_product_id_text_domain(self, domain):
+        return rewrite_product_id_text_domain(self.env, domain)
+
+    @api.model
+    def search(self, domain, offset=0, limit=None, order=None):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().search(domain, offset=offset, limit=limit, order=order)
+
+    @api.model
+    def read_group(
+        self,
+        domain,
+        fields,
+        groupby,
+        offset=0,
+        limit=None,
+        orderby=False,
+        lazy=True,
+    ):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().read_group(
+            domain,
+            fields,
+            groupby,
+            offset=offset,
+            limit=limit,
+            orderby=orderby,
+            lazy=lazy,
+        )
