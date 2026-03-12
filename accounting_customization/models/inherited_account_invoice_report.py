@@ -4,7 +4,7 @@ from odoo import api, fields, models
 from odoo.tools.sql import SQL
 
 
-UNTAX_COST_DIVISOR = 1.10
+UNTAX_COST_DIVISOR = 1.14
 
 
 class AccountInvoiceReport(models.Model):
@@ -129,4 +129,3 @@ class AccountInvoiceReport(models.Model):
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
             )
-
