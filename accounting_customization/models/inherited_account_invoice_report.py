@@ -62,7 +62,17 @@ class AccountInvoiceReport(models.Model):
         readonly=True,
     )
     price_margin_taxed = fields.Float(
-        string="Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
+        string="Net Margin (UNTaxed)",groups='accounting_customization.group_accounting_reporting_Margin' ,
+        readonly=True
+    )
+    sales_margin_untaxed = fields.Float(
+        string="Sales Margin",
+        groups='accounting_customization.group_accounting_reporting_Margin',
+        readonly=True
+    )
+    credit_note_impact_untaxed = fields.Float(
+        string="Credit Note Impact",
+        groups='accounting_customization.group_accounting_reporting_Margin',
         readonly=True
     )
     price_total_converted = fields.Float(string='TotaL',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
@@ -97,11 +107,23 @@ class AccountInvoiceReport(models.Model):
                 "  ELSE account_currency_table.rate * (-line.balance - %s) "
                 "END AS price_margin_taxed, "
                 "CASE "
+                "  WHEN move.move_type IN ('out_invoice', 'out_receipt') "
+                "  THEN account_currency_table.rate * (-line.balance - %s) "
+                "  ELSE 0.0 "
+                "END AS sales_margin_untaxed, "
+                "CASE "
+                "  WHEN move.move_type = 'out_refund' "
+                "  THEN account_currency_table.rate * (-line.balance + %s) "
+                "  ELSE 0.0 "
+                "END AS credit_note_impact_untaxed, "
+                "CASE "
                 "  WHEN move.move_type IN ('in_invoice', 'out_refund', 'in_receipt') "
                 "  THEN (line.price_total * account_currency_table.rate) * -1 "
                 "  ELSE line.price_total * account_currency_table.rate "
                 "END AS price_total_converted ",
                 super()._select(),
+                SQL(untaxed_cost_expr),
+                SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
