@@ -80,6 +80,7 @@
             <button class="btn btn-outline-secondary d-print-none o_tradeline_group_by_shortcut"
                     title="Group By">
                 <i class="fa fa-bars"/>
+                <span class="ms-2">Group By</span>
             </button>
             <t t-set-slot="content">
                 <div class="o_tradeline_group_by_shortcut_content">

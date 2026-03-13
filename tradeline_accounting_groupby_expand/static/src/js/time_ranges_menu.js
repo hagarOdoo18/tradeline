@@ -37,7 +37,23 @@ function getDateFilters(searchModel) {
     if (!searchModel || typeof searchModel.getSearchItems !== "function") {
         return [];
     }
-    return searchModel.getSearchItems((item) => item.type === "dateFilter");
+    const rawDateFilters = searchModel.getSearchItems((item) => item.type === "dateFilter");
+    const seenFields = new Set();
+    const deduped = [];
+    for (const item of rawDateFilters) {
+        const key = item.fieldName || item.id;
+        if (seenFields.has(key)) {
+            continue;
+        }
+        seenFields.add(key);
+        deduped.push(item);
+    }
+    return deduped;
+}
+
+function getSelectableRangeOptions(dateFilter) {
+    const options = dateFilter?.options || [];
+    return options.filter((option) => !String(option.id || "").startsWith("custom_"));
 }
 
 function hasSearchMenuType(searchModel, type) {
@@ -93,7 +109,7 @@ function getRangeRank(optionId) {
 }
 
 function getActiveRangeOption(dateFilter) {
-    const activeOptions = (dateFilter?.options || []).filter((option) => option.isActive);
+    const activeOptions = getSelectableRangeOptions(dateFilter).filter((option) => option.isActive);
     if (!activeOptions.length) {
         return null;
     }
@@ -102,7 +118,7 @@ function getActiveRangeOption(dateFilter) {
 }
 
 function getDefaultRangeOption(dateFilter) {
-    const options = dateFilter?.options || [];
+    const options = getSelectableRangeOptions(dateFilter);
     if (!options.length) {
         return null;
     }
@@ -173,7 +189,7 @@ export class TradelineTimeRangesPanel extends Component {
         if (!dateFilter) {
             return [];
         }
-        return [...(dateFilter.options || [])].sort((left, right) => {
+        return [...getSelectableRangeOptions(dateFilter)].sort((left, right) => {
             const leftRank = getRangeRank(String(left.id));
             const rightRank = getRangeRank(String(right.id));
             if (leftRank !== rightRank) {

@@ -33,81 +33,14 @@ RANGE_SUFFIX_MAP = {
     "last_30_days": "last_30_days",
     "last_365_days": "last_365_days",
 }
-AUTO_RANGE_PRESETS = (
-    (
-        "last_7_days",
-        "Last 7 Days",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_30_days",
-        "Last 30 Days",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_365_days",
-        "Last 365 Days",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "today",
-        "Today",
-        "[('{field}', '&gt;=', context_today().strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "this_week",
-        "This Week",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=context_today().weekday())).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "this_month",
-        "This Month",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "this_quarter",
-        "This Quarter",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "this_year",
-        "This Year",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(month=1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "yesterday",
-        "Yesterday",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() - relativedelta(days=1)).strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_week",
-        "Last Week",
-        "[('{field}', '&gt;=', (context_today() - relativedelta(days=context_today().weekday() + 7)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() - relativedelta(days=context_today().weekday() + 1)).strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_month",
-        "Last Month",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(months=-1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(day=1, days=-1)).strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_quarter",
-        "Last Quarter",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1, months=-3)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1, days=-1)).strftime('%%Y-%%m-%%d'))]",
-    ),
-    (
-        "last_year",
-        "Last Year",
-        "[('{field}', '&gt;=', (context_today() + relativedelta(years=-1, month=1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(years=-1, month=12, day=31)).strftime('%%Y-%%m-%%d'))]",
-    ),
-)
 FILTER_NAME_BY_MODEL_AND_FIELD = {
     "account.invoice.report": {
-        "invoice_date": "tradeline_invoice_date",
-        "invoice_date_due": "tradeline_due_date",
+        "invoice_date": "tradeline_time_ranges_invoice_date",
+        "invoice_date_due": "tradeline_time_ranges_due_date",
     },
     "account.move.line": {
-        "date": "tradeline_move_line_date",
-        "invoice_date": "tradeline_move_line_invoice_date",
+        "date": "tradeline_time_ranges_move_line_date",
+        "invoice_date": "tradeline_time_ranges_move_line_invoice_date",
     },
 }
 
@@ -277,54 +210,15 @@ def _merge_action_context(
     return changed
 
 
-def _build_auto_range_options_xml(date_field, prefix):
-    snippets = []
-    for suffix, label, domain_template in AUTO_RANGE_PRESETS:
-        domain = domain_template.format(field=date_field)
-        snippets.append(
-            f"""        <filter name="{prefix}_{suffix}" string="{label}" domain="{domain}"/>"""
-        )
-    return "\n".join(snippets)
-
-
-def _build_auto_quick_range_arch(date_field, prefix):
-    options_xml = _build_auto_range_options_xml(date_field, prefix)
-    return f"""
-<data>
-    <xpath expr="//search/filter[@date='{date_field}'][1]" position="inside">
-{options_xml}
-    </xpath>
-</data>
-""".strip()
-
-
-def _upsert_auto_quick_range_view(env, search_view, date_field):
-    view_name = f"tradeline.reporting.time.ranges.quick.{search_view.id}.{date_field}"
-    prefix = f"tradeline_auto_time_{search_view.id}_{date_field}"
-    arch = _build_auto_quick_range_arch(date_field, prefix)
-
-    values = {
-        "name": view_name,
-        "type": "search",
-        "model": search_view.model,
-        "mode": "extension",
-        "inherit_id": search_view.id,
-        "arch": arch,
-    }
-
-    view_model = env["ir.ui.view"]
-    existing = view_model.search(
+def _cleanup_auto_quick_range_views(env):
+    auto_views = env["ir.ui.view"].search(
         [
-            ("name", "=", view_name),
-            ("inherit_id", "=", search_view.id),
+            ("name", "like", "tradeline.reporting.time.ranges.quick.%"),
             ("type", "=", "search"),
-        ],
-        limit=1,
+        ]
     )
-    if existing:
-        existing.write(values)
-        return existing
-    return view_model.create(values)
+    if auto_views:
+        auto_views.unlink()
 
 
 def _build_pin_product_first_arch(has_product_search_text=False):
@@ -465,6 +359,7 @@ def sync_native_time_ranges(env):
     processed_search_view_ids = set()
 
     _inventory_reporting_actions(reporting_actions)
+    _cleanup_auto_quick_range_views(env)
 
     for action in reporting_actions:
         if action.res_model:
@@ -495,22 +390,6 @@ def sync_native_time_ranges(env):
                     "tradeline_time_ranges: skipped product pin extension for view=%s model=%s",
                     search_view.id,
                     search_view.model,
-                    exc_info=True,
-                )
-
-        if search_view.model in TARGETED_TIME_MODELS:
-            continue
-
-        date_fields = _parse_search_arch_date_fields(search_view)
-        for date_field in date_fields:
-            try:
-                _upsert_auto_quick_range_view(env, search_view, date_field)
-            except Exception:
-                _logger.warning(
-                    "tradeline_time_ranges: skipped quick-range extension for view=%s model=%s date_field=%s",
-                    search_view.id,
-                    search_view.model,
-                    date_field,
                     exc_info=True,
                 )
 
