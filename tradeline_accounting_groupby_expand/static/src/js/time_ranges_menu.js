@@ -28,7 +28,9 @@ const RANGE_SUFFIX_ORDER = [
 const COMPARISON_OPTION_ORDER = ["previous_period", "previous_year"];
 
 function isTimeRangesUiEnabled(searchModel) {
-    return Boolean(searchModel?.tradelineTimeRangesUIV2);
+    return Boolean(
+        searchModel?.tradelineTimeRangesUIV2 || searchModel?.tradelineTimeRangesNative
+    );
 }
 
 function getDateFilters(searchModel) {
@@ -344,19 +346,15 @@ export class TradelineTimeRangesShortcut extends Component {
     }
 }
 
-patch(SearchBarMenu, {
-    components: {
-        ...SearchBarMenu.components,
-        TradelineTimeRangesPanel,
-    },
-});
+SearchBarMenu.components = {
+    ...SearchBarMenu.components,
+    TradelineTimeRangesPanel,
+};
 
-patch(SearchBar, {
-    components: {
-        ...SearchBar.components,
-        TradelineTimeRangesShortcut,
-    },
-});
+SearchBar.components = {
+    ...SearchBar.components,
+    TradelineTimeRangesShortcut,
+};
 
 patch(SearchBarMenu.prototype, {
     get filterItems() {

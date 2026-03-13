@@ -69,7 +69,9 @@ patch(SearchModel.prototype, {
         }
         const context = config?.context || {};
         this.tradelineTimeRangesNative = Boolean(context.tradeline_time_ranges_native);
-        this.tradelineTimeRangesUIV2 = Boolean(context.tradeline_time_ranges_ui_v2);
+        this.tradelineTimeRangesUIV2 = Boolean(
+            context.tradeline_time_ranges_ui_v2 || context.tradeline_time_ranges_native
+        );
 
         if (!this.tradelineTimeRangesNative && !this.tradelineTimeRangesUIV2) {
             return;
