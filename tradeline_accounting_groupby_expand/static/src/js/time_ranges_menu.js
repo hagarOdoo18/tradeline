@@ -189,7 +189,7 @@ export class TradelineTimeRangesPanel extends Component {
     }
 
     get canCompare() {
-        return Boolean(this.state.rangeId) && !this.isCustomRange && this.comparisonItems.length > 0;
+        return Boolean(this.state.rangeId) && this.comparisonItems.length > 0;
     }
 
     get canApply() {
@@ -254,16 +254,10 @@ export class TradelineTimeRangesPanel extends Component {
         const activeRangeOption = getActiveRangeOption(dateFilter);
         const defaultRangeOption = getDefaultRangeOption(dateFilter);
         this.state.rangeId = (activeRangeOption || defaultRangeOption)?.id || null;
-        if (String(this.state.rangeId || "").startsWith("custom_")) {
-            this.state.compareEnabled = false;
-        }
     }
 
     onRangeChange(ev) {
         this.state.rangeId = ev.target.value || null;
-        if (this.isCustomRange) {
-            this.state.compareEnabled = false;
-        }
     }
 
     onCompareToggle(ev) {

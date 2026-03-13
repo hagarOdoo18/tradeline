@@ -44,7 +44,7 @@
                     </t>
                 </select>
                 <small class="text-muted d-block mt-1" t-if="isCustomRange">
-                    Comparison is available for non-custom native ranges.
+                    Comparison for custom quick ranges uses previous period/year offsets.
                 </small>
             </div>
 
