@@ -30,6 +30,21 @@ const SUPPORTED_CUSTOM_RANGE_KEYS = [
     "last_quarter",
     "last_year",
 ];
+const CUSTOM_RANGE_LABELS = {
+    last_7_days: "Last 7 Days",
+    last_30_days: "Last 30 Days",
+    last_365_days: "Last 365 Days",
+    today: "Today",
+    this_week: "This Week",
+    this_month: "This Month",
+    this_quarter: "This Quarter",
+    this_year: "This Year",
+    yesterday: "Yesterday",
+    last_week: "Last Week",
+    last_month: "Last Month",
+    last_quarter: "Last Quarter",
+    last_year: "Last Year",
+};
 
 function getActiveComparisonSearchItem(searchModel) {
     for (const queryElem of (searchModel?.query || []).slice().reverse()) {
@@ -153,6 +168,10 @@ function buildIntervalDomain(fieldName, fieldType, interval) {
     ];
 }
 
+function getCustomRangeDescription(rangeKey) {
+    return CUSTOM_RANGE_LABELS[rangeKey] || rangeKey;
+}
+
 function isLegacyTimeFilter(item) {
     const name = item?.name || "";
     if (!name) {
@@ -258,6 +277,30 @@ patch(SearchModel.prototype, {
             comparisonRange: comparisonDomain.toList(),
             comparisonRangeDescription: `${rangeDescription}: ${comparisonLabel}`,
         };
+    },
+
+    _getDateFilterDomain(dateFilter, generatorIds, key = "domain") {
+        const customGeneratorId = (generatorIds || []).find((id) =>
+            String(id).startsWith("custom_")
+        );
+        const customRangeKey = extractCustomRangeKey(customGeneratorId);
+        if (!customRangeKey) {
+            return super._getDateFilterDomain(...arguments);
+        }
+
+        const interval = computeCustomRangeInterval(this.referenceMoment, customRangeKey);
+        if (!interval) {
+            return super._getDateFilterDomain(...arguments);
+        }
+
+        const domain = Domain.and([
+            buildIntervalDomain(dateFilter.fieldName, dateFilter.fieldType, interval),
+            dateFilter.domain || [],
+        ]);
+        if (key === "description") {
+            return getCustomRangeDescription(customRangeKey);
+        }
+        return domain;
     },
 
     async load(config) {

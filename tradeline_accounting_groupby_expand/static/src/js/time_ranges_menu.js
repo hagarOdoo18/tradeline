@@ -26,6 +26,21 @@ const RANGE_SUFFIX_ORDER = [
 ];
 
 const COMPARISON_OPTION_ORDER = ["previous_period", "previous_year"];
+const CUSTOM_RANGE_OPTIONS = [
+    { key: "last_7_days", description: _t("Last 7 Days") },
+    { key: "last_30_days", description: _t("Last 30 Days") },
+    { key: "last_365_days", description: _t("Last 365 Days") },
+    { key: "today", description: _t("Today") },
+    { key: "this_week", description: _t("This Week") },
+    { key: "this_month", description: _t("This Month") },
+    { key: "this_quarter", description: _t("This Quarter") },
+    { key: "this_year", description: _t("This Year") },
+    { key: "yesterday", description: _t("Yesterday") },
+    { key: "last_week", description: _t("Last Week") },
+    { key: "last_month", description: _t("Last Month") },
+    { key: "last_quarter", description: _t("Last Quarter") },
+    { key: "last_year", description: _t("Last Year") },
+];
 
 function isTimeRangesUiEnabled(searchModel) {
     return Boolean(
@@ -51,9 +66,37 @@ function getDateFilters(searchModel) {
     return deduped;
 }
 
-function getSelectableRangeOptions(dateFilter) {
-    const options = dateFilter?.options || [];
-    return options.filter((option) => !String(option.id || "").startsWith("custom_"));
+function getActiveGeneratorIds(searchModel, dateFilterId) {
+    return (searchModel?.query || [])
+        .filter(
+            (queryElem) =>
+                queryElem.searchItemId === dateFilterId && "generatorId" in queryElem
+        )
+        .map((queryElem) => queryElem.generatorId);
+}
+
+function getCustomRangeOptions(searchModel, dateFilter) {
+    const activeGeneratorIds = new Set(getActiveGeneratorIds(searchModel, dateFilter?.id));
+    return CUSTOM_RANGE_OPTIONS.map((item, index) => {
+        const id = `custom_${item.key}`;
+        return {
+            id,
+            description: item.description,
+            isActive: activeGeneratorIds.has(id),
+            groupNumber: -100 - index,
+        };
+    });
+}
+
+function getSelectableRangeOptions(dateFilter, searchModel) {
+    const nativeOptions = (dateFilter?.options || []).filter(
+        (option) => !String(option.id || "").startsWith("custom_")
+    );
+    const nativeIds = new Set(nativeOptions.map((option) => option.id));
+    const customOptions = getCustomRangeOptions(searchModel, dateFilter).filter(
+        (option) => !nativeIds.has(option.id)
+    );
+    return [...customOptions, ...nativeOptions];
 }
 
 function hasSearchMenuType(searchModel, type) {
@@ -108,8 +151,10 @@ function getRangeRank(optionId) {
     return RANGE_SUFFIX_ORDER.length + 100;
 }
 
-function getActiveRangeOption(dateFilter) {
-    const activeOptions = getSelectableRangeOptions(dateFilter).filter((option) => option.isActive);
+function getActiveRangeOption(dateFilter, searchModel) {
+    const activeOptions = getSelectableRangeOptions(dateFilter, searchModel).filter(
+        (option) => option.isActive
+    );
     if (!activeOptions.length) {
         return null;
     }
@@ -117,8 +162,8 @@ function getActiveRangeOption(dateFilter) {
     return nonYearOption || activeOptions[0];
 }
 
-function getDefaultRangeOption(dateFilter) {
-    const options = getSelectableRangeOptions(dateFilter);
+function getDefaultRangeOption(dateFilter, searchModel) {
+    const options = getSelectableRangeOptions(dateFilter, searchModel);
     if (!options.length) {
         return null;
     }
@@ -189,7 +234,7 @@ export class TradelineTimeRangesPanel extends Component {
         if (!dateFilter) {
             return [];
         }
-        return [...getSelectableRangeOptions(dateFilter)].sort((left, right) => {
+        return [...getSelectableRangeOptions(dateFilter, this.searchModel)].sort((left, right) => {
             const leftRank = getRangeRank(String(left.id));
             const rightRank = getRangeRank(String(right.id));
             if (leftRank !== rightRank) {
@@ -258,9 +303,11 @@ export class TradelineTimeRangesPanel extends Component {
             dateFilters.find((item) => item.id === this.state.basedOnId) || activeDateFilter;
         this.state.basedOnId = selectedDateFilter.id;
 
-        const activeRangeOption = getActiveRangeOption(selectedDateFilter);
-        const defaultRangeOption = getDefaultRangeOption(selectedDateFilter);
-        const availableRangeIds = new Set((selectedDateFilter.options || []).map((o) => o.id));
+        const activeRangeOption = getActiveRangeOption(selectedDateFilter, this.searchModel);
+        const defaultRangeOption = getDefaultRangeOption(selectedDateFilter, this.searchModel);
+        const availableRangeIds = new Set(
+            getSelectableRangeOptions(selectedDateFilter, this.searchModel).map((option) => option.id)
+        );
         if (
             !this.state.rangeId ||
             !availableRangeIds.has(this.state.rangeId) ||
@@ -270,11 +317,7 @@ export class TradelineTimeRangesPanel extends Component {
         }
 
         const activeComparison = findActiveComparison(this.searchModel);
-        if (
-            activeComparison &&
-            activeComparison.dateFilterId === selectedDateFilter.id &&
-            !String(this.state.rangeId || "").startsWith("custom_")
-        ) {
+        if (activeComparison && activeComparison.dateFilterId === selectedDateFilter.id) {
             this.state.compareEnabled = true;
             this.state.compareMode =
                 activeComparison.comparisonOptionId || COMPARISON_OPTION_ORDER[0];
@@ -290,8 +333,8 @@ export class TradelineTimeRangesPanel extends Component {
         const basedOnId = parseIntegerId(ev.target.value);
         this.state.basedOnId = basedOnId;
         const dateFilter = this.dateFilters.find((item) => item.id === basedOnId);
-        const activeRangeOption = getActiveRangeOption(dateFilter);
-        const defaultRangeOption = getDefaultRangeOption(dateFilter);
+        const activeRangeOption = getActiveRangeOption(dateFilter, this.searchModel);
+        const defaultRangeOption = getDefaultRangeOption(dateFilter, this.searchModel);
         this.state.rangeId = (activeRangeOption || defaultRangeOption)?.id || null;
     }
 
@@ -308,11 +351,12 @@ export class TradelineTimeRangesPanel extends Component {
     }
 
     clearActiveDateFilters() {
-        for (const dateFilter of getDateFilters(this.searchModel)) {
-            const activeOptions = (dateFilter.options || []).filter((option) => option.isActive);
-            for (const option of activeOptions) {
-                this.searchModel.toggleDateFilter(dateFilter.id, option.id);
+        for (const queryElem of [...(this.searchModel.query || [])]) {
+            const searchItem = this.searchModel.searchItems?.[queryElem.searchItemId];
+            if (searchItem?.type !== "dateFilter" || !("generatorId" in queryElem)) {
+                continue;
             }
+            this.searchModel.toggleDateFilter(searchItem.id, queryElem.generatorId);
         }
     }
 
