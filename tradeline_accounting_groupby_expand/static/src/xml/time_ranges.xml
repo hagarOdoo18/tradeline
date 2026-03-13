@@ -72,10 +72,53 @@
         </Dropdown>
     </t>
 
+    <t t-name="tradeline_accounting_groupby_expand.GroupByShortcut">
+        <Dropdown t-if="isVisible"
+                  menuClass="'o_tradeline_group_by_shortcut_dropdown p-2'"
+                  position="'bottom-end'"
+                  state="dropdownState">
+            <button class="btn btn-outline-secondary d-print-none o_tradeline_group_by_shortcut"
+                    title="Group By">
+                <i class="fa fa-bars"/>
+            </button>
+            <t t-set-slot="content">
+                <div class="o_tradeline_group_by_shortcut_content">
+                    <div class="px-2 pt-1 pb-2 fw-bold">Group By</div>
+                    <t t-foreach="groupByItems" t-as="item" t-key="item.id">
+                        <t t-if="item.options">
+                            <div class="o_tradeline_group_by_item mb-2">
+                                <div class="small fw-semibold px-2 pb-1" t-esc="item.description"/>
+                                <div class="o_tradeline_group_by_options">
+                                    <t t-foreach="item.options" t-as="option" t-key="option.id">
+                                        <button type="button"
+                                                class="btn btn-sm w-100 text-start mb-1"
+                                                t-att-class="option.isActive ? 'btn-primary' : 'btn-light'"
+                                                t-on-click="() => this.onGroupBySelected(item, option.id)">
+                                            <t t-esc="option.description"/>
+                                        </button>
+                                    </t>
+                                </div>
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <button type="button"
+                                    class="btn btn-sm w-100 text-start mb-1"
+                                    t-att-class="item.isActive ? 'btn-primary' : 'btn-light'"
+                                    t-on-click="() => this.onGroupBySelected(item)">
+                                <t t-esc="item.description"/>
+                            </button>
+                        </t>
+                    </t>
+                </div>
+            </t>
+        </Dropdown>
+    </t>
+
     <t t-name="tradeline_accounting_groupby_expand.SearchBarExtension"
        t-inherit="web.SearchBar"
        t-inherit-mode="extension">
         <xpath expr="//SearchBarMenu" position="before">
+            <TradelineGroupByShortcut/>
             <t t-if="showTradelineTimeRangesShortcut">
                 <TradelineTimeRangesShortcut/>
             </t>

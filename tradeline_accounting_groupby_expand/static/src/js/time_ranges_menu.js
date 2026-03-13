@@ -40,6 +40,29 @@ function getDateFilters(searchModel) {
     return searchModel.getSearchItems((item) => item.type === "dateFilter");
 }
 
+function hasSearchMenuType(searchModel, type) {
+    const menuTypes = searchModel?.searchMenuTypes;
+    if (!menuTypes) {
+        return false;
+    }
+    if (typeof menuTypes.has === "function") {
+        return menuTypes.has(type);
+    }
+    if (Array.isArray(menuTypes)) {
+        return menuTypes.includes(type);
+    }
+    return false;
+}
+
+function getGroupByItems(searchModel) {
+    if (!searchModel || typeof searchModel.getSearchItems !== "function") {
+        return [];
+    }
+    return searchModel.getSearchItems(
+        (item) => ["groupBy", "dateGroupBy"].includes(item.type) && !item.isProperty
+    );
+}
+
 function getRawSearchItems(searchModel) {
     return Object.values(searchModel?.searchItems || {});
 }
@@ -340,6 +363,40 @@ export class TradelineTimeRangesShortcut extends Component {
     }
 }
 
+export class TradelineGroupByShortcut extends Component {
+    static template = "tradeline_accounting_groupby_expand.GroupByShortcut";
+    static components = {
+        Dropdown,
+    };
+
+    setup() {
+        this.dropdownState = useDropdownState();
+        useBus(this.env.searchModel, "update", this.render);
+    }
+
+    get isVisible() {
+        const searchModel = this.env.searchModel;
+        return Boolean(
+            isTimeRangesUiEnabled(searchModel) &&
+                hasSearchMenuType(searchModel, "groupBy") &&
+                getDateFilters(searchModel).length > 0 &&
+                this.groupByItems.length
+        );
+    }
+
+    get groupByItems() {
+        return getGroupByItems(this.env.searchModel);
+    }
+
+    onGroupBySelected(item, optionId = null) {
+        if (optionId) {
+            this.env.searchModel.toggleDateGroupBy(item.id, optionId);
+            return;
+        }
+        this.env.searchModel.toggleSearchItem(item.id);
+    }
+}
+
 SearchBarMenu.components = {
     ...SearchBarMenu.components,
     TradelineTimeRangesPanel,
@@ -348,6 +405,7 @@ SearchBarMenu.components = {
 SearchBar.components = {
     ...SearchBar.components,
     TradelineTimeRangesShortcut,
+    TradelineGroupByShortcut,
 };
 
 patch(SearchBarMenu.prototype, {
@@ -366,7 +424,7 @@ patch(SearchBarMenu.prototype, {
             return false;
         }
         return (
-            this.env.searchModel.searchMenuTypes.has("comparison") &&
+            hasSearchMenuType(this.env.searchModel, "comparison") &&
             this.env.searchModel.getSearchItems((item) => item.type === "comparison").length > 0
         );
     },
@@ -374,7 +432,7 @@ patch(SearchBarMenu.prototype, {
     get showTimeRangesMenu() {
         return (
             isTimeRangesUiEnabled(this.env.searchModel) &&
-            this.env.searchModel.searchMenuTypes.has("filter") &&
+            hasSearchMenuType(this.env.searchModel, "filter") &&
             getDateFilters(this.env.searchModel).length > 0
         );
     },
