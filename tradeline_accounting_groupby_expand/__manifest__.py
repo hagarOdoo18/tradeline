@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Accounting GroupBy Expand",
     "summary": "Expand Group By options for targeted accounting reports",
-    "version": "18.0.1.7.0",
+    "version": "18.0.1.8.0",
     "category": "Accounting",
     "author": "Tradeline",
     "license": "LGPL-3",
@@ -20,6 +20,9 @@
     "assets": {
         "web.assets_backend": [
             "tradeline_accounting_groupby_expand/static/src/js/hide_custom_groupby.js",
+            "tradeline_accounting_groupby_expand/static/src/js/time_ranges_menu.js",
+            "tradeline_accounting_groupby_expand/static/src/xml/time_ranges.xml",
+            "tradeline_accounting_groupby_expand/static/src/scss/time_ranges.scss",
         ],
     },
     "post_init_hook": "post_init_hook",

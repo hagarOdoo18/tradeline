@@ -33,6 +33,73 @@ RANGE_SUFFIX_MAP = {
     "last_30_days": "last_30_days",
     "last_365_days": "last_365_days",
 }
+AUTO_RANGE_PRESETS = (
+    (
+        "last_7_days",
+        "Last 7 Days",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=6)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_30_days",
+        "Last 30 Days",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=29)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_365_days",
+        "Last 365 Days",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=364)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "today",
+        "Today",
+        "[('{field}', '&gt;=', context_today().strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "this_week",
+        "This Week",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=context_today().weekday())).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "this_month",
+        "This Month",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "this_quarter",
+        "This Quarter",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "this_year",
+        "This Year",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(month=1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', context_today().strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "yesterday",
+        "Yesterday",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() - relativedelta(days=1)).strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_week",
+        "Last Week",
+        "[('{field}', '&gt;=', (context_today() - relativedelta(days=context_today().weekday() + 7)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() - relativedelta(days=context_today().weekday() + 1)).strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_month",
+        "Last Month",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(months=-1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(day=1, days=-1)).strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_quarter",
+        "Last Quarter",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1, months=-3)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(month=((context_today().month - 1) // 3) * 3 + 1, day=1, days=-1)).strftime('%%Y-%%m-%%d'))]",
+    ),
+    (
+        "last_year",
+        "Last Year",
+        "[('{field}', '&gt;=', (context_today() + relativedelta(years=-1, month=1, day=1)).strftime('%%Y-%%m-%%d')), ('{field}', '&lt;=', (context_today() + relativedelta(years=-1, month=12, day=31)).strftime('%%Y-%%m-%%d'))]",
+    ),
+)
 FILTER_NAME_BY_MODEL_AND_FIELD = {
     "account.invoice.report": {
         "invoice_date": "tradeline_invoice_date",
@@ -175,7 +242,13 @@ def _collect_groupby_actions(env):
     return actions.exists()
 
 
-def _merge_action_context(action, enable_groupby=False, enable_branch_alpha=False, enable_native_time=False):
+def _merge_action_context(
+    action,
+    enable_groupby=False,
+    enable_branch_alpha=False,
+    enable_native_time=False,
+    enable_time_ui_v2=False,
+):
     parsed_context = _safe_context_dict(action.context, action.env)
     if parsed_context is None:
         return False
@@ -190,6 +263,9 @@ def _merge_action_context(action, enable_groupby=False, enable_branch_alpha=Fals
     if enable_native_time and not parsed_context.get("tradeline_time_ranges_native"):
         parsed_context["tradeline_time_ranges_native"] = True
         changed = True
+    if enable_time_ui_v2 and not parsed_context.get("tradeline_time_ranges_ui_v2"):
+        parsed_context["tradeline_time_ranges_ui_v2"] = True
+        changed = True
 
     for key in DEPRECATED_TIME_FLAGS:
         if key in parsed_context:
@@ -201,16 +277,22 @@ def _merge_action_context(action, enable_groupby=False, enable_branch_alpha=Fals
     return changed
 
 
+def _build_auto_range_options_xml(date_field, prefix):
+    snippets = []
+    for suffix, label, domain_template in AUTO_RANGE_PRESETS:
+        domain = domain_template.format(field=date_field)
+        snippets.append(
+            f"""        <filter name="{prefix}_{suffix}" string="{label}" domain="{domain}"/>"""
+        )
+    return "\n".join(snippets)
+
+
 def _build_auto_quick_range_arch(date_field, prefix):
+    options_xml = _build_auto_range_options_xml(date_field, prefix)
     return f"""
 <data>
     <xpath expr="//search/filter[@date='{date_field}'][1]" position="inside">
-        <filter name="{prefix}_last_7_days" string="Last 7 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=6)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
-        <filter name="{prefix}_last_30_days" string="Last 30 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=29)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
-        <filter name="{prefix}_last_365_days" string="Last 365 Days"
-                domain="[(\'{date_field}\', \'&gt;=\', (context_today() - relativedelta(days=364)).strftime(\'%%Y-%%m-%%d\')), (\'{date_field}\', \'&lt;=\', context_today().strftime(\'%%Y-%%m-%%d\'))]"/>
+{options_xml}
     </xpath>
 </data>
 """.strip()
@@ -387,7 +469,7 @@ def sync_native_time_ranges(env):
     for action in reporting_actions:
         if action.res_model:
             models_to_scan.add(action.res_model)
-        _merge_action_context(action, enable_native_time=True)
+        _merge_action_context(action, enable_native_time=True, enable_time_ui_v2=True)
 
         if action.res_model in TARGETED_TIME_MODELS:
             continue
@@ -433,7 +515,13 @@ def sync_native_time_ranges(env):
                 )
 
     for action in groupby_actions:
-        _merge_action_context(action, enable_groupby=True, enable_branch_alpha=True)
+        _merge_action_context(
+            action,
+            enable_groupby=True,
+            enable_branch_alpha=True,
+            enable_native_time=True,
+            enable_time_ui_v2=True,
+        )
 
     if models_to_scan:
         _migrate_legacy_favorites(env, models_to_scan)

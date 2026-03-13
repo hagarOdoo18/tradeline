@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="tradeline_accounting_groupby_expand.TimeRangesPanel">
+        <div class="o_tradeline_time_ranges_panel" t-att-class="{'o_tradeline_time_ranges_panel_inside': props.mode === 'inside'}">
+            <div class="mb-2">
+                <label class="form-label fw-bold mb-1">Based On</label>
+                <select class="form-select form-select-sm" t-on-change="onBasedOnChange">
+                    <t t-foreach="dateFilters" t-as="dateFilter" t-key="dateFilter.id">
+                        <option t-att-value="dateFilter.id"
+                                t-att-selected="dateFilter.id === state.basedOnId"
+                                t-esc="dateFilter.description"/>
+                    </t>
+                </select>
+            </div>
+
+            <div class="mb-2">
+                <label class="form-label fw-bold mb-1">Range</label>
+                <select class="form-select form-select-sm" t-on-change="onRangeChange">
+                    <t t-foreach="rangeOptions" t-as="rangeOption" t-key="rangeOption.id">
+                        <option t-att-value="rangeOption.id"
+                                t-att-selected="rangeOption.id === state.rangeId"
+                                t-esc="rangeOption.description"/>
+                    </t>
+                </select>
+            </div>
+
+            <div class="mb-2">
+                <div class="form-check mb-1">
+                    <input class="form-check-input"
+                           type="checkbox"
+                           t-att-checked="state.compareEnabled"
+                           t-att-disabled="!canCompare"
+                           t-on-change="onCompareToggle"/>
+                    <label class="form-check-label">Compare To</label>
+                </div>
+                <select class="form-select form-select-sm"
+                        t-att-disabled="!state.compareEnabled || !canCompare"
+                        t-on-change="onCompareModeChange">
+                    <t t-foreach="comparisonItems" t-as="comparisonItem" t-key="comparisonItem.id">
+                        <option t-att-value="comparisonItem.comparisonOptionId"
+                                t-att-selected="comparisonItem.comparisonOptionId === state.compareMode"
+                                t-esc="comparisonItem.shortDescription"/>
+                    </t>
+                </select>
+                <small class="text-muted d-block mt-1" t-if="isCustomRange">
+                    Comparison is available for non-custom native ranges.
+                </small>
+            </div>
+
+            <button type="button"
+                    class="btn btn-primary btn-sm w-100"
+                    t-att-disabled="!canApply"
+                    t-on-click="applySelection">
+                Apply
+            </button>
+        </div>
+    </t>
+
+    <t t-name="tradeline_accounting_groupby_expand.TimeRangesShortcut">
+        <Dropdown t-if="isVisible"
+                  menuClass="'o_tradeline_time_ranges_shortcut_dropdown p-3'"
+                  position="'bottom-end'"
+                  state="dropdownState">
+            <button class="btn btn-outline-secondary d-print-none o_tradeline_time_ranges_shortcut">
+                <i class="fa fa-calendar me-1"/>
+                <span t-esc="buttonLabel"/>
+            </button>
+            <t t-set-slot="content">
+                <TradelineTimeRangesPanel mode="'outside'" onApplied.bind="onApplied"/>
+            </t>
+        </Dropdown>
+    </t>
+
+    <t t-name="tradeline_accounting_groupby_expand.SearchBarExtension"
+       t-inherit="web.SearchBar"
+       t-inherit-mode="extension">
+        <xpath expr="//SearchBarMenu" position="before">
+            <t t-if="showTradelineTimeRangesShortcut">
+                <TradelineTimeRangesShortcut/>
+            </t>
+        </xpath>
+    </t>
+
+    <t t-name="tradeline_accounting_groupby_expand.SearchBarMenuExtension"
+       t-inherit="web.SearchBarMenu"
+       t-inherit-mode="extension">
+        <xpath expr="//t[@t-slot='default']" position="before">
+            <t t-if="showTimeRangesMenu">
+                <div class="o_dropdown_container o_tradeline_time_ranges_menu w-100 w-lg-auto h-100 px-3 mb-4 mb-lg-0 border-end">
+                    <div class="px-3 fs-5 mb-2">
+                        <i class="me-2 text-primary fa fa-calendar"/>
+                        <h5 class="o_dropdown_title d-inline">Time Ranges</h5>
+                    </div>
+                    <TradelineTimeRangesPanel mode="'inside'" onApplied.bind="onTimeRangesApplied"/>
+                </div>
+            </t>
+        </xpath>
+    </t>
+
+</templates>

@@ -1,0 +1,36 @@
+.o_cp_searchview {
+    .o_tradeline_time_ranges_shortcut {
+        border-radius: 0;
+        border-left-width: 0;
+    }
+}
+
+.o_tradeline_time_ranges_shortcut_dropdown {
+    min-width: 18rem;
+}
+
+.o_tradeline_time_ranges_panel {
+    min-width: 16rem;
+}
+
+.o_tradeline_time_ranges_panel_inside {
+    width: 100%;
+    min-width: 15rem;
+}
+
+.o_search_bar_menu .o_tradeline_time_ranges_menu {
+    min-width: 19rem;
+}
+
+@media (max-width: 991.98px) {
+    .o_cp_searchview .o_tradeline_time_ranges_shortcut {
+        border-left-width: 1px;
+        border-radius: 0.25rem;
+        margin-top: 0.5rem;
+    }
+
+    .o_search_bar_menu .o_tradeline_time_ranges_menu {
+        border-right: 0 !important;
+        margin-bottom: 1rem;
+    }
+}
