@@ -67,10 +67,16 @@ patch(SearchModel.prototype, {
         if (config?.context?.tradeline_groupby_expanded) {
             this.hideCustomGroupBy = true;
         }
+        const forcedUiModels = new Set(["account.invoice.report", "account.move.line"]);
+        const forceUiByModel = forcedUiModels.has(config?.resModel);
         const context = config?.context || {};
-        this.tradelineTimeRangesNative = Boolean(context.tradeline_time_ranges_native);
+        this.tradelineTimeRangesNative = Boolean(
+            context.tradeline_time_ranges_native || forceUiByModel
+        );
         this.tradelineTimeRangesUIV2 = Boolean(
-            context.tradeline_time_ranges_ui_v2 || context.tradeline_time_ranges_native
+            context.tradeline_time_ranges_ui_v2 ||
+                context.tradeline_time_ranges_native ||
+                forceUiByModel
         );
 
         if (!this.tradelineTimeRangesNative && !this.tradelineTimeRangesUIV2) {
