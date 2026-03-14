@@ -342,6 +342,13 @@ class TransferRequest(models.Model):
             self.transfer_ids = [(6,0, [self.create_first_transfer(),self.create_second_transfer()])]
 
             self.state = 'create'
+            self._tradeline_refresh_source_documents()
+
+    def _tradeline_refresh_source_documents(self):
+        for request in self:
+            request.transfer_ids.filtered(
+                lambda transfer: transfer.picking_type_code == 'internal' and transfer.request_id
+            )._tradeline_update_source_document_from_chain()
 
     def approve_request(self):
         if self.lines:
@@ -404,6 +411,7 @@ class TransferRequest(models.Model):
         for transfer in self.transfer_ids:
             transfer.action_cancel()
             break
+        self._tradeline_refresh_source_documents()
 
     def unlink(self):
         # Add code here
@@ -432,6 +440,47 @@ class StockPicking(models.Model):
         selection=[('only', 'Only Transfer'),
                    ('request', 'Transfer And Request'), ],default='request',
         required=False, )
+
+    @api.model
+    def _tradeline_join_source_document_refs(self, references):
+        ordered_refs = []
+        seen = set()
+        for reference in references:
+            if not reference:
+                continue
+            reference = str(reference).strip()
+            if not reference or reference in seen:
+                continue
+            seen.add(reference)
+            ordered_refs.append(reference)
+        return ",".join(ordered_refs)
+
+    def _tradeline_get_chain_source_document_refs(self):
+        self.ensure_one()
+        if not self.request_id or self.picking_type_code != 'internal':
+            return []
+
+        related_transfers = self.request_id.transfer_ids.filtered(
+            lambda transfer: transfer.id != self.id and transfer.picking_type_code == 'internal'
+        )
+        previous_transfers = related_transfers.filtered(
+            lambda transfer: transfer.location_dest_id.id == self.location_id.id
+        )
+        next_transfers = related_transfers.filtered(
+            lambda transfer: transfer.location_id.id == self.location_dest_id.id
+        )
+        linked_transfers = (previous_transfers | next_transfers).sorted(lambda transfer: transfer.id)
+        return [transfer.name for transfer in linked_transfers if transfer.name]
+
+    def _tradeline_update_source_document_from_chain(self):
+        for rec in self:
+            if not rec.request_id or rec.picking_type_code != 'internal':
+                continue
+            source_document = rec._tradeline_join_source_document_refs(
+                rec._tradeline_get_chain_source_document_refs()
+            )
+            if rec.origin != source_document:
+                rec.origin = source_document
 
 
     def button_validate(self):
@@ -493,6 +542,8 @@ class StockPicking(models.Model):
                             raise UserError("check serials")
             for order in rec.backorder_ids:
                 rec.request_id.sudo().transfer_ids = [(4,order.id)]
+            if rec.request_id:
+                rec.request_id._tradeline_refresh_source_documents()
 
             if rec.request_id.from_location == rec.location_id:
                 for state in rec.request_id.sudo().transfer_ids.mapped('state'):
@@ -536,10 +587,17 @@ class StockPicking(models.Model):
 
 
     def action_cancel(self):
+        return_cancel_next = bool(self.env.context.get('tradeline_return_cancel_next'))
         res = super(StockPicking, self).action_cancel()
         for rec in self:
+            if return_cancel_next:
+                if rec.request_id:
+                    rec.request_id._tradeline_refresh_source_documents()
+                continue
             if rec.cancel_options == 'only':
-                return res
+                if rec.request_id:
+                    rec.request_id._tradeline_refresh_source_documents()
+                continue
             for transfer in rec.request_id.transfer_ids:
                 if transfer.state == 'done':
                     if rec.backorder_id:
@@ -549,6 +607,8 @@ class StockPicking(models.Model):
                     transfer.action_cancel()
             if rec.request_id and rec.request_id.state!='cancel' :
                 rec.request_id.action_cancel()
+            if rec.request_id:
+                rec.request_id._tradeline_refresh_source_documents()
         return  res
 
     @api.onchange('backorder_ids')

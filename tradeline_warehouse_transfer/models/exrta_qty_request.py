@@ -25,3 +25,4 @@ class CancelReason(models.TransientModel):
         self.request_id.transfer_ids = [(6,0, [self.request_id.create_first_transfer(),self.request_id.create_second_transfer()])]
         self.request_id.state = 'approved'
         self.request_id.transfers_count = 2
+        self.request_id._tradeline_refresh_source_documents()
