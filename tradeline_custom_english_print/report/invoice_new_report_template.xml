@@ -60,6 +60,7 @@
             <t t-call="web.html_container">
             <t t-call="tradeline_custom_english_print.external_layout_standard_custom">
             <t t-set="o" t-value="o.with_context(lang='en_US')"/>
+            <t t-set="print_summary" t-value="o.get_print_lines_summary()"/>
 
 
             <div class="page" style="font-size:30px;">
@@ -228,7 +229,7 @@
 
                 <tbody class="invoice_tbody">
                             <t t-set="current_subtotal" t-value="0"/>
-                                <t t-set="lines" t-value="o.invoice_line_ids.sorted(key=lambda l: (-l.sequence, l.date, l.move_name, -l.id), reverse=True)"/>
+                                <t t-set="lines" t-value="print_summary['printed_lines']"/>
 
                             <t t-foreach="lines" t-as="line">
 
@@ -298,20 +299,22 @@
                                     <tr class="border-black o_subtotal" style="">
                                         <td><strong>Untaxed Amount </strong></td>
                                            <td class="text-right">
-                                            <span t-field="o.amount_untaxed"/>
+                                            <span t-out="print_summary['printed_untaxed']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
                                         </td>
 
                                     </tr>
-                             <t t-if="o.tax_totals.get('display_in_company_currency')">
-                                    <t t-set="tax_totals" t-value="o.tax_totals"/>
-                                    <t t-call="account.document_tax_totals_company_currency_template"/>
-                                </t>
+                                    <tr class="border-black o_subtotal">
+                                        <td><strong>Tax</strong></td>
+                                        <td class="text-right">
+                                            <span t-out="print_summary['printed_tax']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
+                                        </td>
+                                    </tr>
 
 
                                     <tr class="border-black o_total">
                                         <td><strong>Total</strong></td>
                                         <td class="text-right">
-                                            <span t-field="o.amount_total"/>
+                                            <span t-out="print_summary['printed_total']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
                                         </td>
                                     </tr>
                                 </table>
@@ -320,8 +323,8 @@
                 </div>
                 <br/>
 
-`                <p class="text-right" t-if="o.get_gift_invoice()==false">
-                    <t t-esc="o.currency_id.en_amount_to_text(o.amount_total)"/>
+                <p class="text-right" t-if="o.get_gift_invoice()==false">
+                    <t t-esc="print_summary['printed_amount_words_en']"/>
                 </p>
 
                 <t t-if="o.get_grouped_lot_values()">
