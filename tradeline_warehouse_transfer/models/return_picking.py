@@ -45,6 +45,15 @@ class StockReturnPicking(models.TransientModel):
             and transfer.location_id.id == picking.location_dest_id.id
         )
 
+    def _tradeline_get_next_move_transfers(self, picking):
+        if not picking or picking.picking_type_code != 'internal':
+            return self.env['stock.picking']
+        return picking.move_ids_without_package.mapped('move_dest_ids.picking_id').filtered(
+            lambda transfer: transfer.id != picking.id
+            and transfer.picking_type_code == 'internal'
+            and transfer.company_id.id == picking.company_id.id
+        )
+
     def _tradeline_get_next_origin_transfers(self, picking):
         if not picking or picking.picking_type_code != 'internal':
             return self.env['stock.picking']
@@ -81,9 +90,9 @@ class StockReturnPicking(models.TransientModel):
 
     def _tradeline_get_next_transfers(self, picking):
         next_transfers = self._tradeline_get_next_request_transfers(picking)
-        if next_transfers:
-            return next_transfers
-        return self._tradeline_get_next_origin_transfers(picking)
+        next_transfers |= self._tradeline_get_next_move_transfers(picking)
+        next_transfers |= self._tradeline_get_next_origin_transfers(picking)
+        return next_transfers.filtered(lambda transfer: transfer.id != picking.id)
 
     def create_returns(self):
         if self.env.context.get('tradeline_return_hook_handled'):
@@ -102,6 +111,16 @@ class StockReturnPicking(models.TransientModel):
         result = super(StockReturnPicking, self.with_context(
             tradeline_return_hook_handled=True
         ))._create_returns()
+        self._tradeline_apply_return_chain(request, next_transfers)
+        return result
+
+    def _create_return(self):
+        if self.env.context.get('tradeline_return_hook_handled'):
+            return super()._create_return()
+        request, next_transfers = self._tradeline_prepare_return_chain()
+        result = super(StockReturnPicking, self.with_context(
+            tradeline_return_hook_handled=True
+        ))._create_return()
         self._tradeline_apply_return_chain(request, next_transfers)
         return result
 
