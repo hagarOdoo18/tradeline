@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend the standard pricelist form to add the Import button -->
+    <record id="view_product_pricelist_form_import_btn" model="ir.ui.view">
+        <field name="name">product.pricelist.form.iport.button</field>
+        <field name="model">product.pricelist</field>
+        <field name="inherit_id" ref="product.product_pricelist_view"/>
+        <field name="arch" type="xml">
+
+            <!-- Add an "Import Items" button next to the existing header buttons -->
+            <xpath expr="//header" position="inside">
+                <button name="%(pricelist_import_wizard.action_pricelist_import_wizard)d" string="Import Items" type="action" class="oe_stat_button" icon="fa-upload"/>
+
+            </xpath>
+
+        </field>
+    </record>
+</odoo>
