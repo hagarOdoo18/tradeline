@@ -40,10 +40,19 @@ patch(PaymentScreen.prototype, {
     },
 
      async _isOrderValid(isForceValidate) {
+        const order = this.currentOrder;
+        const currentPartner = order.get_partner();
+        const total = order.get_total_with_tax();
 
-        const currentPartner = this.currentOrder.get_partner();
-        const total =  this.currentOrder.get_total_with_tax();
-        if ( !currentPartner.vat && currentPartner.company_type  == 'person' && total >= 15000 ) {
+        if (!order.sales_rep_id) {
+            this.dialog.add(AlertDialog, {
+                title: ("Missing Field"),
+                body: ("Sales Representative is required."),
+            });
+            return false;
+        }
+
+        if (currentPartner && !currentPartner.vat && currentPartner.company_type == 'person' && total >= 15000) {
 
             this.dialog.add(AlertDialog, {
                 title: ("Missing Field"),
@@ -52,7 +61,7 @@ patch(PaymentScreen.prototype, {
              this.pos.editPartner(currentPartner);
             return false;
         }
-        if ( !currentPartner.vat && currentPartner.company_type  == 'company' ) {
+        if (currentPartner && !currentPartner.vat && currentPartner.company_type == 'company') {
 
             this.dialog.add(AlertDialog, {
                 title: ("Missing Field"),
@@ -61,16 +70,16 @@ patch(PaymentScreen.prototype, {
              this.pos.editPartner(currentPartner);
             return false;
         }
-        if (
+        if (currentPartner && (
             !(currentPartner.name && currentPartner.street && currentPartner.city && currentPartner.country_id && currentPartner.state_id)
-        ) {
+        )) {
             this.dialog.add(AlertDialog, {
                 title: ("Incorrect address for shipping"),
                 body: ("The selected customer needs an address."),
             });
             return false;
         }
-                return true;
+        return await super._isOrderValid(...arguments);
 
     },
 });

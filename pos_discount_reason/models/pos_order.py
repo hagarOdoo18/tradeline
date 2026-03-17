@@ -1,5 +1,6 @@
 # models/pos_order.py
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 
 class PosOrder(models.Model):
@@ -21,6 +22,7 @@ class PosOrder(models.Model):
     sales_rep_id = fields.Many2one(
         'sales.rep',
         string='Sales Representative',
+        required=True,
         help='Employee who made this sale'
     )
 
@@ -37,9 +39,12 @@ class PosOrder(models.Model):
         if ui_order.get('as_gift'):
             order_fields['as_gift'] = ui_order['as_gift']
 
-        # Add sales rep from UI order
-        if ui_order.get('sales_rep_id'):
-            order_fields['sales_rep_id'] = ui_order['sales_rep_id']
+        sales_rep_id = ui_order.get('sales_rep_id')
+        if isinstance(sales_rep_id, dict):
+            sales_rep_id = sales_rep_id.get('id')
+        if not sales_rep_id:
+            raise UserError(_("Sales Representative is required before validating the order."))
+        order_fields['sales_rep_id'] = sales_rep_id
 
         return order_fields
 

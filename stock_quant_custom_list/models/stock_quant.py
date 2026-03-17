@@ -18,6 +18,13 @@ class StockQuant(models.Model):
         store=True,
         readonly=True
     )
+    sub_categ_id = fields.Many2one(
+        'sub.category',
+        string='Sub Category',
+        related='product_id.product_tmpl_id.sub_categ_id',
+        store=True,
+        readonly=True
+    )
     default_code = fields.Char(
         string='Item Code',
         related='product_id.barcode',

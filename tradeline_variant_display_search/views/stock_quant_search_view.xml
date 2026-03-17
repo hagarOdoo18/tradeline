@@ -15,6 +15,9 @@
                 <xpath expr="//search/field[@name='product_id'][1]" position="before">
                     <xpath expr="//search/field[@name='product_search_text'][1]" position="move"/>
                 </xpath>
+                <xpath expr="//search/field[@name='product_categ_id' or @name='category_id'][1]" position="after">
+                    <field name="sub_categ_id" string="Sub Category"/>
+                </xpath>
             </field>
         </record>
 
