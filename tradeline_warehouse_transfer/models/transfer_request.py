@@ -460,17 +460,30 @@ class StockPicking(models.Model):
         if not self.request_id or self.picking_type_code != 'internal':
             return []
 
-        related_transfers = self.request_id.transfer_ids.filtered(
-            lambda transfer: transfer.id != self.id and transfer.picking_type_code == 'internal'
+        # Prefer explicit stock move links to avoid broad location-based matches.
+        linked_previous = self.move_ids_without_package.mapped('move_orig_ids.picking_id').filtered(
+            lambda transfer: transfer.id != self.id
+            and transfer.picking_type_code == 'internal'
+            and transfer.company_id.id == self.company_id.id
+            and transfer.name
         )
-        previous_transfers = related_transfers.filtered(
-            lambda transfer: transfer.location_dest_id.id == self.location_id.id
+        if linked_previous:
+            source_transfer = linked_previous.sorted(lambda transfer: transfer.id)[0]
+            return [source_transfer.name]
+
+        # Fallback for legacy data where move links are missing: use only the closest
+        # previous transfer in the same request (same handover location), never next transfers.
+        previous_transfers = self.request_id.transfer_ids.filtered(
+            lambda transfer: transfer.id != self.id
+            and transfer.picking_type_code == 'internal'
+            and transfer.location_dest_id.id == self.location_id.id
+            and transfer.state != 'cancel'
+            and transfer.name
         )
-        next_transfers = related_transfers.filtered(
-            lambda transfer: transfer.location_id.id == self.location_dest_id.id
-        )
-        linked_transfers = (previous_transfers | next_transfers).sorted(lambda transfer: transfer.id)
-        return [transfer.name for transfer in linked_transfers if transfer.name]
+        if not previous_transfers:
+            return []
+        source_transfer = previous_transfers.sorted(lambda transfer: transfer.id)[0]
+        return [source_transfer.name]
 
     def _tradeline_update_source_document_from_chain(self):
         for rec in self:
