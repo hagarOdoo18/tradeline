@@ -416,6 +416,13 @@ class AccountMoveLine(models.Model):
         comodel_name='product.category',
         string='Category',
         required=False)
+    sub_categ_id = fields.Many2one(
+        comodel_name='sub.category',
+        string='Sub Category',
+        related='product_id.product_tmpl_id.sub_categ_id',
+        store=True,
+        readonly=True,
+    )
 
     product_point = fields.Float(
         string='Product point',

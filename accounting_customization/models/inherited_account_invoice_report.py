@@ -37,6 +37,10 @@ class AccountInvoiceReport(models.Model):
         comodel_name='product.family',
         string='Family',
         required=False)
+    sub_categ_id = fields.Many2one(
+        comodel_name='sub.category',
+        string='Sub Category',
+        required=False)
     sales_rep_id = fields.Many2one(
         comodel_name='sales.rep',
         string='Sales Rep',
@@ -93,6 +97,7 @@ class AccountInvoiceReport(models.Model):
                 "move.pricelist_id as pricelist_id, "
                 "move.discount_id as discount_id, "
                 "line.family_id, "
+                "line.sub_categ_id as sub_categ_id, "
                 "move.sales_rep_id as sales_rep_id, "
                 "line.product_point as point, "
                 "product.vendor_id as vendor_id, "

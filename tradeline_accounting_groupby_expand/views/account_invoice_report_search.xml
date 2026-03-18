@@ -31,6 +31,7 @@
                         <filter name="group_by_pricelist_id" string="Pricelist" context="{'group_by': 'pricelist_id'}"/>
                         <filter name="group_by_product_id" string="Product" context="{'group_by': 'product_id'}"/>
                         <filter name="group_by_product_categ_id" string="Product Category" context="{'group_by': 'product_categ_id'}"/>
+                        <filter name="group_by_sub_categ_id" string="Sub Category" context="{'group_by': 'sub_categ_id'}"/>
                         <filter name="group_by_reference_number" string="Reference Number" context="{'group_by': 'reference_number'}"/>
                         <filter name="group_by_account_id" string="Revenue/Expense Account" context="{'group_by': 'account_id'}"/>
                         <filter name="group_by_sales_rep_id" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
@@ -69,6 +70,9 @@
                 </xpath>
                 <xpath expr="//search/field[@name='product_id'][1]" position="before">
                     <xpath expr="//search/field[@name='product_search_text'][1]" position="move"/>
+                </xpath>
+                <xpath expr="//search/field[@name='product_id'][1]" position="after">
+                    <field name="sub_categ_id" string="Sub Category"/>
                 </xpath>
             </field>
         </record>
