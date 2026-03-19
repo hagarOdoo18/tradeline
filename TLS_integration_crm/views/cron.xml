@@ -3,7 +3,7 @@
     <data>
          <record id="tradeline_sent_tvc_invoice_cron" forcecreate='True' model="ir.cron">
             <field name="name">Cron Send TVC Invoices</field>
-            <field eval="True" name="active"/>
+            <field eval="False" name="active"/>
             <field name="user_id" ref="base.user_admin"/>
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
@@ -13,7 +13,7 @@
          </record>
          <record id="tradeline_sent_tvc_credit_cron" forcecreate='True' model="ir.cron">
             <field name="name">Cron Send TVC Credit</field>
-            <field eval="True" name="active"/>
+            <field eval="False" name="active"/>
             <field name="user_id" ref="base.user_admin"/>
             <field name="interval_number">30</field>
             <field name="interval_type">minutes</field>
@@ -23,7 +23,7 @@
          </record>
          <record id="tradeline_sent_tvc_point_cron" forcecreate='True' model="ir.cron">
             <field name="name">Cron Send TVC Point</field>
-            <field eval="True" name="active"/>
+            <field eval="False" name="active"/>
             <field name="user_id" ref="base.user_admin"/>
             <field name="interval_number">15</field>
             <field name="interval_type">minutes</field>
