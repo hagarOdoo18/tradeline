@@ -79,7 +79,11 @@ class AccountInvoiceReport(models.Model):
         groups='accounting_customization.group_accounting_reporting_Margin',
         readonly=True
     )
-    price_total_converted = fields.Float(string='TotaL',groups='accounting_customization.group_accounting_reporting_Total_Currency', readonly=True)
+    price_total_converted = fields.Float(
+        string='Total Invoice (Company Currency)',
+        groups='accounting_customization.group_accounting_reporting_Total_Currency',
+        readonly=True,
+    )
 
 
 
@@ -123,8 +127,10 @@ class AccountInvoiceReport(models.Model):
                 "END AS credit_note_impact_untaxed, "
                 "CASE "
                 "  WHEN move.move_type IN ('in_invoice', 'out_refund', 'in_receipt') "
-                "  THEN (line.price_total * account_currency_table.rate) * -1 "
-                "  ELSE line.price_total * account_currency_table.rate "
+                "  THEN ((line.price_total / NULLIF(COALESCE(move.invoice_currency_rate, 1), 0)) "
+                "        * account_currency_table.rate) * -1 "
+                "  ELSE (line.price_total / NULLIF(COALESCE(move.invoice_currency_rate, 1), 0)) "
+                "       * account_currency_table.rate "
                 "END AS price_total_converted ",
                 super()._select(),
                 SQL(untaxed_cost_expr),

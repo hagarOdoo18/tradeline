@@ -3,6 +3,7 @@
 from odoo import fields, models, api, _
 from odoo.exceptions import UserError
 import xlsxwriter
+from xlsxwriter.utility import xl_col_to_name
 from io import BytesIO
 import base64
 from datetime import datetime
@@ -113,12 +114,14 @@ class AccountInvoiceWizard(models.TransientModel):
                 master_dic[journal].setdefault(payment.branch_id.name, 0.0)
             master_dic[journal][payment.branch_id.name] += amount
 
-        branches = list(branch_set)
+        branches = sorted(list(branch_set))
+        total_col = len(branches) + 1
 
         # Header
         sheet.write(0, 0, _('Payments'), header_format)
         for col, branch in enumerate(branches, start=1):
             sheet.write(0, col, branch, header_format)
+        sheet.write(0, total_col, _('Total'), header_format)
 
         # Data
         row = 1
@@ -126,7 +129,34 @@ class AccountInvoiceWizard(models.TransientModel):
             sheet.write(row, 0, journal, cell_format)
             for col, branch in enumerate(branches, start=1):
                 sheet.write(row, col, values.get(branch, 0.0), cell_format)
+            if branches:
+                excel_row = row + 1
+                first_branch_col = xl_col_to_name(1)
+                last_branch_col = xl_col_to_name(len(branches))
+                sheet.write_formula(
+                    row,
+                    total_col,
+                    f'=SUM({first_branch_col}{excel_row}:{last_branch_col}{excel_row})',
+                    cell_format,
+                )
+            else:
+                sheet.write_number(row, total_col, 0.0, cell_format)
             row += 1
+
+        # Bottom total row: sum each branch column and the Total column.
+        sheet.write(row, 0, _('Total'), header_format)
+        if row > 1:
+            for col in range(1, total_col + 1):
+                col_letter = xl_col_to_name(col)
+                sheet.write_formula(
+                    row,
+                    col,
+                    f'=SUM({col_letter}2:{col_letter}{row})',
+                    cell_format,
+                )
+        else:
+            for col in range(1, total_col + 1):
+                sheet.write_number(row, col, 0.0, cell_format)
 
         workbook.close()
         output.seek(0)
