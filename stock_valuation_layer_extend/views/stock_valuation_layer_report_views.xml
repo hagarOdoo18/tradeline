@@ -13,6 +13,7 @@
                 <field name="product_family_id" string="Family"          optional="show"/>
                 <field name="vendor_id"         string="Vendor"          optional="show"/>
                 <field name="company_id"         string="Company"          optional="show"/>
+                <field name="cost_method"       string="Cost Method"     optional="show"/>
 <!--                <field name="currency_id"        column_invisible="1"/>-->
                 <field name="quantity"          string="Total Qty"       sum="Total Qty"/>
                 <field name="value"     />
@@ -36,6 +37,7 @@
                 <field name="product_categ_id"  string="Category"/>
                 <field name="vendor_id"         string="Vendor"/>
                 <field name="company_id"        string="Company"/>
+                <field name="cost_method"       string="Cost Method"/>
 
                 <group string="Group By">
                     <filter string="Category"
@@ -50,6 +52,9 @@
                     <filter string="Company"
                             name="group_by_company"
                             context="{'group_by': 'company_id'}"/>
+                    <filter string="Cost Method"
+                            name="group_by_cost_method"
+                            context="{'group_by': 'cost_method'}"/>
                 </group>
             </search>
         </field>

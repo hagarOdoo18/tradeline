@@ -18,6 +18,7 @@ class StockValuationLayerReport(models.Model):
     product_family_id = fields.Many2one('product.family', string='Family',            readonly=True)
     vendor_id         = fields.Many2one('res.partner',      string='Vendor',            readonly=True)
     company_id        = fields.Many2one('res.company',      string='Company',           readonly=True)
+    cost_method       = fields.Char(                        string='Cost Method',       readonly=True)
     # currency_id       = fields.Many2one('res.currency',     string='Currency',          readonly=True)
     product_search_text = fields.Char(
         string='Product',
@@ -93,6 +94,7 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id                                     AS product_categ_id,
                 pt.family_id                                    AS product_family_id,
                 svl.company_id                                  AS company_id,
+                COALESCE(pc.property_cost_method ->> svl.company_id::text, 'standard') AS cost_method,
                 -- rc.currency_id                                  AS currency_id, 
 
                 pp.vendor_id                                      AS vendor_id,
@@ -135,6 +137,7 @@ class StockValuationLayerReport(models.Model):
                 pt.categ_id,
                 pt.family_id,
                 svl.company_id,
+                COALESCE(pc.property_cost_method ->> svl.company_id::text, 'standard'),
                -- rc.currency_id,
                 pp.vendor_id,
                 svl.unit_cost,
