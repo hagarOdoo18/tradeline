@@ -49,6 +49,25 @@ class AccountInvoiceReport(models.Model):
         comodel_name='res.partner',
         string='Vendor',
         required=False)
+    inventory_cost_method = fields.Selection(
+        selection=[
+            ('standard', 'Standard'),
+            ('average', 'Average (AVCO)'),
+            ('fifo', 'FIFO'),
+        ],
+        string='Cost Method',
+        readonly=True,
+    )
+    inventory_unit_cost_used = fields.Float(
+        string='Unit Cost Used',
+        readonly=True,
+        aggregator="avg",
+    )
+    inventory_unit_cost_untaxed_used = fields.Float(
+        string='Unit Cost Untaxed Used',
+        readonly=True,
+        aggregator="avg",
+    )
     point = fields.Integer(
         string='Point',
         required=False)
@@ -105,6 +124,15 @@ class AccountInvoiceReport(models.Model):
                 "move.sales_rep_id as sales_rep_id, "
                 "line.product_point as point, "
                 "product.vendor_id as vendor_id, "
+                "COALESCE(( "
+                "  SELECT pc.property_cost_method ->> line.company_id::text "
+                "  FROM product_product pp2 "
+                "  JOIN product_template pt2 ON pt2.id = pp2.product_tmpl_id "
+                "  JOIN product_category pc ON pc.id = pt2.categ_id "
+                "  WHERE pp2.id = line.product_id "
+                "), 'standard') AS inventory_cost_method, "
+                "%s AS inventory_unit_cost_used, "
+                "(%s / %s) AS inventory_unit_cost_untaxed_used, "
                 "CASE "
                 "  WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 "
                 "  WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-1 * %s) "
@@ -133,6 +161,9 @@ class AccountInvoiceReport(models.Model):
                 "       * account_currency_table.rate "
                 "END AS price_total_converted ",
                 super()._select(),
+                SQL(std_price_expr),
+                SQL(std_price_expr),
+                SQL(str(UNTAX_COST_DIVISOR)),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),

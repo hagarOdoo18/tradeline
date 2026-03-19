@@ -15,6 +15,7 @@
         "views/account_invoice_report_search.xml",
         "views/account_move_line_sales_search.xml",
         "views/account_invoice_report_pivot.xml",
+        "views/account_invoice_report_list.xml",
         "data/time_range_sync.xml",
     ],
     "assets": {
