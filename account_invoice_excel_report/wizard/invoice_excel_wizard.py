@@ -29,7 +29,7 @@ class AccountInvoiceWizard(models.TransientModel):
             allowed_company_ids=self.env.companies.ids
         ).search([
             ('sale_order_id', '!=', False),
-
+            ('state', '=', 'paid'),
             ('date', '>=', self.date_from),
             ('date', '<=', self.date_to),
         ])
@@ -105,14 +105,15 @@ class AccountInvoiceWizard(models.TransientModel):
 
 
         for payment in order_payments:
-            branch_set.add(payment.branch_id.name)
-            amount=payment.amount
+            branch_name = payment.branch_id.name or _('No Branch')
+            branch_set.add(branch_name)
+            amount = -payment.amount if payment.payment_type == 'outbound' else payment.amount
             journal = payment.journal_id.name
             if journal not in master_dic.keys():
                 master_dic.setdefault(journal, {})
-            if payment.branch_id.name not in master_dic[journal].keys():
-                master_dic[journal].setdefault(payment.branch_id.name, 0.0)
-            master_dic[journal][payment.branch_id.name] += amount
+            if branch_name not in master_dic[journal].keys():
+                master_dic[journal].setdefault(branch_name, 0.0)
+            master_dic[journal][branch_name] += amount
 
         branches = sorted(list(branch_set))
         total_col = len(branches) + 1

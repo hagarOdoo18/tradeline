@@ -59,6 +59,7 @@ class AccountBranchReportWizard(models.TransientModel):
                     allowed_company_ids=self.env.companies.ids
                 ).search([
                     ('sale_order_id', '!=', False),
+                    ('state', '=', 'paid'),
                     ('branch_id', '=', branch.id),
                     ('company_id', '=', branch.company_id.id),
                     ('date', '>=', self.date_from),
@@ -131,11 +132,12 @@ class AccountBranchReportWizard(models.TransientModel):
                             row += 1
 
                 for payment in order_payments:
-                    total_invoice += payment.amount
+                    signed_amount = -payment.amount if payment.payment_type == 'outbound' else payment.amount
+                    total_invoice += signed_amount
                     sheet.write_row(row, 0,
                                     [branch.name, '', payment.sale_order_id.name, payment.sale_order_id.partner_id.name,
                                      payment.journal_id.name,
-                                     payment.amount],
+                                     signed_amount],
                                     text)
                     row += 1
                 summary.set_column(0, 5, 30)
