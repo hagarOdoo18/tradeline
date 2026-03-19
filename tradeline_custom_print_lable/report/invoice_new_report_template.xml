@@ -3,6 +3,7 @@
     <template id="pricelist_barcode_label_custom">
 
     <t t-name="custom_product_barcode_stock">
+
                 <t t-call="web.basic_layout">
                     <t t-foreach="docs" t-as="doc">
                         <div class="page">
