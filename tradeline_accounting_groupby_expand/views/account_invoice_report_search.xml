@@ -4,7 +4,7 @@
         <record id="view_account_invoice_report_search_groupby_expanded" model="ir.ui.view">
             <field name="name">account.invoice.report.search.groupby.expanded</field>
             <field name="model">account.invoice.report</field>
-            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search'), ('name', 'not in', ['account.invoice.report.search.groupby.expanded', 'account.invoice.report.search.time.ranges', 'account.invoice.report.search.product.first'])]"/>
             <field name="arch" type="xml">
                 <xpath expr="//search/group[1]" position="replace">
                     <group expand="0" string="Group By">
@@ -48,7 +48,7 @@
         <record id="view_account_invoice_report_search_time_ranges" model="ir.ui.view">
             <field name="name">account.invoice.report.search.time.ranges</field>
             <field name="model">account.invoice.report</field>
-            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search'), ('name', 'not in', ['account.invoice.report.search.groupby.expanded', 'account.invoice.report.search.time.ranges', 'account.invoice.report.search.product.first'])]"/>
             <field name="arch" type="xml">
                 <xpath expr="//search/filter[@date][1]" position="before">
                     <separator/>
@@ -61,7 +61,7 @@
         <record id="view_account_invoice_report_search_product_first" model="ir.ui.view">
             <field name="name">account.invoice.report.search.product.first</field>
             <field name="model">account.invoice.report</field>
-            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search')]"/>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'search'), ('name', 'not in', ['account.invoice.report.search.groupby.expanded', 'account.invoice.report.search.time.ranges', 'account.invoice.report.search.product.first'])]"/>
             <field name="arch" type="xml">
                 <xpath expr="//search/field[1]" position="before">
                     <field name="product_search_text" string="Product"/>

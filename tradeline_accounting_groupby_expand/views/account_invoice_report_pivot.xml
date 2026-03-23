@@ -4,7 +4,7 @@
         <record id="view_account_invoice_report_pivot_inventory_value_untaxed" model="ir.ui.view">
             <field name="name">account.invoice.report.pivot.inventory.value.untaxed</field>
             <field name="model">account.invoice.report</field>
-            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'pivot')]"/>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', '=', 'pivot'), ('name', '!=', 'account.invoice.report.pivot.inventory.value.untaxed')]"/>
             <field name="arch" type="xml">
                 <xpath expr="//pivot" position="inside">
                     <field name="inventory_value_untaxed" type="measure"/>

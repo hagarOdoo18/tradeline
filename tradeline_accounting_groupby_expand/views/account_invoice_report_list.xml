@@ -4,7 +4,7 @@
         <record id="view_account_invoice_report_list_cost_basis" model="ir.ui.view">
             <field name="name">account.invoice.report.list.cost.basis</field>
             <field name="model">account.invoice.report</field>
-            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', 'in', ['list', 'tree'])]"/>
+            <field name="inherit_id" search="[('model', '=', 'account.invoice.report'), ('type', 'in', ['list', 'tree']), ('name', '!=', 'account.invoice.report.list.cost.basis')]"/>
             <field name="arch" type="xml">
                 <xpath expr="//list/field[last()]" position="after">
                     <field name="inventory_cost_method" string="Cost Method" optional="show"/>
