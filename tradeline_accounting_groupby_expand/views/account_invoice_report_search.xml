@@ -74,11 +74,12 @@
                 </xpath>
                 <xpath expr="//search/field[@name='product_id'][1]" position="after">
                     <field name="inventory_cost_method" string="Cost Method"/>
-                    <field name="inventory_unit_cost_used" string="Unit Cost Used"/>
-                    <field name="inventory_unit_cost_untaxed_used" string="Unit Cost Untaxed Used"/>
+                    <field name="inventory_unit_cost_used" string="Unit Cost Used" groups="accounting_customization.group_accounting_reporting_valuation"/>
+                    <field name="inventory_unit_cost_untaxed_used" string="Unit Cost Untaxed Used" groups="accounting_customization.group_accounting_reporting_valuation"/>
                     <field name="sub_categ_id" string="Sub Category"/>
                 </xpath>
             </field>
         </record>
     </data>
 </odoo>
+

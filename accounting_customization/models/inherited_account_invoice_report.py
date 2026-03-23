@@ -60,11 +60,13 @@ class AccountInvoiceReport(models.Model):
     )
     inventory_unit_cost_used = fields.Float(
         string='Unit Cost Used',
+        groups='accounting_customization.group_accounting_reporting_valuation',
         readonly=True,
         aggregator="avg",
     )
     inventory_unit_cost_untaxed_used = fields.Float(
         string='Unit Cost Untaxed Used',
+        groups='accounting_customization.group_accounting_reporting_valuation',
         readonly=True,
         aggregator="avg",
     )
@@ -171,3 +173,4 @@ class AccountInvoiceReport(models.Model):
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
             )
+
