@@ -24,6 +24,7 @@
                         <filter name="group_by_commercial_partner_id" string="Main Partner" context="{'group_by': 'commercial_partner_id'}"/>
                         <filter name="group_by_move_id" string="Move" context="{'group_by': 'move_id'}"/>
                         <filter name="group_by_move_type" string="Move Type" context="{'group_by': 'move_type'}"/>
+                        <filter name="group_by_margin_reasoning" string="Margin Reasoning" context="{'group_by': 'margin_reasoning'}" groups="accounting_customization.group_accounting_reporting_Margin"/>
                         <filter name="group_by_partner_id" string="Partner" context="{'group_by': 'partner_id'}"/>
                         <filter name="group_by_preferred_payment_method_line_id" string="Payment Method" context="{'group_by': 'preferred_payment_method_line_id'}"/>
                         <filter name="group_by_payment_state" string="Payment Status" context="{'group_by': 'payment_state'}"/>
