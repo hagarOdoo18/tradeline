@@ -100,6 +100,15 @@ class AccountInvoiceReport(models.Model):
         groups='accounting_customization.group_accounting_reporting_Margin',
         readonly=True
     )
+    margin_reasoning = fields.Selection(
+        selection=[
+            ('low_margin', 'Low Margin'),
+            ('credit_note', 'Credit Note'),
+        ],
+        string="Margin Reasoning",
+        groups='accounting_customization.group_accounting_reporting_Margin',
+        readonly=True,
+    )
     price_total_converted = fields.Float(
         string='Total Invoice (Company Currency)',
         groups='accounting_customization.group_accounting_reporting_Total_Currency',
@@ -112,6 +121,8 @@ class AccountInvoiceReport(models.Model):
             cost_qty_expr = "(line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0))"
             std_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
             untaxed_cost_expr = f"({cost_qty_expr} * ({std_price_expr} / {UNTAX_COST_DIVISOR}))"
+            sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
+            credit_note_margin_expr = f"(account_currency_table.rate * (-line.balance + {untaxed_cost_expr}))"
 
             return SQL(
                 "%s, "
@@ -142,19 +153,24 @@ class AccountInvoiceReport(models.Model):
                 "END AS inventory_value_untaxed, "
                 "CASE "
                 "  WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0 "
-                "  WHEN move.move_type = 'out_refund' THEN account_currency_table.rate * (-line.balance + %s) "
-                "  ELSE account_currency_table.rate * (-line.balance - %s) "
+                "  WHEN move.move_type = 'out_refund' THEN %s "
+                "  ELSE %s "
                 "END AS price_margin_taxed, "
                 "CASE "
                 "  WHEN move.move_type IN ('out_invoice', 'out_receipt') "
-                "  THEN account_currency_table.rate * (-line.balance - %s) "
+                "  THEN %s "
                 "  ELSE 0.0 "
                 "END AS sales_margin_untaxed, "
                 "CASE "
                 "  WHEN move.move_type = 'out_refund' "
-                "  THEN account_currency_table.rate * (-line.balance + %s) "
+                "  THEN %s "
                 "  ELSE 0.0 "
                 "END AS credit_note_impact_untaxed, "
+                "CASE "
+                "  WHEN move.move_type = 'out_refund' AND %s < 0 THEN 'credit_note' "
+                "  WHEN move.move_type IN ('out_invoice', 'out_receipt') AND %s < 0 THEN 'low_margin' "
+                "  ELSE NULL "
+                "END AS margin_reasoning, "
                 "CASE "
                 "  WHEN move.move_type IN ('in_invoice', 'out_refund', 'in_receipt') "
                 "  THEN ((line.price_total / NULLIF(COALESCE(move.invoice_currency_rate, 1), 0)) "
@@ -168,9 +184,11 @@ class AccountInvoiceReport(models.Model):
                 SQL(str(UNTAX_COST_DIVISOR)),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),
-                SQL(untaxed_cost_expr),
-                SQL(untaxed_cost_expr),
-                SQL(untaxed_cost_expr),
-                SQL(untaxed_cost_expr),
+                SQL(credit_note_margin_expr),
+                SQL(sales_margin_expr),
+                SQL(sales_margin_expr),
+                SQL(credit_note_margin_expr),
+                SQL(credit_note_margin_expr),
+                SQL(sales_margin_expr),
             )
 

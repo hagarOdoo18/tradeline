@@ -10,6 +10,7 @@
                     <field name="inventory_cost_method" string="Cost Method" optional="show"/>
                     <field name="inventory_unit_cost_used" string="Unit Cost Used" optional="show" groups="accounting_customization.group_accounting_reporting_valuation"/>
                     <field name="inventory_unit_cost_untaxed_used" string="Unit Cost Untaxed Used" optional="show" groups="accounting_customization.group_accounting_reporting_valuation"/>
+                    <field name="margin_reasoning" string="Margin Reasoning" optional="show" groups="accounting_customization.group_accounting_reporting_Margin"/>
                 </xpath>
             </field>
         </record>
