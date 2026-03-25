@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_config_form_lot_serial_search" model="ir.ui.view">
+        <field name="name">pos.config.form.lot.serial.search</field>
+        <field name="model">pos.config</field>
+        <field name="inherit_id" ref="point_of_sale.pos_config_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//setting[@id='other_devices']" position="after">
+                <setting
+                    string="Search Products by Lot/Serial in Product Bar"
+                    title="Search by lot or serial in the POS product bar"
+                    help="Allow cashiers to find products from the main POS product search bar by typing lot or serial numbers."
+                >
+                    <field name="enable_product_bar_lot_serial_search" readonly="has_active_session"/>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+</odoo>

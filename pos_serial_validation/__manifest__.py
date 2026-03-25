@@ -14,8 +14,14 @@
     'depends': ['point_of_sale', 'stock'],
     'data': [
         'security/ir.model.access.csv',
+        'views/pos_config_views.xml',
         'views/pos_serial_validation_views.xml',
     ],
+    'assets': {
+        'point_of_sale._assets_pos': [
+            'pos_serial_validation/static/src/js/product_screen.js',
+        ],
+    },
     'installable': True,
     'auto_install': False,
     'license': 'LGPL-3',

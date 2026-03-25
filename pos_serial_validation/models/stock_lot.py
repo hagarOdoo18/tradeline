@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+from collections import defaultdict
+
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
 
@@ -160,6 +162,98 @@ class StockLot(models.Model):
             ('quantity', '>', 0),
         ])
         return quants.mapped('location_id.complete_name')
+
+    @api.model
+    def _score_pos_search_match(self, lot_name, query_lower):
+        lot_name_lower = (lot_name or "").lower()
+        if lot_name_lower == query_lower:
+            return (0, 0, len(lot_name_lower), lot_name_lower)
+        if lot_name_lower.startswith(query_lower):
+            return (1, 0, len(lot_name_lower), lot_name_lower)
+        return (2, lot_name_lower.find(query_lower), len(lot_name_lower), lot_name_lower)
+
+    @api.model
+    def search_pos_products(self, query, pos_config_id=None, limit=10):
+        query = (query or "").strip()
+        if not query:
+            return {"products": []}
+
+        try:
+            limit = max(int(limit or 10), 1)
+        except (TypeError, ValueError):
+            limit = 10
+
+        company = self.env.company
+        pos_location = self._get_pos_source_location(pos_config_id)
+        query_lower = query.lower()
+        candidate_limit = max(limit * 15, 100)
+        lots = self.search(
+            [
+                ("name", "ilike", query),
+                ("company_id", "in", [False, company.id]),
+                ("product_id.available_in_pos", "=", True),
+                ("product_id.sale_ok", "=", True),
+                ("product_id.tracking", "in", ("serial", "lot")),
+            ],
+            limit=candidate_limit,
+        )
+
+        product_matches = {}
+        matched_lots_by_product = defaultdict(list)
+
+        for lot in lots:
+            product = lot.product_id
+            if not product:
+                continue
+            product_company = getattr(product, "company_id", False)
+            if product_company and product_company != company:
+                continue
+            if product.tracking == "serial" and lot.serial_status == "sold":
+                continue
+
+            available_qty = (
+                lot._get_qty_in_location(pos_location)
+                if pos_location
+                else lot._get_qty_in_any_internal_location()
+            )
+            if available_qty <= 0:
+                continue
+
+            lot_score = self._score_pos_search_match(lot.name, query_lower)
+            matched_lots_by_product[product.id].append((lot_score, lot.name))
+
+            if product.id not in product_matches or lot_score < product_matches[product.id]["_score"]:
+                product_matches[product.id] = {
+                    "product_id": product.id,
+                    "_score": lot_score,
+                    "_display_name": product.display_name or product.name or "",
+                }
+
+        ordered_products = sorted(
+            product_matches.values(),
+            key=lambda item: (item["_score"], item["_display_name"].lower(), item["product_id"]),
+        )
+
+        payload = []
+        for item in ordered_products[:limit]:
+            seen_lot_names = set()
+            matched_lots = []
+            for _score, lot_name in sorted(
+                matched_lots_by_product[item["product_id"]], key=lambda entry: entry[0]
+            ):
+                if lot_name in seen_lot_names:
+                    continue
+                seen_lot_names.add(lot_name)
+                matched_lots.append(lot_name)
+
+            payload.append(
+                {
+                    "product_id": item["product_id"],
+                    "matched_lots": matched_lots,
+                }
+            )
+
+        return {"products": payload}
 
     # ============================================================
     #  Main Validation Method
