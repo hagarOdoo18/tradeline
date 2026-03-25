@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Under Inventory > Operations -->
+    <menuitem
+        id="menu_stock_multi_update"
+        name="Multi Product Update"
+        parent="stock.menu_warehouse_report"
+        action="action_stock_multi_update"
+        sequence="55"/>
+
+</odoo>
