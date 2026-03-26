@@ -2,7 +2,7 @@
 
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
 import { patch } from "@web/core/utils/patch";
-import { onMounted, onWillUnmount, useEffect, useState } from "@odoo/owl";
+import { onWillUnmount, useEffect, useState } from "@odoo/owl";
 
 const LIVE_SEARCH_DELAY_MS = 250;
 const MIN_QUERY_LENGTH = 3;
@@ -19,9 +19,6 @@ patch(ProductScreen.prototype, {
         });
         this._lotSerialSearchRequestToken = 0;
         this._lotSerialSearchTimeout = null;
-        this._lotSerialSearchKeydownHandler = (event) => {
-            this._handleLotSerialSearchEnterKeydown(event);
-        };
 
         useEffect(
             () => {
@@ -33,13 +30,8 @@ patch(ProductScreen.prototype, {
             ]
         );
 
-        onMounted(() => {
-            this.el.addEventListener("keydown", this._lotSerialSearchKeydownHandler, true);
-        });
-
         onWillUnmount(() => {
             this._clearLotSerialSearchTimeout();
-            this.el.removeEventListener("keydown", this._lotSerialSearchKeydownHandler, true);
         });
     },
 
@@ -219,69 +211,6 @@ patch(ProductScreen.prototype, {
             code: lotName,
             type: "lot",
         };
-    },
-
-    _getSingleExactLotSerialMatchFromState(searchWord) {
-        const normalizedQuery = this._normalizeLotSerialQuery(searchWord).toLowerCase();
-        if (
-            normalizedQuery.length < MIN_QUERY_LENGTH ||
-            this.lotSerialSearch.query !== normalizedQuery ||
-            this.lotSerialSearch.productIds.length !== 1
-        ) {
-            return null;
-        }
-
-        const product = this.pos.models["product.product"].get(this.lotSerialSearch.productIds[0]);
-        if (!product) {
-            return null;
-        }
-
-        const matchedLots = this.lotSerialSearch.matchedLotsByProductId[product.id] || [];
-        const exactLotName = matchedLots.find(
-            (lotName) => (lotName || "").toLowerCase() === normalizedQuery
-        );
-        if (!exactLotName) {
-            return null;
-        }
-
-        return {
-            lotName: exactLotName,
-            product,
-        };
-    },
-
-    _isSearchInputFocused(searchWord) {
-        const activeElement = document.activeElement;
-        return (
-            activeElement?.tagName === "INPUT" &&
-            this._normalizeLotSerialQuery(activeElement.value) ===
-                this._normalizeLotSerialQuery(searchWord)
-        );
-    },
-
-    _handleLotSerialSearchEnterKeydown(event) {
-        if (
-            event.key !== "Enter" ||
-            event.defaultPrevented ||
-            !this._isLotSerialSearchEnabled()
-        ) {
-            return;
-        }
-
-        const searchWord = this._normalizeLotSerialQuery(this.pos.searchProductWord);
-        if (!searchWord || !this._isSearchInputFocused(searchWord)) {
-            return;
-        }
-
-        const exactMatch = this._getSingleExactLotSerialMatchFromState(searchWord);
-        if (!exactMatch) {
-            return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-
-        void this._tryAddLotSerialSearchMatch(searchWord);
     },
 
     async _addLotSerialMatchToCurrentOrder(exactMatch) {
