@@ -179,6 +179,68 @@ patch(ProductScreen.prototype, {
         return matchedLots.some((lotName) => lotName.toLowerCase() === normalizedQuery);
     },
 
+    _getSingleExactLotSerialMatch(results, searchWord) {
+        const normalizedQuery = this._normalizeLotSerialQuery(searchWord).toLowerCase();
+        if (
+            normalizedQuery.length < MIN_QUERY_LENGTH ||
+            !results?.products?.length ||
+            results.products.length !== 1
+        ) {
+            return null;
+        }
+
+        const product = results.products[0];
+        const matchedLots = results.matchedLotsByProductId?.[product.id] || [];
+        const exactLotName = matchedLots.find(
+            (lotName) => (lotName || "").toLowerCase() === normalizedQuery
+        );
+        if (!exactLotName) {
+            return null;
+        }
+
+        return {
+            lotName: exactLotName,
+            product,
+        };
+    },
+
+    _buildLotSerialCode(lotName) {
+        return {
+            base_code: lotName,
+            code: lotName,
+            type: "lot",
+        };
+    },
+
+    async _tryAddLotSerialSearchMatch(searchWord) {
+        const normalizedQuery = this._normalizeLotSerialQuery(searchWord);
+        if (!this._isLotSerialSearchEnabled() || normalizedQuery.length < MIN_QUERY_LENGTH) {
+            return false;
+        }
+
+        try {
+            const results = await this._fetchLotSerialMatches(normalizedQuery);
+            const exactMatch = this._getSingleExactLotSerialMatch(results, normalizedQuery);
+            if (!exactMatch) {
+                return false;
+            }
+
+            await this.pos.addLineToCurrentOrder(
+                { product_id: exactMatch.product },
+                { code: this._buildLotSerialCode(exactMatch.lotName) },
+                exactMatch.product.needToConfigure()
+            );
+            this.numberBuffer.reset();
+            this.pos.searchProductWord = "";
+            this._lotSerialSearchRequestToken += 1;
+            this._resetLotSerialSearch();
+            return true;
+        } catch (error) {
+            console.error("Failed to add POS product by lot/serial number.", error);
+            return false;
+        }
+    },
+
     getProductsBySearchWord(searchWord) {
         const nativeProducts = super.getProductsBySearchWord(...arguments);
         const lotSerialProducts = this._getLotSerialMatchedProducts(searchWord);
@@ -222,5 +284,18 @@ patch(ProductScreen.prototype, {
             console.error("Failed to load POS products by lot/serial number.", error);
             return nativeProducts;
         }
+    },
+
+    async onPressEnterKey() {
+        const searchWord = this._normalizeLotSerialQuery(this.pos.searchProductWord);
+        if (!searchWord) {
+            return;
+        }
+
+        if (await this._tryAddLotSerialSearchMatch(searchWord)) {
+            return;
+        }
+
+        return await super.onPressEnterKey(...arguments);
     },
 });
