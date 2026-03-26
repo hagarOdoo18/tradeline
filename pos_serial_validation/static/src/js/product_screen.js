@@ -76,9 +76,10 @@ patch(ProductScreen.prototype, {
         }, LIVE_SEARCH_DELAY_MS);
     },
 
-    async _fetchLotSerialMatches(query) {
+    async _fetchLotSerialMatches(query, options = {}) {
         const normalizedQuery = this._normalizeLotSerialQuery(query);
-        if (normalizedQuery.length < MIN_QUERY_LENGTH) {
+        const { skipMinLength = false } = options;
+        if (!skipMinLength && normalizedQuery.length < MIN_QUERY_LENGTH) {
             return {
                 matchedLotsByProductId: {},
                 productIds: [],
@@ -212,25 +213,44 @@ patch(ProductScreen.prototype, {
         };
     },
 
-    async _tryAddLotSerialSearchMatch(searchWord) {
+    async _addLotSerialMatchToCurrentOrder(exactMatch) {
+        await this.pos.addLineToCurrentOrder(
+            { product_id: exactMatch.product },
+            { code: this._buildLotSerialCode(exactMatch.lotName) },
+            exactMatch.product.needToConfigure()
+        );
+        this.numberBuffer.reset();
+    },
+
+    async _resolveSingleExactLotSerialMatch(searchWord, options = {}) {
         const normalizedQuery = this._normalizeLotSerialQuery(searchWord);
-        if (!this._isLotSerialSearchEnabled() || normalizedQuery.length < MIN_QUERY_LENGTH) {
+        const { skipMinLength = false } = options;
+        if (
+            !this._isLotSerialSearchEnabled() ||
+            !normalizedQuery ||
+            (!skipMinLength && normalizedQuery.length < MIN_QUERY_LENGTH)
+        ) {
+            return null;
+        }
+
+        try {
+            const results = await this._fetchLotSerialMatches(normalizedQuery, { skipMinLength });
+            return this._getSingleExactLotSerialMatch(results, normalizedQuery);
+        } catch (error) {
+            console.error("Failed to resolve POS product by lot/serial number.", error);
+            return null;
+        }
+    },
+
+    async _tryAddLotSerialSearchMatch(searchWord, options = {}) {
+        const normalizedQuery = this._normalizeLotSerialQuery(searchWord);
+        const exactMatch = await this._resolveSingleExactLotSerialMatch(normalizedQuery, options);
+        if (!exactMatch) {
             return false;
         }
 
         try {
-            const results = await this._fetchLotSerialMatches(normalizedQuery);
-            const exactMatch = this._getSingleExactLotSerialMatch(results, normalizedQuery);
-            if (!exactMatch) {
-                return false;
-            }
-
-            await this.pos.addLineToCurrentOrder(
-                { product_id: exactMatch.product },
-                { code: this._buildLotSerialCode(exactMatch.lotName) },
-                exactMatch.product.needToConfigure()
-            );
-            this.numberBuffer.reset();
+            await this._addLotSerialMatchToCurrentOrder(exactMatch);
             this.pos.searchProductWord = "";
             this._lotSerialSearchRequestToken += 1;
             this._resetLotSerialSearch();
@@ -297,5 +317,20 @@ patch(ProductScreen.prototype, {
         }
 
         return await super.onPressEnterKey(...arguments);
+    },
+
+    async _barcodeProductAction(code) {
+        const barcode = this._normalizeLotSerialQuery(code?.base_code || code?.code);
+        if (barcode) {
+            const exactMatch = await this._resolveSingleExactLotSerialMatch(barcode, {
+                skipMinLength: true,
+            });
+            if (exactMatch) {
+                await this._addLotSerialMatchToCurrentOrder(exactMatch);
+                return;
+            }
+        }
+
+        return await super._barcodeProductAction(...arguments);
     },
 });
