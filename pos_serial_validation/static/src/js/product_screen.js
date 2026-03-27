@@ -2,7 +2,7 @@
 
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
 import { patch } from "@web/core/utils/patch";
-import { onWillUnmount, useEffect, useState } from "@odoo/owl";
+import { onMounted, onWillUnmount, useEffect, useState } from "@odoo/owl";
 
 const LIVE_SEARCH_DELAY_MS = 250;
 const MIN_QUERY_LENGTH = 3;
@@ -19,6 +19,9 @@ patch(ProductScreen.prototype, {
         });
         this._lotSerialSearchRequestToken = 0;
         this._lotSerialSearchTimeout = null;
+        this._lotSerialSearchKeydownHandler = (event) => {
+            this._handleLotSerialSearchEnterKeydown(event);
+        };
 
         useEffect(
             () => {
@@ -30,8 +33,13 @@ patch(ProductScreen.prototype, {
             ]
         );
 
+        onMounted(() => {
+            this.el.addEventListener("keydown", this._lotSerialSearchKeydownHandler, true);
+        });
+
         onWillUnmount(() => {
             this._clearLotSerialSearchTimeout();
+            this.el.removeEventListener("keydown", this._lotSerialSearchKeydownHandler, true);
         });
     },
 
@@ -213,6 +221,47 @@ patch(ProductScreen.prototype, {
         };
     },
 
+    _getSingleResolvedSearchProduct() {
+        const searchWord = this._normalizeLotSerialQuery(this.pos.searchProductWord);
+        if (!searchWord) {
+            return null;
+        }
+
+        return this.productsToDisplay.length === 1 ? this.productsToDisplay[0] : null;
+    },
+
+    _isSearchInputFocused(searchWord) {
+        const activeElement = document.activeElement;
+        return (
+            activeElement?.tagName === "INPUT" &&
+            this._normalizeLotSerialQuery(activeElement.value) ===
+                this._normalizeLotSerialQuery(searchWord)
+        );
+    },
+
+    _handleLotSerialSearchEnterKeydown(event) {
+        if (
+            event.key !== "Enter" ||
+            event.defaultPrevented ||
+            !this._isLotSerialSearchEnabled()
+        ) {
+            return;
+        }
+
+        const searchWord = this._normalizeLotSerialQuery(this.pos.searchProductWord);
+        if (!searchWord || !this._isSearchInputFocused(searchWord)) {
+            return;
+        }
+
+        if (!this._getSingleResolvedSearchProduct()) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        void this._tryAddSingleResolvedSearchProduct();
+    },
+
     async _addLotSerialMatchToCurrentOrder(exactMatch) {
         await this.pos.addLineToCurrentOrder(
             { product_id: exactMatch.product },
@@ -239,6 +288,25 @@ patch(ProductScreen.prototype, {
         } catch (error) {
             console.error("Failed to resolve POS product by lot/serial number.", error);
             return null;
+        }
+    },
+
+    async _tryAddSingleResolvedSearchProduct() {
+        const product = this._getSingleResolvedSearchProduct();
+        if (!product) {
+            return false;
+        }
+
+        try {
+            await this.addProductToOrder(product);
+            this.numberBuffer.reset();
+            this.pos.searchProductWord = "";
+            this._lotSerialSearchRequestToken += 1;
+            this._resetLotSerialSearch();
+            return true;
+        } catch (error) {
+            console.error("Failed to add resolved POS search product.", error);
+            return false;
         }
     },
 
@@ -309,6 +377,10 @@ patch(ProductScreen.prototype, {
     async onPressEnterKey() {
         const searchWord = this._normalizeLotSerialQuery(this.pos.searchProductWord);
         if (!searchWord) {
+            return;
+        }
+
+        if (await this._tryAddSingleResolvedSearchProduct()) {
             return;
         }
 
