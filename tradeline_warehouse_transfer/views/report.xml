@@ -9,9 +9,8 @@
 <!--                file="tradeline_warehouse_transfer.report_transfer_request"-->
 <!--                report_type="qweb-pdf"/>-->
          <template id="report_transfer_request_template">
-        <t t-foreach="docs" t-as="o">
             <t t-call="tradeline_warehouse_transfer.report_transfer_request" />
-        </t>
+
 
     </template>
 
