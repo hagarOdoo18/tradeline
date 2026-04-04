@@ -7,6 +7,8 @@ from odoo.exceptions import ValidationError
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+
+
     reference_number = fields.Char(
         string='Reference Number',
         required=True)
@@ -21,6 +23,13 @@ class SaleOrder(models.Model):
         self.write({
             'state': 'refund'
         })
+
+    def get_product_notes(self):
+            for rec in self.order_line:
+                if rec.product_id.product_notes:
+                    return rec.product_id.product_notes
+                else:
+                    return ''
 
     def generate_barcode(self):
         val = 0

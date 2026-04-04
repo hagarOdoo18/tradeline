@@ -34,6 +34,14 @@
 
                 </div>
 
+                <div style="width:100%; display:flex; justify-content:flex-end;">
+
+
+                  <div class="text-right" t-if="doc.get_product_notes()" name="Product Notes" style="font-size:8px; text-align:right;">
+                            <span t-out="doc.get_product_notes()" dir="rtl"/>
+              </div>
+            </div>
+
             </xpath>
         </template>
 </odoo>
