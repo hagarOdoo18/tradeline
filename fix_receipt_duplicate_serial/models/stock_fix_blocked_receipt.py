@@ -98,7 +98,7 @@ class StockFixBlockedReceipt(models.AbstractModel):
             within the same picking.
         """
         # Candidate pickings: ready or confirmed incoming receipts
-        candidates = self.env['stock.picking'].search([
+        candidates = self.env['stock.picking'].sudo().search([
             ('picking_type_code', '=', 'incoming'),
             ('state', 'in', ['confirmed', 'assigned']),
         ])
