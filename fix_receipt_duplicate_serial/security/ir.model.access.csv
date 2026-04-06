@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_stock_fix_blocked_receipt,stock.fix.blocked.receipt,model_stock_fix_blocked_receipt,stock.group_stock_manager,1,1,1,1

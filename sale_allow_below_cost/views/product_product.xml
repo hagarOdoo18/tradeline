@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Product product Form – add "Below Cost" section in Sales tab
+    ═══════════════════════════════════════════════════════════════════ -->
+  <record id="product_product_form_below_cost" model="ir.ui.view">
+    <field name="name">product.product.form.below.cost</field>
+    <field name="model">product.product</field>
+    <field name="inherit_id" ref="product.product_normal_form_view"/>
+    <field name="arch" type="xml">
+
+        <xpath expr="//page[@name='sales']//group[1]" position="after">
+
+            <group string="Sell Below Cost Policy"
+                   name="below_cost_policy_group"
+                   col="2">
+
+                <field name="below_cost_policy"
+                       widget="radio"
+                       colspan="2"/>
+
+                <field name="below_cost_date_from"
+                       string="Allowed From"
+                       invisible="below_cost_policy in ('global', 'blocked')"
+                       required="below_cost_policy == 'allowed' and below_cost_date_to != False"
+                       placeholder="No lower bound"/>
+
+                <field name="below_cost_date_to"
+                       string="Allowed To"
+                       invisible="below_cost_policy in ('global', 'blocked')"
+                       required="below_cost_policy == 'allowed' and below_cost_date_from != False"
+                       placeholder="No upper bound"/>
+
+                <field name="below_cost_action"
+                       string="Action When Below Cost"
+                       invisible="below_cost_policy in ('global', 'blocked')"/>
+
+                <div colspan="2"
+                     class="alert alert-info mb0 mt4"
+                     role="alert"
+                     invisible="below_cost_policy != 'global'">
+                    <i class="fa fa-info-circle me-1"/>
+                    Using the <strong>global setting</strong> configured in
+                    <em>Settings → Sales → Allow Selling Below Cost Price</em>.
+                </div>
+
+                <div colspan="2"
+                     class="alert alert-success mb0 mt4"
+                     role="alert"
+                     invisible="below_cost_policy != 'allowed'">
+                    <i class="fa fa-check-circle me-1"/>
+                    This product <strong>may</strong> be sold below cost
+                    within the specified date range (overrides global setting).
+                </div>
+
+                <div colspan="2"
+                     class="alert alert-danger mb0 mt4"
+                     role="alert"
+                     invisible="below_cost_policy != 'blocked'">
+                    <i class="fa fa-ban me-1"/>
+                    This product <strong>can never</strong> be sold below cost,
+                    even if the global setting allows it.
+                </div>
+
+            </group>
+
+        </xpath>
+    </field>
+</record>
+
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Optional: show below-cost policy badge in product list view
+    ═══════════════════════════════════════════════════════════════════ -->
+    <record id="product_product_list_below_cost" model="ir.ui.view">
+        <field name="name">product.product.list.below.cost</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_product_tree_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='standard_price']" position="after">
+                <field name="below_cost_policy"
+                       string="Below Cost"
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
