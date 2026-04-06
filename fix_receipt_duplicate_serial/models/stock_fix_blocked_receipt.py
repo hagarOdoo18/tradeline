@@ -8,39 +8,30 @@ _logger = logging.getLogger(__name__)
 
 class StockFixBlockedReceipt(models.AbstractModel):
     """
-    Cron job that fixes receipts (stock.picking) that are blocked from
-    validation because they contain duplicate serial numbers in their
-    stock.move.line records.
+    Cron job that fixes stock.picking records linked to POS orders where
+    the move lines are missing serial numbers (lot_id = False).
 
-    Root cause
-    ----------
-    Odoo raises a validation error when two move lines in the same picking
-    share the same lot_id (serial number).  This can happen when:
-      - A barcode was scanned twice by mistake.
-      - An import / EDI loaded the same serial twice.
-      - A POS or external system pushed duplicate lines.
+    The correct serials are already recorded on pos.order.line.lot_id.
+    This cron copies them to the corresponding picking move lines,
+    skipping any serial that would create a duplicate within the same picking.
 
-    Fix strategy (per duplicate group inside a picking)
-    ---------------------------------------------------
-    1. Keep the move line with the highest qty_done (or the first one if tied).
-    2. For every other (duplicate) line in that group:
-         a. If qty_done == 0  →  unlink (delete) the line.
-         b. If qty_done  > 0  →  clear its lot_id so the picking can be
-                                   saved; the operator will re-assign the
-                                   serial manually.
-    3. Re-check:  after the fix the picking must have no remaining duplicate
-       lot_ids before we try to validate it.
-    4. Optionally auto-validate the picking if all lines are filled
-       (controlled by the class attribute AUTO_VALIDATE).
-
-    All actions are logged to _logger and ir.logging for full traceability.
+    Fix strategy
+    ------------
+    1. Find all open pickings (confirmed/assigned) linked to POS orders.
+    2. For each picking, find move lines where lot_id is not set
+       (serial not yet assigned).
+    3. For each such line, look up the matching pos.order.line by
+       (product_id) and read its lot_id.
+    4. Assign the serial to the move line ONLY if that serial is not
+       already used in another line of the same picking (no duplicate).
+    5. If a serial from POS is already used in the picking → skip it
+       and log a warning so the operator can assign manually.
+    6. Optionally auto-validate if all lines are filled after the fix.
     """
 
     _name = 'stock.fix.blocked.receipt'
-    _description = 'Fix Blocked Receipts — Duplicate Serial Numbers'
+    _description = 'Fix Blocked Receipts — Assign Serials from POS Lines'
 
-    # Set to True if you want the cron to auto-validate the picking after
-    # fixing the duplicates (only when every line is fully filled).
     AUTO_VALIDATE = True
 
     # ------------------------------------------------------------------ #
@@ -51,19 +42,19 @@ class StockFixBlockedReceipt(models.AbstractModel):
     def cron_fix_blocked_receipts(self):
         _logger.info("=== [fix_blocked_receipt] Cron started ===")
 
-        blocked = self._find_blocked_receipts()
+        pickings = self._find_blocked_receipts()
 
-        if not blocked:
-            _logger.info("[fix_blocked_receipt] No blocked receipts found.")
+        if not pickings:
+            _logger.info("[fix_blocked_receipt] No pickings need serial assignment.")
             return
 
         _logger.warning(
-            "[fix_blocked_receipt] Found %d blocked receipt(s). Processing...",
-            len(blocked),
+            "[fix_blocked_receipt] Found %d picking(s) with unassigned serials.",
+            len(pickings),
         )
 
         report = []
-        for picking in blocked:
+        for picking in pickings:
             result = self._fix_picking(picking)
             report.append(result)
 
@@ -73,10 +64,10 @@ class StockFixBlockedReceipt(models.AbstractModel):
 
         summary = (
             f"[fix_blocked_receipt] Done — "
-            f"Receipts processed: {len(report)} | "
-            f"Fixed (not validated): {fixed} | "
+            f"Pickings processed: {len(report)} | "
+            f"Fixed: {fixed} | "
             f"Fixed + validated: {validated} | "
-            f"Skipped (manual review): {skipped}"
+            f"Needs review: {skipped}"
         )
         _logger.warning(summary)
         self._log_to_ir_logging(summary)
@@ -85,150 +76,248 @@ class StockFixBlockedReceipt(models.AbstractModel):
         _logger.info("=== [fix_blocked_receipt] Cron finished ===")
 
     # ------------------------------------------------------------------ #
-    #  STEP 1 — FIND BLOCKED RECEIPTS                                      #
+    #  STEP 1 — FIND PICKINGS THAT NEED SERIAL ASSIGNMENT                  #
     # ------------------------------------------------------------------ #
 
     @api.model
     def _find_blocked_receipts(self):
         """
-        Return pickings that:
-          - Are incoming receipts (picking_type_code = 'incoming')
-          - Are in state 'assigned' or 'confirmed'  (not yet validated)
-          - Have at least one serial-tracked product with a duplicate lot_id
-            within the same picking.
+        Return open pickings linked to POS orders that have at least one
+        serial-tracked move line with lot_id = False (serial not assigned).
+
+        Guards
+        ------
+        - Returns empty recordset if POS is not installed.
+        - Only looks at pickings in state confirmed or assigned.
+        - Only considers products with tracking = 'serial'.
         """
-        # Candidate pickings: ready or confirmed incoming receipts
-        candidates = self.env['stock.picking'].sudo().search([
-            ('picking_type_code', '=', 'incoming'),
-            ('state', 'in', ['confirmed', 'assigned']),
+        PosOrderLine = self.env.get('pos.order.line')
+        if PosOrderLine is None:
+            _logger.info("[find] POS module not installed — nothing to scan.")
+            return self.env['stock.picking']
+
+        # Collect all open pickings linked to POS orders via picking_ids
+        pos_orders = self.env['pos.order'].sudo().search([
+            ('state', 'in', ['paid', 'done', 'invoiced']),('name','like','District 5 TLS/0374 REFUND')
         ])
 
-        blocked = self.env['stock.picking']
+        candidates = self.env['stock.picking']
+        for order in pos_orders:
+            for picking in order.picking_ids.sudo().filtered(
+                    lambda p: p.state in ('confirmed', 'assigned')
+            ):
+                if picking not in candidates:
+                    candidates |= picking
+
+        if not candidates:
+            _logger.info("[find] No open POS-linked pickings found.")
+            return self.env['stock.picking']
+
+        # Keep only pickings that have at least one serial line without a lot
+        needs_fix = self.env['stock.picking']
         for picking in candidates:
-            if self._has_duplicate_serials(picking):
-                blocked |= picking
+            missing = picking.move_line_ids.filtered(
+                lambda l: l.product_id.tracking == 'serial' and not l.lot_id
+            )
+            if missing:
+                needs_fix |= picking
                 _logger.warning(
-                    "[find] Blocked receipt: %s (id=%d) — has duplicate serials.",
-                    picking.name, picking.id,
+                    "[find] Picking %s (id=%d) has %d move line(s) "
+                    "with no serial assigned.",
+                    picking.name, picking.id, len(missing),
                 )
 
-        return blocked
-
-    @api.model
-    def _has_duplicate_serials(self, picking):
-        """Return True if any lot_id appears more than once in the picking's move lines."""
-        serial_lines = picking.move_line_ids.filtered(
-            lambda l: l.lot_id and l.product_id.tracking == 'serial'
-        )
-        lot_ids = serial_lines.mapped('lot_id').ids
-        return len(lot_ids) != len(set(lot_ids))
+        return needs_fix
 
     # ------------------------------------------------------------------ #
-    #  STEP 2 — FIX A SINGLE PICKING                                       #
+    #  STEP 2 — ASSIGN SERIALS FROM POS LINES TO MOVE LINES               #
     # ------------------------------------------------------------------ #
 
     @api.model
     def _fix_picking(self, picking):
         """
-        Fix duplicate serials inside one picking.
-        Returns a dict with keys: picking, status, detail.
+        For each move line in the picking that has no lot_id:
+          1. Find the linked POS order for this picking.
+          2. Look up pos.order.line by product_id to get the serial (lot_id).
+          3. Check that serial is not already used in this picking.
+          4. If clean → assign it to the move line.
+          5. If duplicate → skip and log for manual review.
+
+        Returns dict with keys: picking, status, detail, skipped_serials.
         """
         _logger.info(
             "[fix] Processing picking '%s' (id=%d) ...",
             picking.name, picking.id,
         )
 
-        serial_lines = picking.move_line_ids.filtered(
-            lambda l: l.lot_id and l.product_id.tracking == 'serial'
-        )
-
-        # Group move lines by (lot_id) — we want groups with > 1 line
-        groups = defaultdict(lambda: self.env['stock.move.line'])
-        for ml in serial_lines:
-            groups[ml.lot_id.id] |= ml
-
-        duplicates = {lot_id: lines for lot_id, lines in groups.items() if len(lines) > 1}
-
-        cleared_lots  = []   # lot names whose extra lines were cleared
-        deleted_lines = 0    # count of deleted zero-qty lines
-
-        for lot_id, lines in duplicates.items():
-            lot = self.env['stock.lot'].browse(lot_id)
-
-            # Sort: keep the line with the highest qty_done (if tied, keep first)
-            sorted_lines = lines.sorted(key=lambda l: l.qty_done, reverse=True)
-            keeper       = sorted_lines[0]
-            extras       = sorted_lines[1:]
-
+        # Get the POS order linked to this picking
+        pos_order = self._get_pos_order(picking)
+        if not pos_order:
             _logger.warning(
-                "[fix] Picking '%s' | serial '%s' appears %d times. "
-                "Keeping move_line id=%d (qty_done=%.2f). Fixing %d extra line(s).",
-                picking.name, lot.name, len(lines),
-                keeper.id, keeper.qty_done, len(extras),
-            )
-
-            for ml in extras:
-                if ml.qty_done == 0:
-                    # Safe to delete — no quantity was recorded on this line
-                    _logger.info(
-                        "[fix] Deleting empty duplicate line id=%d (lot='%s', qty_done=0).",
-                        ml.id, lot.name,
-                    )
-                    ml.sudo().unlink()
-                    deleted_lines += 1
-                else:
-                    # Line has a qty_done — clear the lot so the picking
-                    # can be saved; operator must re-assign serial manually.
-                    _logger.warning(
-                        "[fix] Clearing lot on line id=%d (lot='%s', qty_done=%.2f) "
-                        "— operator must re-assign manually.",
-                        ml.id, lot.name, ml.qty_done,
-                    )
-                    ml.sudo().write({'lot_id': False})
-                    cleared_lots.append(lot.name)
-
-        # Re-check: are there still duplicates after the fix?
-        if self._has_duplicate_serials(picking):
-            _logger.error(
-                "[fix] Picking '%s' still has duplicates after fix attempt. "
-                "Skipping — manual review required.",
+                "[fix] Could not find POS order for picking '%s'. Skipping.",
                 picking.name,
             )
             return {
-                'picking': picking,
-                'status':  'needs_review',
-                'detail':  'Duplicates remain after automatic fix.',
+                'picking':         picking,
+                'status':          'needs_review',
+                'detail':          'No linked POS order found.',
+                'skipped_serials': [],
             }
 
+        # Build a map: product_id -> [lot_id, ...] from POS order lines
+        # A POS order can have multiple lines for the same product with
+        # different serials, so we collect them all in order.
+        pos_serials = self._get_pos_serials_map(pos_order)
+
+        if not pos_serials:
+            _logger.warning(
+                "[fix] POS order %s has no serial-tracked lines. Skipping.",
+                pos_order.name,
+            )
+            return {
+                'picking':         picking,
+                'status':          'needs_review',
+                'detail':          'POS order has no serial-tracked lines.',
+                'skipped_serials': [],
+            }
+
+        # Track serials already used in this picking (to prevent duplicates)
+        used_lot_ids = set(
+            picking.move_line_ids.filtered(lambda l: l.lot_id).mapped('lot_id').ids
+        )
+
+        assigned      = []   # (line_id, lot_name) successfully assigned
+        skipped_serials = []  # lot names skipped due to duplicate risk
+
+        # Find move lines that still need a serial
+        missing_lines = picking.move_line_ids.filtered(
+            lambda l: l.product_id.tracking == 'serial' and not l.lot_id
+        )
+
+        for ml in missing_lines:
+            product_id = ml.product_id.id
+
+            # Pop the next available serial for this product from POS
+            available = [
+                lot_id for lot_id in pos_serials.get(product_id, [])
+                if lot_id not in used_lot_ids
+            ]
+
+            if not available:
+                lot_name = self._first_pos_lot_name(pos_serials, product_id)
+                _logger.warning(
+                    "[fix] Picking '%s' | product '%s' | move_line id=%d — "
+                    "no available (non-duplicate) serial from POS order %s. "
+                    "Needs manual assignment.",
+                    picking.name, ml.product_id.display_name,
+                    ml.id, pos_order.name,
+                )
+                skipped_serials.append(lot_name or '?')
+                continue
+
+            # Take the first available serial and assign it
+            lot_id = available[0]
+            lot    = self.env['stock.lot'].browse(lot_id)
+
+            _logger.info(
+                "[fix] Assigning serial '%s' to move_line id=%d "
+                "(product='%s', picking='%s').",
+                lot.name, ml.id, ml.product_id.display_name, picking.name,
+            )
+
+            ml.sudo().write({'lot_id': lot_id})
+            used_lot_ids.add(lot_id)   # mark as used so next line won't reuse it
+            assigned.append((ml.id, lot.name))
+
+        # Build detail string
         detail_parts = []
-        if deleted_lines:
-            detail_parts.append(f"{deleted_lines} empty line(s) deleted")
-        if cleared_lots:
+        if assigned:
             detail_parts.append(
-                f"lot cleared on {len(cleared_lots)} line(s) "
-                f"({', '.join(set(cleared_lots))}) — needs manual re-assignment"
+                f"{len(assigned)} serial(s) assigned: "
+                + ', '.join(name for _, name in assigned)
+            )
+        if skipped_serials:
+            detail_parts.append(
+                f"{len(skipped_serials)} serial(s) skipped (duplicate/missing): "
+                + ', '.join(set(skipped_serials))
             )
         detail = '; '.join(detail_parts) or 'No changes made'
 
-        # Optionally auto-validate if every line is fully filled
+        # Auto-validate if enabled and all lines are now filled
         if self.AUTO_VALIDATE and self._is_fully_filled(picking):
             try:
                 picking.sudo().with_context(skip_immediate=True).button_validate()
                 _logger.info(
                     "[fix] Picking '%s' auto-validated successfully.", picking.name,
                 )
-                return {'picking': picking, 'status': 'validated', 'detail': detail}
+                return {
+                    'picking':         picking,
+                    'status':          'validated',
+                    'detail':          detail,
+                    'skipped_serials': skipped_serials,
+                }
             except Exception as exc:
                 _logger.error(
-                    "[fix] Auto-validate failed for '%s': %s", picking.name, str(exc),
+                    "[fix] Auto-validate failed for '%s': %s",
+                    picking.name, str(exc),
                 )
 
-        _logger.info("[fix] Picking '%s' fixed. %s", picking.name, detail)
-        return {'picking': picking, 'status': 'fixed', 'detail': detail}
+        status = 'needs_review' if skipped_serials else 'fixed'
+        _logger.info("[fix] Picking '%s' → %s. %s", picking.name, status, detail)
+        return {
+            'picking':         picking,
+            'status':          status,
+            'detail':          detail,
+            'skipped_serials': skipped_serials,
+        }
+
+    # ------------------------------------------------------------------ #
+    #  HELPERS                                                             #
+    # ------------------------------------------------------------------ #
+
+    @api.model
+    def _get_pos_order(self, picking):
+        """
+        Return the pos.order linked to this picking.
+        Tries picking.pos_order_id first (Odoo 17/18),
+        then searches pos.order.picking_ids as fallback.
+        """
+        # Odoo 17/18 direct field
+        if 'pos_order_id' in picking._fields and picking.pos_order_id:
+            return picking.pos_order_id
+
+        # Fallback: search pos.order that references this picking
+        PosOrder = self.env.get('pos.order')
+        if PosOrder is None:
+            return None
+
+        order = PosOrder.sudo().search(
+            [('picking_ids', 'in', picking.id)], limit=1
+        )
+        return order or None
+
+    @api.model
+    def _get_pos_serials_map(self, pos_order):
+        """
+        Return a dict {product_id: [lot_id, lot_id, ...]} from the
+        pos.order.line records that have a lot_id set.
+        Multiple lines for the same product each contribute one lot_id.
+        """
+        serial_map = defaultdict(list)
+        for line in pos_order.lines:
+            if line.lot_id and line.product_id.tracking == 'serial':
+                serial_map[line.product_id.id].append(line.lot_id.id)
+        return dict(serial_map)
+
+    @staticmethod
+    def _first_pos_lot_name(pos_serials, product_id):
+        """Return the name of the first lot for a product (for logging)."""
+        lots = pos_serials.get(product_id, [])
+        return str(lots[0]) if lots else None
 
     @staticmethod
     def _is_fully_filled(picking):
-        """Return True if every move line has qty_done > 0 and a lot assigned."""
+        """Return True if every serial-tracked move line has qty_done > 0 and lot_id set."""
         return all(
             ml.qty_done > 0 and (
                 ml.product_id.tracking != 'serial' or ml.lot_id
@@ -237,7 +326,7 @@ class StockFixBlockedReceipt(models.AbstractModel):
         )
 
     # ------------------------------------------------------------------ #
-    #  UTILITIES                                                           #
+    #  UTILITIES — LOGGING & NOTIFICATION                                  #
     # ------------------------------------------------------------------ #
 
     @api.model
@@ -273,9 +362,9 @@ class StockFixBlockedReceipt(models.AbstractModel):
                 {r['picking'].partner_id.name or '—'}
               </td>
               <td style="padding:5px 8px;border:1px solid #ddd;">
-                <span style="color:{status_color.get(r['status'],'#333')};
+                <span style="color:{status_color.get(r['status'], '#333')};
                     font-weight:bold;">
-                  {r['status'].replace('_',' ').upper()}
+                  {r['status'].replace('_', ' ').upper()}
                 </span>
               </td>
               <td style="padding:5px 8px;border:1px solid #ddd;font-size:12px;">
@@ -291,11 +380,11 @@ class StockFixBlockedReceipt(models.AbstractModel):
         skipped   = sum(1 for r in report if r['status'] == 'needs_review')
 
         body = f"""
-        <h3 style="color:#c0392b;">
-          ⚠️ Blocked Receipts — Duplicate Serial Number Fix Report
+        <h3 style="color:#2471a3;">
+          📋 POS Serial Assignment Report — Blocked Receipts
         </h3>
         <p>
-          <b>{len(report)}</b> blocked receipt(s) processed by the cron job:<br/>
+          <b>{len(report)}</b> picking(s) processed:<br/>
           <span style="color:#27ae60;"><b>{fixed}</b> fixed</span> &nbsp;|&nbsp;
           <span style="color:#2980b9;"><b>{validated}</b> fixed &amp; auto-validated</span> &nbsp;|&nbsp;
           <span style="color:#e74c3c;"><b>{skipped}</b> need manual review</span>
@@ -303,8 +392,8 @@ class StockFixBlockedReceipt(models.AbstractModel):
         <table style="border-collapse:collapse;width:100%;font-size:13px;">
           <thead style="background:#f5f5f5;">
             <tr>
-              <th style="padding:6px 8px;border:1px solid #ddd;">Receipt</th>
-              <th style="padding:6px 8px;border:1px solid #ddd;">Vendor</th>
+              <th style="padding:6px 8px;border:1px solid #ddd;">Picking</th>
+              <th style="padding:6px 8px;border:1px solid #ddd;">Customer</th>
               <th style="padding:6px 8px;border:1px solid #ddd;">Status</th>
               <th style="padding:6px 8px;border:1px solid #ddd;">Detail</th>
             </tr>
@@ -313,10 +402,10 @@ class StockFixBlockedReceipt(models.AbstractModel):
         </table>
         <br/>
         <p style="background:#fef9e7;padding:10px;border-left:4px solid #f39c12;">
-          <b>Lines marked "needs manual re-assignment"</b> had a recorded
-          quantity but a duplicated serial. The serial was <i>cleared</i> from
-          the extra line — please open that receipt, assign the correct serial
-          to the cleared line, then validate manually.
+          <b>Lines marked NEEDS REVIEW</b> could not be assigned a serial
+          automatically because either no serial was found on the POS order line,
+          or all available serials for that product were already used in the same
+          picking. Please open those pickings and assign the serial manually.
         </p>
         <p style="color:#aaa;font-size:11px;">
           Generated by <i>Fix Blocked Receipts</i> cron job.
@@ -336,7 +425,7 @@ class StockFixBlockedReceipt(models.AbstractModel):
         try:
             self.env['mail.thread'].sudo().message_notify(
                 partner_ids=partner_ids,
-                subject=_('[ACTION NEEDED] Blocked Receipts Fixed — Duplicate Serials'),
+                subject=_('[ACTION NEEDED] POS Serial Assignment — Blocked Receipts'),
                 body=body,
                 message_type='email',
                 subtype_xmlid='mail.mt_comment',
