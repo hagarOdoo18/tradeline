@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <odoo>
     <record id="group_legacy_invoice_archive_manager" model="res.groups">
         <field name="name">Legacy Invoice Archive Manager</field>

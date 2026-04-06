@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="view_legacy_report_pack_definition_list" model="ir.ui.view">
         <field name="name">legacy.report.pack.definition.list</field>
@@ -60,5 +60,5 @@
               parent="menu_legacy_invoice"
               action="action_legacy_report_pack_definition"
               sequence="10"
-              groups="account.group_account_user"/>
+              groups="account.group_account_readonly"/>
 </odoo>

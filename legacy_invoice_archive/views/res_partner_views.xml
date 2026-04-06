@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="view_partner_form_legacy_invoice_archive" model="ir.ui.view">
         <field name="name">res.partner.form.legacy.invoice.archive</field>
@@ -10,7 +10,7 @@
                         type="object"
                         name="action_open_legacy_invoices"
                         icon="fa-archive"
-                        groups="account.group_account_user">
+                        groups="account.group_account_readonly">
                     <field name="legacy_invoice_count" string="Legacy Invoices" widget="statinfo"/>
                 </button>
             </xpath>
