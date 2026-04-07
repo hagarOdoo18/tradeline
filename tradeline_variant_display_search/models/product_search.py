@@ -16,6 +16,34 @@ def _split_search_tokens(name):
     return [token for token in tokens if len(token) >= 2 or token.isdigit()]
 
 
+def _token_text_fields_domain(token, operator):
+    return expression.OR(
+        [
+            [("display_name", operator, token)],
+            [("name", operator, token)],
+            [("product_tmpl_id.name", operator, token)],
+            [("product_template_variant_value_ids.name", operator, token)],
+        ]
+    )
+
+
+def _token_any_field_domain(token, operator):
+    # Numeric tokens like "1" or "5" should match product text fields only.
+    # If they also match item codes/barcodes, unrelated products can leak in.
+    if token.isdigit():
+        return _token_text_fields_domain(token, operator)
+    return expression.OR(
+        [
+            [("display_name", operator, token)],
+            [("name", operator, token)],
+            [("product_tmpl_id.name", operator, token)],
+            [("product_template_variant_value_ids.name", operator, token)],
+            [("barcode", operator, token)],
+            [("default_code", operator, token)],
+        ]
+    )
+
+
 def _build_product_candidate_domain(name, operator, lot_product):
     domains = [
         [("display_name", operator, name)],
@@ -35,20 +63,7 @@ def _build_product_candidate_domain(name, operator, lot_product):
             expression.AND([[("product_template_variant_value_ids.name", operator, token)] for token in tokens])
         )
         # Critical: allow tokens to be distributed across template name + variant values.
-        per_token_any_field = []
-        for token in tokens:
-            per_token_any_field.append(
-                expression.OR(
-                    [
-                        [("display_name", operator, token)],
-                        [("name", operator, token)],
-                        [("product_tmpl_id.name", operator, token)],
-                        [("product_template_variant_value_ids.name", operator, token)],
-                        [("barcode", operator, token)],
-                        [("default_code", operator, token)],
-                    ]
-                )
-            )
+        per_token_any_field = [_token_any_field_domain(token, operator) for token in tokens]
         domains.append(expression.AND(per_token_any_field))
 
     if lot_product:
