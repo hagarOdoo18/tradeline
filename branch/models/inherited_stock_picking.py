@@ -20,8 +20,8 @@ class StockPicking(models.Model):
 
     @api.model
     def search_fetch(self, domain, StockLocation, offset=0, limit=None, order=None):
-
-        domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
+        if  self.env.user.id  not in[1,2]:
+            domain += ['|', ('branch_id', '=', False), ('branch_id', 'in', self.env.user.branch_ids.ids)]
 
         return super().search_fetch(domain, StockLocation, offset, limit, order)
 
