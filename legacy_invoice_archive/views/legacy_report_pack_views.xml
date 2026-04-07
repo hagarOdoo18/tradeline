@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_report_pack_definition_list" model="ir.ui.view">
+        <field name="name">legacy.report.pack.definition.list</field>
+        <field name="model">legacy.report.pack.definition</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Report Packs" create="false" edit="false" delete="false">
+                <field name="sequence" optional="hide"/>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="report_xml_id" optional="show"/>
+                <field name="output_format"/>
+                <field name="enabled"/>
+                <field name="last_generated_at" optional="show"/>
+                <field name="last_generated_attachment_id" optional="show"/>
+                <field name="active" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_report_pack_definition_form" model="ir.ui.view">
+        <field name="name">legacy.report.pack.definition.form</field>
+        <field name="model">legacy.report.pack.definition</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Report Pack" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                            <field name="report_xml_id"/>
+                            <field name="sequence"/>
+                        </group>
+                        <group>
+                            <field name="output_format"/>
+                            <field name="enabled"/>
+                            <field name="active"/>
+                            <field name="last_generated_at"/>
+                            <field name="last_generated_attachment_id"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="description"/>
+                        <field name="payload_json"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_legacy_report_pack_definition" model="ir.actions.act_window">
+        <field name="name">Legacy Report Pack</field>
+        <field name="res_model">legacy.report.pack.definition</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_legacy_report_pack_definition_list"/>
+    </record>
+
+    <menuitem id="menu_legacy_report_pack"
+              name="Legacy Report Pack"
+              parent="menu_legacy_invoice"
+              action="action_legacy_report_pack_definition"
+              sequence="10"
+              groups="account.group_account_readonly"/>
+</odoo>

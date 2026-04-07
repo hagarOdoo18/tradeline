@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_invoice_list" model="ir.ui.view">
+        <field name="name">legacy.invoice.list</field>
+        <field name="model">legacy.invoice</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Invoices" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="invoice_date"/>
+                <field name="number"/>
+                <field name="source_name" optional="show"/>
+                <field name="partner_id"/>
+                <field name="state"/>
+                <field name="invoice_type" optional="show"/>
+                <field name="amount_total" sum="Total"/>
+                <field name="amount_residual" sum="Residual" optional="show"/>
+                <field name="line_count" optional="show"/>
+                <field name="attachment_count" optional="show"/>
+                <field name="source_db" optional="hide"/>
+                <field name="source_id" optional="hide"/>
+                <field name="import_batch_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_search" model="ir.ui.view">
+        <field name="name">legacy.invoice.search</field>
+        <field name="model">legacy.invoice</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Invoices">
+                <field name="number"/>
+                <field name="partner_id"/>
+                <field name="invoice_date"/>
+                <field name="state"/>
+                <field name="invoice_type"/>
+                <field name="source_db"/>
+                <field name="source_id"/>
+                <separator/>
+                <filter name="filter_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
+                <filter name="filter_open" string="Open" domain="[('state', '=', 'open')]"/>
+                <filter name="filter_cancel" string="Cancelled" domain="[('state', '=', 'cancel')]"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="group_partner" string="Customer" context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                    <filter name="group_month" string="Month" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_form" model="ir.ui.view">
+        <field name="name">legacy.invoice.form</field>
+        <field name="model">legacy.invoice</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Invoice" create="false" edit="false" delete="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="number" readonly="1"/>
+                        </h1>
+                        <h2>
+                            <field name="source_name" readonly="1"/>
+                        </h2>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="partner_id"/>
+                            <field name="invoice_date"/>
+                            <field name="due_date"/>
+                            <field name="state"/>
+                            <field name="invoice_type"/>
+                        </group>
+                        <group>
+                            <field name="company_id"/>
+                            <field name="currency_id"/>
+                            <field name="amount_untaxed"/>
+                            <field name="amount_tax"/>
+                            <field name="amount_total"/>
+                            <field name="amount_residual"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="source_db"/>
+                            <field name="source_model"/>
+                            <field name="source_id"/>
+                            <field name="source_partner_id"/>
+                            <field name="source_partner_name"/>
+                        </group>
+                        <group>
+                            <field name="import_batch_id"/>
+                            <field name="imported_at"/>
+                            <field name="line_count"/>
+                            <field name="attachment_count"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Lines">
+                            <field name="line_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="sequence" optional="hide"/>
+                                    <field name="item_code" optional="show"/>
+                                    <field name="product_id"/>
+                                    <field name="name"/>
+                                    <field name="quantity"/>
+                                    <field name="uom_id" optional="show"/>
+                                    <field name="price_unit"/>
+                                    <field name="discount" optional="show"/>
+                                    <field name="price_subtotal" sum="Subtotal"/>
+                                    <field name="price_total" sum="Total"/>
+                                    <field name="source_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Taxes">
+                            <field name="tax_line_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="name"/>
+                                    <field name="tax_id" optional="show"/>
+                                    <field name="tax_group_id" optional="show"/>
+                                    <field name="base_amount" sum="Base"/>
+                                    <field name="amount" sum="Tax"/>
+                                    <field name="source_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Payments">
+                            <field name="payment_link_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="payment_date"/>
+                                    <field name="name"/>
+                                    <field name="reference" optional="show"/>
+                                    <field name="journal_id" optional="show"/>
+                                    <field name="amount" sum="Total"/>
+                                    <field name="source_payment_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Attachments">
+                            <field name="attachment_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="name"/>
+                                    <field name="datas_fname" optional="show"/>
+                                    <field name="mimetype" optional="show"/>
+                                    <field name="file_size" optional="show"/>
+                                    <field name="checksum" optional="hide"/>
+                                    <field name="source_attachment_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Serial References">
+                            <field name="serial_ref_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="lot_name"/>
+                                    <field name="item_code" optional="show"/>
+                                    <field name="qty_done"/>
+                                    <field name="product_category_id" optional="show"/>
+                                    <field name="match_status" optional="show"/>
+                                    <field name="source_lot_id" optional="hide"/>
+                                    <field name="source_move_line_id" optional="hide"/>
+                                    <field name="source_picking_id" optional="hide"/>
+                                </list>
+                            </field>
+                            <group>
+                                <field name="print_notes"/>
+                                <field name="notes_pos"/>
+                                <field name="product_notes"/>
+                            </group>
+                        </page>
+
+                        <page string="Customer Links">
+                            <field name="customer_bridge_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="source_partner_id"/>
+                                    <field name="source_partner_name"/>
+                                    <field name="target_partner_id"/>
+                                    <field name="match_method"/>
+                                    <field name="match_status"/>
+                                    <field name="confidence" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Legacy Raw">
+                            <group>
+                                <field name="comment"/>
+                                <field name="legacy_payload"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_legacy_invoice" model="ir.actions.act_window">
+        <field name="name">Legacy Invoices</field>
+        <field name="res_model">legacy.invoice</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="view_id" ref="view_legacy_invoice_list"/>
+        <field name="search_view_id" ref="view_legacy_invoice_search"/>
+        <field name="context">{'search_default_filter_open': 1}</field>
+        <field name="help" type="html">
+            <p>
+                Read-only archive of Odoo 12 invoices, lines, payments, attachments, and serial references.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_legacy_invoice"
+              name="Legacy Invoices"
+              parent="account.menu_finance_receivables"
+              action="action_legacy_invoice"
+              sequence="60"
+              groups="account.group_account_readonly"/>
+</odoo>
