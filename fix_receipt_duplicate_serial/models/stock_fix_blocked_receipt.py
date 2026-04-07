@@ -98,7 +98,7 @@ class StockFixBlockedReceipt(models.AbstractModel):
 
         # Collect all open pickings linked to POS orders via picking_ids
         pos_orders = self.env['pos.order'].sudo().search([
-            ('state', 'in', ['paid', 'done', 'invoiced']),('name','like','District 5 TLS/0374 REFUND')
+            ('state', 'in', ['paid', 'done', 'invoiced']),('refunded_order_id','!=',False)
         ])
 
         candidates = self.env['stock.picking']
@@ -119,6 +119,13 @@ class StockFixBlockedReceipt(models.AbstractModel):
             missing = picking.move_line_ids.filtered(
                 lambda l: l.product_id.tracking == 'serial' and not l.lot_id
             )
+            missing_move = picking.move_ids.filtered(
+                lambda l: l.product_uom_qty != l.quantity
+            )
+
+            for m in missing_move:
+                m.sudo().write({'quantity': m.product_uom_qty})
+
             if missing:
                 needs_fix |= picking
                 _logger.warning(
@@ -126,7 +133,17 @@ class StockFixBlockedReceipt(models.AbstractModel):
                     "with no serial assigned.",
                     picking.name, picking.id, len(missing),
                 )
-
+            else:
+                try:
+                    picking.sudo().with_context(skip_immediate=True).button_validate()
+                    _logger.info(
+                        "[fix] Picking '%s' auto-validated successfully.", picking.name,
+                    )
+                except Exception as exc:
+                    _logger.error(
+                        "[fix] Auto-validate failed for '%s': %s",
+                        picking.name, str(exc),
+                    )
         return needs_fix
 
     # ------------------------------------------------------------------ #
@@ -226,6 +243,7 @@ class StockFixBlockedReceipt(models.AbstractModel):
             )
 
             ml.sudo().write({'lot_id': lot_id})
+            ml.move_id.quantity = ml.move_id.product_uom_qty
             used_lot_ids.add(lot_id)   # mark as used so next line won't reuse it
             assigned.append((ml.id, lot.name))
 
@@ -305,8 +323,11 @@ class StockFixBlockedReceipt(models.AbstractModel):
         """
         serial_map = defaultdict(list)
         for line in pos_order.lines:
-            if line.lot_id and line.product_id.tracking == 'serial':
-                serial_map[line.product_id.id].append(line.lot_id.id)
+            if line.pack_lot_ids and line.product_id.tracking == 'serial':
+                for lot in line.pack_lot_ids:
+                    stock_lot_id = self.env['stock.lot'].search([('name', '=', lot.lot_name)], limit=1)
+                    if stock_lot_id.id not in serial_map[line.product_id.id]:
+                        serial_map[line.product_id.id].append(stock_lot_id.id)
         return dict(serial_map)
 
     @staticmethod
