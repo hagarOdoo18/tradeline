@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Variant Display Search",
     "summary": "Global product/template search by variant display name",
-    "version": "18.0.1.2.2",
+    "version": "18.0.1.2.3",
     "category": "Inventory",
     "author": "Tradeline",
     "license": "LGPL-3",

@@ -145,6 +145,56 @@ def _rank_products(products, search_term, base_order):
     return [item[2] for item in ranked]
 
 
+def _ordered_unique_ids(ids):
+    ordered = []
+    seen = set()
+    for value in ids:
+        if value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
+
+
+def _strict_ranked_products(ranked_products, search_term):
+    full_term = (search_term or "").strip().lower()
+    if not full_term:
+        return []
+
+    exact = []
+    for product in ranked_products:
+        if full_term in {
+            (product.display_name or "").strip().lower(),
+            (product.name or "").strip().lower(),
+            (product.barcode or "").strip().lower(),
+            (product.default_code or "").strip().lower(),
+        }:
+            exact.append(product)
+    if exact:
+        return exact
+
+    numeric_tokens = [token for token in _split_search_tokens(search_term) if token.isdigit()]
+    if not numeric_tokens:
+        return []
+
+    strict = []
+    for product in ranked_products:
+        attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name"))
+        product_text = " ".join(
+            filter(
+                None,
+                [
+                    product.display_name,
+                    product.name,
+                    product.product_tmpl_id.name,
+                    attrs_text,
+                ],
+            )
+        ).lower()
+        if all(_token_present(product_text, token) for token in numeric_tokens):
+            strict.append(product)
+    return strict
+
+
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
@@ -171,30 +221,36 @@ class ProductTemplate(models.Model):
         if not products:
             return result_ids
 
-        base_order = {template_id: idx for idx, template_id in enumerate(result_ids)}
         product_base_order = {product.id: idx for idx, product in enumerate(products)}
+        tokens = _split_search_tokens(name)
         ranked_products = _rank_products(products, name, product_base_order)
-        template_ids_by_rank = [product.product_tmpl_id.id for product in ranked_products]
+        strict_products = _strict_ranked_products(ranked_products, name)
+        effective_products = strict_products or ranked_products
+        template_ids_by_rank = _ordered_unique_ids([product.product_tmpl_id.id for product in effective_products])
+        prefer_ranked_only = bool(strict_products) or len(tokens) > 1
 
         # Keep template record rules/domains intact for caller context.
+        candidate_ids = template_ids_by_rank if prefer_ranked_only else template_ids_by_rank + result_ids
         visible_template_ids = self._search(
-            expression.AND([domain, [("id", "in", template_ids_by_rank + result_ids)]]),
+            expression.AND([domain, [("id", "in", candidate_ids)]]),
             order=order,
         )
         visible_set = set(visible_template_ids)
 
         merged = []
         seen = set()
-        for template_id in template_ids_by_rank + result_ids:
+        ordered_candidates = candidate_ids
+        for template_id in ordered_candidates:
             if template_id in visible_set and template_id not in seen:
                 seen.add(template_id)
                 merged.append(template_id)
 
         # Append remaining visible templates if any.
-        for template_id in visible_template_ids:
-            if template_id not in seen:
-                seen.add(template_id)
-                merged.append(template_id)
+        if not prefer_ranked_only:
+            for template_id in visible_template_ids:
+                if template_id not in seen:
+                    seen.add(template_id)
+                    merged.append(template_id)
 
         return merged[:limit] if limit else merged
 
@@ -255,8 +311,16 @@ class ProductProduct(models.Model):
             return result
 
         base_order = {product_id: idx for idx, (product_id, _) in enumerate(result)}
+        tokens = _split_search_tokens(name)
         ranked_products = _rank_products(products, name, base_order)
-        variant_results = [(product.id, product.display_name) for product in ranked_products]
+        strict_products = _strict_ranked_products(ranked_products, name)
+        effective_products = strict_products or ranked_products
+        variant_results = [(product.id, product.display_name) for product in effective_products]
+
+        # For exact or multi-token searches, avoid re-introducing broad base name_search hits.
+        if strict_products or len(tokens) > 1:
+            return variant_results[:limit] if limit else variant_results
+
         merged = []
         seen = set()
 
