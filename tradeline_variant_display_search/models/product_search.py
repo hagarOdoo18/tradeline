@@ -11,7 +11,9 @@ TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
 
 def _split_search_tokens(name):
     tokens = [token.lower() for token in re.split(r"[\s,;/|()\-]+", (name or "").strip()) if token]
-    return [token for token in tokens if len(token) >= 2]
+    # Keep single-digit tokens (e.g. "1 Pack", "Flip 5") so numeric variants
+    # are not treated as equivalent.
+    return [token for token in tokens if len(token) >= 2 or token.isdigit()]
 
 
 def _build_product_candidate_domain(name, operator, lot_product):
