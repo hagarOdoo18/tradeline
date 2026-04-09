@@ -8,6 +8,7 @@
                 <field name="invoice_date"/>
                 <field name="number"/>
                 <field name="source_name" optional="show"/>
+                <field name="source_partner_name" string="Legacy Customer" optional="show"/>
                 <field name="partner_id"/>
                 <field name="state"/>
                 <field name="invoice_type" optional="show"/>
@@ -29,6 +30,7 @@
             <search string="Legacy Invoices">
                 <field name="number"/>
                 <field name="partner_id"/>
+                <field name="source_partner_name"/>
                 <field name="invoice_date"/>
                 <field name="state"/>
                 <field name="invoice_type"/>
