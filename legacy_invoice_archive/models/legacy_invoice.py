@@ -1,5 +1,6 @@
 import base64
 import csv
+from datetime import datetime
 import html
 import io
 
@@ -516,7 +517,7 @@ class LegacyReportPackDefinition(models.Model):
         headers, rows = self._build_report_rows(invoices)
         content, mimetype, extension = self._render_report_content(headers, rows, wizard.output_format)
 
-        stamp = fields.Datetime.now().strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         filename = f"legacy_{self.code}_{stamp}.{extension}"
         attachment = self.env["ir.attachment"].create(
             {
