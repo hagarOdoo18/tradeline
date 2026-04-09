@@ -55,10 +55,16 @@
         <field name="view_id" ref="view_legacy_report_pack_definition_list"/>
     </record>
 
+    <menuitem id="menu_legacy_reporting_root"
+              name="Legacy Reporting"
+              parent="account.menu_finance_reports"
+              sequence="260"
+              groups="account.group_account_readonly"/>
+
     <menuitem id="menu_legacy_report_pack"
               name="Legacy Report Pack"
-              parent="account.menu_finance_receivables"
+              parent="menu_legacy_reporting_root"
               action="action_legacy_report_pack_definition"
-              sequence="61"
+              sequence="10"
               groups="account.group_account_readonly"/>
 </odoo>
