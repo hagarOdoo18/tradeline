@@ -1,4 +1,10 @@
+import base64
+import csv
+import html
+import io
+
 from odoo import api, fields, models
+from odoo.exceptions import UserError
 
 
 class LegacyInvoice(models.Model):
@@ -339,3 +345,194 @@ class LegacyReportPackDefinition(models.Model):
     _sql_constraints = [
         ("legacy_report_pack_code_uniq", "unique(code)", "Report pack code must be unique."),
     ]
+
+    def action_open_generate_wizard(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Generate Legacy Report",
+            "res_model": "legacy.report.pack.generate.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_report_pack_id": self.id,
+                "default_output_format": self.output_format or "csv",
+            },
+        }
+
+    def action_open_last_generated_attachment(self):
+        self.ensure_one()
+        if not self.last_generated_attachment_id:
+            raise UserError("No generated attachment is available for this report yet.")
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{self.last_generated_attachment_id.id}?download=1",
+            "target": "self",
+        }
+
+    def _get_invoice_domain(self, wizard):
+        domain = [("active", "=", True)]
+        if wizard.date_from:
+            domain.append(("invoice_date", ">=", wizard.date_from))
+        if wizard.date_to:
+            domain.append(("invoice_date", "<=", wizard.date_to))
+        if wizard.invoice_type != "all":
+            domain.append(("invoice_type", "=", wizard.invoice_type))
+        if wizard.invoice_state != "all":
+            domain.append(("state", "=", wizard.invoice_state))
+        return domain
+
+    def _build_report_rows(self, invoices):
+        self.ensure_one()
+        code = self.code or ""
+
+        if code in {"english_invoice", "invoice_selection", "invoice_standard", "invoice_with_payments"}:
+            headers = [
+                "invoice_date",
+                "number",
+                "source_name",
+                "customer",
+                "state",
+                "invoice_type",
+                "amount_untaxed",
+                "amount_tax",
+                "amount_total",
+                "amount_residual",
+                "payment_amount",
+            ]
+            rows = []
+            for inv in invoices:
+                payment_amount = sum(inv.payment_link_ids.mapped("amount")) if code == "invoice_with_payments" else 0.0
+                rows.append(
+                    {
+                        "invoice_date": inv.invoice_date or "",
+                        "number": inv.number or "",
+                        "source_name": inv.source_name or "",
+                        "customer": inv.partner_id.display_name or inv.source_partner_name or "",
+                        "state": inv.state or "",
+                        "invoice_type": inv.invoice_type or "",
+                        "amount_untaxed": inv.amount_untaxed or 0.0,
+                        "amount_tax": inv.amount_tax or 0.0,
+                        "amount_total": inv.amount_total or 0.0,
+                        "amount_residual": inv.amount_residual or 0.0,
+                        "payment_amount": payment_amount,
+                    }
+                )
+            return headers, rows
+
+        if code == "payment_receipt":
+            headers = [
+                "invoice_date",
+                "invoice_number",
+                "customer",
+                "payment_date",
+                "payment_name",
+                "reference",
+                "journal",
+                "amount",
+            ]
+            rows = []
+            payment_links = self.env["legacy.invoice.payment.link"].search([("invoice_id", "in", invoices.ids)])
+            for payment in payment_links:
+                inv = payment.invoice_id
+                rows.append(
+                    {
+                        "invoice_date": inv.invoice_date or "",
+                        "invoice_number": inv.number or "",
+                        "customer": inv.partner_id.display_name or inv.source_partner_name or "",
+                        "payment_date": payment.payment_date or "",
+                        "payment_name": payment.name or "",
+                        "reference": payment.reference or "",
+                        "journal": payment.journal_id.display_name or "",
+                        "amount": payment.amount or 0.0,
+                    }
+                )
+            return headers, rows
+
+        # lot/inventory/delivery/picking legacy reports use the serial reference dataset.
+        headers = [
+            "invoice_date",
+            "invoice_number",
+            "customer",
+            "lot_name",
+            "item_code",
+            "qty_done",
+            "product_category",
+            "picking_note",
+            "match_status",
+        ]
+        rows = []
+        serial_refs = self.env["legacy.invoice.serial.ref"].search([("invoice_id", "in", invoices.ids)])
+        for serial in serial_refs:
+            inv = serial.invoice_id
+            rows.append(
+                {
+                    "invoice_date": inv.invoice_date or "",
+                    "invoice_number": inv.number or "",
+                    "customer": inv.partner_id.display_name or inv.source_partner_name or "",
+                    "lot_name": serial.lot_name or "",
+                    "item_code": serial.item_code or "",
+                    "qty_done": serial.qty_done or 0.0,
+                    "product_category": serial.product_category_id.display_name or "",
+                    "picking_note": serial.picking_note or "",
+                    "match_status": serial.match_status or "",
+                }
+            )
+        return headers, rows
+
+    def _render_report_content(self, headers, rows, output_format):
+        # For phase-1 legacy reporting regeneration we provide CSV/HTML dataset outputs.
+        # PDF/XLSX requests fallback to CSV to avoid pretending unsupported renderers.
+        if output_format == "html":
+            parts = [
+                "<html><body><table border='1' cellspacing='0' cellpadding='4'>",
+                "<thead><tr>",
+            ]
+            for header in headers:
+                parts.append(f"<th>{html.escape(str(header))}</th>")
+            parts.append("</tr></thead><tbody>")
+            for row in rows:
+                parts.append("<tr>")
+                for header in headers:
+                    value = row.get(header, "")
+                    parts.append(f"<td>{html.escape(str(value))}</td>")
+                parts.append("</tr>")
+            parts.append("</tbody></table></body></html>")
+            return "".join(parts).encode("utf-8"), "text/html", "html"
+
+        stream = io.StringIO()
+        writer = csv.DictWriter(stream, fieldnames=headers, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+        return stream.getvalue().encode("utf-8-sig"), "text/csv", "csv"
+
+    def generate_report_attachment(self, wizard):
+        self.ensure_one()
+        if not self.enabled:
+            raise UserError("This legacy report pack is disabled.")
+
+        invoice_domain = self._get_invoice_domain(wizard)
+        invoices = self.env["legacy.invoice"].search(invoice_domain, order="invoice_date asc, id asc")
+        headers, rows = self._build_report_rows(invoices)
+        content, mimetype, extension = self._render_report_content(headers, rows, wizard.output_format)
+
+        stamp = fields.Datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"legacy_{self.code}_{stamp}.{extension}"
+        attachment = self.env["ir.attachment"].create(
+            {
+                "name": filename,
+                "datas_fname": filename,
+                "type": "binary",
+                "datas": base64.b64encode(content).decode(),
+                "mimetype": mimetype,
+                "res_model": self._name,
+                "res_id": self.id,
+            }
+        )
+        self.write(
+            {
+                "last_generated_at": fields.Datetime.now(),
+                "last_generated_attachment_id": attachment.id,
+            }
+        )
+        return attachment

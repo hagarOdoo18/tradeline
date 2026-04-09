@@ -23,6 +23,17 @@
         <field name="model">legacy.report.pack.definition</field>
         <field name="arch" type="xml">
             <form string="Legacy Report Pack" create="false" edit="false" delete="false">
+                <header>
+                    <button name="action_open_generate_wizard"
+                            type="object"
+                            string="Generate"
+                            class="btn-primary"
+                            groups="legacy_invoice_archive.group_legacy_invoice_archive_manager"/>
+                    <button name="action_open_last_generated_attachment"
+                            type="object"
+                            string="Download Last Output"
+                            invisible="not last_generated_attachment_id"/>
+                </header>
                 <sheet>
                     <group>
                         <group>
