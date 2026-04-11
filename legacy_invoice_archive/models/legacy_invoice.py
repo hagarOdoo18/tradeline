@@ -3,6 +3,7 @@ import csv
 from datetime import datetime
 import html
 import io
+from collections import OrderedDict
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
@@ -94,6 +95,60 @@ class LegacyInvoice(models.Model):
         for record in self:
             record.line_count = len(record.line_ids)
             record.attachment_count = len(record.attachment_ids)
+
+    def get_gift_invoice(self):
+        self.ensure_one()
+        return False
+
+    def get_print_lines_summary(self):
+        self.ensure_one()
+        lines = self.line_ids.sorted(lambda l: (l.sequence, l.id))
+        amount_words = ""
+        try:
+            if self.currency_id:
+                amount_words = self.currency_id.amount_to_text(self.amount_total or 0.0)
+        except Exception:
+            amount_words = ""
+        return {
+            "printed_lines": lines,
+            "printed_untaxed": self.amount_untaxed or 0.0,
+            "printed_tax": self.amount_tax or 0.0,
+            "printed_total": self.amount_total or 0.0,
+            "printed_amount_words_en": amount_words,
+        }
+
+    def get_grouped_lot_values(self):
+        self.ensure_one()
+        grouped: OrderedDict[str, dict] = OrderedDict()
+        line_name_by_code = {}
+        for line in self.line_ids:
+            if line.item_code and line.item_code not in line_name_by_code:
+                line_name_by_code[line.item_code] = line.name or line.item_code
+
+        for serial in self.serial_ref_ids:
+            key = serial.item_code or serial.lot_name or "Unknown"
+            if key not in grouped:
+                grouped[key] = {
+                    "product_name": line_name_by_code.get(key) or key,
+                    "quantity": 0.0,
+                    "uom_name": "",
+                    "serials": [],
+                }
+            grouped[key]["quantity"] += serial.qty_done or 0.0
+            if serial.lot_name:
+                grouped[key]["serials"].append(serial.lot_name)
+
+        output = []
+        for item in grouped.values():
+            output.append(
+                {
+                    "product_name": item["product_name"],
+                    "quantity": item["quantity"],
+                    "uom_name": item["uom_name"],
+                    "serials": ", ".join(item["serials"]),
+                }
+            )
+        return output
 
 
 class LegacyInvoiceLine(models.Model):

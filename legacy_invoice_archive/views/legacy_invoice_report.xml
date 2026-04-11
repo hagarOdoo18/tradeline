@@ -8,142 +8,281 @@
         <field name="report_file">legacy_invoice_archive.report_legacy_invoice_document</field>
         <field name="binding_model_id" ref="model_legacy_invoice"/>
         <field name="binding_type">report</field>
-        <field name="print_report_name">'Legacy Invoice - %s' % (object.number or object.source_name or object.id)</field>
+        <field name="print_report_name">'Legacy Invoice - %s' % ((object.number or object.source_name or object.id))</field>
     </record>
+
+    <template id="external_layout_standard_custom_legacy">
+        <t t-if="not o and doc">
+            <t t-set="o" t-value="doc"/>
+        </t>
+        <t t-if="o and 'company_id' in o">
+            <t t-set="company" t-value="o.company_id.sudo()"/>
+        </t>
+        <t t-if="not o or not 'company_id' in o">
+            <t t-set="company" t-value="res_company"/>
+        </t>
+
+        <div class="header">
+            <div class="row">
+                <div class="col-3 mb4">
+                    <img t-if="company.logo"
+                         t-att-src="image_data_uri(company.logo)"
+                         style="max-height: 40pt; max-width: 100%;"
+                         alt="Logo"/>
+                </div>
+                <div class="col-9 text-right" style="margin-top:22px;" t-field="company.report_header"/>
+            </div>
+            <div t-if="company.logo or company.report_header" class="row zero_min_height">
+                <div class="col-12">
+                    <div style="border-bottom: 1px solid black;"/>
+                </div>
+            </div>
+        </div>
+
+        <div class="article"
+             t-att-data-oe-model="o and o._name"
+             t-att-data-oe-id="o and o.id"
+             t-att-data-oe-lang="o and o.env.context.get('lang')">
+            <t t-raw="0"/>
+        </div>
+
+        <div class="footer o_standard_footer">
+            <div class="text-center" style="border-top: 1px solid black;">
+                <ul class="list-inline mb4">
+                    <li t-if="company.mobile" class="list-inline-item d-inline">
+                        Mobile : <span class="o_force_ltr" t-field="company.mobile"/>
+                    </li>
+                    <li t-if="company.email" class="list-inline-item d-inline">
+                        Email : <span t-field="company.email"/>
+                    </li>
+                    <li t-if="company.website" class="list-inline-item d-inline">
+                        Website: <span t-field="company.website"/>
+                    </li>
+                </ul>
+                <div>
+                    <span t-field="company.report_footer"/>
+                </div>
+                <div t-if="report_type == 'pdf'" class="text-muted">
+                    Page: <span class="page"/> / <span class="topage"/>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="new_report_invoice_document">
+        <t t-call="legacy_invoice_archive.external_layout_standard_custom_legacy">
+            <t t-set="o" t-value="o.with_context(lang='en_US')"/>
+            <t t-set="print_summary" t-value="o.get_print_lines_summary()"/>
+            <t t-set="display_tax" t-value="', '.join(o.tax_line_ids.mapped('name'))"/>
+            <t t-set="barcode_value" t-value="o.number or o.source_name or str(o.source_id or o.id)"/>
+
+            <div class="page" style="font-size:30px;">
+                <div class="row mt25" dir="ltr">
+                    <div class="col-4" style="font-size: 14px;">
+                        <strong><span t-esc="o.company_id.name"/></strong>
+                    </div>
+                    <div class="col-4" style="padding-left: 130px">
+                        <strong>Hotline :</strong>
+                        <strong>19857</strong>
+                    </div>
+                    <div class="row mt32">
+                        <strong>Commercial Registration:</strong>
+                        <strong>24801</strong>
+                        <br/>
+                        <strong>Tax Card:</strong>
+                        <strong>254-598-64-0</strong>
+                        <br/>
+                        <strong>Tax ID:</strong>
+                        <strong>555-5-00169-191-00-00</strong>
+                    </div>
+                </div>
+
+                <div class="row mt32" dir="ltr">
+                    <div class="col-5" style="font-size: 14px;">
+                        <strong>Invoice Number :</strong>
+                        <h3>
+                            <span t-esc="o.number or o.source_name or '-'"/>
+                            <br/>
+                        </h3>
+                    </div>
+                    <div class="col-4" style="padding-left: 130px"/>
+                    <div class="col-2">
+                        <div class="pull-right mb32">
+                            <center>
+                                <img t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('Code128', barcode_value, 200, 100)"
+                                     style="width:200px;height:50px;"/>
+                                <div t-esc="barcode_value"/>
+                            </center>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mt32">
+                    <div class="col-3">
+                        <strong>Customer :</strong>
+                        <p><span t-esc="o.partner_id.name or o.source_partner_name or '-'"/></p>
+                    </div>
+                    <div class="col-3">
+                        <strong>Mobile Number:</strong>
+                        <p><span t-esc="o.partner_id.mobile or ''"/></p>
+                    </div>
+                    <div class="col-3">
+                        <strong>Invoice Date:</strong>
+                        <p><span t-esc="o.invoice_date or ''"/></p>
+                    </div>
+                    <div class="col-3">
+                        <strong>PO:</strong>
+                        <p><span t-esc="o.source_name or ''"/></p>
+                    </div>
+                </div>
+
+                <div class="row mt32">
+                    <div class="col-3">
+                        <strong>Billing Address:</strong>
+                        <p><span t-esc="o.partner_id.street2 or ''"/></p>
+                    </div>
+                    <div class="col-3">
+                        <strong>Tax ID :</strong>
+                        <p><span t-esc="o.partner_id.vat or ''"/></p>
+                    </div>
+                    <div class="col-3">
+                        <strong>Source DB :</strong>
+                        <p><span t-esc="o.source_db or ''"/></p>
+                    </div>
+                </div>
+
+                <table class="table table-sm o_main_table" name="invoice_line_table">
+                    <thead>
+                        <tr>
+                            <th class="text-left"><span>Item Code</span></th>
+                            <th class="text-left"><span>Product</span></th>
+                            <th class="text-right"><span>QTY</span></th>
+                            <th class="text-right"><span>Unit Price</span></th>
+                            <th class="text-right"><span>Discount %</span></th>
+                            <th class="text-left"><span>Tax</span></th>
+                            <th class="text-right"><span>SubTotal</span></th>
+                        </tr>
+                    </thead>
+                    <tbody class="invoice_tbody">
+                        <t t-set="lines" t-value="print_summary['printed_lines']"/>
+                        <t t-foreach="lines" t-as="line">
+                            <tr>
+                                <td><span t-esc="line.item_code or ''"/></td>
+                                <td><span t-esc="line.name or ''"/></td>
+                                <td class="text-right"><span t-esc="int(line.quantity or 0)"/></td>
+                                <td class="text-right">
+                                    <span t-out="line.price_unit or 0.0"
+                                          t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                </td>
+                                <td class="text-right"><span t-esc="line.discount or 0.0"/></td>
+                                <td class="text-left">
+                                    <span t-esc="display_tax"/>
+                                </td>
+                                <td class="text-right">
+                                    <span t-out="line.price_subtotal or 0.0"
+                                          t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+
+                <div class="clearfix">
+                    <div class="row">
+                        <div class="col-4 ml-auto">
+                            <table class="table table-sm" style="page-break-inside: avoid;">
+                                <tr class="border-black o_subtotal">
+                                    <td><strong>Untaxed Amount</strong></td>
+                                    <td class="text-right">
+                                        <span t-out="print_summary['printed_untaxed']"
+                                              t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                    </td>
+                                </tr>
+                                <tr class="border-black o_subtotal">
+                                    <td><strong>Tax</strong></td>
+                                    <td class="text-right">
+                                        <span t-out="print_summary['printed_tax']"
+                                              t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                    </td>
+                                </tr>
+                                <tr class="border-black o_total">
+                                    <td><strong>Total</strong></td>
+                                    <td class="text-right">
+                                        <span t-out="print_summary['printed_total']"
+                                              t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="text-right">
+                    <t t-esc="print_summary['printed_amount_words_en']"/>
+                </p>
+
+                <t t-if="o.get_grouped_lot_values()">
+                    <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
+                    <table class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th class="text-end">QTY</th>
+                                <th class="text-end">Serial Number</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="lot_values" t-as="snln_line">
+                                <td><t t-esc="snln_line['product_name']"/></td>
+                                <td class="text-end">
+                                    <t t-esc="snln_line['quantity']"/>
+                                    <t t-if="snln_line.get('uom_name')">
+                                        <t t-esc="snln_line['uom_name']"/>
+                                    </t>
+                                </td>
+                                <td class="text-end">
+                                    <t t-esc="snln_line['serials']"/>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </t>
+
+                <t t-if="o.payment_link_ids">
+                    <table class="table table-sm mt-2">
+                        <thead>
+                            <tr>
+                                <th>Payment Date</th>
+                                <th>Reference</th>
+                                <th>Method</th>
+                                <th class="text-end">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="o.payment_link_ids" t-as="pay">
+                                <td><span t-esc="pay.payment_date or ''"/></td>
+                                <td><span t-esc="pay.reference or pay.name or ''"/></td>
+                                <td><span t-esc="pay.payment_method_name or pay.payment_method_code or ''"/></td>
+                                <td class="text-end">
+                                    <span t-out="pay.amount or 0.0"
+                                          t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </t>
+
+                <p dir="rtl" class="text-right">
+                    <b>Signature : -------------------------------</b>
+                </p>
+            </div>
+        </t>
+    </template>
 
     <template id="report_legacy_invoice_document">
         <t t-call="web.html_container">
             <t t-foreach="docs" t-as="o">
-                <t t-call="web.external_layout">
-                    <div class="page">
-                        <h2 style="margin-bottom: 8px;">Legacy Invoice</h2>
-                        <p style="margin: 0 0 10px 0;">
-                            <strong>Invoice:</strong>
-                            <span t-esc="o.number or o.source_name or '-'"/>
-                            <span style="margin-left: 16px;"><strong>Legacy Source ID:</strong> <span t-esc="o.source_id"/></span>
-                        </p>
-
-                        <table class="table table-sm o_main_table">
-                            <tbody>
-                                <tr>
-                                    <td><strong>Customer</strong></td>
-                                    <td><span t-esc="o.partner_id.display_name or o.source_partner_name or '-'"/></td>
-                                    <td><strong>Date</strong></td>
-                                    <td><span t-esc="o.invoice_date or '-'"/></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Due Date</strong></td>
-                                    <td><span t-esc="o.due_date or '-'"/></td>
-                                    <td><strong>Status</strong></td>
-                                    <td><span t-esc="o.state or '-'"/></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <h4 style="margin-top: 14px;">Lines</h4>
-                        <table class="table table-sm o_main_table">
-                            <thead>
-                                <tr>
-                                    <th>Item Code</th>
-                                    <th>Description</th>
-                                    <th class="text-end">Qty</th>
-                                    <th class="text-end">Unit Price</th>
-                                    <th class="text-end">Discount %</th>
-                                    <th class="text-end">Subtotal</th>
-                                    <th class="text-end">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr t-foreach="o.line_ids" t-as="line">
-                                    <td><span t-esc="line.item_code or ''"/></td>
-                                    <td><span t-esc="line.name or ''"/></td>
-                                    <td class="text-end"><span t-esc="line.quantity"/></td>
-                                    <td class="text-end"><span t-esc="line.price_unit"/></td>
-                                    <td class="text-end"><span t-esc="line.discount"/></td>
-                                    <td class="text-end"><span t-esc="line.price_subtotal"/></td>
-                                    <td class="text-end"><span t-esc="line.price_total"/></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <h4 style="margin-top: 14px;">Totals</h4>
-                        <table class="table table-sm o_main_table" style="width: 50%;">
-                            <tbody>
-                                <tr>
-                                    <td><strong>Untaxed</strong></td>
-                                    <td class="text-end"><span t-esc="o.amount_untaxed"/></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Tax</strong></td>
-                                    <td class="text-end"><span t-esc="o.amount_tax"/></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Total</strong></td>
-                                    <td class="text-end"><span t-esc="o.amount_total"/></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Residual</strong></td>
-                                    <td class="text-end"><span t-esc="o.amount_residual"/></td>
-                                </tr>
-                            </tbody>
-                        </table>
-
-                        <t t-if="o.payment_link_ids">
-                            <h4 style="margin-top: 14px;">Payments</h4>
-                            <table class="table table-sm o_main_table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Name</th>
-                                        <th>Reference</th>
-                                        <th>Journal</th>
-                                        <th>Method</th>
-                                        <th class="text-end">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr t-foreach="o.payment_link_ids" t-as="pay">
-                                        <td><span t-esc="pay.payment_date or ''"/></td>
-                                        <td><span t-esc="pay.name or ''"/></td>
-                                        <td><span t-esc="pay.reference or ''"/></td>
-                                        <td><span t-esc="pay.journal_id.display_name or ''"/></td>
-                                        <td><span t-esc="pay.payment_method_name or pay.payment_method_code or ''"/></td>
-                                        <td class="text-end"><span t-esc="pay.amount"/></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </t>
-
-                        <t t-if="o.serial_ref_ids">
-                            <h4 style="margin-top: 14px;">Serial References</h4>
-                            <table class="table table-sm o_main_table">
-                                <thead>
-                                    <tr>
-                                        <th>Lot/Serial</th>
-                                        <th>Item Code</th>
-                                        <th class="text-end">Qty Done</th>
-                                        <th>Match Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr t-foreach="o.serial_ref_ids" t-as="sr">
-                                        <td><span t-esc="sr.lot_name or ''"/></td>
-                                        <td><span t-esc="sr.item_code or ''"/></td>
-                                        <td class="text-end"><span t-esc="sr.qty_done"/></td>
-                                        <td><span t-esc="sr.match_status or ''"/></td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </t>
-
-                        <t t-if="o.print_notes or o.notes_pos or o.product_notes">
-                            <h4 style="margin-top: 14px;">Legacy Notes</h4>
-                            <p><strong>Print Notes:</strong> <span t-esc="o.print_notes or ''"/></p>
-                            <p><strong>POS Notes:</strong> <span t-esc="o.notes_pos or ''"/></p>
-                            <p><strong>Product Notes:</strong> <span t-esc="o.product_notes or ''"/></p>
-                        </t>
-                    </div>
-                </t>
+                <t t-call="legacy_invoice_archive.new_report_invoice_document" t-lang="'en_US'"/>
             </t>
         </t>
     </template>
