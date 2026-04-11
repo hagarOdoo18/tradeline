@@ -56,6 +56,12 @@
         <field name="model">legacy.invoice</field>
         <field name="arch" type="xml">
             <form string="Legacy Invoice" create="false" edit="false" delete="false">
+                <header>
+                    <button name="%(action_report_legacy_invoice)d"
+                            type="action"
+                            string="Print Legacy Invoice"
+                            class="btn-primary"/>
+                </header>
                 <sheet>
                     <div class="oe_title">
                         <h1>
@@ -138,6 +144,8 @@
                                     <field name="name"/>
                                     <field name="reference" optional="show"/>
                                     <field name="journal_id" optional="show"/>
+                                    <field name="payment_method_name" string="Payment Method" optional="show"/>
+                                    <field name="payment_method_code" optional="hide"/>
                                     <field name="amount" sum="Total"/>
                                     <field name="source_payment_id" optional="hide"/>
                                 </list>
@@ -165,6 +173,7 @@
                                     <field name="qty_done"/>
                                     <field name="product_category_id" optional="show"/>
                                     <field name="match_status" optional="show"/>
+                                    <field name="source_move_id" optional="hide"/>
                                     <field name="source_lot_id" optional="hide"/>
                                     <field name="source_move_line_id" optional="hide"/>
                                     <field name="source_picking_id" optional="hide"/>

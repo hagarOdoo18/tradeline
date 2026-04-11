@@ -1,7 +1,7 @@
 {
     "name": "Legacy Invoice Archive",
     "summary": "Read-only Odoo 12 invoice archive for Odoo 18",
-    "version": "18.0.1.0.7",
+    "version": "18.0.1.0.8",
     "category": "Accounting",
     "author": "Tradeline",
     "website": "http://www.tradelinestores.com",
@@ -10,6 +10,7 @@
     "data": [
         "security/security.xml",
         "security/ir.model.access.csv",
+        "views/legacy_invoice_report.xml",
         "views/legacy_invoice_views.xml",
         "views/legacy_report_pack_views.xml",
         "views/legacy_report_pack_generate_wizard_views.xml",

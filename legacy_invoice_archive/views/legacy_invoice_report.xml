@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_legacy_invoice" model="ir.actions.report">
+        <field name="name">Legacy Invoice</field>
+        <field name="model">legacy.invoice</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">legacy_invoice_archive.report_legacy_invoice_document</field>
+        <field name="report_file">legacy_invoice_archive.report_legacy_invoice_document</field>
+        <field name="binding_model_id" ref="model_legacy_invoice"/>
+        <field name="binding_type">report</field>
+        <field name="print_report_name">'Legacy Invoice - %s' % (object.number or object.source_name or object.id)</field>
+    </record>
+
+    <template id="report_legacy_invoice_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <h2 style="margin-bottom: 8px;">Legacy Invoice</h2>
+                        <p style="margin: 0 0 10px 0;">
+                            <strong>Invoice:</strong>
+                            <span t-esc="o.number or o.source_name or '-'"/>
+                            <span style="margin-left: 16px;"><strong>Legacy Source ID:</strong> <span t-esc="o.source_id"/></span>
+                        </p>
+
+                        <table class="table table-sm o_main_table">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Customer</strong></td>
+                                    <td><span t-esc="o.partner_id.display_name or o.source_partner_name or '-'"/></td>
+                                    <td><strong>Date</strong></td>
+                                    <td><span t-esc="o.invoice_date or '-'"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Due Date</strong></td>
+                                    <td><span t-esc="o.due_date or '-'"/></td>
+                                    <td><strong>Status</strong></td>
+                                    <td><span t-esc="o.state or '-'"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4 style="margin-top: 14px;">Lines</h4>
+                        <table class="table table-sm o_main_table">
+                            <thead>
+                                <tr>
+                                    <th>Item Code</th>
+                                    <th>Description</th>
+                                    <th class="text-end">Qty</th>
+                                    <th class="text-end">Unit Price</th>
+                                    <th class="text-end">Discount %</th>
+                                    <th class="text-end">Subtotal</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="o.line_ids" t-as="line">
+                                    <td><span t-esc="line.item_code or ''"/></td>
+                                    <td><span t-esc="line.name or ''"/></td>
+                                    <td class="text-end"><span t-esc="line.quantity"/></td>
+                                    <td class="text-end"><span t-esc="line.price_unit"/></td>
+                                    <td class="text-end"><span t-esc="line.discount"/></td>
+                                    <td class="text-end"><span t-esc="line.price_subtotal"/></td>
+                                    <td class="text-end"><span t-esc="line.price_total"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <h4 style="margin-top: 14px;">Totals</h4>
+                        <table class="table table-sm o_main_table" style="width: 50%;">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Untaxed</strong></td>
+                                    <td class="text-end"><span t-esc="o.amount_untaxed"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Tax</strong></td>
+                                    <td class="text-end"><span t-esc="o.amount_tax"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Total</strong></td>
+                                    <td class="text-end"><span t-esc="o.amount_total"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Residual</strong></td>
+                                    <td class="text-end"><span t-esc="o.amount_residual"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <t t-if="o.payment_link_ids">
+                            <h4 style="margin-top: 14px;">Payments</h4>
+                            <table class="table table-sm o_main_table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Name</th>
+                                        <th>Reference</th>
+                                        <th>Journal</th>
+                                        <th>Method</th>
+                                        <th class="text-end">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="o.payment_link_ids" t-as="pay">
+                                        <td><span t-esc="pay.payment_date or ''"/></td>
+                                        <td><span t-esc="pay.name or ''"/></td>
+                                        <td><span t-esc="pay.reference or ''"/></td>
+                                        <td><span t-esc="pay.journal_id.display_name or ''"/></td>
+                                        <td><span t-esc="pay.payment_method_name or pay.payment_method_code or ''"/></td>
+                                        <td class="text-end"><span t-esc="pay.amount"/></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+
+                        <t t-if="o.serial_ref_ids">
+                            <h4 style="margin-top: 14px;">Serial References</h4>
+                            <table class="table table-sm o_main_table">
+                                <thead>
+                                    <tr>
+                                        <th>Lot/Serial</th>
+                                        <th>Item Code</th>
+                                        <th class="text-end">Qty Done</th>
+                                        <th>Match Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="o.serial_ref_ids" t-as="sr">
+                                        <td><span t-esc="sr.lot_name or ''"/></td>
+                                        <td><span t-esc="sr.item_code or ''"/></td>
+                                        <td class="text-end"><span t-esc="sr.qty_done"/></td>
+                                        <td><span t-esc="sr.match_status or ''"/></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+
+                        <t t-if="o.print_notes or o.notes_pos or o.product_notes">
+                            <h4 style="margin-top: 14px;">Legacy Notes</h4>
+                            <p><strong>Print Notes:</strong> <span t-esc="o.print_notes or ''"/></p>
+                            <p><strong>POS Notes:</strong> <span t-esc="o.notes_pos or ''"/></p>
+                            <p><strong>Product Notes:</strong> <span t-esc="o.product_notes or ''"/></p>
+                        </t>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

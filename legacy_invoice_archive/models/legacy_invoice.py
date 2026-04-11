@@ -173,12 +173,15 @@ class LegacyInvoicePaymentLink(models.Model):
 
     source_invoice_id = fields.Integer(index=True)
     source_payment_id = fields.Integer(index=True)
+    source_payment_method_id = fields.Integer(index=True)
 
     payment_id = fields.Many2one("account.payment", ondelete="set null")
     journal_id = fields.Many2one("account.journal", ondelete="set null")
 
     name = fields.Char()
     reference = fields.Char(index=True)
+    payment_method_code = fields.Char(index=True)
+    payment_method_name = fields.Char()
     payment_date = fields.Date(index=True)
     amount = fields.Monetary(currency_field="currency_id")
 
@@ -400,10 +403,20 @@ class LegacyReportPackDefinition(models.Model):
                 "amount_total",
                 "amount_residual",
                 "payment_amount",
+                "payment_methods",
             ]
             rows = []
             for inv in invoices:
                 payment_amount = sum(inv.payment_link_ids.mapped("amount")) if code == "invoice_with_payments" else 0.0
+                payment_methods = ", ".join(
+                    sorted(
+                        {
+                            p.payment_method_name or p.payment_method_code or ""
+                            for p in inv.payment_link_ids
+                            if (p.payment_method_name or p.payment_method_code)
+                        }
+                    )
+                )
                 rows.append(
                     {
                         "invoice_date": inv.invoice_date or "",
@@ -417,6 +430,7 @@ class LegacyReportPackDefinition(models.Model):
                         "amount_total": inv.amount_total or 0.0,
                         "amount_residual": inv.amount_residual or 0.0,
                         "payment_amount": payment_amount,
+                        "payment_methods": payment_methods,
                     }
                 )
             return headers, rows
@@ -430,6 +444,7 @@ class LegacyReportPackDefinition(models.Model):
                 "payment_name",
                 "reference",
                 "journal",
+                "payment_method",
                 "amount",
             ]
             rows = []
@@ -445,6 +460,7 @@ class LegacyReportPackDefinition(models.Model):
                         "payment_name": payment.name or "",
                         "reference": payment.reference or "",
                         "journal": payment.journal_id.display_name or "",
+                        "payment_method": payment.payment_method_name or payment.payment_method_code or "",
                         "amount": payment.amount or 0.0,
                     }
                 )
