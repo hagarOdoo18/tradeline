@@ -15,12 +15,7 @@
         <t t-if="not o and doc">
             <t t-set="o" t-value="doc"/>
         </t>
-        <t t-if="o and 'company_id' in o">
-            <t t-set="company" t-value="o.company_id.sudo()"/>
-        </t>
-        <t t-if="not o or not 'company_id' in o">
-            <t t-set="company" t-value="res_company"/>
-        </t>
+        <t t-set="company" t-value="(o.company_id.sudo() if o and o.company_id else res_company)"/>
 
         <div class="header">
             <div class="row">
@@ -49,8 +44,8 @@
         <div class="footer o_standard_footer">
             <div class="text-center" style="border-top: 1px solid black;">
                 <ul class="list-inline mb4">
-                    <li t-if="company.mobile" class="list-inline-item d-inline">
-                        Mobile : <span class="o_force_ltr" t-field="company.mobile"/>
+                    <li t-if="company.phone" class="list-inline-item d-inline">
+                        Phone : <span class="o_force_ltr" t-field="company.phone"/>
                     </li>
                     <li t-if="company.email" class="list-inline-item d-inline">
                         Email : <span t-field="company.email"/>
@@ -74,7 +69,7 @@
             <t t-set="o" t-value="o.with_context(lang='en_US')"/>
             <t t-set="print_summary" t-value="o.get_print_lines_summary()"/>
             <t t-set="display_tax" t-value="', '.join(o.tax_line_ids.mapped('name'))"/>
-            <t t-set="barcode_value" t-value="o.number or o.source_name or str(o.source_id or o.id)"/>
+            <t t-set="barcode_value" t-value="o.number or o.source_name or o.source_id or o.id"/>
 
             <div class="page" style="font-size:30px;">
                 <div class="row mt25" dir="ltr">
