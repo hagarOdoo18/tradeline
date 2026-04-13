@@ -44,36 +44,6 @@ class StockPicking(models.Model):
         partner_ids = group.users.mapped('partner_id').ids if group else []
         self.message_post(body=body, partner_ids=partner_ids)
 
-    def _check_picking_type_user_access(self):
-        if self.env.is_superuser():
-            return
-
-        blocked = self.filtered(
-            lambda picking: picking.picking_type_id
-            and picking.picking_type_id.warehouse_id
-            and picking.picking_type_id.warehouse_id.code in SERVICE_WAREHOUSE_CODES
-            and picking.picking_type_id.user_ids
-            and self.env.user not in picking.picking_type_id.user_ids
-        )
-        if blocked:
-            picking_type = blocked[0].picking_type_id
-            raise UserError(
-                _("You are not allowed to use operation type '%(name)s'.")
-                % {'name': picking_type.display_name}
-            )
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        records = super().create(vals_list)
-        records._check_picking_type_user_access()
-        return records
-
-    def write(self, vals):
-        res = super().write(vals)
-        if 'picking_type_id' in vals:
-            self._check_picking_type_user_access()
-        return res
-
     def action_open_request_scrap_wizard(self):
         self.ensure_one()
         action = self.env['ir.actions.actions']._for_xml_id(
