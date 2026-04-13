@@ -1,0 +1,56 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_request_scrap_wizard_form" model="ir.ui.view">
+            <field name="name">request.scrap.wizard.form</field>
+            <field name="model">request.scrap.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Request Scrap">
+                    <group>
+                        <field name="picking_id" readonly="1"/>
+                        <field name="note" placeholder="Enter scrap request note"/>
+                    </group>
+                    <footer>
+                        <button name="action_request_scrap" type="object" string="Submit Request" class="btn-primary"/>
+                        <button string="Discard" special="cancel" class="btn-secondary"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_request_scrap_wizard" model="ir.actions.act_window">
+            <field name="name">Request Scrap</field>
+            <field name="res_model">request.scrap.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+            <field name="view_id" ref="view_request_scrap_wizard_form"/>
+        </record>
+
+        <record id="view_stock_scrap_wizard_form" model="ir.ui.view">
+            <field name="name">stock.scrap.wizard.form</field>
+            <field name="model">stock.scrap.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Scrap Lines">
+                    <group>
+                        <field name="picking_id" readonly="1"/>
+                        <field name="vendor" readonly="1"/>
+                    </group>
+                    <field name="line_ids">
+                        <list editable="bottom">
+                            <field name="product_id" readonly="1"/>
+                            <field name="qty"/>
+                            <field name="product_uom_id" readonly="1"/>
+                            <field name="lot_id" groups="stock.group_production_lot"/>
+                            <field name="owner_id" groups="stock.group_tracking_owner"/>
+                            <field name="package_id" groups="stock.group_tracking_lot"/>
+                        </list>
+                    </field>
+                    <footer>
+                        <button name="action_create_scrap" type="object" string="Create Scrap" class="btn-primary"/>
+                        <button string="Discard" special="cancel" class="btn-secondary"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_picking_form_service_scrap" model="ir.ui.view">
+            <field name="name">stock.picking.form.service.scrap</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='picking_type_id']" position="attributes">
+                    <attribute name="domain">[('code', 'in', ('incoming', 'outgoing', 'internal')), '|', ('warehouse_id.code', 'not in', ('SER-W', 'SW-XP')), ('user_ids', 'in', [uid])]</attribute>
+                </xpath>
+
+                <xpath expr="//field[@name='picking_type_id']" position="after">
+                    <field name="check_scrap_new" invisible="1"/>
+                    <field name="request_scrap" invisible="1"/>
+                    <field name="wait_approve_scrap" invisible="1"/>
+                    <field name="approve_scrap" invisible="1"/>
+                </xpath>
+
+                <xpath expr="//header/button[@name='button_validate'][1]" position="before">
+                    <button
+                        name="action_open_request_scrap_wizard"
+                        string="Request Scrap"
+                        type="object"
+                        class="btn-secondary"
+                        groups="service_scrap_control.group_return_picking_internal"
+                        invisible="state in ('done', 'cancel') or not check_scrap_new or request_scrap"
+                    />
+                    <button
+                        name="function_approve_scrap"
+                        string="Approve Scrap"
+                        type="object"
+                        class="oe_highlight"
+                        groups="service_scrap_control.group_approval_scrap"
+                        invisible="state in ('done', 'cancel') or not wait_approve_scrap"
+                    />
+                    <button
+                        name="button_vendor"
+                        string="Vendor Scrap"
+                        type="object"
+                        class="btn-secondary"
+                        groups="service_scrap_control.group_return_picking_internal"
+                        invisible="state in ('done', 'cancel') or not check_scrap_new"
+                    />
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>
