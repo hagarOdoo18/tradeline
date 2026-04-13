@@ -1,4 +1,4 @@
-﻿id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_request_scrap_wizard_stock_user,request.scrap.wizard stock user,model_request_scrap_wizard,stock.group_stock_user,1,1,1,1
 access_stock_scrap_wizard_stock_user,stock.scrap.wizard stock user,model_stock_scrap_wizard,stock.group_stock_user,1,1,1,1
 access_scrap_line_stock_user,scrap.line stock user,model_scrap_line,stock.group_stock_user,1,1,1,1

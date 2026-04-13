@@ -1,4 +1,4 @@
-﻿from odoo import SUPERUSER_ID, api
+from odoo import SUPERUSER_ID, api
 
 SERVICE_SCRAP_OPERATION_NAME = 'Service Scrap Location'
 SERVICE_VENDOR_OPERATION_NAME = 'Service Vendor Location'

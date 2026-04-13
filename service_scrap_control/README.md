@@ -1,4 +1,4 @@
-﻿# Service Scrap Control (Odoo 18)
+# Service Scrap Control (Odoo 18)
 
 This module ports the Odoo12 Service scrap workflow into Odoo18 for:
 - Service Warehouse (`SER-W`)
