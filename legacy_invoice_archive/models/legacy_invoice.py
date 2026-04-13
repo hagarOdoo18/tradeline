@@ -195,7 +195,6 @@ class LegacyInvoiceLine(models.Model):
             ("fifo", "First In First Out (FIFO)"),
             ("average", "Average Cost (AVCO)"),
         ],
-        related="product_tmpl_id.cost_method",
         store=True,
         index=True,
     )
