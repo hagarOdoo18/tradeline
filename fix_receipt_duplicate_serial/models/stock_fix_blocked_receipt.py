@@ -98,8 +98,10 @@ class StockFixBlockedReceipt(models.AbstractModel):
 
         # Collect all open pickings linked to POS orders via picking_ids
         pos_orders = self.env['pos.order'].sudo().search([
-            ('state', 'in', ['paid', 'done', 'invoiced']),('refunded_order_id','!=',False)
+            ('state', 'in', ['paid', 'done', 'invoiced'])
         ])
+        if 'refunded_order_id' in pos_orders._fields:
+            pos_orders = pos_orders.filtered('refunded_order_id')
 
         candidates = self.env['stock.picking']
         for order in pos_orders:
