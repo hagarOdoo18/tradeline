@@ -15,6 +15,9 @@
                 <field name="item_code" optional="show"/>
                 <field name="product_category_id" optional="show"/>
                 <field name="cost_method" optional="show"/>
+                <field name="discount_reason_normalized" optional="show"/>
+                <field name="payment_journal_summary" optional="show"/>
+                <field name="payment_method_summary" optional="show"/>
                 <field name="quantity" sum="Qty"/>
                 <field name="amount_untaxed" sum="Untaxed"/>
                 <field name="amount_tax" sum="Tax"/>
@@ -38,6 +41,9 @@
                 <field name="item_code"/>
                 <field name="cost_method"/>
                 <field name="product_category_id" string="Product Category"/>
+                <field name="discount_reason_normalized" string="Discount Reason"/>
+                <field name="payment_journal_summary" string="Payment Journal"/>
+                <field name="payment_method_summary" string="Payment Method"/>
                 <field name="partner_id" string="Partner"/>
                 <field name="source_partner_name" string="Salesperson"/>
                 <field name="source_name" string="Sales Team"/>
@@ -53,8 +59,8 @@
                 <field name="state"/>
                 <field name="invoice_type"/>
                 <separator/>
-                <filter name="legacy_analysis_date_range" string="Invoice Date" date="invoice_date"/>
-                <filter name="legacy_analysis_due_date_range" string="Due Date" date="due_date"/>
+                <filter name="tradeline_time_ranges_legacy_invoice_date" string="Invoice Date" date="invoice_date"/>
+                <filter name="tradeline_time_ranges_legacy_due_date" string="Due Date" date="due_date"/>
                 <separator/>
                 <filter name="legacy_analysis_open" string="Open" domain="[('state', '=', 'open')]"/>
                 <filter name="legacy_analysis_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
@@ -71,12 +77,15 @@
                     <filter name="legacy_analysis_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
                     <filter name="legacy_analysis_group_cost" string="Cost Method" context="{'group_by': 'cost_method'}"/>
                     <filter name="legacy_analysis_group_sub_category" string="Product Category" context="{'group_by': 'product_category_id'}"/>
+                    <filter name="legacy_analysis_group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
                     <filter name="legacy_analysis_group_partner" string="Partner" context="{'group_by': 'partner_id'}"/>
                     <filter name="legacy_analysis_group_salesperson" string="Salesperson" context="{'group_by': 'source_partner_name'}"/>
                     <filter name="legacy_analysis_group_sales_team" string="Sales Team" context="{'group_by': 'source_name'}"/>
                     <filter name="legacy_analysis_group_month" string="Invoice Month" context="{'group_by': 'invoice_date:month'}"/>
                     <filter name="legacy_analysis_group_type" string="Move Type" context="{'group_by': 'invoice_type'}"/>
                     <filter name="legacy_analysis_group_state" string="Invoice State" context="{'group_by': 'state'}"/>
+                    <filter name="legacy_analysis_group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
+                    <filter name="legacy_analysis_group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
                     <filter name="legacy_analysis_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
                     <filter name="legacy_analysis_group_account" string="Revenue/Expense Account" context="{'group_by': 'account_id'}"/>
                     <filter name="legacy_analysis_group_uom" string="Unit of Measure" context="{'group_by': 'uom_id'}"/>
@@ -178,8 +187,8 @@
                 <field name="state"/>
                 <field name="invoice_type"/>
                 <separator/>
-                <filter name="payment_filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
-                <filter name="payment_filter_payment_date_range" string="Payment Date" date="payment_date"/>
+                <filter name="tradeline_time_ranges_legacy_payment_invoice_date" string="Invoice Date" date="invoice_date"/>
+                <filter name="tradeline_time_ranges_legacy_payment_date" string="Payment Date" date="payment_date"/>
                 <separator/>
                 <filter name="payment_open" string="Open Invoices" domain="[('state', '=', 'open')]"/>
                 <filter name="payment_paid" string="Paid Invoices" domain="[('state', '=', 'paid')]"/>
@@ -199,7 +208,7 @@
         <field name="res_model">legacy.invoice.payment.link</field>
         <field name="view_mode">graph,pivot,list</field>
         <field name="search_view_id" ref="view_legacy_payment_link_search"/>
-        <field name="context">{'search_default_payment_group_month': 1}</field>
+        <field name="context">{'search_default_payment_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <record id="view_legacy_serial_ref_list" model="ir.ui.view">
@@ -258,7 +267,7 @@
                 <field name="invoice_date"/>
                 <field name="match_status"/>
                 <separator/>
-                <filter name="serial_filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
+                <filter name="tradeline_time_ranges_legacy_serial_invoice_date" string="Invoice Date" date="invoice_date"/>
                 <separator/>
                 <filter name="serial_verified" string="Verified" domain="[('match_status', '=', 'verified')]"/>
                 <filter name="serial_candidate" string="Candidate" domain="[('match_status', '=', 'candidate')]"/>
@@ -278,7 +287,7 @@
         <field name="res_model">legacy.invoice.serial.ref</field>
         <field name="view_mode">graph,pivot,list</field>
         <field name="search_view_id" ref="view_legacy_serial_ref_search"/>
-        <field name="context">{'search_default_serial_group_month': 1}</field>
+        <field name="context">{'search_default_serial_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_invoice_analysis"

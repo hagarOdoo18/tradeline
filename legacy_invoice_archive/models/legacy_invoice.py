@@ -25,6 +25,19 @@ class LegacyInvoice(models.Model):
     source_id = fields.Integer(required=True, index=True)
     source_partner_id = fields.Integer(index=True)
     source_partner_name = fields.Char()
+    source_discount_reason_id = fields.Integer(index=True)
+    discount_reason_raw = fields.Char()
+    discount_reason_normalized = fields.Char(index=True)
+    discount_reason_source = fields.Selection(
+        selection=[
+            ("raw", "Raw"),
+            ("inferred", "Inferred"),
+            ("none", "None"),
+        ],
+        default="none",
+        index=True,
+    )
+    discount_reason_inferred = fields.Boolean(default=False, index=True)
 
     number = fields.Char(index=True)
     source_name = fields.Char(index=True)
@@ -84,6 +97,16 @@ class LegacyInvoice(models.Model):
 
     line_count = fields.Integer(compute="_compute_counts", store=True)
     attachment_count = fields.Integer(compute="_compute_counts", store=True)
+    product_summary = fields.Char(compute="_compute_summaries", store=True, index=True)
+    serial_summary = fields.Char(compute="_compute_summaries", store=True, index=True)
+    payment_method_summary = fields.Char(compute="_compute_summaries", store=True, index=True)
+    payment_journal_summary = fields.Char(compute="_compute_summaries", store=True, index=True)
+    smart_search = fields.Char(
+        string="Smart Search",
+        compute="_compute_smart_search",
+        search="_search_smart_search",
+        store=False,
+    )
 
     _sql_constraints = [
         (
@@ -98,6 +121,74 @@ class LegacyInvoice(models.Model):
         for record in self:
             record.line_count = len(record.line_ids)
             record.attachment_count = len(record.attachment_ids)
+
+    @api.depends(
+        "line_ids.name",
+        "line_ids.item_code",
+        "line_ids.discount_reason_normalized",
+        "serial_ref_ids.lot_name",
+        "serial_ref_ids.item_code",
+        "payment_link_ids.payment_method_name",
+        "payment_link_ids.payment_method_code",
+        "payment_link_ids.journal_name",
+        "payment_link_ids.journal_code",
+    )
+    def _compute_summaries(self):
+        def _join_unique(values):
+            seen = set()
+            out = []
+            for value in values:
+                text = (value or "").strip()
+                if not text or text in seen:
+                    continue
+                seen.add(text)
+                out.append(text)
+            return ", ".join(out[:20])
+
+        for record in self:
+            product_parts = list(record.line_ids.mapped("name")) + list(record.line_ids.mapped("item_code"))
+            serial_parts = list(record.serial_ref_ids.mapped("lot_name")) + list(record.serial_ref_ids.mapped("item_code"))
+            method_parts = list(record.payment_link_ids.mapped("payment_method_name")) + list(
+                record.payment_link_ids.mapped("payment_method_code")
+            )
+            journal_parts = list(record.payment_link_ids.mapped("journal_name")) + list(record.payment_link_ids.mapped("journal_code"))
+
+            record.product_summary = _join_unique(product_parts)
+            record.serial_summary = _join_unique(serial_parts)
+            record.payment_method_summary = _join_unique(method_parts)
+            record.payment_journal_summary = _join_unique(journal_parts)
+
+    def _compute_smart_search(self):
+        for record in self:
+            record.smart_search = ""
+
+    def _search_smart_search(self, operator, value):
+        value = (value or "").strip()
+        if not value:
+            return []
+        return [
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            "|",
+            ("number", operator, value),
+            ("source_name", operator, value),
+            ("source_partner_name", operator, value),
+            ("partner_id.name", operator, value),
+            ("line_ids.name", operator, value),
+            ("line_ids.item_code", operator, value),
+            ("line_ids.discount_reason_normalized", operator, value),
+            ("serial_ref_ids.lot_name", operator, value),
+            ("serial_ref_ids.item_code", operator, value),
+            ("payment_link_ids.reference", operator, value),
+            ("payment_link_ids.payment_method_name", operator, value),
+        ]
 
     def get_gift_invoice(self):
         self.ensure_one()
@@ -136,10 +227,12 @@ class LegacyInvoice(models.Model):
                     "quantity": 0.0,
                     "uom_name": "",
                     "serials": [],
+                    "serial_set": set(),
                 }
             grouped[key]["quantity"] += serial.qty_done or 0.0
-            if serial.lot_name:
+            if serial.lot_name and serial.lot_name not in grouped[key]["serial_set"]:
                 grouped[key]["serials"].append(serial.lot_name)
+                grouped[key]["serial_set"].add(serial.lot_name)
 
         output = []
         for item in grouped.values():
@@ -166,6 +259,8 @@ class LegacyInvoiceLine(models.Model):
 
     source_id = fields.Integer(required=True, index=True)
     source_move_line_id = fields.Integer(index=True)
+    product_source_id = fields.Integer(index=True)
+    source_discount_reason_id = fields.Integer(index=True)
 
     invoice_date = fields.Date(related="invoice_id.invoice_date", store=True, index=True)
     due_date = fields.Date(related="invoice_id.due_date", store=True, index=True)
@@ -176,6 +271,8 @@ class LegacyInvoiceLine(models.Model):
     source_db = fields.Char(related="invoice_id.source_db", store=True, index=True)
     invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
     state = fields.Selection(related="invoice_id.state", store=True, index=True)
+    payment_method_summary = fields.Char(related="invoice_id.payment_method_summary", store=True, index=True)
+    payment_journal_summary = fields.Char(related="invoice_id.payment_journal_summary", store=True, index=True)
 
     sequence = fields.Integer(default=10)
     name = fields.Text()
@@ -204,6 +301,18 @@ class LegacyInvoiceLine(models.Model):
     uom_id = fields.Many2one("uom.uom", ondelete="set null")
     price_unit = fields.Monetary(currency_field="currency_id")
     discount = fields.Float()
+    discount_reason_raw = fields.Char()
+    discount_reason_normalized = fields.Char(index=True)
+    discount_reason_source = fields.Selection(
+        selection=[
+            ("raw", "Raw"),
+            ("inferred", "Inferred"),
+            ("none", "None"),
+        ],
+        default="none",
+        index=True,
+    )
+    discount_reason_inferred = fields.Boolean(default=False, index=True)
     price_subtotal = fields.Monetary(currency_field="currency_id")
     price_total = fields.Monetary(currency_field="currency_id")
     amount_untaxed = fields.Monetary(
@@ -370,6 +479,7 @@ class LegacyInvoicePaymentLink(models.Model):
 
     source_invoice_id = fields.Integer(index=True)
     source_payment_id = fields.Integer(index=True)
+    source_journal_id = fields.Integer(index=True)
     source_payment_method_id = fields.Integer(index=True)
 
     invoice_date = fields.Date(related="invoice_id.invoice_date", store=True, index=True)
@@ -379,6 +489,8 @@ class LegacyInvoicePaymentLink(models.Model):
 
     payment_id = fields.Many2one("account.payment", ondelete="set null")
     journal_id = fields.Many2one("account.journal", ondelete="set null")
+    journal_code = fields.Char(index=True)
+    journal_name = fields.Char(index=True)
 
     name = fields.Char()
     reference = fields.Char(index=True)
@@ -526,6 +638,276 @@ class LegacyInvoiceCustomerBridge(models.Model):
             "Customer bridge must be unique for invoice and matched partner.",
         ),
     ]
+
+
+class LegacyProduct(models.Model):
+    _name = "legacy.product"
+    _description = "Legacy Product"
+    _order = "default_code, name, id"
+    _rec_name = "display_name"
+
+    source_db = fields.Char(required=True, index=True)
+    source_product_id = fields.Integer(required=True, index=True)
+    source_product_tmpl_id = fields.Integer(index=True)
+
+    default_code = fields.Char(index=True)
+    barcode = fields.Char(index=True)
+    name = fields.Char(index=True)
+    display_name = fields.Char(compute="_compute_display_name", store=True, index=True)
+
+    product_category_id = fields.Many2one("product.category", ondelete="set null")
+    product_category_name = fields.Char(index=True)
+    source_brand_id = fields.Integer(index=True)
+    source_brand_name = fields.Char(index=True)
+
+    active = fields.Boolean(default=True, index=True)
+    legacy_payload = fields.Json()
+
+    _sql_constraints = [
+        (
+            "legacy_product_source_uniq",
+            "unique(source_db, source_product_id)",
+            "Legacy product source identity must be unique.",
+        ),
+    ]
+
+    @api.depends("default_code", "name")
+    def _compute_display_name(self):
+        for record in self:
+            if record.default_code:
+                record.display_name = f"[{record.default_code}] {record.name or ''}".strip()
+            else:
+                record.display_name = record.name or ""
+
+
+class LegacyProductMap(models.Model):
+    _name = "legacy.product.map"
+    _description = "Legacy Product Mapping"
+    _order = "source_default_code, source_name, id"
+    _rec_name = "source_name"
+
+    source_db = fields.Char(required=True, index=True)
+    source_product_id = fields.Integer(required=True, index=True)
+    source_product_tmpl_id = fields.Integer(index=True)
+
+    source_default_code = fields.Char(index=True)
+    source_barcode = fields.Char(index=True)
+    source_name = fields.Char(index=True)
+    source_category_name = fields.Char(index=True)
+    source_brand_name = fields.Char(index=True)
+
+    target_product_id = fields.Many2one("product.product", ondelete="set null", index=True)
+    target_product_tmpl_id = fields.Many2one(related="target_product_id.product_tmpl_id", store=True, index=True)
+
+    match_status = fields.Selection(
+        selection=[
+            ("matched", "Matched"),
+            ("review", "Needs Review"),
+            ("unmatched", "Unmatched"),
+        ],
+        default="unmatched",
+        required=True,
+        index=True,
+    )
+    match_method = fields.Selection(
+        selection=[
+            ("auto_barcode", "Auto (Barcode)"),
+            ("auto_code", "Auto (Item Code)"),
+            ("manual", "Manual"),
+            ("none", "None"),
+        ],
+        default="none",
+        required=True,
+        index=True,
+    )
+    confidence = fields.Float(digits=(16, 4))
+    manual_override = fields.Boolean(default=False, index=True)
+    note = fields.Text()
+
+    _sql_constraints = [
+        (
+            "legacy_product_map_source_uniq",
+            "unique(source_db, source_product_id)",
+            "Legacy product mapping source identity must be unique.",
+        ),
+    ]
+
+    def action_set_manual_match(self):
+        for record in self:
+            if not record.target_product_id:
+                continue
+            record.write(
+                {
+                    "match_status": "matched",
+                    "match_method": "manual",
+                    "manual_override": True,
+                    "confidence": 1.0,
+                }
+            )
+
+
+class LegacySerialLedger(models.Model):
+    _name = "legacy.serial.ledger"
+    _description = "Legacy Serial Ledger"
+    _order = "movement_date desc, id desc"
+
+    source_db = fields.Char(required=True, index=True)
+    source_move_line_id = fields.Integer(required=True, index=True)
+    source_move_id = fields.Integer(index=True)
+    source_picking_id = fields.Integer(index=True)
+    source_lot_id = fields.Integer(index=True)
+    source_product_id = fields.Integer(index=True)
+    invoice_source_id = fields.Integer(index=True)
+    invoice_id = fields.Many2one("legacy.invoice", ondelete="set null", index=True)
+
+    lot_name = fields.Char(index=True)
+    item_code = fields.Char(index=True)
+    product_category_id = fields.Many2one("product.category", ondelete="set null")
+    product_category_name = fields.Char(index=True)
+
+    qty_done = fields.Float()
+    movement_date = fields.Datetime(index=True)
+    movement_type = fields.Selection(
+        selection=[
+            ("in", "In"),
+            ("out", "Out"),
+            ("internal", "Internal"),
+            ("adjustment", "Adjustment"),
+            ("other", "Other"),
+        ],
+        default="other",
+        index=True,
+    )
+
+    source_document = fields.Char(index=True)
+    origin = fields.Char(index=True)
+    picking_name = fields.Char(index=True)
+    warehouse_id = fields.Integer(index=True)
+    warehouse_name = fields.Char(index=True)
+    location_id = fields.Integer(index=True)
+    location_dest_id = fields.Integer(index=True)
+    location_usage = fields.Char(index=True)
+    location_dest_usage = fields.Char(index=True)
+    picking_note = fields.Text()
+
+    legacy_payload = fields.Json()
+
+    _sql_constraints = [
+        (
+            "legacy_serial_ledger_source_uniq",
+            "unique(source_db, source_move_line_id)",
+            "Serial ledger source move line must be unique.",
+        ),
+    ]
+
+
+class LegacyProductCompare(models.Model):
+    _name = "legacy.product.compare"
+    _description = "Legacy vs Current Product Comparison"
+    _auto = False
+    _order = "legacy_sales_amount desc, id"
+
+    source_db = fields.Char(readonly=True)
+    source_product_id = fields.Integer(readonly=True)
+    source_default_code = fields.Char(readonly=True)
+    source_barcode = fields.Char(readonly=True)
+    source_name = fields.Char(readonly=True)
+    source_category_name = fields.Char(readonly=True)
+    source_brand_name = fields.Char(readonly=True)
+
+    target_product_id = fields.Many2one("product.product", readonly=True)
+    target_product_tmpl_id = fields.Many2one("product.template", readonly=True)
+    match_status = fields.Selection(
+        selection=[
+            ("matched", "Matched"),
+            ("review", "Needs Review"),
+            ("unmatched", "Unmatched"),
+        ],
+        readonly=True,
+    )
+    match_method = fields.Selection(
+        selection=[
+            ("auto_barcode", "Auto (Barcode)"),
+            ("auto_code", "Auto (Item Code)"),
+            ("manual", "Manual"),
+            ("none", "None"),
+        ],
+        readonly=True,
+    )
+    confidence = fields.Float(readonly=True)
+
+    legacy_sales_qty = fields.Float(readonly=True)
+    legacy_sales_amount = fields.Float(readonly=True)
+    current_sales_qty = fields.Float(readonly=True)
+    current_sales_amount = fields.Float(readonly=True)
+    current_stock_qty = fields.Float(compute="_compute_current_stock_qty", readonly=True)
+    sales_amount_delta = fields.Float(compute="_compute_sales_delta", readonly=True)
+    sales_qty_delta = fields.Float(compute="_compute_sales_delta", readonly=True)
+
+    @api.depends("target_product_id")
+    def _compute_current_stock_qty(self):
+        for record in self:
+            record.current_stock_qty = record.target_product_id.qty_available if record.target_product_id else 0.0
+
+    @api.depends("legacy_sales_amount", "current_sales_amount", "legacy_sales_qty", "current_sales_qty")
+    def _compute_sales_delta(self):
+        for record in self:
+            record.sales_amount_delta = (record.current_sales_amount or 0.0) - (record.legacy_sales_amount or 0.0)
+            record.sales_qty_delta = (record.current_sales_qty or 0.0) - (record.legacy_sales_qty or 0.0)
+
+    def init(self):
+        self.env.cr.execute(
+            """
+            CREATE OR REPLACE VIEW legacy_product_compare AS
+            WITH legacy_sales AS (
+                SELECT
+                    lil.product_source_id AS source_product_id,
+                    SUM(COALESCE(lil.quantity, 0.0)) AS legacy_sales_qty,
+                    SUM(COALESCE(lil.price_subtotal, 0.0)) AS legacy_sales_amount
+                FROM legacy_invoice_line lil
+                JOIN legacy_invoice li ON li.id = lil.invoice_id
+                WHERE li.active = TRUE
+                  AND li.state IN ('open', 'paid')
+                  AND li.invoice_type IN ('out_invoice', 'out_refund')
+                GROUP BY lil.product_source_id
+            ),
+            current_sales AS (
+                SELECT
+                    aml.product_id,
+                    SUM(COALESCE(aml.quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(aml.price_subtotal, 0.0)) AS current_sales_amount
+                FROM account_move_line aml
+                JOIN account_move am ON am.id = aml.move_id
+                WHERE aml.product_id IS NOT NULL
+                  AND aml.display_type IS NULL
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                GROUP BY aml.product_id
+            )
+            SELECT
+                ROW_NUMBER() OVER (ORDER BY lpm.source_db, lpm.source_product_id) AS id,
+                lpm.source_db,
+                lpm.source_product_id,
+                lpm.source_default_code,
+                lpm.source_barcode,
+                lpm.source_name,
+                lpm.source_category_name,
+                lpm.source_brand_name,
+                lpm.target_product_id,
+                pp.product_tmpl_id AS target_product_tmpl_id,
+                lpm.match_status,
+                lpm.match_method,
+                COALESCE(lpm.confidence, 0.0) AS confidence,
+                COALESCE(ls.legacy_sales_qty, 0.0) AS legacy_sales_qty,
+                COALESCE(ls.legacy_sales_amount, 0.0) AS legacy_sales_amount,
+                COALESCE(cs.current_sales_qty, 0.0) AS current_sales_qty,
+                COALESCE(cs.current_sales_amount, 0.0) AS current_sales_amount
+            FROM legacy_product_map lpm
+            LEFT JOIN legacy_sales ls ON ls.source_product_id = lpm.source_product_id
+            LEFT JOIN current_sales cs ON cs.product_id = lpm.target_product_id
+            LEFT JOIN product_product pp ON pp.id = lpm.target_product_id
+            """
+        )
 
 
 class LegacyReportPackDefinition(models.Model):
@@ -742,7 +1124,7 @@ class LegacyReportPackDefinition(models.Model):
                         "payment_date": payment.payment_date or "",
                         "payment_name": payment.name or "",
                         "reference": payment.reference or "",
-                        "journal": payment.journal_id.display_name or "",
+                        "journal": payment.journal_id.display_name or payment.journal_name or payment.journal_code or "",
                         "payment_method": payment.payment_method_name or payment.payment_method_code or "",
                         "amount": payment.amount or 0.0,
                     }

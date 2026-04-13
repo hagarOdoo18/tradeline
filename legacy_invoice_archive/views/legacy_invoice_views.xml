@@ -9,6 +9,9 @@
                 <field name="number"/>
                 <field name="source_name" optional="show"/>
                 <field name="source_partner_name" string="Legacy Customer" optional="show"/>
+                <field name="discount_reason_normalized" optional="show"/>
+                <field name="payment_journal_summary" optional="show"/>
+                <field name="payment_method_summary" optional="show"/>
                 <field name="partner_id"/>
                 <field name="state"/>
                 <field name="invoice_type" optional="show"/>
@@ -28,54 +31,54 @@
         <field name="model">legacy.invoice</field>
         <field name="arch" type="xml">
             <search string="Legacy Invoices">
+                <field name="smart_search" string="Smart Search"/>
                 <field name="number" string="Invoice Number" filter_domain="[('number','ilike', self)]"/>
+                <field name="source_name" string="Source Document"/>
                 <field name="partner_id" string="Partner"/>
                 <field name="source_partner_name" string="Legacy Customer"/>
+                <field name="discount_reason_normalized" string="Discount Reason"/>
+                <field name="payment_journal_summary" string="Payment Journal"/>
+                <field name="payment_method_summary" string="Payment Method"/>
+                <field name="product_summary" string="Product / Item"/>
+                <field name="serial_summary" string="Serial Number"/>
                 <field name="number"
-                       string="Product / Item Code"
-                       filter_domain="['|',
-                            ('line_ids.name','ilike', self),
-                            ('line_ids.item_code','ilike', self)]"/>
+                        string="Product / Item Code"
+                        filter_domain="['|',
+                             ('line_ids.name','ilike', self),
+                             ('line_ids.item_code','ilike', self)]"/>
                 <field name="number"
                        string="Serial Number"
                        filter_domain="['|',
                             ('serial_ref_ids.lot_name','ilike', self),
                             ('serial_ref_ids.item_code','ilike', self)]"/>
                 <field name="number"
-                       string="Payment Ref / Method"
-                       filter_domain="['|',
-                            ('payment_link_ids.reference','ilike', self),
-                            ('payment_link_ids.payment_method_name','ilike', self)]"/>
-                <field name="number"
-                       string="Any (Invoice/Customer/Product/Serial/Payment)"
-                       filter_domain="['|','|','|','|','|','|','|','|','|',
-                            ('number','ilike', self),
-                            ('source_name','ilike', self),
-                            ('source_partner_name','ilike', self),
-                            ('partner_id.name','ilike', self),
-                            ('line_ids.name','ilike', self),
-                            ('line_ids.item_code','ilike', self),
-                            ('serial_ref_ids.lot_name','ilike', self),
-                            ('serial_ref_ids.item_code','ilike', self),
-                            ('payment_link_ids.reference','ilike', self),
-                            ('payment_link_ids.payment_method_name','ilike', self)]"/>
+                        string="Payment Ref / Method"
+                        filter_domain="['|','|',
+                             ('payment_link_ids.reference','ilike', self),
+                             ('payment_link_ids.payment_method_name','ilike', self),
+                             ('payment_link_ids.journal_name','ilike', self)]"/>
                 <field name="invoice_date"/>
                 <field name="state"/>
                 <field name="invoice_type"/>
                 <field name="source_db"/>
                 <field name="source_id"/>
                 <separator/>
-                <filter name="filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
+                <filter name="tradeline_time_ranges_legacy_invoice_date" string="Invoice Date" date="invoice_date"/>
                 <separator/>
                 <filter name="filter_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
                 <filter name="filter_open" string="Open" domain="[('state', '=', 'open')]"/>
                 <filter name="filter_cancel" string="Cancelled" domain="[('state', '=', 'cancel')]"/>
+                <filter name="filter_has_serial" string="With Serials" domain="[('serial_ref_ids', '!=', False)]"/>
+                <filter name="filter_has_payment" string="With Payments" domain="[('payment_link_ids', '!=', False)]"/>
                 <separator/>
                 <group expand="0" string="Group By">
                     <filter name="group_partner" string="Customer" context="{'group_by': 'partner_id'}"/>
                     <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
                     <filter name="group_month" string="Month" context="{'group_by': 'invoice_date:month'}"/>
                     <filter name="group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
+                    <filter name="group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
+                    <filter name="group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
+                    <filter name="group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
                 </group>
             </search>
         </field>
@@ -108,6 +111,9 @@
                             <field name="due_date"/>
                             <field name="state"/>
                             <field name="invoice_type"/>
+                            <field name="discount_reason_normalized"/>
+                            <field name="discount_reason_source"/>
+                            <field name="discount_reason_inferred"/>
                         </group>
                         <group>
                             <field name="company_id"/>
@@ -147,6 +153,7 @@
                                     <field name="uom_id" optional="show"/>
                                     <field name="price_unit"/>
                                     <field name="discount" optional="show"/>
+                                    <field name="discount_reason_normalized" optional="show"/>
                                     <field name="price_subtotal" sum="Subtotal"/>
                                     <field name="price_total" sum="Total"/>
                                     <field name="source_id" optional="hide"/>
@@ -174,6 +181,8 @@
                                     <field name="name"/>
                                     <field name="reference" optional="show"/>
                                     <field name="journal_id" optional="show"/>
+                                    <field name="journal_name" optional="show"/>
+                                    <field name="journal_code" optional="hide"/>
                                     <field name="payment_method_name" string="Payment Method" optional="show"/>
                                     <field name="payment_method_code" optional="hide"/>
                                     <field name="amount" sum="Total"/>
@@ -247,7 +256,7 @@
         <field name="view_mode">list,form,pivot,graph</field>
         <field name="view_id" ref="view_legacy_invoice_list"/>
         <field name="search_view_id" ref="view_legacy_invoice_search"/>
-        <field name="context">{'search_default_filter_open': 1}</field>
+        <field name="context">{'search_default_filter_open': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
         <field name="help" type="html">
             <p>
                 Read-only archive of Odoo 12 invoices, lines, payments, attachments, and serial references.

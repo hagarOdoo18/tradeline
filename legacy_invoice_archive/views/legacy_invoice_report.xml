@@ -77,6 +77,10 @@
                                     <td class="text-end"><span t-esc="o.source_name or '-'"/></td>
                                 </tr>
                                 <tr>
+                                    <td><strong>Discount Reason</strong></td>
+                                    <td class="text-end"><span t-esc="o.discount_reason_normalized or '-'"/></td>
+                                </tr>
+                                <tr>
                                     <td><strong>Imported At</strong></td>
                                     <td class="text-end"><span t-field="o.imported_at"/></td>
                                 </tr>
@@ -187,6 +191,7 @@
                             <tr>
                                 <th>Payment Date</th>
                                 <th>Reference</th>
+                                <th>Journal</th>
                                 <th>Method</th>
                                 <th class="text-end">Amount</th>
                             </tr>
@@ -195,6 +200,7 @@
                             <tr t-foreach="o.payment_link_ids" t-as="pay">
                                 <td><span t-field="pay.payment_date"/></td>
                                 <td><span t-esc="pay.reference or pay.name or ''"/></td>
+                                <td><span t-esc="pay.journal_id.display_name or pay.journal_name or pay.journal_code or ''"/></td>
                                 <td><span t-esc="pay.payment_method_name or pay.payment_method_code or ''"/></td>
                                 <td class="text-end">
                                     <span t-out="pay.amount or 0.0"

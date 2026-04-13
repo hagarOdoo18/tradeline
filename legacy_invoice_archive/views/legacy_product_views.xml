@@ -1,0 +1,354 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_product_list" model="ir.ui.view">
+        <field name="name">legacy.product.list</field>
+        <field name="model">legacy.product</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Products" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="default_code"/>
+                <field name="barcode" optional="show"/>
+                <field name="name"/>
+                <field name="product_category_name" optional="show"/>
+                <field name="source_brand_name" optional="show"/>
+                <field name="source_db" optional="show"/>
+                <field name="source_product_id" optional="show"/>
+                <field name="active" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_search" model="ir.ui.view">
+        <field name="name">legacy.product.search</field>
+        <field name="model">legacy.product</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Products">
+                <field name="default_code"/>
+                <field name="barcode"/>
+                <field name="name"/>
+                <field name="product_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="source_db"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_product_group_category" string="Category" context="{'group_by': 'product_category_name'}"/>
+                    <filter name="legacy_product_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                    <filter name="legacy_product_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_form" model="ir.ui.view">
+        <field name="name">legacy.product.form</field>
+        <field name="model">legacy.product</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Product" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="default_code"/>
+                            <field name="barcode"/>
+                            <field name="name"/>
+                            <field name="product_category_name"/>
+                            <field name="source_brand_name"/>
+                        </group>
+                        <group>
+                            <field name="source_db"/>
+                            <field name="source_product_id"/>
+                            <field name="source_product_tmpl_id"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="legacy_payload"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_legacy_product" model="ir.actions.act_window">
+        <field name="name">Legacy Products</field>
+        <field name="res_model">legacy.product</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_legacy_product_search"/>
+    </record>
+
+    <record id="view_legacy_product_map_list" model="ir.ui.view">
+        <field name="name">legacy.product.map.list</field>
+        <field name="model">legacy.product.map</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Product Mapping" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="source_default_code"/>
+                <field name="source_name"/>
+                <field name="source_category_name" optional="show"/>
+                <field name="source_brand_name" optional="show"/>
+                <field name="target_product_id"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <field name="confidence" optional="show"/>
+                <field name="manual_override" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_map_search" model="ir.ui.view">
+        <field name="name">legacy.product.map.search</field>
+        <field name="model">legacy.product.map</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Product Mapping">
+                <field name="source_default_code"/>
+                <field name="source_barcode"/>
+                <field name="source_name"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="target_product_id"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <filter name="legacy_map_matched" string="Matched" domain="[('match_status', '=', 'matched')]"/>
+                <filter name="legacy_map_review" string="Needs Review" domain="[('match_status', '=', 'review')]"/>
+                <filter name="legacy_map_unmatched" string="Unmatched" domain="[('match_status', '=', 'unmatched')]"/>
+                <filter name="legacy_map_manual" string="Manual Override" domain="[('manual_override', '=', True)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_map_group_status" string="Match Status" context="{'group_by': 'match_status'}"/>
+                    <filter name="legacy_map_group_method" string="Match Method" context="{'group_by': 'match_method'}"/>
+                    <filter name="legacy_map_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="legacy_map_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_map_form" model="ir.ui.view">
+        <field name="name">legacy.product.map.form</field>
+        <field name="model">legacy.product.map</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Product Mapping" create="false" delete="false">
+                <header>
+                    <button name="action_set_manual_match"
+                            type="object"
+                            string="Mark Manual Match"
+                            class="btn-primary"
+                            invisible="not target_product_id"
+                            groups="legacy_invoice_archive.group_legacy_invoice_archive_manager"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="source_db" readonly="1"/>
+                            <field name="source_product_id" readonly="1"/>
+                            <field name="source_product_tmpl_id" readonly="1"/>
+                            <field name="source_default_code" readonly="1"/>
+                            <field name="source_barcode" readonly="1"/>
+                            <field name="source_name" readonly="1"/>
+                            <field name="source_category_name" readonly="1"/>
+                            <field name="source_brand_name" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="target_product_id"/>
+                            <field name="target_product_tmpl_id" readonly="1"/>
+                            <field name="match_status"/>
+                            <field name="match_method"/>
+                            <field name="confidence"/>
+                            <field name="manual_override"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="note"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_legacy_product_map" model="ir.actions.act_window">
+        <field name="name">Legacy Product Mapping</field>
+        <field name="res_model">legacy.product.map</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_legacy_product_map_search"/>
+    </record>
+
+    <record id="view_legacy_serial_ledger_list" model="ir.ui.view">
+        <field name="name">legacy.serial.ledger.list</field>
+        <field name="model">legacy.serial.ledger</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Serial Ledger" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="movement_date"/>
+                <field name="movement_type"/>
+                <field name="lot_name"/>
+                <field name="item_code"/>
+                <field name="qty_done" sum="Qty"/>
+                <field name="source_document" optional="show"/>
+                <field name="origin" optional="show"/>
+                <field name="invoice_id" optional="show"/>
+                <field name="warehouse_name" optional="show"/>
+                <field name="location_usage" optional="show"/>
+                <field name="location_dest_usage" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ledger_search" model="ir.ui.view">
+        <field name="name">legacy.serial.ledger.search</field>
+        <field name="model">legacy.serial.ledger</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Serial Ledger">
+                <field name="lot_name"/>
+                <field name="item_code"/>
+                <field name="source_document"/>
+                <field name="origin"/>
+                <field name="invoice_id"/>
+                <field name="movement_type"/>
+                <field name="warehouse_name"/>
+                <field name="movement_date"/>
+                <filter name="tradeline_time_ranges_legacy_serial_movement" string="Movement Date" date="movement_date"/>
+                <filter name="legacy_serial_in" string="Inbound" domain="[('movement_type', '=', 'in')]"/>
+                <filter name="legacy_serial_out" string="Outbound" domain="[('movement_type', '=', 'out')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_serial_ledger_group_month" string="Movement Month" context="{'group_by': 'movement_date:month'}"/>
+                    <filter name="legacy_serial_ledger_group_type" string="Movement Type" context="{'group_by': 'movement_type'}"/>
+                    <filter name="legacy_serial_ledger_group_item" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="legacy_serial_ledger_group_warehouse" string="Warehouse" context="{'group_by': 'warehouse_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ledger_pivot" model="ir.ui.view">
+        <field name="name">legacy.serial.ledger.pivot</field>
+        <field name="model">legacy.serial.ledger</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Serial Ledger">
+                <field name="qty_done" type="measure"/>
+                <field name="movement_date" interval="month" type="col"/>
+                <field name="item_code" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ledger_graph" model="ir.ui.view">
+        <field name="name">legacy.serial.ledger.graph</field>
+        <field name="model">legacy.serial.ledger</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Serial Ledger" type="bar">
+                <field name="movement_date" interval="month"/>
+                <field name="qty_done" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_serial_ledger" model="ir.actions.act_window">
+        <field name="name">Legacy Serial Ledger</field>
+        <field name="res_model">legacy.serial.ledger</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_serial_ledger_search"/>
+        <field name="context">{'search_default_legacy_serial_ledger_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <record id="view_legacy_product_compare_list" model="ir.ui.view">
+        <field name="name">legacy.product.compare.list</field>
+        <field name="model">legacy.product.compare</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Product Comparison" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="source_default_code"/>
+                <field name="source_name"/>
+                <field name="target_product_id"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <field name="legacy_sales_qty" sum="Legacy Qty"/>
+                <field name="legacy_sales_amount" sum="Legacy Amount"/>
+                <field name="current_sales_qty" sum="Current Qty"/>
+                <field name="current_sales_amount" sum="Current Amount"/>
+                <field name="sales_qty_delta" sum="Qty Delta"/>
+                <field name="sales_amount_delta" sum="Amount Delta"/>
+                <field name="current_stock_qty" sum="Current Stock"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_compare_search" model="ir.ui.view">
+        <field name="name">legacy.product.compare.search</field>
+        <field name="model">legacy.product.compare</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Product Comparison">
+                <field name="source_default_code"/>
+                <field name="source_barcode"/>
+                <field name="source_name"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="target_product_id"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <filter name="legacy_compare_matched" string="Matched" domain="[('match_status', '=', 'matched')]"/>
+                <filter name="legacy_compare_unmatched" string="Unmatched" domain="[('match_status', '=', 'unmatched')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_compare_group_status" string="Match Status" context="{'group_by': 'match_status'}"/>
+                    <filter name="legacy_compare_group_method" string="Match Method" context="{'group_by': 'match_method'}"/>
+                    <filter name="legacy_compare_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="legacy_compare_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_compare_pivot" model="ir.ui.view">
+        <field name="name">legacy.product.compare.pivot</field>
+        <field name="model">legacy.product.compare</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Product Comparison">
+                <field name="legacy_sales_amount" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="legacy_sales_qty" type="measure"/>
+                <field name="current_sales_qty" type="measure"/>
+                <field name="source_category_name" type="row"/>
+                <field name="match_status" type="col"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_product_compare_graph" model="ir.ui.view">
+        <field name="name">legacy.product.compare.graph</field>
+        <field name="model">legacy.product.compare</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Product Comparison" type="bar">
+                <field name="source_category_name"/>
+                <field name="legacy_sales_amount" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_product_compare" model="ir.actions.act_window">
+        <field name="name">Legacy Product Comparison</field>
+        <field name="res_model">legacy.product.compare</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_product_compare_search"/>
+    </record>
+
+    <menuitem id="menu_legacy_products"
+              name="Legacy Products"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_product"
+              sequence="50"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_product_map"
+              name="Legacy Product Mapping"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_product_map"
+              sequence="60"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_serial_ledger"
+              name="Legacy Serial Ledger"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_serial_ledger"
+              sequence="70"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_product_compare"
+              name="Legacy Product Comparison"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_product_compare"
+              sequence="80"
+              groups="account.group_account_readonly"/>
+</odoo>

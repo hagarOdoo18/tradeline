@@ -15,6 +15,7 @@
         "views/legacy_invoice_views.xml",
         "views/legacy_report_pack_views.xml",
         "views/legacy_analysis_views.xml",
+        "views/legacy_product_views.xml",
         "views/legacy_report_pack_generate_wizard_views.xml",
         "views/res_partner_views.xml"
     ],
