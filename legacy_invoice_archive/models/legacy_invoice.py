@@ -5,7 +5,7 @@ import html
 import io
 from collections import OrderedDict
 
-from odoo import api, fields, models
+from odoo import api, fields, models, tools
 from odoo.exceptions import UserError
 
 
@@ -856,6 +856,16 @@ class LegacyProductCompare(models.Model):
             record.sales_qty_delta = (record.current_sales_qty or 0.0) - (record.legacy_sales_qty or 0.0)
 
     def init(self):
+        tools.drop_view_if_exists(self.env.cr, self._table)
+        
+        self.env.cr.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'legacy_invoice_line' AND column_name = 'product_source_id'
+        """)
+        if not self.env.cr.fetchone():
+            return
+
         self.env.cr.execute(
             """
             CREATE OR REPLACE VIEW legacy_product_compare AS
