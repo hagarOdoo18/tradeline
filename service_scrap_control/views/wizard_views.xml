@@ -36,7 +36,7 @@
                         <field name="vendor" readonly="1"/>
                     </group>
                     <field name="line_ids">
-                        <list editable="bottom">
+                        <list editable="bottom" create="false">
                             <field name="product_id" readonly="1"/>
                             <field name="qty"/>
                             <field name="product_uom_id" readonly="1"/>
