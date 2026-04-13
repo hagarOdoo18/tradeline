@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list string="Legacy Invoice Analysis" create="false" edit="false" delete="false" export_xlsx="1">
                 <field name="invoice_date"/>
+                <field name="due_date" optional="show"/>
                 <field name="invoice_number"/>
                 <field name="source_name" optional="show"/>
                 <field name="partner_id"/>
@@ -15,8 +16,12 @@
                 <field name="product_category_id" optional="show"/>
                 <field name="cost_method" optional="show"/>
                 <field name="quantity" sum="Qty"/>
-                <field name="price_subtotal" sum="Untaxed"/>
-                <field name="price_total" sum="Total"/>
+                <field name="amount_untaxed" sum="Untaxed"/>
+                <field name="amount_tax" sum="Tax"/>
+                <field name="amount_total" sum="Total"/>
+                <field name="company_id" optional="show"/>
+                <field name="company_currency_id" optional="hide"/>
+                <field name="currency_id" optional="hide"/>
                 <field name="invoice_type" optional="show"/>
                 <field name="state" optional="show"/>
             </list>
@@ -32,11 +37,17 @@
                 <field name="product_id"/>
                 <field name="item_code"/>
                 <field name="cost_method"/>
-                <field name="product_category_id" string="Sub Category"/>
+                <field name="product_category_id" string="Product Category"/>
                 <field name="partner_id" string="Partner"/>
                 <field name="source_partner_name" string="Salesperson"/>
                 <field name="source_name" string="Sales Team"/>
+                <field name="company_id" string="Company"/>
+                <field name="company_currency_id" string="Company Currency"/>
+                <field name="currency_id" string="Currency"/>
+                <field name="account_id" string="Revenue/Expense Account"/>
+                <field name="uom_id" string="Unit of Measure"/>
                 <field name="invoice_number"/>
+                <field name="source_db" string="Source Db"/>
                 <field name="invoice_date"/>
                 <field name="due_date"/>
                 <field name="state"/>
@@ -49,16 +60,26 @@
                 <filter name="legacy_analysis_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
                 <filter name="legacy_analysis_cancel" string="Cancelled" domain="[('state', '=', 'cancel')]"/>
                 <group expand="0" string="Group By">
+                    <filter name="legacy_analysis_group_company" string="Company" context="{'group_by': 'company_id'}"/>
+                    <filter name="legacy_analysis_group_company_currency" string="Company Currency" context="{'group_by': 'company_currency_id'}"/>
+                    <filter name="legacy_analysis_group_currency" string="Currency" context="{'group_by': 'currency_id'}"/>
+                    <filter name="legacy_analysis_group_due_date" string="Due Date" context="{'group_by': 'due_date:month'}"/>
+                    <filter name="legacy_analysis_group_invoice_date" string="Invoice Date" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="legacy_analysis_group_invoice_number" string="Invoice Number" context="{'group_by': 'invoice_number'}"/>
+                    <filter name="legacy_analysis_group_invoice_status" string="Invoice Status" context="{'group_by': 'state'}"/>
                     <filter name="legacy_analysis_group_product" string="Product" context="{'group_by': 'product_id'}"/>
                     <filter name="legacy_analysis_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
                     <filter name="legacy_analysis_group_cost" string="Cost Method" context="{'group_by': 'cost_method'}"/>
-                    <filter name="legacy_analysis_group_sub_category" string="Sub Category" context="{'group_by': 'product_category_id'}"/>
+                    <filter name="legacy_analysis_group_sub_category" string="Product Category" context="{'group_by': 'product_category_id'}"/>
                     <filter name="legacy_analysis_group_partner" string="Partner" context="{'group_by': 'partner_id'}"/>
                     <filter name="legacy_analysis_group_salesperson" string="Salesperson" context="{'group_by': 'source_partner_name'}"/>
                     <filter name="legacy_analysis_group_sales_team" string="Sales Team" context="{'group_by': 'source_name'}"/>
                     <filter name="legacy_analysis_group_month" string="Invoice Month" context="{'group_by': 'invoice_date:month'}"/>
-                    <filter name="legacy_analysis_group_type" string="Invoice Type" context="{'group_by': 'invoice_type'}"/>
+                    <filter name="legacy_analysis_group_type" string="Move Type" context="{'group_by': 'invoice_type'}"/>
                     <filter name="legacy_analysis_group_state" string="Invoice State" context="{'group_by': 'state'}"/>
+                    <filter name="legacy_analysis_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
+                    <filter name="legacy_analysis_group_account" string="Revenue/Expense Account" context="{'group_by': 'account_id'}"/>
+                    <filter name="legacy_analysis_group_uom" string="Unit of Measure" context="{'group_by': 'uom_id'}"/>
                 </group>
             </search>
         </field>
@@ -69,8 +90,9 @@
         <field name="model">legacy.invoice.line</field>
         <field name="arch" type="xml">
             <pivot string="Legacy Invoice Analysis">
-                <field name="price_subtotal" type="measure"/>
-                <field name="price_total" type="measure"/>
+                <field name="amount_untaxed" type="measure"/>
+                <field name="amount_tax" type="measure"/>
+                <field name="amount_total" type="measure"/>
                 <field name="quantity" type="measure"/>
                 <field name="discount" type="measure"/>
                 <field name="invoice_date" interval="month" type="col"/>
@@ -85,7 +107,7 @@
         <field name="arch" type="xml">
             <graph string="Legacy Invoice Analysis" type="bar">
                 <field name="invoice_date" interval="month"/>
-                <field name="price_subtotal" type="measure"/>
+                <field name="amount_untaxed" type="measure"/>
             </graph>
         </field>
     </record>

@@ -11,11 +11,12 @@ _logger = logging.getLogger(__name__)
 GROUPBY_ACTION_XMLIDS = (
     "account.action_account_invoice_report_all",
     "sales_invoice_lines_view.action_account_move_line_sales",
+    "legacy_invoice_archive.action_legacy_invoice_analysis",
 )
 
 EXPLICIT_TIME_ACTION_XMLIDS = GROUPBY_ACTION_XMLIDS
 
-TARGETED_TIME_MODELS = {"account.invoice.report", "account.move.line"}
+TARGETED_TIME_MODELS = {"account.invoice.report", "account.move.line", "legacy.invoice.line"}
 
 DEPRECATED_TIME_FLAGS = (
     "tradeline_time_ranges_enabled",
@@ -41,6 +42,10 @@ FILTER_NAME_BY_MODEL_AND_FIELD = {
     "account.move.line": {
         "date": "tradeline_time_ranges_move_line_date",
         "invoice_date": "tradeline_time_ranges_move_line_invoice_date",
+    },
+    "legacy.invoice.line": {
+        "invoice_date": "legacy_analysis_date_range",
+        "due_date": "legacy_analysis_due_date_range",
     },
 }
 

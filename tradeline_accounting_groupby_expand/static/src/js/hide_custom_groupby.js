@@ -308,7 +308,7 @@ patch(SearchModel.prototype, {
         if (config?.context?.tradeline_groupby_expanded) {
             this.hideCustomGroupBy = true;
         }
-        const forcedUiModels = new Set(["account.invoice.report", "account.move.line"]);
+        const forcedUiModels = new Set(["account.invoice.report", "account.move.line", "legacy.invoice.line"]);
         const forceUiByModel = forcedUiModels.has(config?.resModel);
         const context = config?.context || {};
         this.tradelineTimeRangesNative = Boolean(

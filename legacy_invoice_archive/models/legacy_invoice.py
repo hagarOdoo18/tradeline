@@ -162,6 +162,7 @@ class LegacyInvoiceLine(models.Model):
     invoice_id = fields.Many2one("legacy.invoice", required=True, ondelete="cascade", index=True)
     company_id = fields.Many2one(related="invoice_id.company_id", store=True, index=True)
     currency_id = fields.Many2one(related="invoice_id.currency_id", store=True)
+    company_currency_id = fields.Many2one(related="invoice_id.company_id.currency_id", store=True, index=True)
 
     source_id = fields.Integer(required=True, index=True)
     source_move_line_id = fields.Integer(index=True)
@@ -206,6 +207,24 @@ class LegacyInvoiceLine(models.Model):
     discount = fields.Float()
     price_subtotal = fields.Monetary(currency_field="currency_id")
     price_total = fields.Monetary(currency_field="currency_id")
+    amount_untaxed = fields.Monetary(
+        string="Untaxed Amount",
+        currency_field="currency_id",
+        compute="_compute_analysis_amounts",
+        store=True,
+    )
+    amount_tax = fields.Monetary(
+        string="Tax Amount",
+        currency_field="currency_id",
+        compute="_compute_analysis_amounts",
+        store=True,
+    )
+    amount_total = fields.Monetary(
+        string="Total Amount",
+        currency_field="currency_id",
+        compute="_compute_analysis_amounts",
+        store=True,
+    )
 
     account_id = fields.Many2one("account.account", ondelete="set null")
 
@@ -223,6 +242,15 @@ class LegacyInvoiceLine(models.Model):
     def _compute_product_search_text(self):
         for line in self:
             line.product_search_text = line.product_id.display_name or ""
+
+    @api.depends("price_subtotal", "price_total")
+    def _compute_analysis_amounts(self):
+        for line in self:
+            untaxed = line.price_subtotal or 0.0
+            total = line.price_total or 0.0
+            line.amount_untaxed = untaxed
+            line.amount_total = total
+            line.amount_tax = total - untaxed
 
     def _search_product_search_text(self, operator, value):
         value = (value or "").strip()
