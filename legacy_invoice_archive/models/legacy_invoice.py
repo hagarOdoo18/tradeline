@@ -9,6 +9,9 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 
+SUPPORTED_TEXT_OPERATORS = ("=", "!=", "like", "ilike", "not like", "not ilike", "=like", "=ilike")
+
+
 class LegacyInvoice(models.Model):
     _name = "legacy.invoice"
     _description = "Legacy Invoice Archive"
@@ -163,11 +166,38 @@ class LegacyInvoiceLine(models.Model):
     source_id = fields.Integer(required=True, index=True)
     source_move_line_id = fields.Integer(index=True)
 
+    invoice_date = fields.Date(related="invoice_id.invoice_date", store=True, index=True)
+    due_date = fields.Date(related="invoice_id.due_date", store=True, index=True)
+    partner_id = fields.Many2one(related="invoice_id.partner_id", store=True, index=True)
+    source_partner_name = fields.Char(related="invoice_id.source_partner_name", store=True, index=True)
+    invoice_number = fields.Char(related="invoice_id.number", store=True, index=True)
+    source_name = fields.Char(related="invoice_id.source_name", store=True, index=True)
+    source_db = fields.Char(related="invoice_id.source_db", store=True, index=True)
+    invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
+    state = fields.Selection(related="invoice_id.state", store=True, index=True)
+
     sequence = fields.Integer(default=10)
     name = fields.Text()
 
     product_id = fields.Many2one("product.product", ondelete="set null")
     product_tmpl_id = fields.Many2one("product.template", ondelete="set null")
+    product_search_text = fields.Char(
+        string="Product",
+        compute="_compute_product_search_text",
+        search="_search_product_search_text",
+        store=False,
+    )
+    product_category_id = fields.Many2one(related="product_tmpl_id.categ_id", store=True, index=True)
+    cost_method = fields.Selection(
+        selection=[
+            ("standard", "Standard Price"),
+            ("fifo", "First In First Out (FIFO)"),
+            ("average", "Average Cost (AVCO)"),
+        ],
+        related="product_tmpl_id.cost_method",
+        store=True,
+        index=True,
+    )
     item_code = fields.Char(index=True)
 
     quantity = fields.Float()
@@ -188,6 +218,91 @@ class LegacyInvoiceLine(models.Model):
             "The source line identity must be unique per invoice.",
         ),
     ]
+
+    @api.depends("product_id")
+    def _compute_product_search_text(self):
+        for line in self:
+            line.product_search_text = line.product_id.display_name or ""
+
+    def _search_product_search_text(self, operator, value):
+        value = (value or "").strip()
+        if not value:
+            return []
+
+        product_matches = self.env["product.product"].name_search(
+            name=value,
+            operator=operator,
+            limit=5000,
+        )
+        product_ids = [product_id for product_id, _name in product_matches]
+        if not product_ids:
+            return [("id", "=", 0)]
+        return [("product_id", "in", product_ids)]
+
+    @api.model
+    def _rewrite_product_id_text_domain(self, domain):
+        if not domain:
+            return domain
+
+        def _rewrite_leaf(term):
+            if not isinstance(term, (list, tuple)) or len(term) < 3:
+                return term
+            field_name, operator, value = term[0], term[1], term[2]
+            if field_name != "product_id":
+                return term
+            if operator not in SUPPORTED_TEXT_OPERATORS:
+                return term
+            if not isinstance(value, str):
+                return term
+            value = value.strip()
+            if not value:
+                return term
+
+            product_matches = self.env["product.product"].name_search(
+                name=value,
+                operator=operator,
+                limit=5000,
+            )
+            product_ids = [product_id for product_id, _name in product_matches]
+            if not product_ids:
+                return ("id", "=", 0)
+            return ("product_id", "in", product_ids)
+
+        def _rewrite(node):
+            if isinstance(node, tuple):
+                return _rewrite_leaf(node)
+            if isinstance(node, list):
+                return [_rewrite(item) for item in node]
+            return node
+
+        return _rewrite(domain)
+
+    @api.model
+    def search(self, domain, offset=0, limit=None, order=None):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().search(domain, offset=offset, limit=limit, order=order)
+
+    @api.model
+    def read_group(
+        self,
+        domain,
+        fields,
+        groupby,
+        offset=0,
+        limit=None,
+        orderby=False,
+        lazy=True,
+    ):
+        domain = self._rewrite_product_id_text_domain(domain)
+        return super().read_group(
+            domain,
+            fields,
+            groupby,
+            offset=offset,
+            limit=limit,
+            orderby=orderby,
+            lazy=lazy,
+        )
 
 
 class LegacyInvoiceTaxLine(models.Model):

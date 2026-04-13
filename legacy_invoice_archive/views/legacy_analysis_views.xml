@@ -1,14 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="view_legacy_invoice_analysis_list" model="ir.ui.view">
+        <field name="name">legacy.invoice.line.analysis.list</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Invoice Analysis" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="invoice_date"/>
+                <field name="invoice_number"/>
+                <field name="source_name" optional="show"/>
+                <field name="partner_id"/>
+                <field name="source_partner_name" optional="show"/>
+                <field name="product_id"/>
+                <field name="item_code" optional="show"/>
+                <field name="product_category_id" optional="show"/>
+                <field name="cost_method" optional="show"/>
+                <field name="quantity" sum="Qty"/>
+                <field name="price_subtotal" sum="Untaxed"/>
+                <field name="price_total" sum="Total"/>
+                <field name="invoice_type" optional="show"/>
+                <field name="state" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_analysis_search" model="ir.ui.view">
+        <field name="name">legacy.invoice.line.analysis.search</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Invoice Analysis">
+                <field name="product_search_text" string="Product"/>
+                <field name="product_id"/>
+                <field name="item_code"/>
+                <field name="cost_method"/>
+                <field name="product_category_id" string="Sub Category"/>
+                <field name="partner_id" string="Partner"/>
+                <field name="source_partner_name" string="Salesperson"/>
+                <field name="source_name" string="Sales Team"/>
+                <field name="invoice_number"/>
+                <field name="invoice_date"/>
+                <field name="due_date"/>
+                <field name="state"/>
+                <field name="invoice_type"/>
+                <separator/>
+                <filter name="legacy_analysis_date_range" string="Invoice Date" date="invoice_date"/>
+                <filter name="legacy_analysis_due_date_range" string="Due Date" date="due_date"/>
+                <separator/>
+                <filter name="legacy_analysis_open" string="Open" domain="[('state', '=', 'open')]"/>
+                <filter name="legacy_analysis_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
+                <filter name="legacy_analysis_cancel" string="Cancelled" domain="[('state', '=', 'cancel')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_analysis_group_product" string="Product" context="{'group_by': 'product_id'}"/>
+                    <filter name="legacy_analysis_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="legacy_analysis_group_cost" string="Cost Method" context="{'group_by': 'cost_method'}"/>
+                    <filter name="legacy_analysis_group_sub_category" string="Sub Category" context="{'group_by': 'product_category_id'}"/>
+                    <filter name="legacy_analysis_group_partner" string="Partner" context="{'group_by': 'partner_id'}"/>
+                    <filter name="legacy_analysis_group_salesperson" string="Salesperson" context="{'group_by': 'source_partner_name'}"/>
+                    <filter name="legacy_analysis_group_sales_team" string="Sales Team" context="{'group_by': 'source_name'}"/>
+                    <filter name="legacy_analysis_group_month" string="Invoice Month" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="legacy_analysis_group_type" string="Invoice Type" context="{'group_by': 'invoice_type'}"/>
+                    <filter name="legacy_analysis_group_state" string="Invoice State" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
     <record id="view_legacy_invoice_pivot" model="ir.ui.view">
-        <field name="name">legacy.invoice.pivot</field>
-        <field name="model">legacy.invoice</field>
+        <field name="name">legacy.invoice.line.analysis.pivot</field>
+        <field name="model">legacy.invoice.line</field>
         <field name="arch" type="xml">
             <pivot string="Legacy Invoice Analysis">
-                <field name="amount_total" type="measure"/>
-                <field name="amount_untaxed" type="measure"/>
-                <field name="amount_tax" type="measure"/>
-                <field name="amount_residual" type="measure"/>
+                <field name="price_subtotal" type="measure"/>
+                <field name="price_total" type="measure"/>
+                <field name="quantity" type="measure"/>
+                <field name="discount" type="measure"/>
                 <field name="invoice_date" interval="month" type="col"/>
                 <field name="partner_id" type="row"/>
             </pivot>
@@ -16,22 +80,22 @@
     </record>
 
     <record id="view_legacy_invoice_graph" model="ir.ui.view">
-        <field name="name">legacy.invoice.graph</field>
-        <field name="model">legacy.invoice</field>
+        <field name="name">legacy.invoice.line.analysis.graph</field>
+        <field name="model">legacy.invoice.line</field>
         <field name="arch" type="xml">
             <graph string="Legacy Invoice Analysis" type="bar">
                 <field name="invoice_date" interval="month"/>
-                <field name="amount_total" type="measure"/>
+                <field name="price_subtotal" type="measure"/>
             </graph>
         </field>
     </record>
 
     <record id="action_legacy_invoice_analysis" model="ir.actions.act_window">
         <field name="name">Legacy Invoice Analysis</field>
-        <field name="res_model">legacy.invoice</field>
-        <field name="view_mode">graph,pivot,list,form</field>
-        <field name="search_view_id" ref="view_legacy_invoice_search"/>
-        <field name="context">{'search_default_group_month': 1}</field>
+        <field name="res_model">legacy.invoice.line</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_invoice_analysis_search"/>
+        <field name="context">{'search_default_legacy_analysis_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <record id="view_legacy_payment_link_list" model="ir.ui.view">
