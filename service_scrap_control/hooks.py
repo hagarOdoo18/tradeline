@@ -96,8 +96,11 @@ def _ensure_operation_type(env, warehouse, name, dest_location, suffix):
     return env['stock.picking.type'].create(vals)
 
 
-def post_init_hook(cr, registry):
-    env = api.Environment(cr, SUPERUSER_ID, {})
+def post_init_hook(env_or_cr, registry=None):
+    if registry is None and hasattr(env_or_cr, 'cr'):
+        env = env_or_cr
+    else:
+        env = api.Environment(env_or_cr, SUPERUSER_ID, {})
     parent_location = _find_virtual_locations_parent(env)
 
     for warehouse_code, cfg in WAREHOUSE_LOCATION_CONFIG.items():
