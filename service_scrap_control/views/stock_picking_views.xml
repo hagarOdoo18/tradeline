@@ -35,6 +35,14 @@
                         invisible="state in ('done', 'cancel') or not wait_approve_scrap"
                     />
                     <button
+                        name="button_scrap"
+                        string="Create Scrap"
+                        type="object"
+                        class="oe_highlight"
+                        groups="service_scrap_control.group_return_picking_internal"
+                        invisible="state in ('done', 'cancel') or not check_scrap_new or not approve_scrap"
+                    />
+                    <button
                         name="button_vendor"
                         string="Vendor Scrap"
                         type="object"

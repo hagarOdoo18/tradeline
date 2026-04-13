@@ -46,9 +46,9 @@ class StockScrapWizard(models.TransientModel):
 
     def action_create_scrap(self):
         self.ensure_one()
-        lines = self.line_ids.filtered(lambda line: line.qty > 0)
+        lines = self.line_ids.filtered(lambda line: line.product_id and line.qty > 0)
         if not lines:
-            raise UserError(_('Please add at least one scrap line with a positive quantity.'))
+            raise UserError(_('Please keep at least one scrap line with product and positive quantity.'))
 
         picking = self.picking_id
         scrap_location = picking._get_service_scrap_location(vendor=self.vendor)
@@ -60,10 +60,11 @@ class StockScrapWizard(models.TransientModel):
 
         scraps = self.env['stock.scrap']
         for line in lines:
+            uom = line.product_uom_id or line.product_id.uom_id
             vals = {
                 'picking_id': picking.id,
                 'product_id': line.product_id.id,
-                'product_uom_id': line.product_uom_id.id,
+                'product_uom_id': uom.id,
                 'scrap_qty': line.qty,
                 'lot_id': line.lot_id.id,
                 'owner_id': line.owner_id.id,
@@ -90,9 +91,9 @@ class ScrapLine(models.TransientModel):
     _description = 'Service Scrap Wizard Line'
 
     wizard_id = fields.Many2one('stock.scrap.wizard', required=True, ondelete='cascade')
-    product_id = fields.Many2one('product.product', required=True)
+    product_id = fields.Many2one('product.product')
     qty = fields.Float(string='Quantity', required=True, digits='Product Unit of Measure')
-    product_uom_id = fields.Many2one('uom.uom', required=True)
+    product_uom_id = fields.Many2one('uom.uom')
     lot_id = fields.Many2one(
         'stock.lot',
         string='Lot/Serial',
