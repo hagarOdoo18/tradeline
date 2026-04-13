@@ -50,6 +50,8 @@
                 <field name="source_db"/>
                 <field name="source_id"/>
                 <separator/>
+                <filter name="filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
+                <separator/>
                 <filter name="filter_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
                 <filter name="filter_open" string="Open" domain="[('state', '=', 'open')]"/>
                 <filter name="filter_cancel" string="Cancelled" domain="[('state', '=', 'cancel')]"/>

@@ -92,6 +92,9 @@
                 <field name="state"/>
                 <field name="invoice_type"/>
                 <separator/>
+                <filter name="payment_filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
+                <filter name="payment_filter_payment_date_range" string="Payment Date" date="payment_date"/>
+                <separator/>
                 <filter name="payment_open" string="Open Invoices" domain="[('state', '=', 'open')]"/>
                 <filter name="payment_paid" string="Paid Invoices" domain="[('state', '=', 'paid')]"/>
                 <group expand="0" string="Group By">
@@ -168,6 +171,8 @@
                 <field name="product_category_id"/>
                 <field name="invoice_date"/>
                 <field name="match_status"/>
+                <separator/>
+                <filter name="serial_filter_invoice_date_range" string="Invoice Date" date="invoice_date"/>
                 <separator/>
                 <filter name="serial_verified" string="Verified" domain="[('match_status', '=', 'verified')]"/>
                 <filter name="serial_candidate" string="Candidate" domain="[('match_status', '=', 'candidate')]"/>
