@@ -26,19 +26,16 @@ class ProductProductInherit(models.Model):
     hs_type = fields.Selection([('EGS', 'EGS'), ('GS1', 'GS1')], "HS Type", default="GS1",
                                help="Taxpayer System HS Type.")
     
-    @api.model
-    def create(self, vals):
-        """
-        load codes on template by default
-        :param vals:
-        :return:
-        """
-        product = super(ProductProductInherit, self).create(vals)
-        if product.product_tmpl_id.hs_code and not product.hs_code:
-            product.write({
-                'hs_code': product.product_tmpl_id.hs_code,
-                'hs_description': product.product_tmpl_id.hs_description,
-                'hs_type': product.product_tmpl_id.hs_type,
-            })
-        return product
+    @api.model_create_multi
+    def create(self, vals_list):
+        """Load HS defaults from template for newly created variants."""
+        products = super().create(vals_list)
+        for product in products:
+            if product.product_tmpl_id.hs_code and not product.hs_code:
+                product.write({
+                    'hs_code': product.product_tmpl_id.hs_code,
+                    'hs_description': product.product_tmpl_id.hs_description,
+                    'hs_type': product.product_tmpl_id.hs_type,
+                })
+        return products
     

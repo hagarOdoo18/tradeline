@@ -28,11 +28,11 @@ class StockValuationLayerReport(models.Model):
     )
 
     # ── Measures ───────────────────────────────────────────────────────────────
-    quantity          = fields.Float(  string='Total Quantity',    readonly=True, group_operator='sum')
-    value         = fields.Float(  string='Total Value',    readonly=True, group_operator='sum',  digits='Product Price')
-    last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, group_operator=False, digits='Product Price')
-    unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, group_operator=False, digits='Product Price')
-    available_qty     = fields.Float(  string='Available Qty',     readonly=True, group_operator=False, digits='Product Unit of Measure')
+    quantity          = fields.Float(  string='Total Quantity',    readonly=True, aggregator='sum')
+    value         = fields.Float(  string='Total Value',    readonly=True, aggregator='sum',  digits='Product Price')
+    last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, aggregator=False, digits='Product Price')
+    unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, aggregator=False, digits='Product Price')
+    available_qty     = fields.Float(  string='Available Qty',     readonly=True, aggregator=False, digits='Product Unit of Measure')
 
     @api.depends('product_id')
     def _compute_product_search_text(self):
