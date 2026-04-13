@@ -230,6 +230,11 @@ class LegacyInvoicePaymentLink(models.Model):
     source_payment_id = fields.Integer(index=True)
     source_payment_method_id = fields.Integer(index=True)
 
+    invoice_date = fields.Date(related="invoice_id.invoice_date", store=True, index=True)
+    partner_id = fields.Many2one(related="invoice_id.partner_id", store=True, index=True)
+    invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
+    state = fields.Selection(related="invoice_id.state", store=True, index=True)
+
     payment_id = fields.Many2one("account.payment", ondelete="set null")
     journal_id = fields.Many2one("account.journal", ondelete="set null")
 
@@ -294,6 +299,11 @@ class LegacyInvoiceSerialRef(models.Model):
     source_move_id = fields.Integer(index=True)
     source_picking_id = fields.Integer(index=True)
     source_lot_id = fields.Integer(index=True)
+
+    invoice_date = fields.Date(related="invoice_id.invoice_date", store=True, index=True)
+    partner_id = fields.Many2one(related="invoice_id.partner_id", store=True, index=True)
+    invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
+    state = fields.Selection(related="invoice_id.state", store=True, index=True)
 
     lot_name = fields.Char(index=True)
     qty_done = fields.Float()
@@ -429,6 +439,29 @@ class LegacyReportPackDefinition(models.Model):
             "target": "self",
         }
 
+    def action_open_interactive(self):
+        self.ensure_one()
+        code = self.code or ""
+        invoice_codes = {
+            "english_invoice",
+            "invoice_selection",
+            "invoice_standard",
+            "invoice_with_payments",
+        }
+        payment_codes = {"payment_receipt"}
+        serial_codes = {"lot_label", "inventory_report", "delivery_slip", "stock_picking"}
+
+        if code in invoice_codes:
+            action_xmlid = "legacy_invoice_archive.action_legacy_invoice_analysis"
+        elif code in payment_codes:
+            action_xmlid = "legacy_invoice_archive.action_legacy_payment_link_analysis"
+        elif code in serial_codes:
+            action_xmlid = "legacy_invoice_archive.action_legacy_serial_ref_analysis"
+        else:
+            action_xmlid = "legacy_invoice_archive.action_legacy_invoice_analysis"
+
+        return self.env["ir.actions.act_window"]._for_xml_id(action_xmlid)
+
     def _get_invoice_domain(self, wizard):
         domain = [("active", "=", True)]
         if wizard.date_from:
@@ -440,6 +473,59 @@ class LegacyReportPackDefinition(models.Model):
         if wizard.invoice_state != "all":
             domain.append(("state", "=", wizard.invoice_state))
         return domain
+
+    def _get_invoices(self, wizard):
+        self.ensure_one()
+        invoice_domain = self._get_invoice_domain(wizard)
+        return self.env["legacy.invoice"].search(invoice_domain, order="invoice_date asc, id asc")
+
+    def _is_invoice_style_code(self):
+        self.ensure_one()
+        return (self.code or "") in {
+            "english_invoice",
+            "invoice_selection",
+            "invoice_standard",
+            "invoice_with_payments",
+        }
+
+    def action_generate_report(self, wizard):
+        self.ensure_one()
+        if not self.enabled:
+            raise UserError("This legacy report pack is disabled.")
+
+        invoices = self._get_invoices(wizard)
+        if not invoices:
+            raise UserError("No legacy invoices matched the selected filters.")
+
+        native_report = False
+        if self.report_xml_id:
+            native_report = self.env.ref(self.report_xml_id, raise_if_not_found=False)
+        if native_report and native_report._name == "ir.actions.report":
+            if native_report.model == "legacy.invoice":
+                return native_report.report_action(invoices)
+            if native_report.model == "legacy.report.pack.generate.wizard":
+                return native_report.report_action(wizard)
+
+        if self._is_invoice_style_code():
+            invoice_report_xml_id = (
+                "legacy_invoice_archive.action_report_legacy_invoice_html"
+                if wizard.output_format == "html"
+                else "legacy_invoice_archive.action_report_legacy_invoice"
+            )
+            invoice_report = self.env.ref(invoice_report_xml_id, raise_if_not_found=False)
+            if not invoice_report:
+                raise UserError("Legacy invoice report action is missing.")
+            return invoice_report.report_action(invoices)
+
+        preview_xml_id = (
+            "legacy_invoice_archive.action_report_legacy_report_pack_preview_html"
+            if wizard.output_format == "html"
+            else "legacy_invoice_archive.action_report_legacy_report_pack_preview_pdf"
+        )
+        preview_report = self.env.ref(preview_xml_id, raise_if_not_found=False)
+        if not preview_report:
+            raise UserError("Legacy report preview action is missing.")
+        return preview_report.report_action(wizard)
 
     def _build_report_rows(self, invoices):
         self.ensure_one()
@@ -583,8 +669,7 @@ class LegacyReportPackDefinition(models.Model):
         if not self.enabled:
             raise UserError("This legacy report pack is disabled.")
 
-        invoice_domain = self._get_invoice_domain(wizard)
-        invoices = self.env["legacy.invoice"].search(invoice_domain, order="invoice_date asc, id asc")
+        invoices = self._get_invoices(wizard)
         headers, rows = self._build_report_rows(invoices)
         content, mimetype, extension = self._render_report_content(headers, rows, wizard.output_format)
 

@@ -28,6 +28,19 @@
         <field name="model">legacy.invoice</field>
         <field name="arch" type="xml">
             <search string="Legacy Invoices">
+                <field name="number"
+                       string="Smart Search"
+                       filter_domain="['|','|','|','|','|','|','|','|','|',
+                            ('number','ilike', self),
+                            ('source_name','ilike', self),
+                            ('source_partner_name','ilike', self),
+                            ('partner_id.name','ilike', self),
+                            ('line_ids.name','ilike', self),
+                            ('line_ids.item_code','ilike', self),
+                            ('serial_ref_ids.lot_name','ilike', self),
+                            ('serial_ref_ids.item_code','ilike', self),
+                            ('payment_link_ids.reference','ilike', self),
+                            ('payment_link_ids.payment_method_name','ilike', self)]"/>
                 <field name="number"/>
                 <field name="partner_id"/>
                 <field name="source_partner_name"/>

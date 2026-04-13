@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_report_legacy_report_pack_preview_pdf" model="ir.actions.report">
+        <field name="name">Legacy Report Pack Preview (PDF)</field>
+        <field name="model">legacy.report.pack.generate.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">legacy_invoice_archive.report_legacy_report_pack_preview_document</field>
+        <field name="report_file">legacy_invoice_archive.report_legacy_report_pack_preview_document</field>
+        <field name="print_report_name">'Legacy Report - %s' % ((object.report_pack_id.name or object.report_pack_id.code or object.id))</field>
+    </record>
+
+    <record id="action_report_legacy_report_pack_preview_html" model="ir.actions.report">
+        <field name="name">Legacy Report Pack Preview (HTML)</field>
+        <field name="model">legacy.report.pack.generate.wizard</field>
+        <field name="report_type">qweb-html</field>
+        <field name="report_name">legacy_invoice_archive.report_legacy_report_pack_preview_document</field>
+        <field name="report_file">legacy_invoice_archive.report_legacy_report_pack_preview_document</field>
+        <field name="print_report_name">'Legacy Report - %s' % ((object.report_pack_id.name or object.report_pack_id.code or object.id))</field>
+    </record>
+
+    <template id="report_legacy_report_pack_preview_document">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-set="payload" t-value="o.get_preview_payload()"/>
+                <t t-call="web.external_layout">
+                    <div class="page">
+                        <h2 class="mb-1">
+                            <span t-esc="o.report_pack_id.name"/>
+                        </h2>
+                        <div class="text-muted mb-3">
+                            Code: <span t-esc="o.report_pack_id.code or '-'"/>
+                            | Invoice Count: <span t-esc="payload['invoice_count']"/>
+                            | Row Count: <span t-esc="payload['total_rows']"/>
+                            | Period:
+                            <span t-esc="o.date_from or '-'"/> to <span t-esc="o.date_to or '-'"/>
+                            | Filters:
+                            type=<span t-esc="o.invoice_type"/>,
+                            state=<span t-esc="o.invoice_state"/>
+                        </div>
+                        <t t-if="payload['truncated']">
+                            <div class="alert alert-warning" role="alert">
+                                Preview limited to <span t-esc="payload['row_limit']"/> rows out of
+                                <span t-esc="payload['total_rows']"/>. Use CSV/XLSX output for full export.
+                            </div>
+                        </t>
+
+                        <t t-if="payload['rows']">
+                            <table class="table table-sm o_main_table">
+                                <thead>
+                                    <tr>
+                                        <th t-foreach="payload['headers']" t-as="header">
+                                            <span t-esc="header"/>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr t-foreach="payload['rows']" t-as="row">
+                                        <td t-foreach="payload['headers']" t-as="column">
+                                            <span t-esc="row.get(column, '')"/>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </t>
+                        <t t-else="">
+                            <div class="alert alert-info" role="alert">
+                                No data matched the selected filters.
+                            </div>
+                        </t>
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+</odoo>

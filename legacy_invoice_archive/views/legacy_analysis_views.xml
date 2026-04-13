@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_invoice_pivot" model="ir.ui.view">
+        <field name="name">legacy.invoice.pivot</field>
+        <field name="model">legacy.invoice</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Invoice Analysis">
+                <field name="amount_total" type="measure"/>
+                <field name="amount_untaxed" type="measure"/>
+                <field name="amount_tax" type="measure"/>
+                <field name="amount_residual" type="measure"/>
+                <field name="invoice_date" interval="month" type="col"/>
+                <field name="partner_id" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_graph" model="ir.ui.view">
+        <field name="name">legacy.invoice.graph</field>
+        <field name="model">legacy.invoice</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Invoice Analysis" type="bar">
+                <field name="invoice_date" interval="month"/>
+                <field name="amount_total" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_invoice_analysis" model="ir.actions.act_window">
+        <field name="name">Legacy Invoice Analysis</field>
+        <field name="res_model">legacy.invoice</field>
+        <field name="view_mode">graph,pivot,list,form</field>
+        <field name="search_view_id" ref="view_legacy_invoice_search"/>
+        <field name="context">{'search_default_group_month': 1}</field>
+    </record>
+
+    <record id="view_legacy_payment_link_list" model="ir.ui.view">
+        <field name="name">legacy.invoice.payment.link.list</field>
+        <field name="model">legacy.invoice.payment.link</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Payments" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="invoice_date"/>
+                <field name="payment_date"/>
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="reference" optional="show"/>
+                <field name="payment_method_name"/>
+                <field name="payment_method_code" optional="hide"/>
+                <field name="journal_id" optional="show"/>
+                <field name="amount" sum="Total"/>
+                <field name="invoice_type" optional="show"/>
+                <field name="state" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_payment_link_pivot" model="ir.ui.view">
+        <field name="name">legacy.invoice.payment.link.pivot</field>
+        <field name="model">legacy.invoice.payment.link</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Payment Analysis">
+                <field name="amount" type="measure"/>
+                <field name="invoice_date" interval="month" type="col"/>
+                <field name="payment_method_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_payment_link_graph" model="ir.ui.view">
+        <field name="name">legacy.invoice.payment.link.graph</field>
+        <field name="model">legacy.invoice.payment.link</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Payment Analysis" type="bar">
+                <field name="invoice_date" interval="month"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_legacy_payment_link_search" model="ir.ui.view">
+        <field name="name">legacy.invoice.payment.link.search</field>
+        <field name="model">legacy.invoice.payment.link</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Payments">
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="reference"/>
+                <field name="payment_method_name"/>
+                <field name="journal_id"/>
+                <field name="payment_date"/>
+                <field name="invoice_date"/>
+                <field name="state"/>
+                <field name="invoice_type"/>
+                <separator/>
+                <filter name="payment_open" string="Open Invoices" domain="[('state', '=', 'open')]"/>
+                <filter name="payment_paid" string="Paid Invoices" domain="[('state', '=', 'paid')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="payment_group_method" string="Payment Method" context="{'group_by': 'payment_method_name'}"/>
+                    <filter name="payment_group_journal" string="Journal" context="{'group_by': 'journal_id'}"/>
+                    <filter name="payment_group_partner" string="Customer" context="{'group_by': 'partner_id'}"/>
+                    <filter name="payment_group_month" string="Invoice Month" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="payment_group_state" string="Invoice State" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_legacy_payment_link_analysis" model="ir.actions.act_window">
+        <field name="name">Legacy Payment Analysis</field>
+        <field name="res_model">legacy.invoice.payment.link</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_payment_link_search"/>
+        <field name="context">{'search_default_payment_group_month': 1}</field>
+    </record>
+
+    <record id="view_legacy_serial_ref_list" model="ir.ui.view">
+        <field name="name">legacy.invoice.serial.ref.list</field>
+        <field name="model">legacy.invoice.serial.ref</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Serials" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="invoice_date"/>
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="lot_name"/>
+                <field name="item_code"/>
+                <field name="qty_done" sum="Qty"/>
+                <field name="product_category_id" optional="show"/>
+                <field name="match_status"/>
+                <field name="invoice_type" optional="show"/>
+                <field name="state" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ref_pivot" model="ir.ui.view">
+        <field name="name">legacy.invoice.serial.ref.pivot</field>
+        <field name="model">legacy.invoice.serial.ref</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Serial Analysis">
+                <field name="qty_done" type="measure"/>
+                <field name="invoice_date" interval="month" type="col"/>
+                <field name="item_code" type="row"/>
+                <field name="match_status" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ref_graph" model="ir.ui.view">
+        <field name="name">legacy.invoice.serial.ref.graph</field>
+        <field name="model">legacy.invoice.serial.ref</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Serial Analysis" type="bar">
+                <field name="invoice_date" interval="month"/>
+                <field name="qty_done" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_legacy_serial_ref_search" model="ir.ui.view">
+        <field name="name">legacy.invoice.serial.ref.search</field>
+        <field name="model">legacy.invoice.serial.ref</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Serials">
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="lot_name"/>
+                <field name="item_code"/>
+                <field name="product_category_id"/>
+                <field name="invoice_date"/>
+                <field name="match_status"/>
+                <separator/>
+                <filter name="serial_verified" string="Verified" domain="[('match_status', '=', 'verified')]"/>
+                <filter name="serial_candidate" string="Candidate" domain="[('match_status', '=', 'candidate')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="serial_group_item" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="serial_group_category" string="Category" context="{'group_by': 'product_category_id'}"/>
+                    <filter name="serial_group_customer" string="Customer" context="{'group_by': 'partner_id'}"/>
+                    <filter name="serial_group_month" string="Invoice Month" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="serial_group_status" string="Match Status" context="{'group_by': 'match_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_legacy_serial_ref_analysis" model="ir.actions.act_window">
+        <field name="name">Legacy Serial Analysis</field>
+        <field name="res_model">legacy.invoice.serial.ref</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_serial_ref_search"/>
+        <field name="context">{'search_default_serial_group_month': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_invoice_analysis"
+              name="Legacy Invoice Analysis"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_invoice_analysis"
+              sequence="20"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_payment_analysis"
+              name="Legacy Payment Analysis"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_payment_link_analysis"
+              sequence="30"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_serial_analysis"
+              name="Legacy Serial Analysis"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_serial_ref_analysis"
+              sequence="40"
+              groups="account.group_account_readonly"/>
+</odoo>

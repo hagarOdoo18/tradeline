@@ -11,240 +11,178 @@
         <field name="print_report_name">'Legacy Invoice - %s' % ((object.number or object.source_name or object.id))</field>
     </record>
 
+    <record id="action_report_legacy_invoice_html" model="ir.actions.report">
+        <field name="name">Legacy Invoice (HTML)</field>
+        <field name="model">legacy.invoice</field>
+        <field name="report_type">qweb-html</field>
+        <field name="report_name">legacy_invoice_archive.report_legacy_invoice_document</field>
+        <field name="report_file">legacy_invoice_archive.report_legacy_invoice_document</field>
+        <field name="print_report_name">'Legacy Invoice - %s' % ((object.number or object.source_name or object.id))</field>
+    </record>
+
     <template id="external_layout_standard_custom_legacy">
-        <t t-if="not o and doc">
-            <t t-set="o" t-value="doc"/>
-        </t>
-        <t t-set="company" t-value="(o.company_id.sudo() if o and o.company_id else res_company)"/>
-
-        <div class="header">
-            <div class="row">
-                <div class="col-3 mb4">
-                    <img t-if="company.logo"
-                         t-att-src="image_data_uri(company.logo)"
-                         style="max-height: 40pt; max-width: 100%;"
-                         alt="Logo"/>
-                </div>
-                <div class="col-9 text-right" style="margin-top:22px;" t-field="company.report_header"/>
-            </div>
-            <div t-if="company.logo or company.report_header" class="row zero_min_height">
-                <div class="col-12">
-                    <div style="border-bottom: 1px solid black;"/>
-                </div>
-            </div>
-        </div>
-
-        <div class="article"
-             t-att-data-oe-model="o and o._name"
-             t-att-data-oe-id="o and o.id"
-             t-att-data-oe-lang="o and o.env.context.get('lang')">
+        <t t-call="web.external_layout">
             <t t-raw="0"/>
-        </div>
-
-        <div class="footer o_standard_footer">
-            <div class="text-center" style="border-top: 1px solid black;">
-                <ul class="list-inline mb4">
-                    <li t-if="company.phone" class="list-inline-item d-inline">
-                        Phone : <span class="o_force_ltr" t-field="company.phone"/>
-                    </li>
-                    <li t-if="company.email" class="list-inline-item d-inline">
-                        Email : <span t-field="company.email"/>
-                    </li>
-                    <li t-if="company.website" class="list-inline-item d-inline">
-                        Website: <span t-field="company.website"/>
-                    </li>
-                </ul>
-                <div>
-                    <span t-field="company.report_footer"/>
-                </div>
-                <div t-if="report_type == 'pdf'" class="text-muted">
-                    Page: <span class="page"/> / <span class="topage"/>
-                </div>
-            </div>
-        </div>
+        </t>
     </template>
 
     <template id="new_report_invoice_document">
         <t t-call="legacy_invoice_archive.external_layout_standard_custom_legacy">
             <t t-set="o" t-value="o.with_context(lang='en_US')"/>
+            <t t-set="partner" t-value="o.partner_id"/>
             <t t-set="print_summary" t-value="o.get_print_lines_summary()"/>
-            <t t-set="display_tax" t-value="', '.join(o.tax_line_ids.mapped('name'))"/>
-            <t t-set="barcode_value" t-value="o.number or o.source_name or o.source_id or o.id"/>
+            <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
+            <t t-set="display_tax" t-value="', '.join(o.tax_line_ids.mapped('name')) or '-'"/>
 
-            <div class="page" style="font-size:30px;">
-                <div class="row mt25" dir="ltr">
-                    <div class="col-4" style="font-size: 14px;">
-                        <strong><span t-esc="o.company_id.name"/></strong>
-                    </div>
-                    <div class="col-4" style="padding-left: 130px">
-                        <strong>Hotline :</strong>
-                        <strong>19857</strong>
-                    </div>
-                    <div class="row mt32">
-                        <strong>Commercial Registration:</strong>
-                        <strong>24801</strong>
-                        <br/>
-                        <strong>Tax Card:</strong>
-                        <strong>254-598-64-0</strong>
-                        <br/>
-                        <strong>Tax ID:</strong>
-                        <strong>555-5-00169-191-00-00</strong>
-                    </div>
-                </div>
-
-                <div class="row mt32" dir="ltr">
-                    <div class="col-5" style="font-size: 14px;">
-                        <strong>Invoice Number :</strong>
-                        <h3>
+            <div class="page">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h2 class="mb-0">Legacy Invoice</h2>
+                        <div class="text-muted">
                             <span t-esc="o.number or o.source_name or '-'"/>
-                            <br/>
-                        </h3>
-                    </div>
-                    <div class="col-4" style="padding-left: 130px"/>
-                    <div class="col-2">
-                        <div class="pull-right mb32">
-                            <center>
-                                <img t-att-src="'/report/barcode/?type=%s&amp;value=%s&amp;width=%s&amp;height=%s' % ('Code128', barcode_value, 200, 100)"
-                                     style="width:200px;height:50px;"/>
-                                <div t-esc="barcode_value"/>
-                            </center>
                         </div>
                     </div>
-                </div>
-
-                <div class="row mt32">
-                    <div class="col-3">
-                        <strong>Customer :</strong>
-                        <p><span t-esc="o.partner_id.name or o.source_partner_name or '-'"/></p>
-                    </div>
-                    <div class="col-3">
-                        <strong>Mobile Number:</strong>
-                        <p><span t-esc="o.partner_id.mobile or ''"/></p>
-                    </div>
-                    <div class="col-3">
-                        <strong>Invoice Date:</strong>
-                        <p><span t-esc="o.invoice_date or ''"/></p>
-                    </div>
-                    <div class="col-3">
-                        <strong>PO:</strong>
-                        <p><span t-esc="o.source_name or ''"/></p>
+                    <div class="text-end">
+                        <div><strong>State:</strong> <span t-esc="dict(o._fields['state'].selection).get(o.state, o.state or '-')"/></div>
+                        <div><strong>Type:</strong> <span t-esc="dict(o._fields['invoice_type'].selection).get(o.invoice_type, o.invoice_type or '-')"/></div>
+                        <div><strong>Source:</strong> <span t-esc="o.source_db"/> / <span t-esc="o.source_model"/> / <span t-esc="o.source_id"/></div>
                     </div>
                 </div>
 
-                <div class="row mt32">
-                    <div class="col-3">
-                        <strong>Billing Address:</strong>
-                        <p><span t-esc="o.partner_id.street2 or ''"/></p>
+                <div class="row mb-3">
+                    <div class="col-6">
+                        <h5 class="mb-2">Bill To</h5>
+                        <div><strong>Name:</strong> <span t-esc="partner.name or o.source_partner_name or '-'"/></div>
+                        <div><strong>Phone:</strong> <span t-esc="partner.mobile or partner.phone or '-'"/></div>
+                        <div><strong>Tax ID:</strong> <span t-esc="partner.vat or '-'"/></div>
+                        <div t-if="partner.contact_address">
+                            <strong>Address:</strong>
+                            <span t-esc="partner.contact_address"/>
+                        </div>
                     </div>
-                    <div class="col-3">
-                        <strong>Tax ID :</strong>
-                        <p><span t-esc="o.partner_id.vat or ''"/></p>
-                    </div>
-                    <div class="col-3">
-                        <strong>Source DB :</strong>
-                        <p><span t-esc="o.source_db or ''"/></p>
+                    <div class="col-6">
+                        <h5 class="mb-2">Invoice Info</h5>
+                        <table class="table table-sm table-borderless mb-0">
+                            <tbody>
+                                <tr>
+                                    <td><strong>Invoice Date</strong></td>
+                                    <td class="text-end"><span t-field="o.invoice_date"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Due Date</strong></td>
+                                    <td class="text-end"><span t-field="o.due_date"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Source Name</strong></td>
+                                    <td class="text-end"><span t-esc="o.source_name or '-'"/></td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Imported At</strong></td>
+                                    <td class="text-end"><span t-field="o.imported_at"/></td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
                 <table class="table table-sm o_main_table" name="invoice_line_table">
                     <thead>
                         <tr>
-                            <th class="text-left"><span>Item Code</span></th>
-                            <th class="text-left"><span>Product</span></th>
-                            <th class="text-right"><span>QTY</span></th>
-                            <th class="text-right"><span>Unit Price</span></th>
-                            <th class="text-right"><span>Discount %</span></th>
-                            <th class="text-left"><span>Tax</span></th>
-                            <th class="text-right"><span>SubTotal</span></th>
+                            <th>#</th>
+                            <th>Item Code</th>
+                            <th>Description</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Unit Price</th>
+                            <th class="text-end">Disc. %</th>
+                            <th>Taxes</th>
+                            <th class="text-end">Subtotal</th>
                         </tr>
                     </thead>
-                    <tbody class="invoice_tbody">
-                        <t t-set="lines" t-value="print_summary['printed_lines']"/>
-                        <t t-foreach="lines" t-as="line">
-                            <tr>
-                                <td><span t-esc="line.item_code or ''"/></td>
-                                <td><span t-esc="line.name or ''"/></td>
-                                <td class="text-right"><span t-esc="int(line.quantity or 0)"/></td>
-                                <td class="text-right">
-                                    <span t-out="line.price_unit or 0.0"
-                                          t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
-                                </td>
-                                <td class="text-right"><span t-esc="line.discount or 0.0"/></td>
-                                <td class="text-left">
-                                    <span t-esc="display_tax"/>
-                                </td>
-                                <td class="text-right">
-                                    <span t-out="line.price_subtotal or 0.0"
-                                          t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
-                                </td>
-                            </tr>
-                        </t>
+                    <tbody>
+                        <tr t-foreach="print_summary['printed_lines']" t-as="line">
+                            <td><span t-esc="line.sequence or ''"/></td>
+                            <td><span t-esc="line.item_code or ''"/></td>
+                            <td><span t-esc="line.name or ''"/></td>
+                            <td class="text-end"><span t-esc="'%.2f' % (line.quantity or 0.0)"/></td>
+                            <td class="text-end">
+                                <span t-out="line.price_unit or 0.0"
+                                      t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </td>
+                            <td class="text-end"><span t-esc="'%.2f' % (line.discount or 0.0)"/></td>
+                            <td><span t-esc="display_tax"/></td>
+                            <td class="text-end">
+                                <span t-out="line.price_subtotal or 0.0"
+                                      t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
 
-                <div class="clearfix">
-                    <div class="row">
-                        <div class="col-4 ml-auto">
-                            <table class="table table-sm" style="page-break-inside: avoid;">
-                                <tr class="border-black o_subtotal">
+                <div class="row justify-content-end">
+                    <div class="col-5">
+                        <table class="table table-sm" style="page-break-inside: avoid;">
+                            <tbody>
+                                <tr>
                                     <td><strong>Untaxed Amount</strong></td>
-                                    <td class="text-right">
+                                    <td class="text-end">
                                         <span t-out="print_summary['printed_untaxed']"
                                               t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                                     </td>
                                 </tr>
-                                <tr class="border-black o_subtotal">
+                                <tr>
                                     <td><strong>Tax</strong></td>
-                                    <td class="text-right">
+                                    <td class="text-end">
                                         <span t-out="print_summary['printed_tax']"
                                               t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
                                     </td>
                                 </tr>
-                                <tr class="border-black o_total">
+                                <tr class="border-top">
                                     <td><strong>Total</strong></td>
-                                    <td class="text-right">
-                                        <span t-out="print_summary['printed_total']"
-                                              t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                    <td class="text-end">
+                                        <strong>
+                                            <span t-out="print_summary['printed_total']"
+                                                  t-options='{"widget": "monetary", "display_currency": o.currency_id}'/>
+                                        </strong>
                                     </td>
                                 </tr>
-                            </table>
-                        </div>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
-                <p class="text-right">
-                    <t t-esc="print_summary['printed_amount_words_en']"/>
-                </p>
+                <div class="mt-2" t-if="print_summary.get('printed_amount_words_en')">
+                    <strong>Amount in Words:</strong>
+                    <span t-esc="print_summary['printed_amount_words_en']"/>
+                </div>
 
-                <t t-if="o.get_grouped_lot_values()">
-                    <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
-                    <table class="table table-sm mt-2" style="width: 50%;" name="invoice_snln_table">
+                <div class="mt-4" t-if="lot_values" style="page-break-inside: avoid;">
+                    <h5 class="mb-2">Serial References</h5>
+                    <table class="table table-sm o_main_table" name="invoice_serial_table">
                         <thead>
                             <tr>
                                 <th>Product</th>
-                                <th class="text-end">QTY</th>
-                                <th class="text-end">Serial Number</th>
+                                <th class="text-end">Qty</th>
+                                <th>Serial Number(s)</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr t-foreach="lot_values" t-as="snln_line">
-                                <td><t t-esc="snln_line['product_name']"/></td>
+                                <td><span t-esc="snln_line['product_name']"/></td>
                                 <td class="text-end">
-                                    <t t-esc="snln_line['quantity']"/>
+                                    <span t-esc="'%.2f' % (snln_line['quantity'] or 0.0)"/>
                                     <t t-if="snln_line.get('uom_name')">
-                                        <t t-esc="snln_line['uom_name']"/>
+                                        <span t-esc="' %s' % snln_line['uom_name']"/>
                                     </t>
                                 </td>
-                                <td class="text-end">
-                                    <t t-esc="snln_line['serials']"/>
-                                </td>
+                                <td><span t-esc="snln_line['serials'] or '-'"/></td>
                             </tr>
                         </tbody>
                     </table>
-                </t>
+                </div>
 
-                <t t-if="o.payment_link_ids">
-                    <table class="table table-sm mt-2">
+                <div class="mt-4" t-if="o.payment_link_ids" style="page-break-inside: avoid;">
+                    <h5 class="mb-2">Payments</h5>
+                    <table class="table table-sm o_main_table">
                         <thead>
                             <tr>
                                 <th>Payment Date</th>
@@ -255,7 +193,7 @@
                         </thead>
                         <tbody>
                             <tr t-foreach="o.payment_link_ids" t-as="pay">
-                                <td><span t-esc="pay.payment_date or ''"/></td>
+                                <td><span t-field="pay.payment_date"/></td>
                                 <td><span t-esc="pay.reference or pay.name or ''"/></td>
                                 <td><span t-esc="pay.payment_method_name or pay.payment_method_code or ''"/></td>
                                 <td class="text-end">
@@ -265,11 +203,15 @@
                             </tr>
                         </tbody>
                     </table>
-                </t>
+                </div>
 
-                <p dir="rtl" class="text-right">
-                    <b>Signature : -------------------------------</b>
-                </p>
+                <div class="mt-3" t-if="o.comment or o.print_notes or o.product_notes or o.notes_pos">
+                    <h5 class="mb-2">Legacy Notes</h5>
+                    <p class="mb-1" t-if="o.comment"><strong>Comment:</strong> <span t-esc="o.comment"/></p>
+                    <p class="mb-1" t-if="o.print_notes"><strong>Print Notes:</strong> <span t-esc="o.print_notes"/></p>
+                    <p class="mb-1" t-if="o.product_notes"><strong>Product Notes:</strong> <span t-esc="o.product_notes"/></p>
+                    <p class="mb-1" t-if="o.notes_pos"><strong>POS Notes:</strong> <span t-esc="o.notes_pos"/></p>
+                </div>
             </div>
         </t>
     </template>

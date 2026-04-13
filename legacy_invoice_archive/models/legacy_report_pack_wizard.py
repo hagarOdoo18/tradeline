@@ -37,15 +37,43 @@ class LegacyReportPackGenerateWizard(models.TransientModel):
         required=True,
     )
     output_format = fields.Selection(
-        selection=[("csv", "CSV"), ("html", "HTML"), ("xlsx", "XLSX (CSV fallback)"), ("pdf", "PDF (CSV fallback)")],
+        selection=[("csv", "CSV"), ("html", "HTML"), ("xlsx", "XLSX (CSV fallback)"), ("pdf", "PDF")],
         default="csv",
         required=True,
     )
+
+    def get_preview_payload(self):
+        self.ensure_one()
+        invoices = self.report_pack_id._get_invoices(self)
+        headers, rows = self.report_pack_id._build_report_rows(invoices)
+        row_limit = 2000
+        try:
+            row_limit = int(
+                self.env["ir.config_parameter"].sudo().get_param(
+                    "legacy_invoice_archive.report_preview_row_limit",
+                    row_limit,
+                )
+            )
+        except Exception:
+            row_limit = 2000
+        total_rows = len(rows)
+        truncated = total_rows > row_limit
+        preview_rows = rows[:row_limit] if truncated else rows
+        return {
+            "invoice_count": len(invoices),
+            "headers": headers,
+            "rows": preview_rows,
+            "total_rows": total_rows,
+            "truncated": truncated,
+            "row_limit": row_limit,
+        }
 
     def action_generate(self):
         self.ensure_one()
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise UserError("'Date From' cannot be later than 'Date To'.")
+        if self.output_format in {"pdf", "html"}:
+            return self.report_pack_id.action_generate_report(self)
         attachment = self.report_pack_id.generate_report_attachment(self)
         return {
             "type": "ir.actions.act_url",
