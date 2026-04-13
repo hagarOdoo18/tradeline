@@ -1,5 +1,0 @@
-"module","model","field","field_description","ttype","required","relation"
-"tradeline_item_code_lot","stock.production.lot",,"Item Code Search","char","False",""
-"tradeline_lot_reports","stock.production.lot",,"Qty Done","float","False",""
-"tradeline_lot_serial_purchase","stock.production.lot",,"Check_type","boolean","False",""
-"tradeline_product_category_lot","stock.production.lot",,"Product Category","many2one","False","product.category"

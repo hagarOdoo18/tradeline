@@ -1,0 +1,6 @@
+# Python bytecode/cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local scratch and investigation files
+.tmp/
