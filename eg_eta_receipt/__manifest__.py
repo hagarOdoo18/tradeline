@@ -27,18 +27,15 @@
 
     ],
 
+'license': 'LGPL-3',
 'assets': {
-        'point_of_sale.assets': [
+        'point_of_sale._assets_pos': [
             'eg_eta_receipt/static/src/js/pos_payment_screen.js',
-             'eg_eta_receipt/static/src/js/pos_order.js',
-             'eg_eta_receipt/static/src/js/models.js',
-            'eg_eta_receipt/static/src/js//qrcode.js'
+            'eg_eta_receipt/static/src/js/pos_order.js',
+            'eg_eta_receipt/static/src/js/models.js',
+            'eg_eta_receipt/static/src/js/qrcode.js',
+            'eg_eta_receipt/static/src/xml/pos.xml',
         ],
-    'web.assets_qweb': [
-        'eg_eta_receipt/static/src/xml/pos.xml',
-    ],
-
-
-    }
+    },
 
 }
