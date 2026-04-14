@@ -11,6 +11,98 @@ class StockScrapWizard(models.TransientModel):
     line_ids = fields.One2many('scrap.line', 'wizard_id', string='Scrap Lines')
 
     @api.model
+    def _line_qty_from_move_line(self, move_line):
+        qty = float(getattr(move_line, 'quantity', 0.0) or 0.0)
+        if qty <= 0:
+            qty = float(getattr(move_line, 'qty_done', 0.0) or 0.0)
+        if qty <= 0:
+            qty = float(getattr(move_line, 'reserved_uom_qty', 0.0) or 0.0)
+        return qty
+
+    @api.model
+    def _normalize_scrap_lines(self, line_dicts):
+        normalized = {}
+        for line in line_dicts:
+            product = line['product']
+            lot = line.get('lot')
+            uom = line.get('uom') or product.uom_id
+            owner = line.get('owner')
+            package = line.get('package')
+            qty = float(line.get('qty') or 0.0)
+            if qty <= 0:
+                continue
+            key = (
+                product.id,
+                lot.id if lot else False,
+                uom.id if uom else False,
+                owner.id if owner else False,
+                package.id if package else False,
+            )
+            if key in normalized:
+                normalized[key]['qty'] += qty
+            else:
+                normalized[key] = {
+                    'product': product,
+                    'qty': qty,
+                    'uom': uom,
+                    'lot': lot,
+                    'owner': owner,
+                    'package': package,
+                }
+        return list(normalized.values())
+
+    @api.model
+    def _prepare_scrap_lines_from_move_lines(self, picking):
+        if not hasattr(picking, 'move_line_ids_without_package'):
+            return []
+
+        lines = []
+        move_lines = picking.move_line_ids_without_package.filtered(
+            lambda line: line.state != 'cancel' and line.product_id
+        )
+        for move_line in move_lines:
+            qty = self._line_qty_from_move_line(move_line)
+            if qty <= 0:
+                continue
+            product = move_line.product_id
+            lines.append({
+                'product': product,
+                'qty': qty,
+                'uom': move_line.product_uom_id or product.uom_id,
+                'lot': move_line.lot_id,
+                'owner': move_line.owner_id,
+                'package': move_line.package_id,
+            })
+        return self._normalize_scrap_lines(lines)
+
+    @api.model
+    def _prepare_scrap_lines_from_moves(self, picking):
+        lines = []
+        for move in picking.move_ids.filtered(lambda m: m.state != 'cancel' and m.product_id):
+            quantity = float(move.product_uom_qty or 0.0)
+            if quantity <= 0:
+                continue
+            product = move.product_id
+            first_line = move.move_line_ids[:1]
+            lines.append({
+                'product': product,
+                'qty': quantity,
+                'uom': move.product_uom or product.uom_id,
+                'lot': first_line.lot_id if first_line else self.env['stock.lot'],
+                'owner': first_line.owner_id if first_line else self.env['res.partner'],
+                'package': first_line.package_id if first_line else self.env['stock.quant.package'],
+            })
+        return self._normalize_scrap_lines(lines)
+
+    @api.model
+    def _prepare_default_scrap_lines(self, picking):
+        # Odoo12 parity: seed from executed move lines first (lot-aware), then fallback to moves.
+        lines = self._prepare_scrap_lines_from_move_lines(picking)
+        if lines:
+            return lines
+        return self._prepare_scrap_lines_from_moves(picking)
+
+    @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
         picking_id = res.get('picking_id') or self.env.context.get('default_picking_id')
@@ -19,26 +111,15 @@ class StockScrapWizard(models.TransientModel):
 
         picking = self.env['stock.picking'].browse(picking_id)
         line_commands = []
-        for move in picking.move_ids.filtered(lambda m: m.state != 'cancel' and m.product_id):
-            quantity = float(move.product_uom_qty or 0.0)
-            if not quantity and move.move_line_ids:
-                quantity = sum(move.move_line_ids.mapped('quantity'))
-            if quantity <= 0:
-                continue
-
-            first_line = move.move_line_ids[:1]
-            line_commands.append(
-                Command.create(
-                    {
-                        'product_id': move.product_id.id,
-                        'qty': quantity,
-                        'product_uom_id': move.product_uom.id,
-                        'lot_id': first_line.lot_id.id if first_line else False,
-                        'owner_id': first_line.owner_id.id if first_line else False,
-                        'package_id': first_line.package_id.id if first_line else False,
-                    }
-                )
-            )
+        for line in self._prepare_default_scrap_lines(picking):
+            line_commands.append(Command.create({
+                'product_id': line['product'].id,
+                'qty': line['qty'],
+                'product_uom_id': line['uom'].id if line['uom'] else False,
+                'lot_id': line['lot'].id if line['lot'] else False,
+                'owner_id': line['owner'].id if line['owner'] else False,
+                'package_id': line['package'].id if line['package'] else False,
+            }))
 
         if line_commands:
             res['line_ids'] = line_commands
@@ -48,32 +129,16 @@ class StockScrapWizard(models.TransientModel):
         self.ensure_one()
         lines = self.line_ids.filtered(lambda line: line.product_id and (line.qty or 0) > 0)
         if lines:
-            return [{
+            return self._normalize_scrap_lines([{
                 'product': line.product_id,
                 'qty': line.qty,
                 'uom': line.product_uom_id or line.product_id.uom_id,
                 'lot': line.lot_id,
                 'owner': line.owner_id,
                 'package': line.package_id,
-            } for line in lines]
+            } for line in lines])
 
-        fallback_lines = []
-        for move in self.picking_id.move_ids.filtered(lambda m: m.state != 'cancel' and m.product_id):
-            quantity = float(move.product_uom_qty or 0.0)
-            if not quantity and move.move_line_ids:
-                quantity = sum(move.move_line_ids.mapped('quantity'))
-            if quantity <= 0:
-                continue
-            first_line = move.move_line_ids[:1]
-            fallback_lines.append({
-                'product': move.product_id,
-                'qty': quantity,
-                'uom': move.product_uom or move.product_id.uom_id,
-                'lot': first_line.lot_id if first_line else self.env['stock.lot'],
-                'owner': first_line.owner_id if first_line else self.env['res.partner'],
-                'package': first_line.package_id if first_line else self.env['stock.quant.package'],
-            })
-        return fallback_lines
+        return self._prepare_default_scrap_lines(self.picking_id)
 
     def action_create_scrap(self):
         self.ensure_one()
@@ -91,6 +156,11 @@ class StockScrapWizard(models.TransientModel):
 
         scraps = self.env['stock.scrap']
         for line in lines:
+            if line['product'].tracking != 'none' and not line['lot']:
+                raise UserError(
+                    _('Please set Lot/Serial Number for tracked product: %(product)s')
+                    % {'product': line['product'].display_name}
+                )
             vals = {
                 'picking_id': picking.id,
                 'product_id': line['product'].id,
