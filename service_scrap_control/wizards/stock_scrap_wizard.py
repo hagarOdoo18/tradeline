@@ -44,9 +44,40 @@ class StockScrapWizard(models.TransientModel):
             res['line_ids'] = line_commands
         return res
 
+    def _get_effective_scrap_lines(self):
+        self.ensure_one()
+        lines = self.line_ids.filtered(lambda line: line.product_id and (line.qty or 0) > 0)
+        if lines:
+            return [{
+                'product': line.product_id,
+                'qty': line.qty,
+                'uom': line.product_uom_id or line.product_id.uom_id,
+                'lot': line.lot_id,
+                'owner': line.owner_id,
+                'package': line.package_id,
+            } for line in lines]
+
+        fallback_lines = []
+        for move in self.picking_id.move_ids.filtered(lambda m: m.state != 'cancel' and m.product_id):
+            quantity = float(move.product_uom_qty or 0.0)
+            if not quantity and move.move_line_ids:
+                quantity = sum(move.move_line_ids.mapped('quantity'))
+            if quantity <= 0:
+                continue
+            first_line = move.move_line_ids[:1]
+            fallback_lines.append({
+                'product': move.product_id,
+                'qty': quantity,
+                'uom': move.product_uom or move.product_id.uom_id,
+                'lot': first_line.lot_id if first_line else self.env['stock.lot'],
+                'owner': first_line.owner_id if first_line else self.env['res.partner'],
+                'package': first_line.package_id if first_line else self.env['stock.quant.package'],
+            })
+        return fallback_lines
+
     def action_create_scrap(self):
         self.ensure_one()
-        lines = self.line_ids.filtered(lambda line: line.product_id and line.qty > 0)
+        lines = self._get_effective_scrap_lines()
         if not lines:
             raise UserError(_('Please keep at least one scrap line with product and positive quantity.'))
 
@@ -60,15 +91,14 @@ class StockScrapWizard(models.TransientModel):
 
         scraps = self.env['stock.scrap']
         for line in lines:
-            uom = line.product_uom_id or line.product_id.uom_id
             vals = {
                 'picking_id': picking.id,
-                'product_id': line.product_id.id,
-                'product_uom_id': uom.id,
-                'scrap_qty': line.qty,
-                'lot_id': line.lot_id.id,
-                'owner_id': line.owner_id.id,
-                'package_id': line.package_id.id,
+                'product_id': line['product'].id,
+                'product_uom_id': line['uom'].id,
+                'scrap_qty': line['qty'],
+                'lot_id': line['lot'].id if line['lot'] else False,
+                'owner_id': line['owner'].id if line['owner'] else False,
+                'package_id': line['package'].id if line['package'] else False,
                 'company_id': picking.company_id.id,
                 'location_id': source_location.id,
                 'scrap_location_id': scrap_location.id,
