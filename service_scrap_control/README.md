@@ -16,14 +16,18 @@ This module ports the Odoo12 Service scrap workflow into Odoo18 for:
   - `draft -> witting -> approve -> done`
 - `stock.location.scrap_vendor_location`
 - `stock.picking.type.user_ids` restriction field
-- Security groups with umbrella group: `Service Scrap Control`
+- Security groups with simplified top-level groups:
+  - `Service Scrap Operator` (all workflow actions except approve)
+  - `Service Scrap Approver` (operator + approve)
 
 ## Maintain Access (Add/Remove Users)
 
 Primary path (recommended):
 1. Go to **Settings > Users & Companies > Users**.
 2. Open user.
-3. In Access Rights, add/remove **Service Scrap Control** group.
+3. In Access Rights:
+   - assign **Service Scrap Operator** for request/vendor/create scrap
+   - assign **Service Scrap Approver** only for users who can approve
 
 Advanced path (per operation type):
 1. Go to **Inventory > Configuration > Operation Types**.

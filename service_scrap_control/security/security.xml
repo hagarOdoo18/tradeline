@@ -32,15 +32,23 @@
         </record>
 
         <record id="group_service_scrap_control" model="res.groups">
-            <field name="name">Service Scrap Control</field>
+            <field name="name">Service Scrap Operator</field>
             <field name="category_id" ref="module_category_service_scrap_control"/>
             <field name="implied_ids" eval="[
                 (4, ref('stock.group_stock_user')),
-                (4, ref('service_scrap_control.group_approval_scrap')),
                 (4, ref('service_scrap_control.group_return_picking_internal')),
                 (4, ref('service_scrap_control.group_picking_scrap')),
                 (4, ref('service_scrap_control.group_picking_scrap_transfer')),
                 (4, ref('service_scrap_control.group_scrap_inventory'))
+            ]"/>
+        </record>
+
+        <record id="group_service_scrap_approver" model="res.groups">
+            <field name="name">Service Scrap Approver</field>
+            <field name="category_id" ref="module_category_service_scrap_control"/>
+            <field name="implied_ids" eval="[
+                (4, ref('service_scrap_control.group_service_scrap_control')),
+                (4, ref('service_scrap_control.group_approval_scrap'))
             ]"/>
         </record>
 
