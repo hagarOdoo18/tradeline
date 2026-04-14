@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!--    inherited form view of sale.order-->
+    <record id="view_order_form" model="ir.ui.view">
+        <field name="name">sale.order.view.form.inherit.shopify.odoo.connector
+        </field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">10</field>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button type="object" name="sync_shopify_order"
+                        class="oe_highlight" string="Sync"
+                        invisible="shopify_instance_id == False"/>
+                <field name="shopify_order_ref" invisible="1"/>
+            </xpath>
+            <xpath expr="//notebook/page[@name='other_information']"
+                   position="after">
+                <page string="Shopify Info" name="shopify_details">
+                    <group>
+                        <field name="shopify_instance_id"/>
+                    </group>
+                        <field name="shopify_sync_ids" nolabel="1" readonly="1"
+                               invisible="shopify_instance_id == False">
+                            <list>
+                                <field name="instance_id"/>
+                                <field name="shopify_order_ref"/>
+                                <field name="synced_order" optional="hide"/>
+                                <field name="shopify_order_name"/>
+                                <field name="shopify_order_number"/>
+                                <field name="order_status" optional="hide"/>
+                                <field name="last_order_id" optional="hide"/>
+                                <field name="payment_status" optional="hide"/>
+                                <field name="fulfillment_status"
+                                       optional="hide"/>
+                            </list>
+                        </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+    <!--    action for sale.order-->
+    <record id="shopify_sale_order_action" model="ir.actions.act_window">
+        <field name="name">Shopify Orders</field>
+        <field name="res_model">sale.order</field>
+        <field name="domain">[('shopify_sync_ids', '!=', False), ('state', '!=',
+            'draft')]
+        </field>
+        <field name="view_mode">list,form</field>
+        <field name="target">current</field>
+        <field name="view_id" ref="sale.view_order_tree"/>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_empty_folder">
+                No orders found
+            </p>
+        </field>
+    </record>
+    <!--    action for sale.order in draft-->
+    <record id="shopify_draft_sale_order_action" model="ir.actions.act_window">
+        <field name="name">Shopify Draft Orders</field>
+        <field name="res_model">sale.order</field>
+        <field name="domain">[('shopify_sync_ids', '!=', False), ('state', '=',
+            'draft')]
+        </field>
+        <field name="view_mode">list,form</field>
+        <field name="target">current</field>
+        <field name="view_id" ref="sale.view_order_tree"/>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_empty_folder">
+                No orders found
+            </p>
+        </field>
+    </record>
+    <!--    menu for sale.order-->
+    <menuitem id="sale_order_menu_root" name="Orders"
+              parent="shopify_odoo_connector.shopify_odoo_connector_menu_root"
+              sequence="3"/>
+    <!--Draft orders menu-->
+    <menuitem id="shopify_draft_sale_order_menu_root" name="Draft Orders"
+              parent="sale_order_menu_root"
+              sequence="1"
+              action="shopify_draft_sale_order_action"/>
+    <!--Orders menu-->
+    <menuitem id="sale_order_menu" name="Orders"
+              parent="shopify_odoo_connector.sale_order_menu_root"
+              sequence="2"
+              action="shopify_sale_order_action"/>
+</odoo>

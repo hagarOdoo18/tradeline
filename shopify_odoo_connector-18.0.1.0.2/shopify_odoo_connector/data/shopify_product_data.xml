@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <data noupdate="1">
+        <!--Category for shipping cost product-->
+        <record id="product_category_shopify_shipping_cost"
+                model="product.category">
+            <field name="parent_id" ref="product.product_category_all"/>
+            <field name="name">Shopify Shipping</field>
+        </record>
+        <!--        Category for refund product-->
+        <record id="product_category_shopify_refund_cost"
+                model="product.category">
+            <field name="parent_id" ref="product.product_category_all"/>
+            <field name="name">Shopify Refund</field>
+        </record>
+        <!--        Category discount product-->
+        <record id="product_category_shopify_order_discount"
+                model="product.category">
+            <field name="parent_id" ref="product.product_category_all"/>
+            <field name="name">Shopify Order Discount</field>
+        </record>
+        <!--        Discount product-->
+        <record id="product_shopify_order_discount" model="product.product">
+            <field name="name">Shopify Order Discount</field>
+            <field name="type">service</field>
+            <field name="categ_id"
+                   ref="product_category_shopify_order_discount"/>
+            <field name="sale_ok" eval="True"/>
+            <field name="purchase_ok" eval="False"/>
+            <field name="list_price">1</field>
+            <field name="uom_po_id" ref="uom.product_uom_unit"/>
+            <field name="uom_id" ref="uom.product_uom_unit"/>
+            <field name="company_id" eval="[]"/>
+        </record>
+        <!--        Shipping cost product-->
+        <record id="product_shopify_shipping_cost" model="product.product">
+            <field name="name">Shopify Shipping</field>
+            <field name="type">service</field>
+            <field name="categ_id"
+                   ref="product_category_shopify_shipping_cost"/>
+            <field name="sale_ok" eval="True"/>
+            <field name="purchase_ok" eval="False"/>
+            <field name="list_price">1</field>
+            <field name="uom_po_id" ref="uom.product_uom_unit"/>
+            <field name="uom_id" ref="uom.product_uom_unit"/>
+            <field name="company_id" eval="[]"/>
+        </record>
+        <!--        Refund product-->
+        <record id="product_shopify_refund_cost" model="product.product">
+            <field name="name">Order Adjustment (Refund)</field>
+            <field name="type">service</field>
+            <field name="categ_id" ref="product_category_shopify_refund_cost"/>
+            <field name="sale_ok" eval="True"/>
+            <field name="purchase_ok" eval="False"/>
+            <field name="list_price">1</field>
+            <field name="uom_po_id" ref="uom.product_uom_unit"/>
+            <field name="uom_id" ref="uom.product_uom_unit"/>
+            <field name="company_id" eval="[]"/>
+        </record>
+        <!--        Cron job for automatic job completion-->
+        <record id="ir_cron_job_cron_shopify" model="ir.cron">
+            <field name="name">Shopify:Automatic Job Completion</field>
+            <field name="model_id" ref="shopify_odoo_connector.model_job_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._do_job()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active">True</field>
+        </record>
+        <!--        Cron job for proactive Shopify token refresh every 23 hours-->
+        <record id="ir_cron_shopify_token_refresh" model="ir.cron">
+            <field name="name">Shopify: Refresh Access Tokens</field>
+            <field name="model_id" ref="shopify_odoo_connector.model_job_cron"/>
+            <field name="state">code</field>
+            <field name="code">model._refresh_shopify_tokens()</field>
+            <field name="interval_number">23</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+            <field name="user_id" ref="base.user_root"/>
+        </record>
+    </data>
+</odoo>

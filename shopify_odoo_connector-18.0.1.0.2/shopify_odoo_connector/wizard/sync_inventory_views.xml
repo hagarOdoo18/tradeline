@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+<!--    form view for sync inventory-->
+    <record id="sync_inventory_view_form" model="ir.ui.view">
+        <field name="name">sync.inventory.view.form</field>
+        <field name="model">sync.inventory</field>
+        <field name="arch" type="xml">
+            <form string="Sync Inventory">
+                <group>
+                    <field name="import_inventory" invisible="1"/>
+                </group>
+                <div>
+                    <h5>Sync Inventory only available from shopify to odoo</h5>
+                </div>
+                <group>
+                    <field name="shopify_instance_id"/>
+                </group>
+                <footer>
+                    <button name="sync_inventory" string="Sync Inventory"
+                            class="btn-primary" type="object"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+<!--   action for sync inventory -->
+    <record id="sync_inventory_action" model="ir.actions.act_window">
+        <field name="name">Sync Inventory</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">sync.inventory</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="sync_inventory_view_form"/>
+        <field name="target">new</field>
+    </record>
+<!--    menu for sync inventory-->
+    <menuitem
+            id="sync_inventory_menu_action"
+            action="sync_inventory_action"
+            name="Sync Inventory"
+            parent="shopify_odoo_connector.product_template_menu_root"
+            sequence="5"/>
+</odoo>
