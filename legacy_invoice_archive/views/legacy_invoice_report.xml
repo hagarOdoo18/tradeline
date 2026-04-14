@@ -28,7 +28,7 @@
 
     <template id="new_report_invoice_document">
         <t t-call="legacy_invoice_archive.external_layout_standard_custom_legacy">
-            <t t-set="o" t-value="o.with_context(lang='ar_001')"/>
+            <t t-set="o" t-value="o"/>
             <t t-set="partner" t-value="o.partner_id"/>
             <t t-set="print_summary" t-value="o.get_print_lines_summary()"/>
             <t t-set="lot_values" t-value="o.get_grouped_lot_values()"/>
@@ -217,7 +217,7 @@
 
                 <div class="row mt-4 avoid-page-break">
                     <div class="col-12 text-left">
-                        <small class="text-muted"><span t-esc="o.currency_id.with_context(lang='ar_001').amount_to_text(o.amount_total)"/></small>
+                        <small class="text-muted"><span t-esc="o.currency_id.amount_to_text(o.amount_total)"/></small>
                     </div>
                 </div>
 
