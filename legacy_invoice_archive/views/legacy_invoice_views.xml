@@ -9,7 +9,13 @@
                 <field name="number"/>
                 <field name="source_name" optional="show"/>
                 <field name="source_partner_name" string="Legacy Customer" optional="show"/>
+                <field name="source_sales_rep_name" optional="show"/>
+                <field name="source_team_name" optional="show"/>
+                <field name="source_reference_number" optional="show"/>
+                <field name="source_po_ref" optional="show"/>
                 <field name="discount_reason_normalized" optional="show"/>
+                <field name="source_journal_name" optional="show"/>
+                <field name="source_payment_term_name" optional="show"/>
                 <field name="payment_journal_summary" optional="show"/>
                 <field name="payment_method_summary" optional="show"/>
                 <field name="partner_id"/>
@@ -36,9 +42,19 @@
                 <field name="source_name" string="Source Document"/>
                 <field name="partner_id" string="Partner"/>
                 <field name="source_partner_name" string="Legacy Customer"/>
+                <field name="source_sales_rep_name" string="Sales Rep"/>
+                <field name="source_team_name" string="Sales Team"/>
                 <field name="discount_reason_normalized" string="Discount Reason"/>
                 <field name="payment_journal_summary" string="Payment Journal"/>
                 <field name="payment_method_summary" string="Payment Method"/>
+                <field name="source_journal_name" string="Journal"/>
+                <field name="source_payment_term_name" string="Payment Terms"/>
+                <field name="source_fiscal_position_name" string="Fiscal Position"/>
+                <field name="source_partner_bank_name" string="Bank Account"/>
+                <field name="source_reference_number" string="Reference #"/>
+                <field name="source_po_ref" string="PO Ref"/>
+                <field name="source_tradeline_month" string="Tradeline Month"/>
+                <field name="source_tradeline_year" string="Tradeline Year"/>
                 <field name="product_summary" string="Product / Item"/>
                 <field name="serial_summary" string="Serial Number"/>
                 <field name="number"
@@ -77,6 +93,12 @@
                     <filter name="group_month" string="Month" context="{'group_by': 'invoice_date:month'}"/>
                     <filter name="group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
                     <filter name="group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
+                    <filter name="group_sales_rep" string="Sales Rep" context="{'group_by': 'source_sales_rep_name'}"/>
+                    <filter name="group_sales_team" string="Sales Team" context="{'group_by': 'source_team_name'}"/>
+                    <filter name="group_journal" string="Journal" context="{'group_by': 'source_journal_name'}"/>
+                    <filter name="group_payment_terms" string="Payment Terms" context="{'group_by': 'source_payment_term_name'}"/>
+                    <filter name="group_tradeline_month" string="Tradeline Month" context="{'group_by': 'source_tradeline_month'}"/>
+                    <filter name="group_tradeline_year" string="Tradeline Year" context="{'group_by': 'source_tradeline_year'}"/>
                     <filter name="group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
                     <filter name="group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
                 </group>
@@ -114,11 +136,24 @@
                             <field name="discount_reason_normalized"/>
                             <field name="discount_reason_source"/>
                             <field name="discount_reason_inferred"/>
+                            <field name="source_sales_rep_name"/>
+                            <field name="source_team_name"/>
+                            <field name="source_reference_number"/>
+                            <field name="source_po_ref"/>
+                            <field name="source_offer"/>
+                            <field name="source_sms_sent"/>
+                            <field name="source_tradeline_month"/>
+                            <field name="source_tradeline_year"/>
                         </group>
                         <group>
                             <field name="company_id"/>
                             <field name="currency_id" invisible="1"/>
                             <field name="source_currency_name"/>
+                            <field name="source_currency_rate"/>
+                            <field name="source_journal_name"/>
+                            <field name="source_payment_term_name"/>
+                            <field name="source_fiscal_position_name"/>
+                            <field name="source_partner_bank_name"/>
                             <field name="amount_untaxed"/>
                             <field name="amount_tax"/>
                             <field name="amount_total"/>
@@ -155,6 +190,15 @@
                                     <field name="price_unit"/>
                                     <field name="discount" optional="show"/>
                                     <field name="discount_reason_normalized" optional="show"/>
+                                    <field name="source_account_analytic_name" optional="show"/>
+                                    <field name="source_family_name" optional="show"/>
+                                    <field name="source_line_sales_rep_name" optional="show"/>
+                                    <field name="source_pricelist_name" optional="show"/>
+                                    <field name="source_vendor_name" optional="show"/>
+                                    <field name="source_sub_category_name" optional="show"/>
+                                    <field name="source_tax_text" optional="show"/>
+                                    <field name="product_incentive" optional="show"/>
+                                    <field name="product_point" optional="show"/>
                                     <field name="price_subtotal" sum="Subtotal"/>
                                     <field name="price_total" sum="Total"/>
                                     <field name="source_id" optional="hide"/>
