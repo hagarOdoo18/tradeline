@@ -24,7 +24,7 @@
                         type="object"
                         class="btn-secondary"
                         groups="service_scrap_control.group_return_picking_internal"
-                        invisible="state in ('done', 'cancel') or not check_scrap_new or request_scrap"
+                        invisible="not check_scrap_new or request_scrap"
                     />
                     <button
                         name="function_approve_scrap"
@@ -32,7 +32,7 @@
                         type="object"
                         class="oe_highlight"
                         groups="service_scrap_control.group_approval_scrap"
-                        invisible="state in ('done', 'cancel') or not wait_approve_scrap"
+                        invisible="not wait_approve_scrap"
                     />
                     <button
                         name="button_scrap"
@@ -40,7 +40,7 @@
                         type="object"
                         class="oe_highlight"
                         groups="service_scrap_control.group_return_picking_internal"
-                        invisible="state in ('done', 'cancel') or not check_scrap_new or not approve_scrap"
+                        invisible="state in ('draft', 'cancel', 'waiting') or not check_scrap_new or not approve_scrap"
                     />
                     <button
                         name="button_vendor"
@@ -48,7 +48,7 @@
                         type="object"
                         class="btn-secondary"
                         groups="service_scrap_control.group_return_picking_internal"
-                        invisible="state in ('done', 'cancel') or not check_scrap_new"
+                        invisible="not check_scrap_new"
                     />
                 </xpath>
             </field>
