@@ -134,20 +134,6 @@
             </field>
         </record>
 
-      <record id="account_move_out_invoice_list_extra_fields" model="ir.ui.view">
-            <field name="name">account.move.out.invoice.list.extra.fields</field>
-            <field name="model">account.move</field>
-            <field name="inherit_id" ref="account.view_out_invoice_tree" />
-            <field name="arch" type="xml">
-                <xpath expr="//list" position="inside">
-                    <field name="sales_rep_id" optional="show"/>
-                    <field name="discount_id" optional="show"/>
-                    <field name="payment_journal_names" optional="show"/>
-                    <field name="payment_amount_total" optional="show"/>
-                </xpath>
-            </field>
-        </record>
-
       <record id="account_move_invoice_search_extra_fields" model="ir.ui.view">
             <field name="name">account.move.invoice.search.extra.fields</field>
             <field name="model">account.move</field>
