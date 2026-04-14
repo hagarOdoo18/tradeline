@@ -69,6 +69,7 @@ class LegacyInvoice(models.Model):
     partner_id = fields.Many2one("res.partner", ondelete="set null", index=True)
     company_id = fields.Many2one("res.company", required=True, default=lambda self: self.env.company.id, index=True)
     currency_id = fields.Many2one("res.currency", required=True, default=lambda self: self.env.company.currency_id.id)
+    source_currency_name = fields.Char(string="Original Currency", readonly=True, help="The explicit string name of the currency this invoice was billed in Odoo 12.")
 
     invoice_date = fields.Date(index=True)
     due_date = fields.Date()
