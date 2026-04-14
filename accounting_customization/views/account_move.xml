@@ -120,6 +120,53 @@
             </field>
         </record>
 
+      <record id="account_move_invoice_list_extra_fields" model="ir.ui.view">
+            <field name="name">account.move.invoice.list.extra.fields</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_invoice_tree" />
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="inside">
+                    <field name="sales_rep_id" optional="show"/>
+                    <field name="discount_id" optional="show"/>
+                    <field name="payment_journal_names" optional="show"/>
+                    <field name="payment_amount_total" optional="show"/>
+                </xpath>
+            </field>
+        </record>
+
+      <record id="account_move_out_invoice_list_extra_fields" model="ir.ui.view">
+            <field name="name">account.move.out.invoice.list.extra.fields</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_out_invoice_tree" />
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="inside">
+                    <field name="sales_rep_id" optional="show"/>
+                    <field name="discount_id" optional="show"/>
+                    <field name="payment_journal_names" optional="show"/>
+                    <field name="payment_amount_total" optional="show"/>
+                </xpath>
+            </field>
+        </record>
+
+      <record id="account_move_invoice_search_extra_fields" model="ir.ui.view">
+            <field name="name">account.move.invoice.search.extra.fields</field>
+            <field name="model">account.move</field>
+            <field name="inherit_id" ref="account.view_account_invoice_filter"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search" position="inside">
+                    <field name="sales_rep_id" string="Sales Rep"/>
+                    <field name="discount_id" string="Discount Reason"/>
+                    <field name="payment_journal_names" string="Payment Journal"/>
+                    <field name="payment_amount_total" string="Payment Amount"/>
+                    <group expand="0" string="Group By">
+                        <filter name="group_by_sales_rep_custom" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
+                        <filter name="group_by_discount_reason_custom" string="Discount Reason" context="{'group_by': 'discount_id'}"/>
+                        <filter name="group_by_payment_journal_custom" string="Payment Journal" context="{'group_by': 'payment_journal_names'}"/>
+                    </group>
+                </xpath>
+            </field>
+        </record>
+
 
 
 

@@ -44,11 +44,14 @@
                 <field name="amount_total_signed_move" string="Invoice Price Total Signed" optional="show"/>
 
                 <!-- Payment Info -->
-                <field name="payment_journals" string="Payment Journals" optional="show"/>
-                <field name="payment_amount_journals" string="Payment Amount Journals" optional="show"/>
+                <field name="payment_journal_names" string="Payment Journal" optional="show"/>
+                <field name="payment_amount_total" string="Payment Amount" optional="show"/>
+                <field name="payment_journals" string="Payment Journals (Legacy)" optional="hide"/>
+                <field name="payment_amount_journals" string="Payment Amount Journals (Legacy)" optional="hide"/>
 
                 <!-- Other -->
                 <field name="sales_rep_id" string="Sales Rep" optional="show"/>
+                <field name="discount_reason_id" string="Discount Reason" optional="show"/>
                 <field name="reference_number" string="PO" optional="hide"/>
                 <field name="vendor_id" string="Vendor" optional="hide"/>
                 <field name="channel_id" string="Channel" optional="hide"/>
@@ -68,6 +71,9 @@
                 <field name="product_id"/>
                 <field name="date"/>
                 <field name="sales_rep_id" string="Sales Rep"/>
+                <field name="discount_reason_id" string="Discount Reason"/>
+                <field name="payment_journal_names" string="Payment Journal"/>
+                <field name="payment_amount_total" string="Payment Amount"/>
                 <field name="branch_id" string="Branch"/>
                 <field name="channel_id" string="Channel"/>
                 <separator/>
@@ -96,6 +102,10 @@
                             context="{'group_by': 'branch_id'}"/>
                     <filter name="group_by_sales_rep" string="Sales Rep"
                             context="{'group_by': 'sales_rep_id'}"/>
+                    <filter name="group_by_discount_reason" string="Discount Reason"
+                            context="{'group_by': 'discount_reason_id'}"/>
+                    <filter name="group_by_payment_journal" string="Payment Journal"
+                            context="{'group_by': 'payment_journal_names'}"/>
                     <filter name="group_by_channel" string="Channel"
                             context="{'group_by': 'channel_id'}"/>
                     <filter name="group_by_vendor" string="Vendor"

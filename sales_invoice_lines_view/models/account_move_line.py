@@ -72,6 +72,25 @@ class AccountMoveLine(models.Model):
         store=True,
         readonly=True,
     )
+    discount_reason_id = fields.Many2one(
+        related='move_id.discount_id',
+        string='Discount Reason',
+        store=True,
+        readonly=True,
+    )
+    payment_journal_names = fields.Char(
+        related='move_id.payment_journal_names',
+        string='Payment Journal(s)',
+        store=True,
+        readonly=True,
+    )
+    payment_amount_total = fields.Monetary(
+        related='move_id.payment_amount_total',
+        string='Payment Amount',
+        store=True,
+        readonly=True,
+        currency_field='currency_id',
+    )
     move_type = fields.Selection(
         related='move_id.move_type',
         store=True,

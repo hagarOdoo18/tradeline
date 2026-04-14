@@ -176,6 +176,7 @@
                 <field name="movement_type"/>
                 <field name="lot_name"/>
                 <field name="item_code"/>
+                <field name="product_name"/>
                 <field name="qty_done" sum="Qty"/>
                 <field name="source_document" optional="show"/>
                 <field name="origin" optional="show"/>
@@ -194,6 +195,7 @@
             <search string="Legacy Serial Ledger">
                 <field name="lot_name"/>
                 <field name="item_code"/>
+                <field name="product_name"/>
                 <field name="source_document"/>
                 <field name="origin"/>
                 <field name="invoice_id"/>
@@ -207,6 +209,7 @@
                     <filter name="legacy_serial_ledger_group_month" string="Movement Month" context="{'group_by': 'movement_date:month'}"/>
                     <filter name="legacy_serial_ledger_group_type" string="Movement Type" context="{'group_by': 'movement_type'}"/>
                     <filter name="legacy_serial_ledger_group_item" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="legacy_serial_ledger_group_product" string="Product Name" context="{'group_by': 'product_name'}"/>
                     <filter name="legacy_serial_ledger_group_warehouse" string="Warehouse" context="{'group_by': 'warehouse_name'}"/>
                 </group>
             </search>

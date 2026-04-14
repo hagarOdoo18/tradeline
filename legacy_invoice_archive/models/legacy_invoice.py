@@ -560,7 +560,7 @@ class LegacyInvoiceSerialRef(models.Model):
     invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
     state = fields.Selection(related="invoice_id.state", store=True, index=True)
 
-    lot_name = fields.Char(index=True)
+    lot_name = fields.Char(string="Lot Name / Serial Number", index=True)
     qty_done = fields.Float()
     item_code = fields.Char(index=True)
     product_category_id = fields.Many2one("product.category", ondelete="set null")
@@ -761,8 +761,9 @@ class LegacySerialLedger(models.Model):
     invoice_source_id = fields.Integer(index=True)
     invoice_id = fields.Many2one("legacy.invoice", ondelete="set null", index=True)
 
-    lot_name = fields.Char(index=True)
+    lot_name = fields.Char(string="Lot Name / Serial Number", index=True)
     item_code = fields.Char(index=True)
+    product_name = fields.Char(index=True)
     product_category_id = fields.Many2one("product.category", ondelete="set null")
     product_category_name = fields.Char(index=True)
 

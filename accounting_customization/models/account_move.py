@@ -49,6 +49,20 @@ class AccountMove(models.Model):
         string='Sales Rep',
         required=False)
 
+    payment_journal_names = fields.Char(
+        string='Payment Journal(s)',
+        compute='_compute_payment_snapshot',
+        store=True,
+        readonly=True,
+    )
+    payment_amount_total = fields.Monetary(
+        string='Payment Amount',
+        compute='_compute_payment_snapshot',
+        store=True,
+        readonly=True,
+        currency_field='currency_id',
+    )
+
     inv_type = fields.Selection(
         string='Invoice Type', default='invoice',
         selection=[('sro', 'SRO'), ('quotation', 'Quotation'),('payment','Payment'),
@@ -75,6 +89,44 @@ class AccountMove(models.Model):
 
     company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
                                     )
+
+    @api.depends(
+        'invoice_payments_widget',
+        'payment_state',
+        'amount_total',
+        'amount_residual',
+    )
+    def _compute_payment_snapshot(self):
+        for move in self:
+            move.payment_journal_names = ''
+            move.payment_amount_total = 0.0
+
+            if move.move_type not in ('out_invoice', 'out_refund'):
+                continue
+
+            names = []
+            amount = 0.0
+            try:
+                payments = move._get_reconciled_payments()
+            except Exception:
+                payments = self.env['account.payment']
+
+            if payments:
+                names = list(dict.fromkeys(payments.mapped('journal_id.name')))
+                amount = sum(abs(float(payment.amount or 0.0)) for payment in payments)
+            else:
+                if 'pos_order_ids' in move._fields:
+                    pos_payments = move.pos_order_ids.payment_ids
+                    if pos_payments:
+                        names = list(dict.fromkeys(pos_payments.mapped('payment_method_id.name')))
+                        amount = sum(abs(float(payment.amount or 0.0)) for payment in pos_payments)
+
+            if not amount:
+                amount = max(abs(float(move.amount_total or 0.0)) - abs(float(move.amount_residual or 0.0)), 0.0)
+
+            move.payment_journal_names = ', '.join(names)
+            move.payment_amount_total = amount
+
     def get_product_notes(self):
         for rec in self.invoice_line_ids:
             if rec.product_id.product_notes:
