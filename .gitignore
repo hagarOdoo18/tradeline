@@ -1,6 +1,6 @@
 # Python bytecode/cache artifacts
 __pycache__/
-*.py[cod]
+*.py[cod] 
 *.pyo
 
 # Local scratch and investigation files
