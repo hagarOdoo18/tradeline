@@ -842,6 +842,7 @@ class LegacySerialLedger(models.Model):
     )
 
     source_document = fields.Char(index=True)
+    po_reference = fields.Char(index=True)
     origin = fields.Char(index=True)
     picking_name = fields.Char(index=True)
     warehouse_id = fields.Integer(index=True)
