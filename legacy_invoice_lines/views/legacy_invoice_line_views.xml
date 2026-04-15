@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_invoice_lines_tree" model="ir.ui.view">
+        <field name="name">legacy.invoice.lines.tree</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Invoice Lines" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="invoice_date" string="Date"/>
+                <field name="source_branch_name" string="Branch"/>
+                <field name="invoice_number" string="Ref"/>
+                <field name="source_cc_rep_name" string="CC Rep" optional="show"/>
+                <field name="source_opportunity_name" string="Opportunity" optional="show"/>
+                <field name="source_customer_name" string="Customer Name"/>
+                <field name="customer_mobile" string="Customer mobile" optional="show"/>
+                <field name="product_category_id" string="Product Category" optional="show"/>
+                <field name="source_family_name" string="Family" optional="show"/>
+                <field name="source_upc" string="UPC" optional="show"/>
+                <field name="item_code" string="Item Code" optional="show"/>
+                <field name="product_name" string="Description"/>
+                <field name="source_store_name" string="Store" optional="show"/>
+                <field name="quantity_signed" string="Quantity" sum="Qty"/>
+                <field name="price_unit_signed" string="Unit Price"/>
+                <field name="discount" string="Discount (%)" optional="show"/>
+                <field name="price_subtotal_signed" string="Untaxed Total" sum="Untaxed"/>
+                <field name="price_total_signed" string="Total" sum="Total"/>
+                <field name="journal_summary_line" string="Payment Journal" optional="show"/>
+                <field name="payment_amount_line" string="Payment Amount" sum="Payments" optional="show"/>
+                <field name="payment_type" string="Payment Type" optional="show"/>
+                <field name="source_salesperson_name" string="Salesperson" optional="show"/>
+                <field name="source_line_sales_rep_name" string="Sales Rep" optional="show"/>
+                <field name="discount_reason_normalized" string="Discount Reason" optional="show"/>
+                <field name="source_po_invoice" string="PO" optional="show"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
+                <field name="source_vendor_name" string="Vendor" optional="show"/>
+                <field name="serial_items" string="Serial Items" optional="show"/>
+                <field name="source_channel" string="Channel" optional="hide"/>
+                <field name="source_courier" string="Courier" optional="hide"/>
+                <field name="source_warranty" string="Warranty" optional="hide"/>
+                <field name="source_additional_code" string="Additional Code" optional="hide"/>
+                <field name="source_db" optional="hide"/>
+                <field name="state" optional="show"/>
+                <field name="invoice_type" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_lines_search" model="ir.ui.view">
+        <field name="name">legacy.invoice.lines.search</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Invoice Lines">
+                <field name="invoice_number" string="Ref"/>
+                <field name="source_name" string="Source Name"/>
+                <field name="source_customer_name" string="Customer Name"/>
+                <field name="customer_mobile" string="Customer mobile"/>
+                <field name="customer_phone" string="Customer phone"/>
+                <field name="product_search_text" string="Product"/>
+                <field name="item_code" string="Item Code"/>
+                <field name="source_upc" string="UPC"/>
+                <field name="source_family_name" string="Family"/>
+                <field name="product_category_id" string="Product Category"/>
+                <field name="source_vendor_name" string="Vendor"/>
+                <field name="source_salesperson_name" string="Salesperson"/>
+                <field name="source_line_sales_rep_name" string="Sales Rep"/>
+                <field name="source_cc_rep_name" string="CC Rep"/>
+                <field name="source_opportunity_name" string="Opportunity"/>
+                <field name="discount_reason_normalized" string="Discount Reason"/>
+                <field name="source_po_invoice" string="PO"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                <field name="serial_items" string="Serial Items"/>
+                <field name="journal_summary_line" string="Payment Journal"/>
+                <field name="payment_type" string="Payment Type"/>
+                <field name="source_channel" string="Channel"/>
+                <field name="source_courier" string="Courier"/>
+                <field name="source_branch_name" string="Branch"/>
+                <field name="source_store_name" string="Store"/>
+                <field name="source_db" string="Source Db"/>
+                <field name="invoice_date"/>
+                <field name="due_date"/>
+                <separator/>
+                <filter name="tradeline_time_ranges_legacy_invoice_lines_invoice_date" string="Invoice Date" date="invoice_date"/>
+                <filter name="tradeline_time_ranges_legacy_invoice_lines_due_date" string="Due Date" date="due_date"/>
+                <separator/>
+                <filter name="legacy_lines_filter_open" string="Open" domain="[('state', '=', 'open')]"/>
+                <filter name="legacy_lines_filter_paid" string="Paid" domain="[('state', '=', 'paid')]"/>
+                <filter name="legacy_lines_filter_cancelled" string="Cancelled" domain="[('state', '=', 'cancel')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_lines_group_month" string="Month" context="{'group_by': 'invoice_date:month'}"/>
+                    <filter name="legacy_lines_group_date" string="Date" context="{'group_by': 'invoice_date'}"/>
+                    <filter name="legacy_lines_group_ref" string="Ref" context="{'group_by': 'invoice_number'}"/>
+                    <filter name="legacy_lines_group_branch" string="Branch" context="{'group_by': 'source_branch_name'}"/>
+                    <filter name="legacy_lines_group_store" string="Store" context="{'group_by': 'source_store_name'}"/>
+                    <filter name="legacy_lines_group_customer" string="Customer" context="{'group_by': 'source_customer_name'}"/>
+                    <filter name="legacy_lines_group_category" string="Product Category" context="{'group_by': 'product_category_id'}"/>
+                    <filter name="legacy_lines_group_family" string="Family" context="{'group_by': 'source_family_name'}"/>
+                    <filter name="legacy_lines_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="legacy_lines_group_salesperson" string="Salesperson" context="{'group_by': 'source_salesperson_name'}"/>
+                    <filter name="legacy_lines_group_sales_rep" string="Sales Rep" context="{'group_by': 'source_line_sales_rep_name'}"/>
+                    <filter name="legacy_lines_group_cc_rep" string="CC Rep" context="{'group_by': 'source_cc_rep_name'}"/>
+                    <filter name="legacy_lines_group_opportunity" string="Opportunity" context="{'group_by': 'source_opportunity_name'}"/>
+                    <filter name="legacy_lines_group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
+                    <filter name="legacy_lines_group_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="legacy_lines_group_payment_journal" string="Payment Journal" context="{'group_by': 'journal_summary_line'}"/>
+                    <filter name="legacy_lines_group_payment_type" string="Payment Type" context="{'group_by': 'payment_type'}"/>
+                    <filter name="legacy_lines_group_channel" string="Channel" context="{'group_by': 'source_channel'}"/>
+                    <filter name="legacy_lines_group_courier" string="Courier" context="{'group_by': 'source_courier'}"/>
+                    <filter name="legacy_lines_group_state" string="Invoice Status" context="{'group_by': 'state'}"/>
+                    <filter name="legacy_lines_group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
+                    <filter name="legacy_lines_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_lines_pivot" model="ir.ui.view">
+        <field name="name">legacy.invoice.lines.pivot</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Invoice Lines">
+                <field name="quantity_signed" type="measure"/>
+                <field name="price_subtotal_signed" type="measure"/>
+                <field name="price_total_signed" type="measure"/>
+                <field name="payment_amount_line" type="measure"/>
+                <field name="discount" type="measure"/>
+                <field name="product_incentive" type="measure"/>
+                <field name="product_point" type="measure"/>
+                <field name="invoice_date" interval="month" type="col"/>
+                <field name="source_family_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_invoice_lines_graph" model="ir.ui.view">
+        <field name="name">legacy.invoice.lines.graph</field>
+        <field name="model">legacy.invoice.line</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Invoice Lines" type="bar">
+                <field name="invoice_date" interval="month"/>
+                <field name="price_subtotal_signed" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_invoice_lines" model="ir.actions.act_window">
+        <field name="name">Legacy Invoice Lines</field>
+        <field name="res_model">legacy.invoice.line</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="view_id" ref="view_legacy_invoice_lines_tree"/>
+        <field name="search_view_id" ref="view_legacy_invoice_lines_search"/>
+        <field name="context">{'search_default_legacy_lines_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="help" type="html">
+            <p>Read-only legacy invoice lines extracted from Odoo12.</p>
+        </field>
+    </record>
+
+    <menuitem
+        id="menu_legacy_invoice_lines"
+        name="Legacy Invoice Lines"
+        parent="account.menu_finance_receivables"
+        action="action_legacy_invoice_lines"
+        sequence="61"
+        groups="account.group_account_readonly"
+    />
+</odoo>
+
