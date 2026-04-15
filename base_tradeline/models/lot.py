@@ -19,13 +19,13 @@ class StockLot(models.Model):
         records = self._read_group(domain, groupby, ['__count'], order='company_id DESC')
         error_message_lines = set()
         cross_lots = {}
-        for company, product, name, count in records:
+        for company,  name, count in records:
             if not company:
-                cross_lots[(product, name)] = count
+                cross_lots[(name)] = count
             # For company-specific lots, we check that there is no duplicate with 'no-company' lots, but NOT between specific-company ones.
-            if (company and (cross_lots.get((product, name), 0) + count) > 1) or count > 1:
+            if (company and (cross_lots.get(( name), 0) + count) > 1) or count > 1:
                 error_message_lines.add(
-                    _(" - Product: %(product)s, Lot/Serial Number: %(lot)s", product=product.display_name, lot=name))
+                    _(" - Lot/Serial Number: %(lot)s", lot=name))
         if error_message_lines:
             raise ValidationError(
                 _(
