@@ -20,6 +20,20 @@ class StockScrapWizard(models.TransientModel):
         return qty
 
     @api.model
+    def _line_qty_from_move(self, move):
+        qty = float(getattr(move, 'quantity', 0.0) or 0.0)
+        if qty <= 0:
+            qty = float(getattr(move, 'product_uom_qty', 0.0) or 0.0)
+        if qty <= 0:
+            qty = float(getattr(move, 'quantity_done', 0.0) or 0.0)
+        if qty <= 0 and move.move_line_ids:
+            qty = sum(
+                self._line_qty_from_move_line(line)
+                for line in move.move_line_ids.filtered(lambda l: l.state != 'cancel')
+            )
+        return qty
+
+    @api.model
     def _normalize_scrap_lines(self, line_dicts):
         normalized = {}
         for line in line_dicts:
@@ -54,12 +68,19 @@ class StockScrapWizard(models.TransientModel):
     @api.model
     def _prepare_scrap_lines_from_move_lines(self, picking):
         if not hasattr(picking, 'move_line_ids_without_package'):
-            return []
+            move_lines = picking.move_line_ids.filtered(
+                lambda line: line.state != 'cancel' and line.product_id
+            )
+        else:
+            move_lines = picking.move_line_ids_without_package.filtered(
+                lambda line: line.state != 'cancel' and line.product_id
+            )
+            if not move_lines and hasattr(picking, 'move_line_ids'):
+                move_lines = picking.move_line_ids.filtered(
+                    lambda line: line.state != 'cancel' and line.product_id
+                )
 
         lines = []
-        move_lines = picking.move_line_ids_without_package.filtered(
-            lambda line: line.state != 'cancel' and line.product_id
-        )
         for move_line in move_lines:
             qty = self._line_qty_from_move_line(move_line)
             if qty <= 0:
@@ -79,7 +100,7 @@ class StockScrapWizard(models.TransientModel):
     def _prepare_scrap_lines_from_moves(self, picking):
         lines = []
         for move in picking.move_ids.filtered(lambda m: m.state != 'cancel' and m.product_id):
-            quantity = float(move.product_uom_qty or 0.0)
+            quantity = self._line_qty_from_move(move)
             if quantity <= 0:
                 continue
             product = move.product_id
