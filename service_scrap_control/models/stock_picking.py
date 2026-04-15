@@ -122,16 +122,17 @@ class StockPicking(models.Model):
 
     def _open_service_scrap_wizard(self, vendor=False):
         self.ensure_one()
+        wizard = self.env['stock.scrap.wizard'].create({
+            'picking_id': self.id,
+            'vendor': vendor,
+        })
         return {
             'name': _('Vendor Scrap') if vendor else _('Request Scrap'),
             'type': 'ir.actions.act_window',
             'res_model': 'stock.scrap.wizard',
             'view_mode': 'form',
             'target': 'new',
-            'context': {
-                'default_picking_id': self.id,
-                'default_vendor': vendor,
-            },
+            'res_id': wizard.id,
         }
 
     def button_vendor(self):

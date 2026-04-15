@@ -146,6 +146,26 @@ class StockScrapWizard(models.TransientModel):
             res['line_ids'] = line_commands
         return res
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('line_ids') or not vals.get('picking_id'):
+                continue
+            picking = self.env['stock.picking'].browse(vals['picking_id'])
+            line_commands = []
+            for line in self._prepare_default_scrap_lines(picking):
+                line_commands.append(Command.create({
+                    'product_id': line['product'].id,
+                    'qty': line['qty'],
+                    'product_uom_id': line['uom'].id if line['uom'] else False,
+                    'lot_id': line['lot'].id if line['lot'] else False,
+                    'owner_id': line['owner'].id if line['owner'] else False,
+                    'package_id': line['package'].id if line['package'] else False,
+                }))
+            if line_commands:
+                vals['line_ids'] = line_commands
+        return super().create(vals_list)
+
     def _get_effective_scrap_lines(self):
         self.ensure_one()
         lines = self.line_ids.filtered(lambda line: line.product_id and (line.qty or 0) > 0)
