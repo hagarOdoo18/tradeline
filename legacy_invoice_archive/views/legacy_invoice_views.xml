@@ -14,10 +14,11 @@
                 <field name="source_partner_tax_id" string="Tax ID" optional="show"/>
                 <field name="source_partner_national_id" string="National ID" optional="show"/>
                 <field name="source_sales_rep_name" optional="show"/>
+                <field name="source_sales_rep_code" optional="show"/>
                 <field name="source_team_name" optional="show"/>
                 <field name="source_reference_number" optional="show"/>
                 <field name="source_po_ref" optional="show"/>
-                <field name="legacy_po_id" optional="show"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
                 <field name="discount_reason_normalized" optional="show"/>
                 <field name="source_journal_name" optional="show"/>
                 <field name="source_payment_term_name" optional="show"/>
@@ -52,6 +53,7 @@
                 <field name="source_partner_tax_id" string="Tax ID"/>
                 <field name="source_partner_national_id" string="National ID"/>
                 <field name="source_sales_rep_name" string="Sales Rep"/>
+                <field name="source_sales_rep_code" string="Sales Rep Code"/>
                 <field name="source_team_name" string="Sales Team"/>
                 <field name="discount_reason_normalized" string="Discount Reason"/>
                 <field name="payment_journal_summary" string="Payment Journal"/>
@@ -62,7 +64,7 @@
                 <field name="source_partner_bank_name" string="Bank Account"/>
                 <field name="source_reference_number" string="Reference #"/>
                 <field name="source_po_ref" string="PO Ref"/>
-                <field name="legacy_po_id" string="Legacy PO"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)"/>
                 <field name="source_tradeline_month" string="Tradeline Month"/>
                 <field name="source_tradeline_year" string="Tradeline Year"/>
                 <field name="product_summary" string="Product / Item"/>
@@ -105,6 +107,7 @@
                     <filter name="group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
                     <filter name="group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
                     <filter name="group_sales_rep" string="Sales Rep" context="{'group_by': 'source_sales_rep_name'}"/>
+                    <filter name="group_sales_rep_code" string="Sales Rep Code" context="{'group_by': 'source_sales_rep_code'}"/>
                     <filter name="group_sales_team" string="Sales Team" context="{'group_by': 'source_team_name'}"/>
                     <filter name="group_journal" string="Journal" context="{'group_by': 'source_journal_name'}"/>
                     <filter name="group_payment_terms" string="Payment Terms" context="{'group_by': 'source_payment_term_name'}"/>
@@ -112,7 +115,7 @@
                     <filter name="group_tradeline_year" string="Tradeline Year" context="{'group_by': 'source_tradeline_year'}"/>
                     <filter name="group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
                     <filter name="group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
-                    <filter name="group_legacy_po" string="Legacy PO" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="group_legacy_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
                 </group>
             </search>
         </field>
@@ -149,10 +152,11 @@
                             <field name="discount_reason_source"/>
                             <field name="discount_reason_inferred"/>
                             <field name="source_sales_rep_name"/>
+                            <field name="source_sales_rep_code"/>
                             <field name="source_team_name"/>
                             <field name="source_reference_number"/>
                             <field name="source_po_ref"/>
-                            <field name="legacy_po_id"/>
+                            <field name="legacy_po_id" string="PO Reference (clickable)"/>
                             <field name="source_offer"/>
                             <field name="source_sms_sent"/>
                             <field name="source_tradeline_month"/>
@@ -210,6 +214,7 @@
                                     <field name="source_account_analytic_name" optional="show"/>
                                     <field name="source_family_name" optional="show"/>
                                     <field name="source_line_sales_rep_name" optional="show"/>
+                                    <field name="source_line_sales_rep_code" optional="show"/>
                                     <field name="source_pricelist_name" optional="show"/>
                                     <field name="source_vendor_name" optional="show"/>
                                     <field name="source_sub_category_name" optional="show"/>

@@ -180,7 +180,7 @@
                 <field name="qty_done" sum="Qty"/>
                 <field name="source_document" optional="show"/>
                 <field name="po_reference" optional="show"/>
-                <field name="legacy_po_id" optional="show"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
                 <field name="origin" optional="show"/>
                 <field name="invoice_id" optional="show"/>
                 <field name="warehouse_name" optional="show"/>
@@ -200,7 +200,7 @@
                 <field name="product_name"/>
                 <field name="source_document"/>
                 <field name="po_reference"/>
-                <field name="legacy_po_id"/>
+                <field name="legacy_po_id" string="PO Reference (clickable)"/>
                 <field name="origin"/>
                 <field name="invoice_id"/>
                 <field name="movement_type"/>
@@ -215,7 +215,7 @@
                     <filter name="legacy_serial_ledger_group_item" string="Item Code" context="{'group_by': 'item_code'}"/>
                     <filter name="legacy_serial_ledger_group_product" string="Product Name" context="{'group_by': 'product_name'}"/>
                     <filter name="legacy_serial_ledger_group_po" string="PO Reference" context="{'group_by': 'po_reference'}"/>
-                    <filter name="legacy_serial_ledger_group_legacy_po" string="Legacy PO" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="legacy_serial_ledger_group_legacy_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
                     <filter name="legacy_serial_ledger_group_warehouse" string="Warehouse" context="{'group_by': 'warehouse_name'}"/>
                 </group>
             </search>

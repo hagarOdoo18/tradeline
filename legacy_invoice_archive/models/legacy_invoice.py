@@ -68,6 +68,7 @@ class LegacyInvoice(models.Model):
     source_team_name = fields.Char(index=True)
     source_sales_rep_id = fields.Integer(index=True)
     source_sales_rep_name = fields.Char(index=True)
+    source_sales_rep_code = fields.Char(index=True)
     invoice_type = fields.Selection(
         selection=[
             ("out_invoice", "Customer Invoice"),
@@ -201,6 +202,7 @@ class LegacyInvoice(models.Model):
             ("source_partner_code", operator, value),
             ("source_partner_tax_id", operator, value),
             ("source_partner_national_id", operator, value),
+            ("source_sales_rep_code", operator, value),
             ("partner_id.name", operator, value),
             ("line_ids.name", operator, value),
             ("line_ids.item_code", operator, value),
@@ -313,6 +315,7 @@ class LegacyInvoiceLine(models.Model):
     source_team_name = fields.Char(related="invoice_id.source_team_name", store=True, index=True)
     source_sales_rep_id = fields.Integer(related="invoice_id.source_sales_rep_id", store=True, index=True)
     source_sales_rep_name = fields.Char(related="invoice_id.source_sales_rep_name", store=True, index=True)
+    source_sales_rep_code = fields.Char(related="invoice_id.source_sales_rep_code", store=True, index=True)
     source_db = fields.Char(related="invoice_id.source_db", store=True, index=True)
     invoice_type = fields.Selection(related="invoice_id.invoice_type", store=True, index=True)
     state = fields.Selection(related="invoice_id.state", store=True, index=True)
@@ -392,6 +395,7 @@ class LegacyInvoiceLine(models.Model):
     source_family_name = fields.Char(index=True)
     source_line_sales_rep_id = fields.Integer(index=True)
     source_line_sales_rep_name = fields.Char(index=True)
+    source_line_sales_rep_code = fields.Char(index=True)
     source_pricelist_id = fields.Integer(index=True)
     source_pricelist_name = fields.Char(index=True)
     source_vendor_id = fields.Integer(index=True)
