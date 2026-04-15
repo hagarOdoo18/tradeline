@@ -25,6 +25,10 @@ class LegacyInvoice(models.Model):
     source_id = fields.Integer(required=True, index=True)
     source_partner_id = fields.Integer(index=True)
     source_partner_name = fields.Char()
+    source_partner_code = fields.Char(index=True)
+    source_partner_type = fields.Char(index=True)
+    source_partner_tax_id = fields.Char(index=True)
+    source_partner_national_id = fields.Char(index=True)
     source_discount_reason_id = fields.Integer(index=True)
     discount_reason_raw = fields.Char()
     discount_reason_normalized = fields.Char(index=True)
@@ -43,6 +47,7 @@ class LegacyInvoice(models.Model):
     source_name = fields.Char(index=True)
     source_reference_number = fields.Char(index=True)
     source_po_ref = fields.Char(index=True)
+    legacy_po_id = fields.Many2one("legacy.purchase.order", ondelete="set null", index=True)
     source_offer = fields.Boolean(default=False, index=True)
     source_sms_sent = fields.Boolean(default=False, index=True)
     source_tradeline_month = fields.Char(index=True)
@@ -189,20 +194,13 @@ class LegacyInvoice(models.Model):
         value = (value or "").strip()
         if not value:
             return []
-        return [
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
-            "|",
+        terms = [
             ("number", operator, value),
             ("source_name", operator, value),
             ("source_partner_name", operator, value),
+            ("source_partner_code", operator, value),
+            ("source_partner_tax_id", operator, value),
+            ("source_partner_national_id", operator, value),
             ("partner_id.name", operator, value),
             ("line_ids.name", operator, value),
             ("line_ids.item_code", operator, value),
@@ -212,6 +210,7 @@ class LegacyInvoice(models.Model):
             ("payment_link_ids.reference", operator, value),
             ("payment_link_ids.payment_method_name", operator, value),
         ]
+        return ["|"] * (len(terms) - 1) + terms
 
     def get_gift_invoice(self):
         self.ensure_one()
@@ -293,6 +292,7 @@ class LegacyInvoiceLine(models.Model):
     source_name = fields.Char(related="invoice_id.source_name", store=True, index=True)
     source_reference_number = fields.Char(related="invoice_id.source_reference_number", store=True, index=True)
     source_po_ref = fields.Char(related="invoice_id.source_po_ref", store=True, index=True)
+    legacy_po_id = fields.Many2one(related="invoice_id.legacy_po_id", store=True, index=True)
     source_offer = fields.Boolean(related="invoice_id.source_offer", store=True, index=True)
     source_sms_sent = fields.Boolean(related="invoice_id.source_sms_sent", store=True, index=True)
     source_tradeline_month = fields.Char(related="invoice_id.source_tradeline_month", store=True, index=True)
@@ -859,6 +859,7 @@ class LegacySerialLedger(models.Model):
 
     source_document = fields.Char(index=True)
     po_reference = fields.Char(index=True)
+    legacy_po_id = fields.Many2one("legacy.purchase.order", ondelete="set null", index=True)
     origin = fields.Char(index=True)
     picking_name = fields.Char(index=True)
     warehouse_id = fields.Integer(index=True)
@@ -876,6 +877,87 @@ class LegacySerialLedger(models.Model):
             "legacy_serial_ledger_source_uniq",
             "unique(source_db, source_move_line_id)",
             "Serial ledger source move line must be unique.",
+        ),
+    ]
+
+
+class LegacyPurchaseOrder(models.Model):
+    _name = "legacy.purchase.order"
+    _description = "Legacy Purchase Order"
+    _order = "date_order desc, id desc"
+
+    source_db = fields.Char(required=True, index=True)
+    source_po_id = fields.Integer(required=True, index=True)
+    name = fields.Char(required=True, index=True)
+
+    source_partner_id = fields.Integer(index=True)
+    source_partner_name = fields.Char(index=True)
+    source_partner_code = fields.Char(index=True)
+    source_partner_type = fields.Char(index=True)
+    source_partner_tax_id = fields.Char(index=True)
+
+    vendor_reference = fields.Char(index=True)
+    date_order = fields.Datetime(index=True)
+    state = fields.Char(index=True)
+    source_origin = fields.Char(index=True)
+
+    company_id = fields.Many2one("res.company", ondelete="set null", index=True)
+    currency_id = fields.Many2one("res.currency", ondelete="set null")
+    source_currency_name = fields.Char(index=True)
+
+    amount_untaxed = fields.Float()
+    amount_tax = fields.Float()
+    amount_total = fields.Float()
+    notes = fields.Text()
+
+    line_ids = fields.One2many("legacy.purchase.order.line", "po_id", string="Lines")
+    line_count = fields.Integer(compute="_compute_line_count", store=True)
+    legacy_payload = fields.Json()
+
+    _sql_constraints = [
+        (
+            "legacy_purchase_order_source_uniq",
+            "unique(source_db, source_po_id)",
+            "Legacy purchase order source identity must be unique.",
+        ),
+    ]
+
+    @api.depends("line_ids")
+    def _compute_line_count(self):
+        for record in self:
+            record.line_count = len(record.line_ids)
+
+
+class LegacyPurchaseOrderLine(models.Model):
+    _name = "legacy.purchase.order.line"
+    _description = "Legacy Purchase Order Line"
+    _order = "po_id, sequence, id"
+
+    po_id = fields.Many2one("legacy.purchase.order", required=True, ondelete="cascade", index=True)
+    source_line_id = fields.Integer(required=True, index=True)
+    sequence = fields.Integer(default=10)
+
+    product_source_id = fields.Integer(index=True)
+    item_code = fields.Char(index=True)
+    product_name = fields.Char(index=True)
+    description = fields.Text()
+    uom_name = fields.Char(index=True)
+
+    qty_ordered = fields.Float()
+    qty_received = fields.Float()
+    qty_billed = fields.Float()
+    price_unit = fields.Float()
+    price_subtotal = fields.Float()
+    date_planned = fields.Datetime()
+    tax_text = fields.Char()
+
+    legacy_payload = fields.Json()
+
+    _sql_constraints = [
+        (
+            "legacy_purchase_order_line_source_uniq",
+            "unique(po_id, source_line_id)",
+            "Legacy purchase order line source identity must be unique per purchase order.",
         ),
     ]
 

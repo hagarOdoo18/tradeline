@@ -9,10 +9,15 @@
                 <field name="number"/>
                 <field name="source_name" optional="show"/>
                 <field name="source_partner_name" string="Legacy Customer" optional="show"/>
+                <field name="source_partner_code" string="Customer Code" optional="show"/>
+                <field name="source_partner_type" string="Customer Type" optional="show"/>
+                <field name="source_partner_tax_id" string="Tax ID" optional="show"/>
+                <field name="source_partner_national_id" string="National ID" optional="show"/>
                 <field name="source_sales_rep_name" optional="show"/>
                 <field name="source_team_name" optional="show"/>
                 <field name="source_reference_number" optional="show"/>
                 <field name="source_po_ref" optional="show"/>
+                <field name="legacy_po_id" optional="show"/>
                 <field name="discount_reason_normalized" optional="show"/>
                 <field name="source_journal_name" optional="show"/>
                 <field name="source_payment_term_name" optional="show"/>
@@ -42,6 +47,10 @@
                 <field name="source_name" string="Source Document"/>
                 <field name="partner_id" string="Partner"/>
                 <field name="source_partner_name" string="Legacy Customer"/>
+                <field name="source_partner_code" string="Customer Code"/>
+                <field name="source_partner_type" string="Customer Type"/>
+                <field name="source_partner_tax_id" string="Tax ID"/>
+                <field name="source_partner_national_id" string="National ID"/>
                 <field name="source_sales_rep_name" string="Sales Rep"/>
                 <field name="source_team_name" string="Sales Team"/>
                 <field name="discount_reason_normalized" string="Discount Reason"/>
@@ -53,6 +62,7 @@
                 <field name="source_partner_bank_name" string="Bank Account"/>
                 <field name="source_reference_number" string="Reference #"/>
                 <field name="source_po_ref" string="PO Ref"/>
+                <field name="legacy_po_id" string="Legacy PO"/>
                 <field name="source_tradeline_month" string="Tradeline Month"/>
                 <field name="source_tradeline_year" string="Tradeline Year"/>
                 <field name="product_summary" string="Product / Item"/>
@@ -89,6 +99,7 @@
                 <separator/>
                 <group expand="0" string="Group By">
                     <filter name="group_partner" string="Customer" context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_customer_type" string="Customer Type" context="{'group_by': 'source_partner_type'}"/>
                     <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
                     <filter name="group_month" string="Month" context="{'group_by': 'invoice_date:month'}"/>
                     <filter name="group_type" string="Type" context="{'group_by': 'invoice_type'}"/>
@@ -101,6 +112,7 @@
                     <filter name="group_tradeline_year" string="Tradeline Year" context="{'group_by': 'source_tradeline_year'}"/>
                     <filter name="group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
                     <filter name="group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
+                    <filter name="group_legacy_po" string="Legacy PO" context="{'group_by': 'legacy_po_id'}"/>
                 </group>
             </search>
         </field>
@@ -140,6 +152,7 @@
                             <field name="source_team_name"/>
                             <field name="source_reference_number"/>
                             <field name="source_po_ref"/>
+                            <field name="legacy_po_id"/>
                             <field name="source_offer"/>
                             <field name="source_sms_sent"/>
                             <field name="source_tradeline_month"/>
@@ -167,6 +180,10 @@
                             <field name="source_id"/>
                             <field name="source_partner_id"/>
                             <field name="source_partner_name"/>
+                            <field name="source_partner_code"/>
+                            <field name="source_partner_type"/>
+                            <field name="source_partner_tax_id"/>
+                            <field name="source_partner_national_id"/>
                         </group>
                         <group>
                             <field name="import_batch_id"/>
