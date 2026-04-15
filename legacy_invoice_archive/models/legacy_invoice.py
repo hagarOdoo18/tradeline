@@ -324,6 +324,12 @@ class LegacyInvoiceLine(models.Model):
 
     product_id = fields.Many2one("product.product", ondelete="set null")
     product_tmpl_id = fields.Many2one("product.template", ondelete="set null")
+    product_name = fields.Char(
+        string="Product Name",
+        compute="_compute_product_name",
+        store=True,
+        index=True,
+    )
     product_search_text = fields.Char(
         string="Product",
         compute="_compute_product_search_text",
@@ -407,10 +413,20 @@ class LegacyInvoiceLine(models.Model):
         ),
     ]
 
-    @api.depends("product_id")
+    @api.depends("product_id", "name", "item_code")
+    def _compute_product_name(self):
+        for line in self:
+            line.product_name = (
+                line.product_id.display_name
+                or line.name
+                or line.item_code
+                or ""
+            )
+
+    @api.depends("product_id", "product_name")
     def _compute_product_search_text(self):
         for line in self:
-            line.product_search_text = line.product_id.display_name or ""
+            line.product_search_text = line.product_id.display_name or line.product_name or ""
 
     @api.depends("price_subtotal", "price_total")
     def _compute_analysis_amounts(self):

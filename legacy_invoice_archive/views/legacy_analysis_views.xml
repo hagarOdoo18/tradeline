@@ -12,6 +12,7 @@
                 <field name="partner_id"/>
                 <field name="source_partner_name" optional="show"/>
                 <field name="product_id"/>
+                <field name="product_name" optional="show"/>
                 <field name="item_code" optional="show"/>
                 <field name="product_category_id" optional="show"/>
                 <field name="source_sub_category_name" optional="show"/>
@@ -59,6 +60,7 @@
             <search string="Legacy Invoice Analysis">
                 <field name="product_search_text" string="Product"/>
                 <field name="product_id"/>
+                <field name="product_name"/>
                 <field name="item_code"/>
                 <field name="cost_method"/>
                 <field name="product_category_id" string="Product Category"/>
@@ -114,6 +116,7 @@
                     <filter name="legacy_analysis_group_invoice_number" string="Invoice Number" context="{'group_by': 'invoice_number'}"/>
                     <filter name="legacy_analysis_group_invoice_status" string="Invoice Status" context="{'group_by': 'state'}"/>
                     <filter name="legacy_analysis_group_product" string="Product" context="{'group_by': 'product_id'}"/>
+                    <filter name="legacy_analysis_group_product_name" string="Product Name" context="{'group_by': 'product_name'}"/>
                     <filter name="legacy_analysis_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
                     <filter name="legacy_analysis_group_cost" string="Cost Method" context="{'group_by': 'cost_method'}"/>
                     <filter name="legacy_analysis_group_sub_category" string="Product Category" context="{'group_by': 'product_category_id'}"/>

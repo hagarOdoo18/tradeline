@@ -128,17 +128,14 @@ class StockScrapWizard(models.TransientModel):
     def _get_effective_scrap_lines(self):
         self.ensure_one()
         lines = self.line_ids.filtered(lambda line: line.product_id and (line.qty or 0) > 0)
-        if lines:
-            return self._normalize_scrap_lines([{
-                'product': line.product_id,
-                'qty': line.qty,
-                'uom': line.product_uom_id or line.product_id.uom_id,
-                'lot': line.lot_id,
-                'owner': line.owner_id,
-                'package': line.package_id,
-            } for line in lines])
-
-        return self._prepare_default_scrap_lines(self.picking_id)
+        return self._normalize_scrap_lines([{
+            'product': line.product_id,
+            'qty': line.qty,
+            'uom': line.product_uom_id or line.product_id.uom_id,
+            'lot': line.lot_id,
+            'owner': line.owner_id,
+            'package': line.package_id,
+        } for line in lines])
 
     def action_create_scrap(self):
         self.ensure_one()

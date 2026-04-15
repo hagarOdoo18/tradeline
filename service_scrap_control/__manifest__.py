@@ -1,6 +1,6 @@
 {
     "name": "Service Scrap Control",
-    "version": "18.0.1.0.10",
+    "version": "18.0.1.0.11",
     "category": "Inventory",
     "summary": "Replicate Odoo12 service scrap request/approve/vendor workflows in Odoo18",
     "depends": ["stock", "mail"],
