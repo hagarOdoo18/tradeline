@@ -137,6 +137,22 @@ class StockScrapWizard(models.TransientModel):
             'package': line.package_id,
         } for line in lines])
 
+    def _find_existing_open_scrap(self, picking, line, source_location, scrap_location):
+        self.ensure_one()
+        domain = [
+            ('picking_id', '=', picking.id),
+            ('product_id', '=', line['product'].id),
+            ('product_uom_id', '=', line['uom'].id),
+            ('location_id', '=', source_location.id),
+            ('scrap_location_id', '=', scrap_location.id),
+            ('vendor_scrap', '=', self.vendor),
+            ('state', 'in', ('draft', 'witting', 'approve')),
+            ('lot_id', '=', line['lot'].id if line['lot'] else False),
+            ('owner_id', '=', line['owner'].id if line['owner'] else False),
+            ('package_id', '=', line['package'].id if line['package'] else False),
+        ]
+        return self.env['stock.scrap'].search(domain, order='id asc', limit=1)
+
     def action_create_scrap(self):
         self.ensure_one()
         lines = self._get_effective_scrap_lines()
@@ -173,7 +189,12 @@ class StockScrapWizard(models.TransientModel):
                 'vendor_scrap': self.vendor,
                 'state': scrap_state,
             }
-            scraps |= self.env['stock.scrap'].create(vals)
+            existing_scrap = self._find_existing_open_scrap(picking, line, source_location, scrap_location)
+            if existing_scrap:
+                existing_scrap.write(vals)
+                scraps |= existing_scrap
+            else:
+                scraps |= self.env['stock.scrap'].create(vals)
 
         for scrap in scraps:
             result = scrap.action_validate()
