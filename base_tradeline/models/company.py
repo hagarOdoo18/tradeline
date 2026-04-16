@@ -68,7 +68,7 @@ class Currency(models.Model):
             )
         else:
             return _(
-                '%(integral_amount)s %(currency_unit)s , %(fractional_amount)s %(currency_subunit)s',
+                '%(integral_amount)s %(currency_unit)s و %(fractional_amount)s %(currency_subunit)s',
                 integral_amount=_num2words(integer_value, lang='ar'),
                 currency_unit=self.currency_unit_label,
                 fractional_amount=_num2words(int(fractional or 0), lang='ar'),
