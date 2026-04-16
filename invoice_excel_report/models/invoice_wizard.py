@@ -70,7 +70,7 @@ class AccountInvoiceWizard(models.TransientModel):
             domain += [('date', '<=', date_to)]
 
         payments = self.env['account.payment'].search(domain)
-        pos_payments = self.env['pos.payment'].search(([('payment_method_id.journal_id','=',journal_id.id),('payment_date', '>=', date_from),('payment_date', '<=', date_to)]))
+        pos_payments = self.env['pos.payment'].search(([('payment_method_id.journal_id','in',journal_id.ids),('payment_date', '>=', date_from),('payment_date', '<=', date_to)]))
         invoices = self.env['account.move']
         for payment in payments:
             invoices |= self._get_linked_invoices_from_payment(payment)
