@@ -5,8 +5,10 @@
         <field name="model">legacy.invoice.line</field>
         <field name="arch" type="xml">
             <list string="Legacy Invoice Lines" create="false" edit="false" delete="false" export_xlsx="1">
+                <button name="action_open_invoice" type="object" string="Open Invoice"/>
                 <field name="invoice_date" string="Date"/>
                 <field name="source_branch_name" string="Branch"/>
+                <field name="invoice_id" string="Legacy Invoice" optional="show"/>
                 <field name="invoice_number" string="Ref"/>
                 <field name="source_cc_rep_name" string="CC Rep" optional="show"/>
                 <field name="source_opportunity_name" string="Opportunity" optional="show"/>
@@ -162,4 +164,3 @@
         groups="account.group_account_readonly"
     />
 </odoo>
-

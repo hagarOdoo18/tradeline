@@ -53,3 +53,19 @@ class LegacyInvoiceLine(models.Model):
     price_subtotal_signed = fields.Monetary(currency_field="currency_id")
     price_total_signed = fields.Monetary(currency_field="currency_id")
 
+    def action_open_invoice(self):
+        self.ensure_one()
+        if not self.invoice_id:
+            return False
+        action = self.env["ir.actions.actions"]._for_xml_id("legacy_invoice_archive.action_legacy_invoice")
+        form_view = self.env.ref("legacy_invoice_archive.view_legacy_invoice_form", raise_if_not_found=False)
+        if form_view:
+            action["views"] = [(form_view.id, "form")]
+        action.update(
+            {
+                "res_id": self.invoice_id.id,
+                "view_mode": "form",
+                "target": "current",
+            }
+        )
+        return action
