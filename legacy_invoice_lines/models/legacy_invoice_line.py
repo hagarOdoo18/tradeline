@@ -69,3 +69,20 @@ class LegacyInvoiceLine(models.Model):
             }
         )
         return action
+
+    def action_open_legacy_po(self):
+        self.ensure_one()
+        if not self.legacy_po_id:
+            return False
+        action = self.env["ir.actions.actions"]._for_xml_id("legacy_invoice_archive.action_legacy_purchase_order")
+        form_view = self.env.ref("legacy_invoice_archive.view_legacy_purchase_order_form", raise_if_not_found=False)
+        if form_view:
+            action["views"] = [(form_view.id, "form")]
+        action.update(
+            {
+                "res_id": self.legacy_po_id.id,
+                "view_mode": "form",
+                "target": "current",
+            }
+        )
+        return action

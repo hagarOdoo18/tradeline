@@ -181,6 +181,7 @@
                 <field name="source_document" optional="show"/>
                 <field name="po_reference" optional="show"/>
                 <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
+                <button name="action_open_legacy_po" type="object" string="Open PO"/>
                 <field name="origin" optional="show"/>
                 <field name="invoice_id" optional="show"/>
                 <field name="warehouse_name" optional="show"/>

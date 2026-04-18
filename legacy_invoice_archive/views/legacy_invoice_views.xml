@@ -19,6 +19,7 @@
                 <field name="source_reference_number" optional="show"/>
                 <field name="source_po_ref" optional="show"/>
                 <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
+                <button name="action_open_legacy_po" type="object" string="Open PO"/>
                 <field name="discount_reason_normalized" optional="show"/>
                 <field name="source_journal_name" optional="show"/>
                 <field name="source_payment_term_name" optional="show"/>
@@ -157,6 +158,11 @@
                             <field name="source_reference_number"/>
                             <field name="source_po_ref"/>
                             <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                            <button name="action_open_legacy_po"
+                                    type="object"
+                                    string="Open PO"
+                                    class="oe_link"
+                                    invisible="not legacy_po_id"/>
                             <field name="source_offer"/>
                             <field name="source_sms_sent"/>
                             <field name="source_tradeline_month"/>

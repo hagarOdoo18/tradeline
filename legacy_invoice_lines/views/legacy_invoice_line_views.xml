@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list string="Legacy Invoice Lines" create="false" edit="false" delete="false" export_xlsx="1">
                 <button name="action_open_invoice" type="object" string="Open Invoice"/>
+                <button name="action_open_legacy_po" type="object" string="Open PO"/>
                 <field name="invoice_date" string="Date"/>
                 <field name="source_branch_name" string="Branch"/>
                 <field name="invoice_id" string="Legacy Invoice" optional="show"/>
