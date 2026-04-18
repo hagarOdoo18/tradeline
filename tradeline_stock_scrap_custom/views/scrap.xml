@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="stock_scrap_form_inherit" model="ir.ui.view">
+            <field name="name">stock.scrap.form.inh</field>
+            <field name="model">stock.scrap</field>
+            <field name="inherit_id" ref="stock.stock_scrap_form_view"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='action_validate']" position="replace">
+                    <button name="action_validate" string="Validate" type="object"
+                            class="oe_highlight"
+                            invisible="state != 'approve'"/>
+                    <button name="request_request" string="Request Scrap" type="object"
+                            class="oe_highlight"
+                            invisible="state != 'draft'"/>
+                    <button name="function_approve_scrap" string="Approve Scrap" type="object"
+                            class="oe_highlight"
+                            invisible="state != 'witting'"
+                            groups="tradeline_stock_scrap_custom.group_approval_scrap"/>
+                </xpath>
+
+            </field>
+        </record>
+    </data>
+</odoo>

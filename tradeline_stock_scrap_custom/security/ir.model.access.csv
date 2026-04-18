@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_tradeline_scrap_line,tradeline_stock_scrap_custom.tradeline_stock_scrap_custom,model_scrap_line,,1,1,1,1
+access_tradeline_stock_scrap_wizard,stock_scrap_wizard,model_stock_scrap_wizard,,1,1,1,1
+access_tradeline_request_scrap_wizard,request_scrap_wizard,model_request_scrap_wizard,,1,1,1,1
