@@ -6,7 +6,7 @@
         <field name="arch" type="xml">
             <list string="Legacy Invoice Lines" create="false" edit="false" delete="false" export_xlsx="1">
                 <button name="action_open_invoice" type="object" string="Open Invoice"/>
-                <button name="action_open_legacy_po" type="object" string="Open PO"/>
+                <button name="action_open_legacy_po" type="object" string="Open Linked PO" invisible="not legacy_po_id"/>
                 <field name="invoice_date" string="Date"/>
                 <field name="source_branch_name" string="Branch"/>
                 <field name="invoice_id" string="Legacy Invoice" optional="show"/>
@@ -32,8 +32,8 @@
                 <field name="source_salesperson_name" string="Salesperson" optional="show"/>
                 <field name="source_line_sales_rep_name" string="Sales Rep" optional="show"/>
                 <field name="discount_reason_normalized" string="Discount Reason" optional="show"/>
-                <field name="source_po_invoice" string="PO" optional="show"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
+                <field name="source_po_invoice" string="Invoice PO Ref (Raw)" optional="show"/>
+                <field name="legacy_po_id" string="Linked PO (Open)" optional="show"/>
                 <field name="source_vendor_name" string="Vendor" optional="show"/>
                 <field name="serial_items" string="Serial Items" optional="show"/>
                 <field name="source_channel" string="Channel" optional="hide"/>
@@ -68,8 +68,8 @@
                 <field name="source_cc_rep_name" string="CC Rep"/>
                 <field name="source_opportunity_name" string="Opportunity"/>
                 <field name="discount_reason_normalized" string="Discount Reason"/>
-                <field name="source_po_invoice" string="PO"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                <field name="source_po_invoice" string="Invoice PO Ref (Raw)"/>
+                <field name="legacy_po_id" string="Linked PO (Open)"/>
                 <field name="serial_items" string="Serial Items"/>
                 <field name="journal_summary_line" string="Payment Journal"/>
                 <field name="payment_type" string="Payment Type"/>
@@ -102,7 +102,7 @@
                     <filter name="legacy_lines_group_cc_rep" string="CC Rep" context="{'group_by': 'source_cc_rep_name'}"/>
                     <filter name="legacy_lines_group_opportunity" string="Opportunity" context="{'group_by': 'source_opportunity_name'}"/>
                     <filter name="legacy_lines_group_discount_reason" string="Discount Reason" context="{'group_by': 'discount_reason_normalized'}"/>
-                    <filter name="legacy_lines_group_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="legacy_lines_group_po" string="Linked PO (Open)" context="{'group_by': 'legacy_po_id'}"/>
                     <filter name="legacy_lines_group_payment_journal" string="Payment Journal" context="{'group_by': 'journal_summary_line'}"/>
                     <filter name="legacy_lines_group_payment_type" string="Payment Type" context="{'group_by': 'payment_type'}"/>
                     <filter name="legacy_lines_group_channel" string="Channel" context="{'group_by': 'source_channel'}"/>

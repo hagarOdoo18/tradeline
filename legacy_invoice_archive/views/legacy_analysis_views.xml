@@ -28,8 +28,8 @@
                 <field name="source_payment_term_name" optional="show"/>
                 <field name="source_fiscal_position_name" optional="show"/>
                 <field name="discount_reason_normalized" optional="show"/>
-                <field name="source_po_ref" optional="show"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)" optional="show"/>
+                <field name="legacy_po_id" string="Linked PO (Open)" optional="show"/>
                 <field name="source_reference_number" optional="show"/>
                 <field name="payment_journal_summary" optional="show"/>
                 <field name="payment_method_summary" optional="show"/>
@@ -79,8 +79,8 @@
                 <field name="source_team_name" string="Sales Team"/>
                 <field name="source_name" string="Source Document"/>
                 <field name="source_reference_number" string="Reference #"/>
-                <field name="source_po_ref" string="PO Ref"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                <field name="legacy_po_id" string="Linked PO (Open)"/>
                 <field name="source_offer" string="Offer"/>
                 <field name="source_sms_sent" string="SMS Sent"/>
                 <field name="source_journal_name" string="Journal"/>
@@ -149,7 +149,7 @@
                     <filter name="legacy_analysis_group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
                     <filter name="legacy_analysis_group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
                     <filter name="legacy_analysis_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
-                    <filter name="legacy_analysis_group_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="legacy_analysis_group_po" string="Linked PO (Open)" context="{'group_by': 'legacy_po_id'}"/>
                     <filter name="legacy_analysis_group_account" string="Revenue/Expense Account" context="{'group_by': 'account_id'}"/>
                     <filter name="legacy_analysis_group_uom" string="Unit of Measure" context="{'group_by': 'uom_id'}"/>
                 </group>

@@ -17,9 +17,9 @@
                 <field name="source_sales_rep_code" optional="show"/>
                 <field name="source_team_name" optional="show"/>
                 <field name="source_reference_number" optional="show"/>
-                <field name="source_po_ref" optional="show"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)" optional="show"/>
-                <button name="action_open_legacy_po" type="object" string="Open PO"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)" optional="show"/>
+                <field name="legacy_po_id" string="Linked PO (Open)" optional="show"/>
+                <button name="action_open_legacy_po" type="object" string="Open Linked PO" invisible="not legacy_po_id"/>
                 <field name="discount_reason_normalized" optional="show"/>
                 <field name="source_journal_name" optional="show"/>
                 <field name="source_payment_term_name" optional="show"/>
@@ -64,8 +64,8 @@
                 <field name="source_fiscal_position_name" string="Fiscal Position"/>
                 <field name="source_partner_bank_name" string="Bank Account"/>
                 <field name="source_reference_number" string="Reference #"/>
-                <field name="source_po_ref" string="PO Ref"/>
-                <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                <field name="legacy_po_id" string="Linked PO (Open)"/>
                 <field name="source_tradeline_month" string="Tradeline Month"/>
                 <field name="source_tradeline_year" string="Tradeline Year"/>
                 <field name="product_summary" string="Product / Item"/>
@@ -116,7 +116,7 @@
                     <filter name="group_tradeline_year" string="Tradeline Year" context="{'group_by': 'source_tradeline_year'}"/>
                     <filter name="group_payment_method" string="Payment Method" context="{'group_by': 'payment_method_summary'}"/>
                     <filter name="group_payment_journal" string="Payment Journal" context="{'group_by': 'payment_journal_summary'}"/>
-                    <filter name="group_legacy_po" string="PO Reference (clickable)" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="group_legacy_po" string="Linked PO (Open)" context="{'group_by': 'legacy_po_id'}"/>
                 </group>
             </search>
         </field>
@@ -156,11 +156,11 @@
                             <field name="source_sales_rep_code"/>
                             <field name="source_team_name"/>
                             <field name="source_reference_number"/>
-                            <field name="source_po_ref"/>
-                            <field name="legacy_po_id" string="PO Reference (clickable)"/>
+                            <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                            <field name="legacy_po_id" string="Linked PO (Open)"/>
                             <button name="action_open_legacy_po"
                                     type="object"
-                                    string="Open PO"
+                                    string="Open Linked PO"
                                     class="oe_link"
                                     invisible="not legacy_po_id"/>
                             <field name="source_offer"/>
