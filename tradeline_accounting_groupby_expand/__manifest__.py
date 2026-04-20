@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Accounting GroupBy Expand",
     "summary": "Expand Group By options for targeted accounting reports",
-    "version": "18.0.1.8.2",
+    "version": "18.0.1.8.3",
     "category": "Accounting",
     "author": "Tradeline",
     "license": "LGPL-3",

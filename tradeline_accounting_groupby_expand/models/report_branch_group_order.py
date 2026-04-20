@@ -13,6 +13,33 @@ POSITIVE_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
 NEGATIVE_TEXT_OPERATORS = {"!=", "<>", "not ilike", "not like"}
 
 
+def _ordered_unique_ids(values):
+    ordered = []
+    seen = set()
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
+
+
+def _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
+    value = (value or "").strip()
+    if not value:
+        return []
+
+    lines = model.env["account.move.line"].search(
+        [
+            ("product_id", "!=", False),
+            ("item_code", operator, value),
+            ("move_id.state", "=", "posted"),
+            ("move_id.move_type", "in", ("out_invoice", "out_refund", "out_receipt")),
+        ],
+        limit=limit,
+    )
+    return lines.mapped("product_id").ids
+
+
 def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
     value = (value or "").strip()
     if not value:
@@ -25,12 +52,11 @@ def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
         limit=limit,
     )
     product_ids = [product_id for product_id, _name in product_matches]
-    if product_ids:
-        return product_ids
 
-    # Fallback for cases where Product chip uses "=" with barcode/item-code-like
-    # values and name_search does not resolve them as expected.
-    return _search_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
+    # Fall back to product master item code and invoiced line item code lookups.
+    product_ids += _search_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
+    product_ids += _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
+    return _ordered_unique_ids(product_ids)
 
 
 def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
@@ -445,7 +471,9 @@ class AccountInvoiceReport(models.Model):
             return []
 
         if operator in POSITIVE_TEXT_OPERATORS:
-            product_ids = _search_product_ids_by_item_code(self, value, operator=operator, limit=5000)
+            product_ids = _search_invoiced_product_ids_by_item_code(self, value, operator=operator, limit=5000)
+            product_ids += _search_product_ids_by_item_code(self, value, operator=operator, limit=5000)
+            product_ids = _ordered_unique_ids(product_ids)
             if not product_ids:
                 return [("id", "=", 0)]
             return [("product_id", "in", product_ids)]
@@ -457,12 +485,9 @@ class AccountInvoiceReport(models.Model):
                 "not ilike": "ilike",
                 "not like": "like",
             }[operator]
-            product_ids = _search_product_ids_by_item_code(
-                self,
-                value,
-                operator=positive_operator,
-                limit=5000,
-            )
+            product_ids = _search_invoiced_product_ids_by_item_code(self, value, operator=positive_operator, limit=5000)
+            product_ids += _search_product_ids_by_item_code(self, value, operator=positive_operator, limit=5000)
+            product_ids = _ordered_unique_ids(product_ids)
             if not product_ids:
                 return [("id", "!=", 0)]
             return [("product_id", "not in", product_ids)]
