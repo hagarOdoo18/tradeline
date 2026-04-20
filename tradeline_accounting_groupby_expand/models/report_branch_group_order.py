@@ -7,7 +7,9 @@ from odoo.osv import expression
 
 
 _NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
-SUPPORTED_TEXT_OPERATORS = {"ilike", "like", "=ilike", "=like"}
+SUPPORTED_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
+POSITIVE_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
+NEGATIVE_TEXT_OPERATORS = {"!=", "<>", "not ilike", "not like"}
 
 
 def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
@@ -21,6 +23,18 @@ def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
         limit=limit,
     )
     return [product_id for product_id, _name in product_matches]
+
+
+def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
+    value = (value or "").strip()
+    if not value:
+        return []
+
+    products = model.env["product.product"].search(
+        ["|", ("barcode", operator, value), ("default_code", operator, value)],
+        limit=limit,
+    )
+    return products.ids
 
 
 def _rewrite_product_id_text_domain(model, domain):
@@ -391,11 +405,22 @@ class AccountInvoiceReport(models.Model):
         search="_search_product_search_text",
         store=False,
     )
+    item_code_search_text = fields.Char(
+        string="Item Code",
+        compute="_compute_item_code_search_text",
+        search="_search_item_code_search_text",
+        store=False,
+    )
 
     @api.depends("product_id")
     def _compute_product_search_text(self):
         for rec in self:
             rec.product_search_text = rec.product_id.display_name or ""
+
+    @api.depends("product_id")
+    def _compute_item_code_search_text(self):
+        for rec in self:
+            rec.item_code_search_text = rec.product_id.barcode or rec.product_id.default_code or ""
 
     def _search_product_search_text(self, operator, value):
         value = (value or "").strip()
@@ -405,6 +430,36 @@ class AccountInvoiceReport(models.Model):
         if not product_ids:
             return [("id", "=", 0)]
         return [("product_id", "in", product_ids)]
+
+    def _search_item_code_search_text(self, operator, value):
+        value = (value or "").strip()
+        if not value:
+            return []
+
+        if operator in POSITIVE_TEXT_OPERATORS:
+            product_ids = _search_product_ids_by_item_code(self, value, operator=operator, limit=5000)
+            if not product_ids:
+                return [("id", "=", 0)]
+            return [("product_id", "in", product_ids)]
+
+        if operator in NEGATIVE_TEXT_OPERATORS:
+            positive_operator = {
+                "!=": "=",
+                "<>": "=",
+                "not ilike": "ilike",
+                "not like": "like",
+            }[operator]
+            product_ids = _search_product_ids_by_item_code(
+                self,
+                value,
+                operator=positive_operator,
+                limit=5000,
+            )
+            if not product_ids:
+                return [("id", "!=", 0)]
+            return [("product_id", "not in", product_ids)]
+
+        return []
 
     @api.model
     def _rewrite_product_id_text_domain(self, domain):
