@@ -250,7 +250,7 @@ class ShopifyConfiguration(models.Model):
         }
         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
         try:
-            response = requests.post(token_url, data=payload,
+            response = requests.post(token_url, data=payload, verify=False,
                                      headers=headers, timeout=30)
             response.raise_for_status()
         except requests.exceptions.RequestException as e:

@@ -101,10 +101,13 @@ class StockFixBlockedReceipt(models.AbstractModel):
             ('state', 'in', ['paid', 'done', 'invoiced'])
         ])
         if 'refunded_order_id' in pos_orders._fields:
-            pos_orders = pos_orders.filtered('refunded_order_id')
+            pos_orders_refunded = pos_orders.filtered('refunded_order_id')
+        if not pos_orders_refunded:
+            _logger.info("[find] No open POS-linked pickings found.")
+            return self.env['stock.picking']
 
         candidates = self.env['stock.picking']
-        for order in pos_orders:
+        for order in pos_orders_refunded:
             for picking in order.picking_ids.sudo().filtered(
                     lambda p: p.state in ('confirmed', 'assigned')
             ):
