@@ -101,7 +101,7 @@ class SyncProduct(models.TransientModel):
             next_url = 'https://%s/admin/api/%s/products.json?limit=50' % (
                 store_name, version)
             while next_url:
-                response = requests.request('GET', next_url,
+                response = requests.request('GET', next_url,verify=False,
                                             headers=headers, data=[])
                 response_json = response.json()
                 if 'products' in response_json and response_json['products']:
