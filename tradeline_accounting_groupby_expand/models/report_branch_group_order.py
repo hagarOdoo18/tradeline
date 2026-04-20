@@ -8,6 +8,7 @@ from odoo.osv import expression
 
 _NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
 SUPPORTED_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
+NAME_SEARCH_TEXT_OPERATORS = {"ilike", "like", "=ilike", "=like"}
 POSITIVE_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
 NEGATIVE_TEXT_OPERATORS = {"!=", "<>", "not ilike", "not like"}
 
@@ -17,12 +18,19 @@ def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
     if not value:
         return []
 
+    effective_operator = operator if operator in NAME_SEARCH_TEXT_OPERATORS else "ilike"
     product_matches = model.env["product.product"].name_search(
         name=value,
-        operator=operator,
+        operator=effective_operator,
         limit=limit,
     )
-    return [product_id for product_id, _name in product_matches]
+    product_ids = [product_id for product_id, _name in product_matches]
+    if product_ids:
+        return product_ids
+
+    # Fallback for cases where Product chip uses "=" with barcode/item-code-like
+    # values and name_search does not resolve them as expected.
+    return _search_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
 
 
 def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
