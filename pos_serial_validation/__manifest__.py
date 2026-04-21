@@ -20,8 +20,10 @@
     'assets': {
         'point_of_sale._assets_pos': [
             'pos_serial_validation/static/src/xml/navbar.xml',
+            'pos_serial_validation/static/src/xml/product_configurator_popup.xml',
             'pos_serial_validation/static/src/js/product_screen.js',
             'pos_serial_validation/static/src/js/navbar.js',
+            'pos_serial_validation/static/src/js/product_configurator_popup.js',
         ],
     },
     'installable': True,
