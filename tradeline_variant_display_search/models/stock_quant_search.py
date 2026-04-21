@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models
+from odoo.osv import expression
 
 from .product_search import SUPPORTED_TEXT_OPERATORS
 
@@ -24,12 +25,21 @@ class StockQuant(models.Model):
         if not value:
             return []
 
-        product_matches = self.env["product.product"].name_search(
-            name=value,
-            operator=operator,
+        effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
+        products = self.env["product.product"].search(
+            expression.OR(
+                [
+                    [("display_name", effective_operator, value)],
+                    [("name", effective_operator, value)],
+                    [("product_tmpl_id.name", effective_operator, value)],
+                    [("product_template_variant_value_ids.name", effective_operator, value)],
+                    [("barcode", effective_operator, value)],
+                    [("default_code", effective_operator, value)],
+                ]
+            ),
             limit=5000,
         )
-        product_ids = [product_id for product_id, _name in product_matches]
+        product_ids = products.ids
         if not product_ids:
             return [("id", "=", 0)]
         return [("product_id", "in", product_ids)]

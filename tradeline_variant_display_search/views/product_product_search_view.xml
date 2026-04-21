@@ -6,8 +6,14 @@
             <field name="model">product.product</field>
             <field name="inherit_id" ref="product.product_search_form_view"/>
             <field name="arch" type="xml">
-                <xpath expr="//search/field[1]" position="before">
-                    <field name="product_lookup_id" string="Product"/>
+                <xpath expr="//search/field[not(@name='name')][1]" position="before">
+                    <xpath expr="//search/field[@name='name'][1]" position="move"/>
+                </xpath>
+                <xpath expr="//search/field[@name='name'][1]" position="attributes">
+                    <attribute name="string">Product (Specific)</attribute>
+                </xpath>
+                <xpath expr="//search/field[@name='name'][1]" position="after">
+                    <field name="product_lookup_id" string="Product (Broad)"/>
                 </xpath>
             </field>
         </record>

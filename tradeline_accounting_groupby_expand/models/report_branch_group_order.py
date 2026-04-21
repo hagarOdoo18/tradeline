@@ -40,6 +40,28 @@ def _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", li
     return lines.mapped("product_id").ids
 
 
+def _search_product_ids_by_specific_text(model, value, operator="ilike", limit=5000):
+    value = (value or "").strip()
+    if not value:
+        return []
+
+    effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
+    products = model.env["product.product"].search(
+        expression.OR(
+            [
+                [("display_name", effective_operator, value)],
+                [("name", effective_operator, value)],
+                [("product_tmpl_id.name", effective_operator, value)],
+                [("product_template_variant_value_ids.name", effective_operator, value)],
+                [("barcode", effective_operator, value)],
+                [("default_code", effective_operator, value)],
+            ]
+        ),
+        limit=limit,
+    )
+    return products.ids
+
+
 def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
     value = (value or "").strip()
     if not value:
@@ -460,7 +482,7 @@ class AccountInvoiceReport(models.Model):
         value = (value or "").strip()
         if not value:
             return []
-        product_ids = _search_product_ids_by_text(self, value, operator=operator, limit=5000)
+        product_ids = _search_product_ids_by_specific_text(self, value, operator=operator, limit=5000)
         if not product_ids:
             return [("id", "=", 0)]
         return [("product_id", "in", product_ids)]
