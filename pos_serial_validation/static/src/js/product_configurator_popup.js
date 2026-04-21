@@ -63,7 +63,7 @@ patch(PosStore.prototype, {
         const tracking = product?.tracking || product?.raw?.tracking;
         const isTrackedProduct = tracking === "serial" || tracking === "lot";
 
-        let availability = null;
+        let availability = {};
         if (!isTrackedProduct && product?.raw?.product_tmpl_id && this.config?.id) {
             try {
                 availability = await this.data.call(
@@ -71,8 +71,12 @@ patch(PosStore.prototype, {
                     "get_pos_configurator_availability",
                     [product.raw.product_tmpl_id, this.config.id, opts.qty || opts.quantity || 1]
                 );
+                if (!availability || typeof availability !== "object") {
+                    availability = {};
+                }
             } catch (error) {
                 console.error("Failed to fetch POS configurator availability.", error);
+                availability = {};
             }
         }
 
@@ -137,7 +141,7 @@ patch(BaseProductAttribute.prototype, {
 patch(ProductConfiguratorPopup.prototype, {
     setup() {
         super.setup(...arguments);
-        this.availability = this.props.availability || null;
+        this.availability = this.props.availability || {};
     },
 
     get validAttributeLineIds() {
