@@ -198,6 +198,49 @@ def _strict_ranked_products(ranked_products, search_term):
 class ProductTemplate(models.Model):
     _inherit = "product.template"
 
+    product_template_lookup_id = fields.Many2one(
+        "product.template",
+        string="Product (Broad)",
+        compute="_compute_product_template_lookup_id",
+        search="_search_product_template_lookup_id",
+        store=False,
+    )
+
+    def _compute_product_template_lookup_id(self):
+        for product_template in self:
+            product_template.product_template_lookup_id = product_template
+
+    def _search_product_template_lookup_id(self, operator, value):
+        if operator in {"=", "=="} and isinstance(value, int):
+            return [("id", "=", value)]
+        if operator in {"!=", "<>"} and isinstance(value, int):
+            return [("id", "!=", value)]
+        if operator == "in" and isinstance(value, (list, tuple, set)):
+            template_ids = [template_id for template_id in value if isinstance(template_id, int)]
+            if not template_ids:
+                return [("id", "=", 0)]
+            return [("id", "in", template_ids)]
+
+        if not isinstance(value, str):
+            return []
+
+        search_term = value.strip()
+        if not search_term:
+            return []
+
+        effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
+        matches = super(ProductTemplate, self)._name_search(
+            name=search_term,
+            domain=[],
+            operator=effective_operator,
+            limit=5000,
+            order=None,
+        )
+        template_ids = [template_id for template_id, _name in matches]
+        if not template_ids:
+            return [("id", "=", 0)]
+        return [("id", "in", template_ids)]
+
     @api.model
     def _name_search(self, name, domain=None, operator="ilike", limit=None, order=None):
         domain = list(domain or [])

@@ -1,6 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
+        <record id="view_product_template_search_product_lookup_first" model="ir.ui.view">
+            <field name="name">product.template.search.product.lookup.first</field>
+            <field name="model">product.template</field>
+            <field name="inherit_id" search="[('model', '=', 'product.template'), ('type', '=', 'search'), ('inherit_id', '=', False)]"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search/field[not(@name='name')][1]" position="before">
+                    <xpath expr="//search/field[@name='name'][1]" position="move"/>
+                </xpath>
+                <xpath expr="//search/field[@name='name'][1]" position="attributes">
+                    <attribute name="string">Product (Specific)</attribute>
+                </xpath>
+                <xpath expr="//search/field[@name='name'][1]" position="after">
+                    <field name="product_template_lookup_id" string="Product (Broad)"/>
+                </xpath>
+            </field>
+        </record>
+
         <record id="view_product_product_search_product_lookup_first" model="ir.ui.view">
             <field name="name">product.product.search.product.lookup.first</field>
             <field name="model">product.product</field>
