@@ -8,6 +8,7 @@ class TestPosConfiguratorAvailability(TransactionCase):
         cls.ProductTemplate = cls.env["product.template"]
         cls.ProductAttribute = cls.env["product.attribute"]
         cls.ProductAttributeValue = cls.env["product.attribute.value"]
+        cls.StockLot = cls.env["stock.lot"]
         cls.StockQuant = cls.env["stock.quant"]
         cls.StockLocation = cls.env["stock.location"]
         cls.PosConfig = cls.env["pos.config"]
@@ -158,15 +159,43 @@ class TestPosConfiguratorAvailability(TransactionCase):
         self.assertEqual(vendor_by_value[color_ptav["Orange"].id], vendor_ptav["ABM"].id)
         self.assertEqual(payload["default_vendor_value_id"], vendor_ptav["Ram"].id)
 
-    def test_tracked_template_skips_vendor_hide_behavior(self):
+    def test_tracked_template_applies_vendor_hide_behavior(self):
         template = self._create_template("POS Configurator Serial", tracking="serial")
+        color_line = template.attribute_line_ids.filtered(
+            lambda line: line.attribute_id.id == self.color_attribute.id
+        )
+        vendor_line = template.attribute_line_ids.filtered(
+            lambda line: line.attribute_id.id == self.vendor_attribute.id
+        )
+
+        color_ptav = self._ptav_by_name(color_line)
+        vendor_ptav = self._ptav_by_name(vendor_line)
+
+        black_abm_variant = self._variant_for(template, color_ptav["Black"], vendor_ptav["ABM"])
+        black_abm_lot = self.StockLot.create(
+            {
+                "name": "CFG-SERIAL-BLACK-ABM",
+                "product_id": black_abm_variant.id,
+                "company_id": self.company.id,
+                "location_id": self.pos_location.id,
+            }
+        )
+        self.StockQuant._update_available_quantity(
+            black_abm_variant,
+            self.pos_location,
+            1.0,
+            lot_id=black_abm_lot,
+        )
 
         payload = self.ProductTemplate.get_pos_configurator_availability(template.id, self.pos_config.id)
 
-        self.assertEqual(payload["hide_line_ids"], [])
-        self.assertEqual(payload["allowed_value_ids_by_line"], {})
-        self.assertEqual(payload["vendor_value_by_value_id"], {})
-        self.assertFalse(payload["default_vendor_value_id"])
+        self.assertIn(vendor_line.id, payload["hide_line_ids"])
+        self.assertEqual(payload["allowed_value_ids_by_line"][color_line.id], [color_ptav["Black"].id])
+        self.assertEqual(
+            payload["vendor_value_by_value_id"][color_ptav["Black"].id],
+            vendor_ptav["ABM"].id,
+        )
+        self.assertEqual(payload["default_vendor_value_id"], vendor_ptav["ABM"].id)
         self.assertFalse(payload["is_blocked"])
 
     def test_blocked_when_all_variant_stock_is_zero(self):

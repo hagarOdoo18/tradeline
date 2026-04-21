@@ -29,9 +29,6 @@ class ProductTemplate(models.Model):
         if not product_tmpl or not pos_config:
             return result
 
-        if product_tmpl.tracking in ("serial", "lot"):
-            return result
-
         pos_location = pos_config.picking_type_id.default_location_src_id
         if not pos_location:
             return result

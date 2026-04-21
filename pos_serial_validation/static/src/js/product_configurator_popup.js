@@ -21,8 +21,8 @@ function normalizeId(value) {
     return Number.isInteger(id) && id > 0 ? id : false;
 }
 
-function applyAutoVendorSelection(payload, availability) {
-    if (!payload || !availability) {
+function applyAutoVendorSelection(payload, availability, enabled = true) {
+    if (!enabled || !payload || !availability) {
         return payload;
     }
 
@@ -56,15 +56,15 @@ function applyAutoVendorSelection(payload, availability) {
 ProductConfiguratorPopup.props = {
     ...ProductConfiguratorPopup.props,
     availability: { type: Object, optional: true },
+    disableAutoVendor: { type: Boolean, optional: true },
 };
 
 patch(PosStore.prototype, {
     async openConfigurator(product, opts = {}) {
-        const tracking = product?.tracking || product?.raw?.tracking;
-        const isTrackedProduct = tracking === "serial" || tracking === "lot";
-
         let availability = {};
-        if (!isTrackedProduct && product?.raw?.product_tmpl_id && this.config?.id) {
+        const shouldAutoPickVendor = !opts.code;
+
+        if (product?.raw?.product_tmpl_id && this.config?.id) {
             try {
                 availability = await this.data.call(
                     "product.template",
@@ -105,9 +105,10 @@ patch(PosStore.prototype, {
                 hideAlwaysVariants: opts.hideAlwaysVariants,
                 defaultValues: defaultValues,
                 availability: availability,
+                disableAutoVendor: !shouldAutoPickVendor,
             });
 
-            return applyAutoVendorSelection(payload, availability);
+            return applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
         }
 
         const payload = {
@@ -119,7 +120,7 @@ patch(PosStore.prototype, {
             quantity: 1,
         };
 
-        return applyAutoVendorSelection(payload, availability);
+        return applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
     },
 });
 
@@ -142,6 +143,7 @@ patch(ProductConfiguratorPopup.prototype, {
     setup() {
         super.setup(...arguments);
         this.availability = this.props.availability || {};
+        this.disableAutoVendor = Boolean(this.props.disableAutoVendor);
     },
 
     get validAttributeLineIds() {
@@ -194,7 +196,7 @@ patch(ProductConfiguratorPopup.prototype, {
 
     computePayload() {
         const payload = super.computePayload(...arguments);
-        return applyAutoVendorSelection(payload, this.availability);
+        return applyAutoVendorSelection(payload, this.availability, !this.disableAutoVendor);
     },
 
     confirm() {
