@@ -27,6 +27,7 @@ class LegacyInvoice(models.Model):
     source_partner_name = fields.Char()
     source_partner_code = fields.Char(index=True)
     source_partner_type = fields.Char(index=True)
+    source_partner_mobile = fields.Char(index=True)
     source_partner_tax_id = fields.Char(index=True)
     source_partner_national_id = fields.Char(index=True)
     source_discount_reason_id = fields.Integer(index=True)
@@ -200,6 +201,7 @@ class LegacyInvoice(models.Model):
             ("source_name", operator, value),
             ("source_partner_name", operator, value),
             ("source_partner_code", operator, value),
+            ("source_partner_mobile", operator, value),
             ("source_partner_tax_id", operator, value),
             ("source_partner_national_id", operator, value),
             ("source_sales_rep_code", operator, value),

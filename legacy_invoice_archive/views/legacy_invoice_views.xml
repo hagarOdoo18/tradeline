@@ -11,6 +11,7 @@
                 <field name="source_partner_name" string="Legacy Customer" optional="show"/>
                 <field name="source_partner_code" string="Customer Code" optional="show"/>
                 <field name="source_partner_type" string="Customer Type" optional="show"/>
+                <field name="source_partner_mobile" string="Customer Mobile" optional="show"/>
                 <field name="source_partner_tax_id" string="Tax ID" optional="show"/>
                 <field name="source_partner_national_id" string="National ID" optional="show"/>
                 <field name="source_sales_rep_name" optional="show"/>
@@ -51,6 +52,7 @@
                 <field name="source_partner_name" string="Legacy Customer"/>
                 <field name="source_partner_code" string="Customer Code"/>
                 <field name="source_partner_type" string="Customer Type"/>
+                <field name="source_partner_mobile" string="Customer Mobile"/>
                 <field name="source_partner_tax_id" string="Tax ID"/>
                 <field name="source_partner_national_id" string="National ID"/>
                 <field name="source_sales_rep_name" string="Sales Rep"/>
@@ -192,6 +194,7 @@
                             <field name="source_partner_name"/>
                             <field name="source_partner_code"/>
                             <field name="source_partner_type"/>
+                            <field name="source_partner_mobile"/>
                             <field name="source_partner_tax_id"/>
                             <field name="source_partner_national_id"/>
                         </group>
