@@ -265,6 +265,26 @@ class PosOrder(models.Model):
         data = super().sync_from_ui(orders)
         return data
 
+    @api.model
+    def get_discount_reason_rules_pos(self, reason_id):
+        reason = self.env['discount.reason'].sudo().browse(reason_id).exists()
+        if not reason or not reason.use_category_discount:
+            return []
+
+        lines = reason.category_discount_line_ids.sudo().filtered(
+            lambda l: l.category_ids
+        ).sorted(key=lambda l: (l.sequence, l.id))
+
+        return [
+            {
+                'sequence': line.sequence or 10,
+                'discount_percentage': line.discount_percentage or 0.0,
+                'category_ids': line.category_ids.ids,
+                'family_ids': line.family_ids.ids,
+            }
+            for line in lines
+        ]
+
 
 
 

@@ -88,10 +88,10 @@ patch(ControlButtons.prototype, {
             return [];
         }
 
-        const rows = await this.orm.searchRead(
-            "discount.reason.category.line",
-            [["discount_reason_id", "=", reasonId]],
-            ["sequence", "discount_percentage", "category_ids", "family_ids"]
+        const rows = await this.orm.call(
+            "pos.order",
+            "get_discount_reason_rules_pos",
+            [reasonId]
         );
 
         return rows
