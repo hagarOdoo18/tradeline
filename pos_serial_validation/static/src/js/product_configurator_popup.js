@@ -103,6 +103,26 @@ function applyAutoVendorSelection(payload, availability, enabled = true) {
     return payload;
 }
 
+function mapToVariantValueIds(valueIds, availability) {
+    if (!Array.isArray(valueIds) || !availability) {
+        return [];
+    }
+
+    const mapped = [];
+    const aliasMap = availability.variant_value_by_value_id || {};
+    for (const valueIdRaw of valueIds) {
+        const valueId = normalizeId(valueIdRaw);
+        if (!valueId) {
+            continue;
+        }
+        const mappedId = normalizeId(getMappedValue(aliasMap, valueId)) || valueId;
+        if (!mapped.includes(mappedId)) {
+            mapped.push(mappedId);
+        }
+    }
+    return mapped;
+}
+
 ProductConfiguratorPopup.props = {
     ...ProductConfiguratorPopup.props,
     availability: { type: Object, optional: true },
@@ -111,10 +131,8 @@ ProductConfiguratorPopup.props = {
 
 patch(PosStore.prototype, {
     async openConfigurator(product, opts = {}) {
-        const tracking = product?.tracking || product?.raw?.tracking;
-        const isTrackedProduct = tracking === "serial" || tracking === "lot";
         let availability = {};
-        const shouldAutoPickVendor = !opts.code && !isTrackedProduct;
+        const shouldAutoPickVendor = !opts.code;
 
         if (product?.raw?.product_tmpl_id && this.config?.id) {
             try {
@@ -161,8 +179,16 @@ patch(PosStore.prototype, {
                 availability: availability,
                 disableAutoVendor: !shouldAutoPickVendor,
             });
+            if (!payload) {
+                return payload;
+            }
 
-            return applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+            const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+            preparedPayload.attribute_value_ids = mapToVariantValueIds(
+                preparedPayload.attribute_value_ids,
+                availability
+            );
+            return preparedPayload;
         }
 
         const payload = {
@@ -174,7 +200,12 @@ patch(PosStore.prototype, {
             quantity: 1,
         };
 
-        return applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+        const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+        preparedPayload.attribute_value_ids = mapToVariantValueIds(
+            preparedPayload.attribute_value_ids,
+            availability
+        );
+        return preparedPayload;
     },
 });
 
@@ -205,6 +236,9 @@ patch(ProductConfiguratorPopup.prototype, {
         this.variantLineIds = new Set(
             (this.availability.variant_line_ids || []).map((lineId) => Number(lineId))
         );
+        this.variantAttributeIds = new Set(
+            (this.availability.variant_attribute_ids || []).map((attributeId) => Number(attributeId))
+        );
     },
 
     get validAttributeLineIds() {
@@ -217,7 +251,7 @@ patch(ProductConfiguratorPopup.prototype, {
         const allowedValueIdsByLine = this.availability.allowed_value_ids_by_line || {};
 
         const processedLines = lines
-            .filter((line) => this.isTrackedProduct || !hiddenLineIds.has(line.id))
+            .filter((line) => !hiddenLineIds.has(line.id))
             .map((line) => {
                 const allowedValueIds = getMappedValue(allowedValueIdsByLine, line.id);
                 if (!Array.isArray(allowedValueIds)) {
@@ -286,18 +320,40 @@ patch(ProductConfiguratorPopup.prototype, {
 
     computePayload() {
         const payload = super.computePayload(...arguments);
-        return applyAutoVendorSelection(payload, this.availability, !this.disableAutoVendor);
+        const preparedPayload = applyAutoVendorSelection(
+            payload,
+            this.availability,
+            !this.disableAutoVendor
+        );
+        preparedPayload.attribute_value_ids = mapToVariantValueIds(
+            preparedPayload.attribute_value_ids,
+            this.availability
+        );
+        return preparedPayload;
     },
 
     getVariantAttributeValueIds() {
-        const valueIds = super.getVariantAttributeValueIds(...arguments);
-        if (!this.variantLineIds.size) {
-            return valueIds;
-        }
-        return valueIds.filter((valueId) => {
+        const mappedValueIds = mapToVariantValueIds(
+            super.getVariantAttributeValueIds(...arguments),
+            this.availability
+        );
+        return mappedValueIds.filter((valueId) => {
             const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
-            const lineId = ptav?.attribute_line_id?.id;
-            return lineId ? this.variantLineIds.has(lineId) : true;
+            if (!ptav) {
+                return true;
+            }
+
+            const attributeId = ptav.attribute_id?.id || ptav.attribute_line_id?.attribute_id?.id;
+            if (this.variantAttributeIds.size && attributeId) {
+                return this.variantAttributeIds.has(attributeId);
+            }
+
+            const lineId = ptav.attribute_line_id?.id;
+            if (this.variantLineIds.size && lineId) {
+                return this.variantLineIds.has(lineId);
+            }
+
+            return true;
         });
     },
 
