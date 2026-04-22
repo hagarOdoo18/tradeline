@@ -300,6 +300,11 @@ patch(ProductConfiguratorPopup.prototype, {
             .filter((line) => !hiddenLineIds.has(line.id))
             .map((line) => {
                 const allowedValueIds = getMappedValue(allowedValueIdsByLine, line.id);
+                const isVariantLine =
+                    !this.variantLineIds.size || this.variantLineIds.has(Number(line.id));
+                if (!isVariantLine) {
+                    return line;
+                }
                 if (!Array.isArray(allowedValueIds)) {
                     return line;
                 }
@@ -334,7 +339,9 @@ patch(ProductConfiguratorPopup.prototype, {
         const hiddenLineIds = new Set((this.availability.hide_line_ids || []).map((id) => Number(id)));
         const hasFilteredLines =
             Object.keys(this.availability.allowed_value_ids_by_line || {}).some(
-                (lineId) => !hiddenLineIds.has(Number(lineId))
+                (lineId) =>
+                    !hiddenLineIds.has(Number(lineId)) &&
+                    (!this.variantLineIds.size || this.variantLineIds.has(Number(lineId)))
             );
 
         if (hasFilteredLines && this.validAttributeLineIds.length === 0) {
@@ -349,6 +356,9 @@ patch(ProductConfiguratorPopup.prototype, {
                 continue;
             }
             if (hiddenLineIds.has(Number(lineId))) {
+                continue;
+            }
+            if (this.variantLineIds.size && !this.variantLineIds.has(Number(lineId))) {
                 continue;
             }
             const allowedValueIds = getMappedValue(this.availability.allowed_value_ids_by_line, lineId);
