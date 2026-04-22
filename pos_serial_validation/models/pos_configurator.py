@@ -140,16 +140,10 @@ class ProductTemplate(models.Model):
             )
             return result
 
+        # Do not block sale when vendor is hidden but unavailable in variant payload.
+        # This happens on templates where vendor is informational/non-variant.
         if vendor_lines and not result["default_vendor_value_id"]:
-            result.update(
-                {
-                    "is_blocked": True,
-                    "message": _(
-                        "No in-stock vendor combination is available in %(location)s."
-                    )
-                    % {"location": pos_location.display_name},
-                }
-            )
+            result["message"] = ""
 
         return result
 
