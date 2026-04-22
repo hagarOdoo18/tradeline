@@ -277,7 +277,6 @@ class PosOrder(models.Model):
 
         return [
             {
-                'id': line.id,
                 'sequence': line.sequence or 10,
                 'discount_percentage': line.discount_percentage or 0.0,
                 'category_ids': line.category_ids.ids,
