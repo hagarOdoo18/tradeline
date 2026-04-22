@@ -122,6 +122,7 @@ class PosOrder(models.Model):
                 ) % reason.name
             )
 
+        eligible_line_count = 0
         for line_cmd in order_vals.get('lines', []):
             line_vals = self._extract_line_vals(line_cmd)
             product_id = self._extract_m2o_id(line_vals.get('product_id'))
@@ -137,17 +138,20 @@ class PosOrder(models.Model):
             if reason.use_category_discount:
                 category_cap = self._get_reason_category_cap_for_product(reason, product)
                 if category_cap is None:
-                    raise UserError(
-                        _(
-                            "Discount reason '%(reason)s' is only allowed for categories: %(categories)s. "
-                            "Product '%(product)s' is not allowed."
-                        ) % {
-                            'reason': reason.name,
-                            'categories': self._get_reason_category_names(reason),
-                            'product': product.display_name,
-                        }
-                    )
+                    if float_compare(actual_discount, 0.0, precision_digits=2) == 1:
+                        raise UserError(
+                            _(
+                                "Product '%(product)s' is not eligible for discount reason '%(reason)s'. "
+                                "Allowed categories: %(categories)s."
+                            ) % {
+                                'product': product.display_name,
+                                'reason': reason.name,
+                                'categories': self._get_reason_category_names(reason),
+                            }
+                        )
+                    continue
 
+                eligible_line_count += 1
                 if float_compare(actual_discount, category_cap, precision_digits=2) == 1:
                     raise UserError(
                         _(
@@ -157,8 +161,8 @@ class PosOrder(models.Model):
                             'product': product.display_name,
                             'cap': category_cap,
                             'reason': reason.name,
-                        }
-                    )
+                    }
+                )
                 continue
 
             reason_cap = reason.discount_percentage or 0.0
@@ -173,6 +177,17 @@ class PosOrder(models.Model):
                         'reason': reason.name,
                     }
                 )
+
+        if reason.use_category_discount and has_category_rules and not eligible_line_count:
+            raise UserError(
+                _(
+                    "No order lines are eligible for discount reason '%(reason)s'. "
+                    "Remove the discount reason or add products from allowed categories: %(categories)s."
+                ) % {
+                    'reason': reason.name,
+                    'categories': self._get_reason_category_names(reason),
+                }
+            )
 
     def _process_order(self, order, *args):
         self._validate_locked_category_discounts(order)

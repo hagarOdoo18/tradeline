@@ -143,30 +143,33 @@ patch(ControlButtons.prototype, {
         }
 
         const parentMap = this._buildCategoryParentMap();
-        const invalidProducts = [];
+        const matchedLines = [];
+        const unmatchedLines = [];
         orderlines.forEach((line) => {
             const product = line.get_product();
             const matchedDiscount = this._getMatchedCategoryDiscount(product, rules, parentMap);
             if (matchedDiscount === null) {
-                invalidProducts.push(product.display_name);
+                unmatchedLines.push(line);
                 return;
             }
-            // Auto-fill to max configured for this category, cashier can reduce later.
-            line.set_discount(matchedDiscount);
+            matchedLines.push({ line, discount: matchedDiscount });
         });
 
-        if (invalidProducts.length) {
+        if (!matchedLines.length) {
             const allowedCategories = this._getReasonCategoryNames(rules);
             return {
                 ok: false,
-                message:
-                    _t("This discount reason is only allowed for categories: ") +
+                message: _t("No order lines are eligible for this discount reason. Allowed categories: ") +
                     allowedCategories.join(", ") +
                     ". " +
-                    _t("Not allowed products: ") +
-                    invalidProducts.join(", "),
+                    _t("Remove discount reason or add eligible products."),
             };
         }
+
+        // Auto-fill to max configured for each matched category, cashier can reduce later.
+        matchedLines.forEach(({ line, discount }) => line.set_discount(discount));
+        // Ignore non-eligible lines for this reason.
+        unmatchedLines.forEach((line) => line.set_discount(0));
 
         return { ok: true };
     },
