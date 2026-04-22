@@ -177,11 +177,19 @@ patch(PosOrderline.prototype, {
             return null;
         }
 
-        const rules = getReasonCategoryRules(pos, reasonId);
         const reasonCap = Number(reason.discount_percentage || 0);
         if (!reason.use_category_discount) {
             return reasonCap;
         }
+
+        const cachedRules = order?._discount_reason_rule_lines_by_reason?.[reasonId];
+        if (!cachedRules || !cachedRules.length) {
+            // Category mode requires fresh rules loaded when reason is selected.
+            // Avoid falling back to potentially stale POS boot cache.
+            return 0;
+        }
+
+        const rules = cachedRules;
         if (!rules.length) {
             return 0;
         }

@@ -350,12 +350,26 @@ patch(ControlButtons.prototype, {
                     if (confirmed.use_category_discount && reasonId) {
                         try {
                             liveRules = await this._fetchReasonCategoryRulesFromServer(reasonId);
-                            if (liveRules.length) {
-                                this._setOrderReasonRules(order, reasonId, liveRules);
-                            }
                         } catch (error) {
-                            console.warn("Failed to fetch latest discount rules from server, using POS cache.", error);
+                            console.warn("Failed to fetch latest discount rules from server.", error);
+                            this.dialog.add(AlertDialog, {
+                                title: _t("Discount Rules Not Refreshed"),
+                                body: _t(
+                                    "Unable to load latest discount rules from server. "
+                                ) + _t("Please reopen the discount reason and try again."),
+                            });
+                            return;
                         }
+
+                        if (!liveRules.length) {
+                            this.dialog.add(AlertDialog, {
+                                title: _t("Invalid Discount Reason"),
+                                body: _t("This discount reason requires category rules but none are configured."),
+                            });
+                            return;
+                        }
+
+                        this._setOrderReasonRules(order, reasonId, liveRules);
                     }
 
                     const applyResult = this._applyDiscountByReason(order, confirmed, liveRules);
