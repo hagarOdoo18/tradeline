@@ -84,22 +84,57 @@ class PosOrder(models.Model):
         if not category_chain:
             return None
 
+        product_family = getattr(product.product_tmpl_id, "family_id", False)
+        product_family_id = product_family.id if product_family else False
+
         best_match = None
         for rule in rules.sorted(key=lambda r: (r.sequence, r.id)):
             for category in rule.category_ids:
                 if category.id not in category_chain:
                     continue
-                depth = category_chain.index(category.id)
-                if not best_match or depth < best_match[0] or (
-                    depth == best_match[0] and rule.sequence < best_match[1]
-                ):
-                    best_match = (depth, rule.sequence, rule.discount_percentage)
 
-        return best_match[2] if best_match else None
+                has_family_scope = bool(rule.family_ids)
+                if has_family_scope and (
+                    not product_family_id or product_family_id not in rule.family_ids.ids
+                ):
+                    continue
+
+                depth = category_chain.index(category.id)
+                specificity = 0 if has_family_scope else 1
+                if not best_match or specificity < best_match[0] or (
+                    specificity == best_match[0] and depth < best_match[1]
+                ) or (
+                    specificity == best_match[0]
+                    and depth == best_match[1]
+                    and rule.sequence < best_match[2]
+                ):
+                    best_match = (
+                        specificity,
+                        depth,
+                        rule.sequence,
+                        rule.discount_percentage,
+                    )
+
+        return best_match[3] if best_match else None
 
     def _get_reason_category_names(self, reason):
         category_names = reason.category_discount_line_ids.mapped('category_ids').mapped('display_name')
         return ", ".join(sorted(set(category_names))) if category_names else _("No categories configured")
+
+    def _get_reason_scope_display(self, reason):
+        display_parts = []
+        for rule in reason.category_discount_line_ids.sorted(key=lambda r: (r.sequence, r.id)):
+            category_names = ", ".join(rule.category_ids.mapped("display_name"))
+            if rule.family_ids:
+                family_names = ", ".join(rule.family_ids.mapped("display_name"))
+                display_parts.append(_("%(categories)s [Families: %(families)s]") % {
+                    "categories": category_names,
+                    "families": family_names,
+                })
+            elif category_names:
+                display_parts.append(category_names)
+
+        return "; ".join(display_parts) if display_parts else _("No category rules configured")
 
     def _validate_locked_category_discounts(self, order_payload):
         order_vals = order_payload.get('data') if isinstance(order_payload, dict) and order_payload.get('data') else order_payload
@@ -142,11 +177,11 @@ class PosOrder(models.Model):
                         raise UserError(
                             _(
                                 "Product '%(product)s' is not eligible for discount reason '%(reason)s'. "
-                                "Allowed categories: %(categories)s."
+                                "Allowed scope: %(scope)s."
                             ) % {
                                 'product': product.display_name,
                                 'reason': reason.name,
-                                'categories': self._get_reason_category_names(reason),
+                                'scope': self._get_reason_scope_display(reason),
                             }
                         )
                     continue
@@ -182,10 +217,10 @@ class PosOrder(models.Model):
             raise UserError(
                 _(
                     "No order lines are eligible for discount reason '%(reason)s'. "
-                    "Remove the discount reason or add products from allowed categories: %(categories)s."
+                    "Remove the discount reason or add products from allowed scope: %(scope)s."
                 ) % {
                     'reason': reason.name,
-                    'categories': self._get_reason_category_names(reason),
+                    'scope': self._get_reason_scope_display(reason),
                 }
             )
 
@@ -272,7 +307,7 @@ class PosSession(models.Model):
             fields=['id', 'name', 'discount_percentage', 'use_category_discount']
         )
         data['data'][0]['discount_reason_category_lines'] = self.env['discount.reason.category.line'].search_read(
-            fields=['id', 'discount_reason_id', 'category_ids', 'discount_percentage', 'sequence']
+            fields=['id', 'discount_reason_id', 'category_ids', 'family_ids', 'discount_percentage', 'sequence']
         )
         return data
 

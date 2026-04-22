@@ -186,22 +186,51 @@ class SaleOrder(models.Model):
         if not category_chain:
             return None
 
+        product_family = getattr(product.product_tmpl_id, "family_id", False)
+        product_family_id = product_family.id if product_family else False
+
         best_match = None
         for rule in rules.sorted(key=lambda r: (r.sequence, r.id)):
             for category in rule.category_ids:
                 if category.id not in category_chain:
                     continue
-                depth = category_chain.index(category.id)
-                if not best_match or depth < best_match[0] or (
-                    depth == best_match[0] and rule.sequence < best_match[1]
-                ):
-                    best_match = (depth, rule.sequence, rule.discount_percentage)
 
-        return best_match[2] if best_match else None
+                has_family_scope = bool(rule.family_ids)
+                if has_family_scope and (
+                    not product_family_id or product_family_id not in rule.family_ids.ids
+                ):
+                    continue
+
+                depth = category_chain.index(category.id)
+                specificity = 0 if has_family_scope else 1
+                if not best_match or specificity < best_match[0] or (
+                    specificity == best_match[0] and depth < best_match[1]
+                ) or (
+                    specificity == best_match[0]
+                    and depth == best_match[1]
+                    and rule.sequence < best_match[2]
+                ):
+                    best_match = (
+                        specificity,
+                        depth,
+                        rule.sequence,
+                        rule.discount_percentage,
+                    )
+
+        return best_match[3] if best_match else None
 
     def _get_reason_allowed_categories_display(self, reason):
-        categories = self._get_reason_category_rules(reason).mapped("category_ids").mapped("display_name")
-        return ", ".join(sorted(set(categories))) if categories else "No categories configured"
+        display_parts = []
+        for rule in self._get_reason_category_rules(reason).sorted(key=lambda r: (r.sequence, r.id)):
+            category_names = ", ".join(rule.category_ids.mapped("display_name"))
+            if rule.family_ids:
+                family_names = ", ".join(rule.family_ids.mapped("display_name"))
+                display_parts.append(
+                    "%s [Families: %s]" % (category_names, family_names)
+                )
+            elif category_names:
+                display_parts.append(category_names)
+        return "; ".join(display_parts) if display_parts else "No category rules configured"
 
     def _apply_discount_reason_to_lines(self):
         for order in self:
@@ -236,7 +265,7 @@ class SaleOrder(models.Model):
             if not eligible_lines:
                 raise UserError(
                     "No order lines are eligible for this discount reason. "
-                    "Remove discount reason or add eligible products from categories: %s."
+                    "Remove discount reason or add eligible products from allowed scope: %s."
                     % order._get_reason_allowed_categories_display(reason)
                 )
 
@@ -278,8 +307,11 @@ class SaleOrder(models.Model):
                 if category_cap is None:
                     if float_compare(discount, 0.0, precision_digits=2) == 1:
                         raise UserError(
-                            "Product '%s' is not eligible for this discount reason."
-                            % line.product_id.display_name
+                            "Product '%s' is not eligible for this discount reason. Allowed scope: %s."
+                            % (
+                                line.product_id.display_name,
+                                order._get_reason_allowed_categories_display(reason),
+                            )
                         )
                     continue
 
@@ -293,7 +325,7 @@ class SaleOrder(models.Model):
             if not eligible_count:
                 raise UserError(
                     "No order lines are eligible for this discount reason. "
-                    "Remove discount reason or add eligible products from categories: %s."
+                    "Remove discount reason or add eligible products from allowed scope: %s."
                     % order._get_reason_allowed_categories_display(reason)
                 )
 

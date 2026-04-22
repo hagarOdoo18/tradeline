@@ -37,6 +37,13 @@ patch(ControlButtons.prototype, {
         return parentMap;
     },
 
+    _getProductFamilyId(product) {
+        if (!product) {
+            return false;
+        }
+        return this._asId(product.family_id);
+    },
+
     _getCategoryChain(categoryId, parentMap) {
         const chain = [];
         const visited = new Set();
@@ -64,22 +71,42 @@ patch(ControlButtons.prototype, {
                 sequence: Number(line.sequence || 10),
                 discount_percentage: Number(line.discount_percentage || 0),
                 category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
+                family_ids: (line.family_ids || []).map((familyId) => this._asId(familyId)).filter(Boolean),
             }))
             .filter((line) => line.category_ids.length)
             .sort((a, b) => a.sequence - b.sequence);
     },
 
-    _getReasonCategoryNames(rules) {
+    _getReasonScopeLabels(rules) {
         const categoryModel = this.pos.models && this.pos.models["product.category"];
-        const categoryIds = [...new Set(rules.flatMap((rule) => rule.category_ids))];
-        if (!categoryModel) {
+        const familyModel = this.pos.models && this.pos.models["product.family"];
+        if (!categoryModel || !rules.length) {
             return [];
         }
-        return categoryIds
-            .map((id) => categoryModel.getBy("id", id))
-            .filter(Boolean)
-            .map((category) => category.display_name || category.name)
-            .sort();
+
+        return rules.map((rule) => {
+            const categories = rule.category_ids
+                .map((id) => categoryModel.getBy("id", id))
+                .filter(Boolean)
+                .map((category) => category.display_name || category.name)
+                .join(", ");
+
+            if (!rule.family_ids.length) {
+                return categories;
+            }
+
+            const families = rule.family_ids
+                .map((id) => {
+                    const family = familyModel?.getBy("id", id);
+                    if (family) {
+                        return family.display_name || family.name;
+                    }
+                    return `#${id}`;
+                })
+                .join(", ");
+
+            return `${categories} [${_t("Families")}: ${families}]`;
+        });
     },
 
     _getMatchedCategoryDiscount(product, rules, parentMap) {
@@ -93,6 +120,7 @@ patch(ControlButtons.prototype, {
         }
 
         const categoryChain = this._getCategoryChain(categoryId, parentMap);
+        const productFamilyId = this._getProductFamilyId(product);
         let bestMatch = null;
 
         rules.forEach((rule) => {
@@ -102,12 +130,24 @@ patch(ControlButtons.prototype, {
                     return;
                 }
 
+                const hasFamilyScope = Boolean(rule.family_ids.length);
+                if (hasFamilyScope && (!productFamilyId || !rule.family_ids.includes(productFamilyId))) {
+                    return;
+                }
+
+                const specificity = hasFamilyScope ? 0 : 1;
                 if (
                     !bestMatch ||
-                    depth < bestMatch.depth ||
-                    (depth === bestMatch.depth && rule.sequence < bestMatch.sequence)
+                    specificity < bestMatch.specificity ||
+                    (specificity === bestMatch.specificity && depth < bestMatch.depth) ||
+                    (
+                        specificity === bestMatch.specificity &&
+                        depth === bestMatch.depth &&
+                        rule.sequence < bestMatch.sequence
+                    )
                 ) {
                     bestMatch = {
+                        specificity,
                         depth,
                         sequence: rule.sequence,
                         discount: rule.discount_percentage,
@@ -156,11 +196,11 @@ patch(ControlButtons.prototype, {
         });
 
         if (!matchedLines.length) {
-            const allowedCategories = this._getReasonCategoryNames(rules);
+            const allowedScope = this._getReasonScopeLabels(rules);
             return {
                 ok: false,
-                message: _t("No order lines are eligible for this discount reason. Allowed categories: ") +
-                    allowedCategories.join(", ") +
+                message: _t("No order lines are eligible for this discount reason. Allowed scope: ") +
+                    allowedScope.join("; ") +
                     ". " +
                     _t("Remove discount reason or add eligible products."),
             };

@@ -68,6 +68,17 @@ class DiscountReasonCategoryLine(models.Model):
         string="Product Categories",
         required=True,
     )
+    family_ids = fields.Many2many(
+        comodel_name="product.family",
+        relation="discount_reason_category_line_family_rel",
+        column1="line_id",
+        column2="family_id",
+        string="Families",
+        help=(
+            "Optional. If set, this rule only applies when the product family matches "
+            "one of the selected families."
+        ),
+    )
     discount_percentage = fields.Float(
         string="Discount Percentage (%)",
         required=True,
@@ -87,6 +98,68 @@ class DiscountReasonCategoryLine(models.Model):
             if not line.category_ids:
                 raise ValidationError(_("Please select at least one product category."))
 
+    @api.constrains("category_ids", "family_ids")
+    def _check_family_scope_category_count(self):
+        for line in self:
+            if line.family_ids and len(line.category_ids) != 1:
+                raise ValidationError(
+                    _(
+                        "When families are set on a rule, select exactly one product category."
+                    )
+                )
+
+    @api.constrains("discount_reason_id", "category_ids", "family_ids")
+    def _check_duplicate_category_family_rules(self):
+        category_model = self.env["product.category"]
+        family_model = self.env["product.family"]
+
+        for reason in self.mapped("discount_reason_id"):
+            seen_keys = {}
+            for line in reason.category_discount_line_ids:
+                category_ids = line.category_ids.ids
+                if not category_ids:
+                    continue
+
+                family_ids = line.family_ids.ids
+                if family_ids:
+                    if len(category_ids) != 1:
+                        continue
+                    category_id = category_ids[0]
+                    for family_id in family_ids:
+                        key = (category_id, family_id)
+                        if key in seen_keys:
+                            category_name = category_model.browse(category_id).display_name
+                            family_name = family_model.browse(family_id).display_name
+                            raise ValidationError(
+                                _(
+                                    "Duplicate rule for category '%(category)s' and "
+                                    "family '%(family)s' in discount reason '%(reason)s'."
+                                )
+                                % {
+                                    "category": category_name,
+                                    "family": family_name,
+                                    "reason": reason.display_name,
+                                }
+                            )
+                        seen_keys[key] = line.id
+                    continue
+
+                for category_id in category_ids:
+                    key = (category_id, False)
+                    if key in seen_keys:
+                        category_name = category_model.browse(category_id).display_name
+                        raise ValidationError(
+                            _(
+                                "Duplicate fallback category rule for category '%(category)s' "
+                                "in discount reason '%(reason)s'."
+                            )
+                            % {
+                                "category": category_name,
+                                "reason": reason.display_name,
+                            }
+                        )
+                    seen_keys[key] = line.id
+
     @api.model
     def _load_pos_data_domain(self, data):
         reason_data = data.get("discount.reason", {}).get("data", [])
@@ -101,6 +174,7 @@ class DiscountReasonCategoryLine(models.Model):
             "id",
             "discount_reason_id",
             "category_ids",
+            "family_ids",
             "discount_percentage",
             "sequence",
         ]

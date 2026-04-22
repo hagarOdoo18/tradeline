@@ -25,6 +25,13 @@ function buildCategoryParentMap(pos) {
     return parentMap;
 }
 
+function getProductFamilyId(product) {
+    if (!product) {
+        return false;
+    }
+    return asId(product.family_id);
+}
+
 function getCategoryChain(categoryId, parentMap) {
     const chain = [];
     const visited = new Set();
@@ -60,6 +67,7 @@ function getReasonCategoryRules(pos, reasonId) {
             sequence: Number(line.sequence || 10),
             discount_percentage: Number(line.discount_percentage || 0),
             category_ids: (line.category_ids || []).map((categoryId) => asId(categoryId)).filter(Boolean),
+            family_ids: (line.family_ids || []).map((familyId) => asId(familyId)).filter(Boolean),
         }))
         .filter((line) => line.category_ids.length > 0)
         .sort((a, b) => a.sequence - b.sequence);
@@ -76,6 +84,7 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
     }
 
     const categoryChain = getCategoryChain(categoryId, parentMap);
+    const productFamilyId = getProductFamilyId(product);
     let bestMatch = null;
 
     rules.forEach((rule) => {
@@ -85,12 +94,24 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
                 return;
             }
 
+            const hasFamilyScope = Boolean(rule.family_ids.length);
+            if (hasFamilyScope && (!productFamilyId || !rule.family_ids.includes(productFamilyId))) {
+                return;
+            }
+
+            const specificity = hasFamilyScope ? 0 : 1;
             if (
                 !bestMatch ||
-                depth < bestMatch.depth ||
-                (depth === bestMatch.depth && rule.sequence < bestMatch.sequence)
+                specificity < bestMatch.specificity ||
+                (specificity === bestMatch.specificity && depth < bestMatch.depth) ||
+                (
+                    specificity === bestMatch.specificity &&
+                    depth === bestMatch.depth &&
+                    rule.sequence < bestMatch.sequence
+                )
             ) {
                 bestMatch = {
+                    specificity,
                     depth,
                     sequence: rule.sequence,
                     discount: rule.discount_percentage,
