@@ -74,6 +74,7 @@ patch(ControlButtons.prototype, {
             .getAll()
             .filter((line) => this._asId(line.discount_reason_id) === reasonId)
             .map((line) => ({
+                id: this._asId(line.id),
                 sequence: Number(line.sequence || 10),
                 discount_percentage: Number(line.discount_percentage || 0),
                 category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
@@ -96,6 +97,7 @@ patch(ControlButtons.prototype, {
 
         return rows
             .map((line) => ({
+                id: this._asId(line.id),
                 sequence: Number(line.sequence || 10),
                 discount_percentage: Number(line.discount_percentage || 0),
                 category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
@@ -147,7 +149,67 @@ patch(ControlButtons.prototype, {
         });
     },
 
-    _getMatchedCategoryDiscount(product, rules, parentMap) {
+    _isDiscountDebugEnabled() {
+        try {
+            return window.location.search.includes("debug=1");
+        } catch {
+            return false;
+        }
+    },
+
+    _errorToText(error) {
+        if (!error) {
+            return "unknown error";
+        }
+        const message = error.message || error.toString();
+        const serverMessage = error?.data?.message || error?.data?.debug || "";
+        if (serverMessage) {
+            return `${message} | ${serverMessage}`;
+        }
+        return message;
+    },
+
+    _getCategoryNameById(categoryId) {
+        const categoryModel = this.pos.models && this.pos.models["product.category"];
+        if (!categoryModel || !categoryId) {
+            return String(categoryId || "");
+        }
+        const category = categoryModel.getBy("id", categoryId);
+        return (category && (category.display_name || category.name)) || String(categoryId);
+    },
+
+    _getFamilyNameById(familyId) {
+        const familyModel = this.pos.models && this.pos.models["product.family"];
+        if (!familyModel || !familyId) {
+            return String(familyId || "");
+        }
+        const family = familyModel.getBy("id", familyId);
+        return (family && (family.display_name || family.name)) || String(familyId);
+    },
+
+    _buildDiscountDebugReport(reason, lineResults, usedFallback, fallbackErrorText) {
+        const header = [
+            `${_t("Reason")}: ${reason.name}`,
+            `${_t("Fallback Used")}: ${usedFallback ? _t("Yes") : _t("No")}`,
+            fallbackErrorText ? `${_t("Refresh Error")}: ${fallbackErrorText}` : "",
+            "",
+        ].filter(Boolean);
+
+        const body = lineResults.map((item, idx) => {
+            const familyName = item.productFamilyId ? this._getFamilyNameById(item.productFamilyId) : _t("None");
+            if (!item.match) {
+                return `${idx + 1}. ${item.productName}: ${_t("NO MATCH")} (cat=${item.productCategoryName}, family=${familyName})`;
+            }
+            const ruleFamilies = item.match.family_ids.length
+                ? item.match.family_ids.map((id) => this._getFamilyNameById(id)).join(", ")
+                : _t("None");
+            return `${idx + 1}. ${item.productName}: ${item.match.discount}% (rule#${item.match.id || "n/a"}, cat=${item.productCategoryName}, family=${familyName}, ruleFamilies=${ruleFamilies})`;
+        });
+
+        return header.concat(body).join("\n");
+    },
+
+    _getMatchedCategoryRule(product, rules, parentMap) {
         if (!product || !rules.length) {
             return null;
         }
@@ -185,22 +247,31 @@ patch(ControlButtons.prototype, {
                     )
                 ) {
                     bestMatch = {
+                        id: rule.id || null,
                         specificity,
                         depth,
                         sequence: rule.sequence,
                         discount: rule.discount_percentage,
+                        family_ids: rule.family_ids || [],
                     };
                 }
             });
         });
 
-        return bestMatch ? bestMatch.discount : null;
+        return bestMatch;
     },
 
-    _applyDiscountByReason(order, reason, forcedRules = null) {
+    _getMatchedCategoryDiscount(product, rules, parentMap) {
+        const match = this._getMatchedCategoryRule(product, rules, parentMap);
+        return match ? match.discount : null;
+    },
+
+    _applyDiscountByReason(order, reason, forcedRules = null, options = {}) {
         const orderlines = order.get_orderlines();
         const defaultDiscount = Number(reason.discount_percentage || 0);
         const useCategoryDiscount = Boolean(reason.use_category_discount);
+        const usedFallback = Boolean(options.usedFallback);
+        const fallbackErrorText = options.fallbackErrorText || "";
 
         if (!orderlines.length) {
             return { ok: true };
@@ -225,14 +296,24 @@ patch(ControlButtons.prototype, {
         const parentMap = this._buildCategoryParentMap();
         const matchedLines = [];
         const unmatchedLines = [];
+        const lineResults = [];
         orderlines.forEach((line) => {
             const product = line.get_product();
-            const matchedDiscount = this._getMatchedCategoryDiscount(product, rules, parentMap);
-            if (matchedDiscount === null) {
+            const match = this._getMatchedCategoryRule(product, rules, parentMap);
+            const productCategoryId = this._asId(product?.categ_id);
+            const productFamilyId = this._getProductFamilyId(product);
+            lineResults.push({
+                productName: product?.display_name || product?.name || _t("Unknown Product"),
+                productCategoryName: this._getCategoryNameById(productCategoryId),
+                productFamilyId,
+                match,
+            });
+
+            if (match === null) {
                 unmatchedLines.push(line);
                 return;
             }
-            matchedLines.push({ line, discount: matchedDiscount });
+            matchedLines.push({ line, discount: match.discount });
         });
 
         if (!matchedLines.length) {
@@ -251,7 +332,16 @@ patch(ControlButtons.prototype, {
         // Ignore non-eligible lines for this reason.
         unmatchedLines.forEach((line) => line.set_discount(0));
 
-        return { ok: true };
+        const result = { ok: true };
+        if (this._isDiscountDebugEnabled()) {
+            result.debugReport = this._buildDiscountDebugReport(
+                reason,
+                lineResults,
+                usedFallback,
+                fallbackErrorText
+            );
+        }
+        return result;
     },
 
     // Add Discount Reason Button Function
@@ -347,24 +437,23 @@ patch(ControlButtons.prototype, {
                 } else {
                     const reasonId = this._asId(confirmed.id);
                     let liveRules = [];
+                    let usedFallback = false;
+                    let fallbackErrorText = "";
                     if (confirmed.use_category_discount && reasonId) {
                         try {
                             liveRules = await this._fetchReasonCategoryRulesFromServer(reasonId);
                         } catch (error) {
+                            fallbackErrorText = this._errorToText(error);
                             console.warn("Failed to fetch latest discount rules from server.", error);
-                            this.dialog.add(AlertDialog, {
-                                title: _t("Discount Rules Not Refreshed"),
-                                body: _t(
-                                    "Unable to load latest discount rules from server. "
-                                ) + _t("Please reopen the discount reason and try again."),
-                            });
-                            return;
+                            liveRules = this._getReasonCategoryRules(reasonId);
+                            usedFallback = true;
                         }
 
                         if (!liveRules.length) {
                             this.dialog.add(AlertDialog, {
                                 title: _t("Invalid Discount Reason"),
-                                body: _t("This discount reason requires category rules but none are configured."),
+                                body: _t("This discount reason requires category rules but none are configured.") +
+                                    (fallbackErrorText ? `\n\n${_t("Refresh Error")}: ${fallbackErrorText}` : ""),
                             });
                             return;
                         }
@@ -372,13 +461,23 @@ patch(ControlButtons.prototype, {
                         this._setOrderReasonRules(order, reasonId, liveRules);
                     }
 
-                    const applyResult = this._applyDiscountByReason(order, confirmed, liveRules);
+                    const applyResult = this._applyDiscountByReason(order, confirmed, liveRules, {
+                        usedFallback,
+                        fallbackErrorText,
+                    });
                     if (!applyResult.ok) {
                         this.dialog.add(AlertDialog, {
                             title: _t("Invalid Discount Reason"),
                             body: applyResult.message,
                         });
                         return;
+                    }
+
+                    if (applyResult.debugReport) {
+                        this.dialog.add(AlertDialog, {
+                            title: _t("Discount Debug"),
+                            body: applyResult.debugReport,
+                        });
                     }
 
                     order.discount_reason_id = confirmed;
