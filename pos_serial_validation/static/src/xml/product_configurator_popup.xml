@@ -10,6 +10,9 @@
             <div t-if="isStockBlocked" class="alert alert-danger mt-3">
                 <span t-esc="stockBlockedMessage" />
             </div>
+            <div t-if="!isStockBlocked and isStockWarning" class="alert alert-warning mt-3">
+                <span t-esc="stockWarningMessage" />
+            </div>
         </xpath>
         <xpath expr="//button[@t-on-click='confirm']" position="attributes">
             <attribute name="t-att-class">{'disabled': isArchivedCombination() || isStockBlocked}</attribute>

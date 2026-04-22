@@ -21,6 +21,33 @@ function normalizeId(value) {
     return Number.isInteger(id) && id > 0 ? id : false;
 }
 
+function getStockDecision(availability) {
+    if (!availability || typeof availability !== "object") {
+        return "ok";
+    }
+    if (availability.stock_decision) {
+        return availability.stock_decision;
+    }
+    return availability.is_blocked ? "true_oos" : "ok";
+}
+
+function isInconsistentAvailability(availability) {
+    return (
+        availability?.consistency_status === "inconsistent" ||
+        getStockDecision(availability) === "inconsistent"
+    );
+}
+
+function isTrueOutOfStock(availability) {
+    return getStockDecision(availability) === "true_oos";
+}
+
+function computeNoVariantPriceExtra(attributeLinesValues) {
+    return (attributeLinesValues || [])
+        .filter((attr) => attr[0]?.attribute_id?.create_variant === "no_variant")
+        .reduce((acc, values) => acc + (values[0]?.price_extra || 0), 0);
+}
+
 function buildDefaultValuesFromAvailability(pos, availability) {
     if (!availability || !Array.isArray(availability.default_attribute_value_ids)) {
         return {};
@@ -203,7 +230,44 @@ patch(PosStore.prototype, {
             );
         }
         const attributeLinesValues = attributeLines.map((attr) => attr.product_template_value_ids);
-        if (attributeLinesValues.some((values) => values.length > 1 || values[0].is_custom)) {
+
+        const shouldAutoAddDefault =
+            !availability.is_tracked_product &&
+            Boolean(availability.auto_add_default) &&
+            !isInconsistentAvailability(availability) &&
+            !isTrueOutOfStock(availability);
+        if (shouldAutoAddDefault) {
+            const defaultValueIds =
+                availability.default_variant_attribute_value_ids?.length > 0
+                    ? availability.default_variant_attribute_value_ids
+                    : availability.default_attribute_value_ids || [];
+
+            if (Array.isArray(defaultValueIds) && defaultValueIds.length) {
+                const payload = {
+                    attribute_value_ids: defaultValueIds,
+                    attribute_custom_values: [],
+                    price_extra: computeNoVariantPriceExtra(attributeLinesValues),
+                    quantity: opts.qty || opts.quantity || 1,
+                };
+                const preparedPayload = applyAutoVendorSelection(
+                    payload,
+                    availability,
+                    shouldAutoPickVendor
+                );
+                preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+                    product,
+                    preparedPayload.attribute_value_ids
+                );
+                enrichPayloadForVariantMatching(this, preparedPayload, availability);
+                return preparedPayload;
+            }
+        }
+
+        if (
+            attributeLinesValues.some(
+                (values) => values.length === 0 || values.length > 1 || Boolean(values[0]?.is_custom)
+            )
+        ) {
             let defaultValues = buildDefaultValuesFromAvailability(this, availability);
             if (!Object.keys(defaultValues).length) {
                 const match = product.barcode && product.barcode.includes(this.searchProductWord);
@@ -238,12 +302,13 @@ patch(PosStore.prototype, {
         }
 
         const payload = {
-            attribute_value_ids: attributeLinesValues.map((values) => values[0].id),
+            attribute_value_ids: attributeLinesValues
+                .map((values) => values[0]?.id)
+                .map((valueId) => normalizeId(valueId))
+                .filter(Boolean),
             attribute_custom_values: [],
-            price_extra: attributeLinesValues
-                .filter((attr) => attr[0].attribute_id.create_variant === "no_variant")
-                .reduce((acc, values) => acc + values[0].price_extra, 0),
-            quantity: 1,
+            price_extra: computeNoVariantPriceExtra(attributeLinesValues),
+            quantity: opts.qty || opts.quantity || 1,
         };
 
         const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
@@ -332,6 +397,13 @@ patch(ProductConfiguratorPopup.prototype, {
             return false;
         }
 
+        if (isTrueOutOfStock(this.availability)) {
+            return true;
+        }
+        if (isInconsistentAvailability(this.availability)) {
+            return false;
+        }
+
         if (this.availability.is_blocked) {
             return true;
         }
@@ -374,9 +446,23 @@ patch(ProductConfiguratorPopup.prototype, {
         return false;
     },
 
+    get isStockWarning() {
+        if (!this.availability || this.isStockBlocked) {
+            return false;
+        }
+        return isInconsistentAvailability(this.availability) || Boolean(this.availability.warning_message);
+    },
+
     get stockBlockedMessage() {
         return (
             this.availability?.message || _t("This product is out of stock in this POS location.")
+        );
+    },
+
+    get stockWarningMessage() {
+        return (
+            this.availability?.warning_message ||
+            _t("Stock checks are temporarily incomplete. Please verify before payment.")
         );
     },
 
@@ -416,11 +502,13 @@ patch(ProductConfiguratorPopup.prototype, {
 
         const mappedProduct = this.pos.models["product.product"]
             .filter((product) => product.raw?.product_template_variant_value_ids?.length > 0)
-            .find((product) =>
-                product.raw.product_template_variant_value_ids.every((valueId) =>
-                    mappedValueIds.includes(valueId)
-                )
-            );
+            .find((product) => {
+                const productValueIds = product.raw.product_template_variant_value_ids || [];
+                if (productValueIds.length !== mappedValueIds.length) {
+                    return false;
+                }
+                return productValueIds.every((valueId) => mappedValueIds.includes(valueId));
+            });
 
         if (mappedProduct) {
             this.state.product = mappedProduct;
