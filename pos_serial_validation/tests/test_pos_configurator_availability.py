@@ -159,7 +159,7 @@ class TestPosConfiguratorAvailability(TransactionCase):
         self.assertEqual(vendor_by_value[color_ptav["Orange"].id], vendor_ptav["ABM"].id)
         self.assertEqual(payload["default_vendor_value_id"], vendor_ptav["Ram"].id)
 
-    def test_tracked_template_applies_vendor_hide_behavior(self):
+    def test_tracked_template_shows_all_attributes_and_sets_default_combo(self):
         template = self._create_template("POS Configurator Serial", tracking="serial")
         color_line = template.attribute_line_ids.filtered(
             lambda line: line.attribute_id.id == self.color_attribute.id
@@ -189,13 +189,19 @@ class TestPosConfiguratorAvailability(TransactionCase):
 
         payload = self.ProductTemplate.get_pos_configurator_availability(template.id, self.pos_config.id)
 
-        self.assertIn(vendor_line.id, payload["hide_line_ids"])
+        self.assertEqual(payload["hide_line_ids"], [])
+        self.assertTrue(payload["is_tracked_product"])
         self.assertEqual(payload["allowed_value_ids_by_line"][color_line.id], [color_ptav["Black"].id])
+        self.assertEqual(payload["allowed_value_ids_by_line"][vendor_line.id], [vendor_ptav["ABM"].id])
         self.assertEqual(
             payload["vendor_value_by_value_id"][color_ptav["Black"].id],
             vendor_ptav["ABM"].id,
         )
         self.assertEqual(payload["default_vendor_value_id"], vendor_ptav["ABM"].id)
+        self.assertEqual(
+            set(payload["default_attribute_value_ids"]),
+            {color_ptav["Black"].id, vendor_ptav["ABM"].id},
+        )
         self.assertFalse(payload["is_blocked"])
 
     def test_blocked_when_all_variant_stock_is_zero(self):

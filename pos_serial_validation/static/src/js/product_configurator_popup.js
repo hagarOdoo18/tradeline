@@ -21,6 +21,25 @@ function normalizeId(value) {
     return Number.isInteger(id) && id > 0 ? id : false;
 }
 
+function buildDefaultValuesFromAvailability(pos, availability) {
+    if (!availability || !Array.isArray(availability.default_attribute_value_ids)) {
+        return {};
+    }
+    const defaults = {};
+    for (const valueIdRaw of availability.default_attribute_value_ids) {
+        const valueId = normalizeId(valueIdRaw);
+        if (!valueId) {
+            continue;
+        }
+        const ptav = pos.data.models["product.template.attribute.value"].get(valueId);
+        const lineId = ptav?.attribute_line_id?.id;
+        if (lineId) {
+            defaults[lineId] = valueId.toString();
+        }
+    }
+    return defaults;
+}
+
 function applyImplicitSingleValueSelections(payload, availability) {
     if (!payload || !availability) {
         return payload;
@@ -92,8 +111,10 @@ ProductConfiguratorPopup.props = {
 
 patch(PosStore.prototype, {
     async openConfigurator(product, opts = {}) {
+        const tracking = product?.tracking || product?.raw?.tracking;
+        const isTrackedProduct = tracking === "serial" || tracking === "lot";
         let availability = {};
-        const shouldAutoPickVendor = !opts.code;
+        const shouldAutoPickVendor = !opts.code && !isTrackedProduct;
 
         if (product?.raw?.product_tmpl_id && this.config?.id) {
             try {
@@ -120,15 +141,17 @@ patch(PosStore.prototype, {
         }
         const attributeLinesValues = attributeLines.map((attr) => attr.product_template_value_ids);
         if (attributeLinesValues.some((values) => values.length > 1 || values[0].is_custom)) {
-            let defaultValues = {};
-            const match = product.barcode && product.barcode.includes(this.searchProductWord);
-            if (this.searchProductWord && match) {
-                defaultValues = Object.fromEntries(
-                    product.product_template_variant_value_ids.map((value) => [
-                        value.attribute_line_id.id,
-                        value.id.toString(),
-                    ])
-                );
+            let defaultValues = buildDefaultValuesFromAvailability(this, availability);
+            if (!Object.keys(defaultValues).length) {
+                const match = product.barcode && product.barcode.includes(this.searchProductWord);
+                if (this.searchProductWord && match) {
+                    defaultValues = Object.fromEntries(
+                        product.product_template_variant_value_ids.map((value) => [
+                            value.attribute_line_id.id,
+                            value.id.toString(),
+                        ])
+                    );
+                }
             }
 
             const payload = await makeAwaitable(this.dialog, ProductConfiguratorPopup, {
@@ -163,9 +186,12 @@ patch(BaseProductAttribute.prototype, {
         }
 
         const selectedValueId = parseInt(this.state.attribute_value_ids, 10);
-        const hasSelectedValue = this.values.some((value) => value.id === selectedValueId);
-        if (!hasSelectedValue) {
-            this.state.attribute_value_ids = this.values[0].id.toString();
+        const firstSellableValue = this.values.find((value) => !value.excluded);
+        const fallbackValue = firstSellableValue || this.values[0];
+        const selectedValue = this.values.find((value) => value.id === selectedValueId);
+        const shouldReplaceSelected = !selectedValue || selectedValue.excluded;
+        if (shouldReplaceSelected && fallbackValue) {
+            this.state.attribute_value_ids = fallbackValue.id.toString();
         }
     },
 });
@@ -175,6 +201,10 @@ patch(ProductConfiguratorPopup.prototype, {
         super.setup(...arguments);
         this.availability = this.props.availability || {};
         this.disableAutoVendor = Boolean(this.props.disableAutoVendor);
+        this.isTrackedProduct = Boolean(this.availability.is_tracked_product);
+        this.variantLineIds = new Set(
+            (this.availability.variant_line_ids || []).map((lineId) => Number(lineId))
+        );
     },
 
     get validAttributeLineIds() {
@@ -186,8 +216,8 @@ patch(ProductConfiguratorPopup.prototype, {
         const hiddenLineIds = new Set((this.availability.hide_line_ids || []).map((id) => Number(id)));
         const allowedValueIdsByLine = this.availability.allowed_value_ids_by_line || {};
 
-        return lines
-            .filter((line) => !hiddenLineIds.has(line.id))
+        const processedLines = lines
+            .filter((line) => this.isTrackedProduct || !hiddenLineIds.has(line.id))
             .map((line) => {
                 const allowedValueIds = getMappedValue(allowedValueIdsByLine, line.id);
                 if (!Array.isArray(allowedValueIds)) {
@@ -195,13 +225,21 @@ patch(ProductConfiguratorPopup.prototype, {
                 }
 
                 const allowedSet = new Set(allowedValueIds.map((id) => Number(id)));
-                const values = line.product_template_value_ids.filter((value) => allowedSet.has(value.id));
+                const values = this.isTrackedProduct
+                    ? line.product_template_value_ids.map((value) => ({
+                          ...value,
+                          excluded: value.excluded || !allowedSet.has(value.id),
+                      }))
+                    : line.product_template_value_ids.filter((value) => allowedSet.has(value.id));
                 return {
                     ...line,
                     product_template_value_ids: values,
                 };
-            })
-            .filter((line) => line.product_template_value_ids.length > 0);
+            });
+
+        return this.isTrackedProduct
+            ? processedLines
+            : processedLines.filter((line) => line.product_template_value_ids.length > 0);
     },
 
     get isStockBlocked() {
@@ -216,7 +254,28 @@ patch(ProductConfiguratorPopup.prototype, {
         const hasFilteredLines =
             Object.keys(this.availability.allowed_value_ids_by_line || {}).length > 0;
 
-        return hasFilteredLines && this.validAttributeLineIds.length === 0;
+        if (hasFilteredLines && this.validAttributeLineIds.length === 0) {
+            return true;
+        }
+
+        const selectedValueIds = this.getVariantAttributeValueIds();
+        for (const valueId of selectedValueIds) {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            const lineId = ptav?.attribute_line_id?.id;
+            if (!lineId) {
+                continue;
+            }
+            const allowedValueIds = getMappedValue(this.availability.allowed_value_ids_by_line, lineId);
+            if (!Array.isArray(allowedValueIds) || !allowedValueIds.length) {
+                continue;
+            }
+            const allowedSet = new Set(allowedValueIds.map((id) => Number(id)));
+            if (!allowedSet.has(Number(valueId))) {
+                return true;
+            }
+        }
+
+        return false;
     },
 
     get stockBlockedMessage() {
@@ -228,6 +287,18 @@ patch(ProductConfiguratorPopup.prototype, {
     computePayload() {
         const payload = super.computePayload(...arguments);
         return applyAutoVendorSelection(payload, this.availability, !this.disableAutoVendor);
+    },
+
+    getVariantAttributeValueIds() {
+        const valueIds = super.getVariantAttributeValueIds(...arguments);
+        if (!this.variantLineIds.size) {
+            return valueIds;
+        }
+        return valueIds.filter((valueId) => {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            const lineId = ptav?.attribute_line_id?.id;
+            return lineId ? this.variantLineIds.has(lineId) : true;
+        });
     },
 
     confirm() {

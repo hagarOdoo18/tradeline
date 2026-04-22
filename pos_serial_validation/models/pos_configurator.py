@@ -9,11 +9,15 @@ class ProductTemplate(models.Model):
 
     @api.model
     def get_pos_configurator_availability(self, product_tmpl_id, pos_config_id, qty=1):
+        is_tracked_product = False
         result = {
             "hide_line_ids": [],
             "allowed_value_ids_by_line": {},
             "vendor_value_by_value_id": {},
             "default_vendor_value_id": False,
+            "default_attribute_value_ids": [],
+            "variant_line_ids": [],
+            "is_tracked_product": is_tracked_product,
             "is_blocked": False,
             "message": "",
         }
@@ -28,6 +32,8 @@ class ProductTemplate(models.Model):
         pos_config = self.env["pos.config"].browse(pos_config_id).exists()
         if not product_tmpl or not pos_config:
             return result
+        is_tracked_product = product_tmpl.tracking in ("serial", "lot")
+        result["is_tracked_product"] = is_tracked_product
 
         pos_location = pos_config.picking_type_id.default_location_src_id
         if not pos_location:
@@ -38,7 +44,8 @@ class ProductTemplate(models.Model):
         non_vendor_lines = attribute_lines - vendor_lines
         vendor_line_ids = set(vendor_lines.ids)
 
-        result["hide_line_ids"] = vendor_lines.ids
+        # Non-tracked products keep vendor hidden. Tracked products show all attributes.
+        result["hide_line_ids"] = [] if is_tracked_product else vendor_lines.ids
 
         variants = product_tmpl.product_variant_ids
         if not variants:
@@ -52,6 +59,7 @@ class ProductTemplate(models.Model):
                 }
             )
             return result
+        result["variant_line_ids"] = variants.mapped("product_template_variant_value_ids.attribute_line_id").ids
 
         quant_domain = [
             ("product_id", "in", variants.ids),
@@ -71,6 +79,8 @@ class ProductTemplate(models.Model):
         allowed_value_ids_by_line = defaultdict(set)
         vendor_candidate_by_value = {}
         default_vendor_candidate = None
+        default_variant_candidate = None
+        participating_line_ids = set()
         saleable_variant_count = 0
 
         for variant in variants:
@@ -80,6 +90,18 @@ class ProductTemplate(models.Model):
 
             saleable_variant_count += 1
             ptavs = variant.product_template_variant_value_ids
+            participating_line_ids.update(ptavs.mapped("attribute_line_id").ids)
+            variant_candidate = {
+                "available_qty": available_qty,
+                "variant_id": variant.id,
+                "attribute_value_ids": ptavs.ids,
+            }
+            if self._is_better_variant_candidate(variant_candidate, default_variant_candidate):
+                default_variant_candidate = variant_candidate
+
+            for ptav in ptavs:
+                allowed_value_ids_by_line[ptav.attribute_line_id.id].add(ptav.id)
+
             vendor_ptavs = ptavs.filtered(lambda ptav: ptav.attribute_line_id.id in vendor_line_ids)
             selected_vendor_id = vendor_ptavs[:1].id if vendor_ptavs else False
 
@@ -94,7 +116,6 @@ class ProductTemplate(models.Model):
 
             non_vendor_ptavs = ptavs.filtered(lambda ptav: ptav.attribute_line_id.id not in vendor_line_ids)
             for ptav in non_vendor_ptavs:
-                allowed_value_ids_by_line[ptav.attribute_line_id.id].add(ptav.id)
                 if not selected_vendor_id:
                     continue
                 current = vendor_candidate_by_value.get(ptav.id)
@@ -102,13 +123,16 @@ class ProductTemplate(models.Model):
                     vendor_candidate_by_value[ptav.id] = candidate
 
         result["allowed_value_ids_by_line"] = {
-            line.id: sorted(allowed_value_ids_by_line.get(line.id, set())) for line in non_vendor_lines
+            line.id: sorted(allowed_value_ids_by_line.get(line.id, set())) for line in attribute_lines
         }
         result["vendor_value_by_value_id"] = {
             value_id: data["vendor_value_id"] for value_id, data in vendor_candidate_by_value.items()
         }
         result["default_vendor_value_id"] = (
             default_vendor_candidate["vendor_value_id"] if default_vendor_candidate else False
+        )
+        result["default_attribute_value_ids"] = (
+            default_variant_candidate["attribute_value_ids"] if default_variant_candidate else []
         )
 
         if saleable_variant_count == 0:
@@ -121,10 +145,12 @@ class ProductTemplate(models.Model):
             )
             return result
 
-        line_without_values = next(
-            (line for line in non_vendor_lines if not result["allowed_value_ids_by_line"].get(line.id)),
-            False,
-        )
+        # Block only when a line that is part of in-stock variants has no selectable values.
+        required_lines = attribute_lines.filtered(lambda line: line.id in participating_line_ids)
+        if not is_tracked_product:
+            required_lines -= vendor_lines
+
+        line_without_values = next((line for line in required_lines if not allowed_value_ids_by_line.get(line.id)), False)
         if line_without_values:
             result.update(
                 {
@@ -164,6 +190,18 @@ class ProductTemplate(models.Model):
     @api.model
     def _is_better_vendor_candidate(self, candidate, current):
         if not candidate or not candidate.get("vendor_value_id"):
+            return False
+        if not current:
+            return True
+        if candidate["available_qty"] > current["available_qty"]:
+            return True
+        if candidate["available_qty"] < current["available_qty"]:
+            return False
+        return candidate["variant_id"] < current["variant_id"]
+
+    @api.model
+    def _is_better_variant_candidate(self, candidate, current):
+        if not candidate:
             return False
         if not current:
             return True
