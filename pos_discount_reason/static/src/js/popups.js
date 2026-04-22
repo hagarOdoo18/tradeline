@@ -374,9 +374,10 @@ patch(ControlButtons.prototype, {
             console.log("Gift selection result:", confirmed);
 
             if (confirmed !== undefined) {
-                order.as_gift = confirmed;
-//                this.pos.selectedOrder = order;
-                console.log("As gift set to:", confirmed);
+                order.update({
+                    as_gift: Boolean(confirmed),
+                });
+                console.log("As gift set to:", Boolean(confirmed));
             }
         } catch (error) {
             console.error("Error in toggleAsGift:", error);

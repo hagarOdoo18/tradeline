@@ -25,7 +25,9 @@
         'point_of_sale._assets_pos': [
             'pos_discount_reason/static/src/js/popups.js',
             'pos_discount_reason/static/src/js/discount_lock.js',
+            'pos_discount_reason/static/src/js/gift_receipt.js',
             'pos_discount_reason/static/src/xml/control_buttons.xml',
+            'pos_discount_reason/static/src/xml/gift_receipt.xml',
             'pos_discount_reason/static/navbar/navbar.xml',
             'pos_discount_reason/static/src/js/payment_screen.js',
         ],
