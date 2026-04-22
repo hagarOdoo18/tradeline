@@ -1,6 +1,7 @@
 from odoo import fields, models, api
 from random import randint
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_compare
 
 from odoo.http import Controller, request, route
 from odoo.exceptions import ValidationError
@@ -150,13 +151,159 @@ class SaleOrder(models.Model):
             if not rec.invoice_journal_id:
                 raise UserError("Select Invoice Journal ")
 
-
-            if rec.discount_id:
-                for line in rec.order_line:
-                    if line.discount <= 0:
-                        raise UserError("Remove Discount Reason")
+            rec._validate_discount_reason_lines(require_positive_standard=True)
 
         return res
+
+    def _reason_uses_category_mode(self, reason):
+        return bool(
+            reason
+            and "use_category_discount" in reason._fields
+            and reason.use_category_discount
+        )
+
+    def _get_reason_category_rules(self, reason):
+        if not reason or "category_discount_line_ids" not in reason._fields:
+            return self.env["discount.reason.category.line"]
+        return reason.category_discount_line_ids.filtered(lambda r: r.category_ids)
+
+    def _get_category_chain_ids(self, category):
+        chain = []
+        seen = set()
+        current = category
+        while current and current.id not in seen:
+            chain.append(current.id)
+            seen.add(current.id)
+            current = current.parent_id
+        return chain
+
+    def _get_reason_category_cap_for_product(self, reason, product):
+        rules = self._get_reason_category_rules(reason)
+        if not self._reason_uses_category_mode(reason) or not rules:
+            return None
+
+        category_chain = self._get_category_chain_ids(product.categ_id)
+        if not category_chain:
+            return None
+
+        best_match = None
+        for rule in rules.sorted(key=lambda r: (r.sequence, r.id)):
+            for category in rule.category_ids:
+                if category.id not in category_chain:
+                    continue
+                depth = category_chain.index(category.id)
+                if not best_match or depth < best_match[0] or (
+                    depth == best_match[0] and rule.sequence < best_match[1]
+                ):
+                    best_match = (depth, rule.sequence, rule.discount_percentage)
+
+        return best_match[2] if best_match else None
+
+    def _get_reason_allowed_categories_display(self, reason):
+        categories = self._get_reason_category_rules(reason).mapped("category_ids").mapped("display_name")
+        return ", ".join(sorted(set(categories))) if categories else "No categories configured"
+
+    def _apply_discount_reason_to_lines(self):
+        for order in self:
+            reason = order.discount_id
+            if not reason:
+                continue
+
+            lines = order.order_line.filtered("product_id")
+            if not lines:
+                continue
+
+            if not order._reason_uses_category_mode(reason):
+                for line in lines:
+                    line.discount = reason.discount_percentage or 0.0
+                continue
+
+            rules = order._get_reason_category_rules(reason)
+            if not rules:
+                raise UserError(
+                    "This discount reason requires category rules but none are configured."
+                )
+
+            eligible_lines = 0
+            for line in lines:
+                category_cap = order._get_reason_category_cap_for_product(reason, line.product_id)
+                if category_cap is None:
+                    line.discount = 0.0
+                    continue
+                line.discount = category_cap
+                eligible_lines += 1
+
+            if not eligible_lines:
+                raise UserError(
+                    "No order lines are eligible for this discount reason. "
+                    "Remove discount reason or add eligible products from categories: %s."
+                    % order._get_reason_allowed_categories_display(reason)
+                )
+
+    def _validate_discount_reason_lines(self, require_positive_standard=False):
+        for order in self:
+            reason = order.discount_id
+            if not reason:
+                continue
+
+            lines = order.order_line.filtered("product_id")
+            if not lines:
+                continue
+
+            if not order._reason_uses_category_mode(reason):
+                for line in lines:
+                    if float_compare(
+                        line.discount or 0.0,
+                        reason.discount_percentage or 0.0,
+                        precision_digits=2,
+                    ) == 1:
+                        raise UserError("Discount Not Matched with Discount Reason")
+                    if (
+                        require_positive_standard
+                        and float_compare(line.discount or 0.0, 0.0, precision_digits=2) <= 0
+                    ):
+                        raise UserError("Remove Discount Reason")
+                continue
+
+            rules = order._get_reason_category_rules(reason)
+            if not rules:
+                raise UserError(
+                    "This discount reason requires category rules but none are configured."
+                )
+
+            eligible_count = 0
+            for line in lines:
+                discount = line.discount or 0.0
+                category_cap = order._get_reason_category_cap_for_product(reason, line.product_id)
+                if category_cap is None:
+                    if float_compare(discount, 0.0, precision_digits=2) == 1:
+                        raise UserError(
+                            "Product '%s' is not eligible for this discount reason."
+                            % line.product_id.display_name
+                        )
+                    continue
+
+                eligible_count += 1
+                if float_compare(discount, category_cap, precision_digits=2) == 1:
+                    raise UserError(
+                        "Discount for product '%s' cannot exceed %.2f%%."
+                        % (line.product_id.display_name, category_cap)
+                    )
+
+            if not eligible_count:
+                raise UserError(
+                    "No order lines are eligible for this discount reason. "
+                    "Remove discount reason or add eligible products from categories: %s."
+                    % order._get_reason_allowed_categories_display(reason)
+                )
+
+    @api.constrains('discount_id', 'order_line', 'order_line.discount', 'order_line.product_id')
+    def _check_discount_reason_lines(self):
+        self._validate_discount_reason_lines(require_positive_standard=False)
+
+    @api.onchange('discount_id')
+    def _onchange_discount_id_apply_reason(self):
+        self._apply_discount_reason_to_lines()
 
     tax_t1 = fields.Float(compute='_compute_tax', string="VAT14%")
     tax_t2 = fields.Float(compute='_compute_tax', string="VAT1%")
@@ -258,6 +405,13 @@ class SaleOrderLine(models.Model):
         warranty =  self.env['product.warranty'].search([('categ_ids','in',self.product_id.categ_id.id)])
         if warranty:
             self.warranty_id =  warranty.id
+        if self.order_id and self.order_id.discount_id and self.product_id:
+            reason = self.order_id.discount_id
+            if self.order_id._reason_uses_category_mode(reason):
+                category_cap = self.order_id._get_reason_category_cap_for_product(reason, self.product_id)
+                self.discount = category_cap if category_cap is not None else 0.0
+            else:
+                self.discount = reason.discount_percentage or 0.0
 
 
     def _prepare_invoice_line(self, **optional_values):
@@ -281,6 +435,23 @@ class SaleOrderLine(models.Model):
             if line.product_id:
                 if line.discount != 0 and not line.order_id.discount_id:
                     raise UserError("Select Discount Reason To Apply Discount")
+                if not line.order_id.discount_id:
+                    continue
+
+                reason = line.order_id.discount_id
+                if line.order_id._reason_uses_category_mode(reason):
+                    rules = line.order_id._get_reason_category_rules(reason)
+                    if not rules:
+                        raise UserError("This discount reason requires category rules but none are configured.")
+
+                    category_cap = line.order_id._get_reason_category_cap_for_product(reason, line.product_id)
+                    if category_cap is None:
+                        if float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1:
+                            raise UserError("Product Not Eligible For Selected Discount Reason")
+                        continue
+
+                    if float_compare(line.discount or 0.0, category_cap, precision_digits=2) == 1:
+                        raise UserError("Discount Not Matched with Discount Reason")
                 elif line.discount > line.order_id.discount_id.discount_percentage:
                     raise UserError("Discount Not Matched with Discount Reason")
 
