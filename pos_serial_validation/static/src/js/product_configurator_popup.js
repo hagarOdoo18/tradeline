@@ -218,11 +218,10 @@ patch(BaseProductAttribute.prototype, {
 
         const selectedValueId = parseInt(this.state.attribute_value_ids, 10);
         const firstSellableValue = this.values.find((value) => !value.excluded);
-        const fallbackValue = firstSellableValue || this.values[0];
         const selectedValue = this.values.find((value) => value.id === selectedValueId);
         const shouldReplaceSelected = !selectedValue || selectedValue.excluded;
-        if (shouldReplaceSelected && fallbackValue) {
-            this.state.attribute_value_ids = fallbackValue.id.toString();
+        if (shouldReplaceSelected && firstSellableValue) {
+            this.state.attribute_value_ids = firstSellableValue.id.toString();
         }
     },
 });

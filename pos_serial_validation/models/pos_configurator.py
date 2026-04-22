@@ -66,6 +66,7 @@ class ProductTemplate(models.Model):
 
         display_value_by_attribute_value = {}
         display_line_id_by_value_id = {}
+        display_values_by_attribute = defaultdict(list)
         ptav_model = self.env["product.template.attribute.value"]
         has_ptav_active = "ptav_active" in ptav_model._fields
         for line in attribute_lines:
@@ -79,6 +80,15 @@ class ProductTemplate(models.Model):
                 display_line_id_by_value_id[value.id] = line.id
                 key = (line.attribute_id.id, value.product_attribute_value_id.id)
                 display_value_by_attribute_value.setdefault(key, value.id)
+                display_values_by_attribute[line.attribute_id.id].append(
+                    {
+                        "id": value.id,
+                        "normalized_name": self._normalize_attribute_value_name(
+                            value.product_attribute_value_id.name or value.name or ""
+                        ),
+                        "digits": self._extract_digits(value.product_attribute_value_id.name or value.name or ""),
+                    }
+                )
 
         quant_domain = [
             ("product_id", "in", variants.ids),
@@ -114,7 +124,9 @@ class ProductTemplate(models.Model):
             display_ptav_ids = set()
             canonical_ptav_ids = set(ptavs.ids)
             for ptav in ptavs:
-                display_ptav_id = self._resolve_display_ptav_id(ptav, display_value_by_attribute_value)
+                display_ptav_id = self._resolve_display_ptav_id(
+                    ptav, display_value_by_attribute_value, display_values_by_attribute
+                )
                 display_ptav_ids.add(display_ptav_id)
 
             variant_candidate = {
@@ -145,7 +157,9 @@ class ProductTemplate(models.Model):
 
             non_vendor_ptavs = ptavs.filtered(lambda ptav: ptav.attribute_line_id.id not in vendor_line_ids)
             for ptav in non_vendor_ptavs:
-                display_ptav_id = self._resolve_display_ptav_id(ptav, display_value_by_attribute_value)
+                display_ptav_id = self._resolve_display_ptav_id(
+                    ptav, display_value_by_attribute_value, display_values_by_attribute
+                )
                 value_alias_candidate = {
                     "variant_value_id": ptav.id,
                     "available_qty": available_qty,
@@ -270,10 +284,67 @@ class ProductTemplate(models.Model):
         return candidate["variant_id"] < current["variant_id"]
 
     @api.model
-    def _resolve_display_ptav_id(self, ptav, display_value_by_attribute_value):
+    def _resolve_display_ptav_id(
+        self,
+        ptav,
+        display_value_by_attribute_value,
+        display_values_by_attribute,
+    ):
         if not ptav:
             return False
 
         attribute = ptav.attribute_id or ptav.attribute_line_id.attribute_id
         key = (attribute.id, ptav.product_attribute_value_id.id)
-        return display_value_by_attribute_value.get(key, ptav.id)
+        exact_match = display_value_by_attribute_value.get(key)
+        if exact_match:
+            return exact_match
+
+        candidates = display_values_by_attribute.get(attribute.id, [])
+        if not candidates:
+            return ptav.id
+
+        source_names = [
+            ptav.product_attribute_value_id.name or "",
+            ptav.name or "",
+        ]
+        normalized_tokens = [
+            self._normalize_attribute_value_name(name) for name in source_names if name
+        ]
+        digit_tokens = [self._extract_digits(name) for name in source_names if name]
+        digit_tokens = [digits for digits in digit_tokens if digits]
+
+        for token in normalized_tokens:
+            if not token:
+                continue
+            candidate = next((item for item in candidates if item["normalized_name"] == token), False)
+            if candidate:
+                return candidate["id"]
+
+        for digits in digit_tokens:
+            candidate = next((item for item in candidates if item["digits"] == digits), False)
+            if candidate:
+                return candidate["id"]
+
+        for token in normalized_tokens:
+            if not token:
+                continue
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item["normalized_name"] and (token in item["normalized_name"] or item["normalized_name"] in token)
+                ),
+                False,
+            )
+            if candidate:
+                return candidate["id"]
+
+        return ptav.id
+
+    @api.model
+    def _normalize_attribute_value_name(self, name):
+        return "".join(ch for ch in (name or "").lower() if ch.isalnum())
+
+    @api.model
+    def _extract_digits(self, name):
+        return "".join(ch for ch in (name or "") if ch.isdigit())
