@@ -1,5 +1,6 @@
 /** @odoo-module */
 
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { PosOrderline } from "@point_of_sale/app/models/pos_order_line";
 import { patch } from "@web/core/utils/patch";
 
@@ -122,6 +123,32 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
 
     return bestMatch ? bestMatch.discount : null;
 }
+
+patch(PosOrder.prototype, {
+    add_product(product, options) {
+        const existingLines = new Set(this.get_orderlines());
+        const result = super.add_product(product, options);
+        const selectedLine = this.get_selected_orderline();
+        const reasonId = asId(this.discount_reason_id);
+
+        if (!selectedLine || !reasonId) {
+            return result;
+        }
+
+        // Preserve operator-edited discounts when quantity merges into an existing line.
+        if (existingLines.has(selectedLine)) {
+            return result;
+        }
+
+        const cap = selectedLine._getDiscountCap ? selectedLine._getDiscountCap() : null;
+        if (cap === null) {
+            return result;
+        }
+
+        selectedLine.set_discount(cap);
+        return result;
+    },
+});
 
 patch(PosOrderline.prototype, {
     _getDiscountCap() {
