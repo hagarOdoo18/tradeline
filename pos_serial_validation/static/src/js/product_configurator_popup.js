@@ -331,8 +331,11 @@ patch(ProductConfiguratorPopup.prototype, {
             return true;
         }
 
+        const hiddenLineIds = new Set((this.availability.hide_line_ids || []).map((id) => Number(id)));
         const hasFilteredLines =
-            Object.keys(this.availability.allowed_value_ids_by_line || {}).length > 0;
+            Object.keys(this.availability.allowed_value_ids_by_line || {}).some(
+                (lineId) => !hiddenLineIds.has(Number(lineId))
+            );
 
         if (hasFilteredLines && this.validAttributeLineIds.length === 0) {
             return true;
@@ -343,6 +346,9 @@ patch(ProductConfiguratorPopup.prototype, {
             const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
             const lineId = ptav?.attribute_line_id?.id;
             if (!lineId) {
+                continue;
+            }
+            if (hiddenLineIds.has(Number(lineId))) {
                 continue;
             }
             const allowedValueIds = getMappedValue(this.availability.allowed_value_ids_by_line, lineId);
