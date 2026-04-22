@@ -208,6 +208,89 @@ class TestPosConfiguratorAvailability(TransactionCase):
         )
         self.assertFalse(payload["is_blocked"])
 
+    def test_inactive_capacity_value_maps_to_active_display_value(self):
+        capacity_attribute, capacity_values = self._create_attribute(
+            "Capacity Mapping",
+            ["128", "128GB", "256GB"],
+        )
+        template = self.ProductTemplate.create(
+            {
+                "name": "POS Configurator Inactive Capacity Mapping",
+                "sale_ok": True,
+                "available_in_pos": True,
+                "is_storable": True,
+                "tracking": "serial",
+                "attribute_line_ids": [
+                    (
+                        0,
+                        0,
+                        {
+                            "attribute_id": self.color_attribute.id,
+                            "value_ids": [(6, 0, [self.color_values["Black"].id])],
+                        },
+                    ),
+                    (
+                        0,
+                        0,
+                        {
+                            "attribute_id": capacity_attribute.id,
+                            "value_ids": [
+                                (
+                                    6,
+                                    0,
+                                    [
+                                        capacity_values["128"].id,
+                                        capacity_values["128GB"].id,
+                                        capacity_values["256GB"].id,
+                                    ],
+                                )
+                            ],
+                        },
+                    ),
+                ],
+            }
+        )
+
+        color_line = template.attribute_line_ids.filtered(
+            lambda line: line.attribute_id.id == self.color_attribute.id
+        )
+        capacity_line = template.attribute_line_ids.filtered(
+            lambda line: line.attribute_id.id == capacity_attribute.id
+        )
+
+        color_ptav = self._ptav_by_name(color_line)
+        capacity_ptav = self._ptav_by_name(capacity_line)
+
+        if "ptav_active" in self.env["product.template.attribute.value"]._fields:
+            capacity_ptav["128"].write({"ptav_active": False})
+
+        variant = self._variant_for(template, color_ptav["Black"], capacity_ptav["128"])
+        lot = self.StockLot.create(
+            {
+                "name": "CFG-SERIAL-CAP-MAP-001",
+                "product_id": variant.id,
+                "company_id": self.company.id,
+                "location_id": self.pos_location.id,
+            }
+        )
+        self.StockQuant._update_available_quantity(
+            variant,
+            self.pos_location,
+            1.0,
+            lot_id=lot,
+        )
+
+        payload = self.ProductTemplate.get_pos_configurator_availability(template.id, self.pos_config.id)
+
+        self.assertFalse(payload["is_blocked"])
+        self.assertIn(capacity_ptav["128GB"].id, payload["allowed_value_ids_by_line"][capacity_line.id])
+        self.assertEqual(
+            payload["variant_value_by_value_id"][capacity_ptav["128GB"].id],
+            capacity_ptav["128"].id,
+        )
+        self.assertIn(capacity_ptav["128GB"].id, payload["default_attribute_value_ids"])
+        self.assertIn(capacity_ptav["128"].id, payload["default_variant_attribute_value_ids"])
+
     def test_blocked_when_all_variant_stock_is_zero(self):
         template = self._create_template("POS Configurator Zero Stock")
 

@@ -123,6 +123,22 @@ function mapToVariantValueIds(valueIds, availability) {
     return mapped;
 }
 
+function sanitizeAttributeValueIdsForProduct(product, valueIds) {
+    if (!product || !Array.isArray(valueIds)) {
+        return [];
+    }
+
+    const allowedIds = new Set(
+        (product.attribute_line_ids || []).flatMap((line) =>
+            (line.product_template_value_ids || []).map((value) => Number(value.id))
+        )
+    );
+
+    return valueIds
+        .map((valueId) => normalizeId(valueId))
+        .filter((valueId) => valueId && allowedIds.has(Number(valueId)));
+}
+
 ProductConfiguratorPopup.props = {
     ...ProductConfiguratorPopup.props,
     availability: { type: Object, optional: true },
@@ -184,9 +200,9 @@ patch(PosStore.prototype, {
             }
 
             const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
-            preparedPayload.attribute_value_ids = mapToVariantValueIds(
-                preparedPayload.attribute_value_ids,
-                availability
+            preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+                product,
+                preparedPayload.attribute_value_ids
             );
             return preparedPayload;
         }
@@ -201,9 +217,9 @@ patch(PosStore.prototype, {
         };
 
         const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
-        preparedPayload.attribute_value_ids = mapToVariantValueIds(
-            preparedPayload.attribute_value_ids,
-            availability
+        preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+            product,
+            preparedPayload.attribute_value_ids
         );
         return preparedPayload;
     },
@@ -291,8 +307,8 @@ patch(ProductConfiguratorPopup.prototype, {
             return true;
         }
 
-        const selectedValueIds = this.getVariantAttributeValueIds();
-        for (const valueId of selectedValueIds) {
+        const selectedDisplayValueIds = super.getVariantAttributeValueIds();
+        for (const valueId of selectedDisplayValueIds) {
             const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
             const lineId = ptav?.attribute_line_id?.id;
             if (!lineId) {
@@ -319,21 +335,44 @@ patch(ProductConfiguratorPopup.prototype, {
 
     computePayload() {
         const payload = super.computePayload(...arguments);
+        payload.attribute_value_ids = this.getDisplayVariantAttributeValueIds();
         const preparedPayload = applyAutoVendorSelection(
             payload,
             this.availability,
             !this.disableAutoVendor
         );
-        preparedPayload.attribute_value_ids = mapToVariantValueIds(
-            preparedPayload.attribute_value_ids,
-            this.availability
+        preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+            this.props.product,
+            preparedPayload.attribute_value_ids
         );
         return preparedPayload;
     },
 
+    getDisplayVariantAttributeValueIds() {
+        const valueIds = super.getVariantAttributeValueIds(...arguments);
+        return valueIds.filter((valueId) => {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            if (!ptav) {
+                return false;
+            }
+
+            const attributeId = ptav.attribute_id?.id || ptav.attribute_line_id?.attribute_id?.id;
+            if (this.variantAttributeIds.size && attributeId) {
+                return this.variantAttributeIds.has(attributeId);
+            }
+
+            const lineId = ptav.attribute_line_id?.id;
+            if (this.variantLineIds.size && lineId) {
+                return this.variantLineIds.has(lineId);
+            }
+
+            return true;
+        });
+    },
+
     getVariantAttributeValueIds() {
         const mappedValueIds = mapToVariantValueIds(
-            super.getVariantAttributeValueIds(...arguments),
+            this.getDisplayVariantAttributeValueIds(),
             this.availability
         );
         return mappedValueIds.filter((valueId) => {
