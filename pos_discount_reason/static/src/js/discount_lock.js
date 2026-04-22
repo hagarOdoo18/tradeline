@@ -3,6 +3,7 @@
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { PosOrderline } from "@point_of_sale/app/models/pos_order_line";
 import { patch } from "@web/core/utils/patch";
+import { rpc } from "@web/core/network/rpc";
 
 function asId(value) {
     if (Array.isArray(value)) {
@@ -26,11 +27,20 @@ function buildCategoryParentMap(pos) {
     return parentMap;
 }
 
-function getProductFamilyId(product) {
+function getProductFamilyId(product, order = null) {
     if (!product) {
         return false;
     }
-    return asId(product.family_id);
+    const rawFamilyId = asId(product.family_id);
+    if (rawFamilyId) {
+        return rawFamilyId;
+    }
+    const productId = asId(product.id);
+    if (!order || !productId) {
+        return false;
+    }
+    const cache = order._discount_reason_product_family_by_product_id || {};
+    return asId(cache[productId]);
 }
 
 function getCategoryChain(categoryId, parentMap) {
@@ -80,7 +90,7 @@ function getReasonCategoryRules(pos, reasonId) {
         .sort((a, b) => a.sequence - b.sequence);
 }
 
-function getMatchedCategoryDiscount(product, rules, parentMap) {
+function getMatchedCategoryDiscount(product, rules, parentMap, order = null) {
     if (!product || !rules.length) {
         return null;
     }
@@ -91,7 +101,7 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
     }
 
     const categoryChain = getCategoryChain(categoryId, parentMap);
-    const productFamilyId = getProductFamilyId(product);
+    const productFamilyId = getProductFamilyId(product, order);
     let bestMatch = null;
 
     rules.forEach((rule) => {
@@ -130,6 +140,42 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
     return bestMatch ? bestMatch.discount : null;
 }
 
+async function hydrateProductFamiliesForOrder(order, productIds) {
+    if (!order || !productIds?.length) {
+        return;
+    }
+    const response = await rpc(
+        "/web/dataset/call_kw/pos.order/get_products_family_map_pos",
+        {
+            model: "pos.order",
+            method: "get_products_family_map_pos",
+            args: [productIds],
+            kwargs: {},
+        }
+    );
+    if (!order._discount_reason_product_family_by_product_id) {
+        order._discount_reason_product_family_by_product_id = {};
+    }
+    Object.entries(response || {}).forEach(([productId, familyId]) => {
+        const pid = Number(productId);
+        if (Number.isFinite(pid)) {
+            order._discount_reason_product_family_by_product_id[pid] = asId(familyId);
+        }
+    });
+}
+
+async function hydrateLineFamilyAndRefreshDiscount(order, line) {
+    const productId = asId(line?.product_id?.id || line?.product_id);
+    if (!order || !line || !productId) {
+        return;
+    }
+    await hydrateProductFamiliesForOrder(order, [productId]);
+    const cap = line._getDiscountCap ? line._getDiscountCap() : null;
+    if (cap !== null) {
+        line.set_discount(cap);
+    }
+}
+
 patch(PosOrder.prototype, {
     add_product(product, options) {
         const existingLines = new Set(this.get_orderlines());
@@ -152,6 +198,20 @@ patch(PosOrder.prototype, {
         }
 
         selectedLine.set_discount(cap);
+
+        const reasonValue = this.discount_reason_id;
+        const pos = this.pos || this.env?.services?.pos;
+        const reason = (reasonValue && typeof reasonValue === "object")
+            ? reasonValue
+            : getReasonById(pos, reasonId);
+        const rules = this._discount_reason_rule_lines_by_reason?.[reasonId] || [];
+        const hasFamilyScopedRules = rules.some((rule) => (rule.family_ids || []).length > 0);
+        if (reason?.use_category_discount && hasFamilyScopedRules && !getProductFamilyId(selectedLine.product_id, this)) {
+            hydrateLineFamilyAndRefreshDiscount(this, selectedLine).catch((error) => {
+                console.warn("Failed to hydrate product family for POS discount matching.", error);
+            });
+        }
+
         return result;
     },
 });
@@ -196,7 +256,7 @@ patch(PosOrderline.prototype, {
 
         const product = this.product_id;
         const parentMap = buildCategoryParentMap(pos);
-        const matchedDiscount = getMatchedCategoryDiscount(product, rules, parentMap);
+        const matchedDiscount = getMatchedCategoryDiscount(product, rules, parentMap, order);
         return matchedDiscount !== null ? matchedDiscount : 0;
     },
 

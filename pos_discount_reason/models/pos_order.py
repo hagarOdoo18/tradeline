@@ -286,6 +286,32 @@ class PosOrder(models.Model):
             for line in lines
         ]
 
+    @api.model
+    def get_products_family_map_pos(self, product_ids):
+        if not product_ids:
+            return {}
+
+        normalized_ids = []
+        for pid in product_ids:
+            try:
+                normalized_ids.append(int(pid))
+            except (TypeError, ValueError):
+                continue
+
+        if not normalized_ids:
+            return {}
+
+        products = self.env['product.product'].sudo().browse(normalized_ids).exists()
+        result = {}
+        for product in products:
+            family = False
+            if 'family_id' in product._fields:
+                family = product.family_id
+            elif 'family_id' in product.product_tmpl_id._fields:
+                family = product.product_tmpl_id.family_id
+            result[product.id] = family.id if family else False
+        return result
+
 
 
 

@@ -36,11 +36,22 @@ patch(ControlButtons.prototype, {
         return parentMap;
     },
 
-    _getProductFamilyId(product) {
+    _getProductFamilyId(product, order = null) {
         if (!product) {
             return false;
         }
-        return this._asId(product.family_id);
+        const rawFamilyId = this._asId(product.family_id);
+        if (rawFamilyId) {
+            return rawFamilyId;
+        }
+
+        const productId = this._asId(product.id);
+        if (!order || !productId) {
+            return false;
+        }
+
+        const cache = order._discount_reason_product_family_by_product_id || {};
+        return this._asId(cache[productId]);
     },
 
     _getCategoryChain(categoryId, parentMap) {
@@ -118,6 +129,60 @@ patch(ControlButtons.prototype, {
             order._discount_reason_rule_lines_by_reason = {};
         }
         order._discount_reason_rule_lines_by_reason[reasonId] = rules;
+    },
+
+    _setOrderProductFamilyCache(order, mapping) {
+        if (!order || !mapping || typeof mapping !== "object") {
+            return;
+        }
+        if (!order._discount_reason_product_family_by_product_id) {
+            order._discount_reason_product_family_by_product_id = {};
+        }
+
+        Object.entries(mapping).forEach(([productId, familyId]) => {
+            const pid = Number(productId);
+            if (Number.isFinite(pid)) {
+                order._discount_reason_product_family_by_product_id[pid] = this._asId(familyId);
+            }
+        });
+    },
+
+    _collectMissingFamilyProductIds(order, orderlines) {
+        if (!order || !orderlines?.length) {
+            return [];
+        }
+
+        const missingIds = [];
+        orderlines.forEach((line) => {
+            const product = line.get_product();
+            const productId = this._asId(product?.id);
+            if (!productId) {
+                return;
+            }
+            const familyId = this._getProductFamilyId(product, order);
+            if (!familyId) {
+                missingIds.push(productId);
+            }
+        });
+
+        return [...new Set(missingIds)];
+    },
+
+    async _fetchProductFamiliesFromServer(productIds) {
+        if (!productIds?.length) {
+            return {};
+        }
+
+        const mapping = await rpc(
+            "/web/dataset/call_kw/pos.order/get_products_family_map_pos",
+            {
+                model: "pos.order",
+                method: "get_products_family_map_pos",
+                args: [productIds],
+                kwargs: {},
+            }
+        );
+        return mapping || {};
     },
 
     _getReasonScopeLabels(rules) {
@@ -212,7 +277,7 @@ patch(ControlButtons.prototype, {
         return header.concat(body).join("\n");
     },
 
-    _getMatchedCategoryRule(product, rules, parentMap) {
+    _getMatchedCategoryRule(product, rules, parentMap, order = null) {
         if (!product || !rules.length) {
             return null;
         }
@@ -223,7 +288,7 @@ patch(ControlButtons.prototype, {
         }
 
         const categoryChain = this._getCategoryChain(categoryId, parentMap);
-        const productFamilyId = this._getProductFamilyId(product);
+        const productFamilyId = this._getProductFamilyId(product, order);
         let bestMatch = null;
 
         rules.forEach((rule) => {
@@ -264,8 +329,8 @@ patch(ControlButtons.prototype, {
         return bestMatch;
     },
 
-    _getMatchedCategoryDiscount(product, rules, parentMap) {
-        const match = this._getMatchedCategoryRule(product, rules, parentMap);
+    _getMatchedCategoryDiscount(product, rules, parentMap, order = null) {
+        const match = this._getMatchedCategoryRule(product, rules, parentMap, order);
         return match ? match.discount : null;
     },
 
@@ -302,9 +367,9 @@ patch(ControlButtons.prototype, {
         const lineResults = [];
         orderlines.forEach((line) => {
             const product = line.get_product();
-            const match = this._getMatchedCategoryRule(product, rules, parentMap);
+            const match = this._getMatchedCategoryRule(product, rules, parentMap, order);
             const productCategoryId = this._asId(product?.categ_id);
-            const productFamilyId = this._getProductFamilyId(product);
+            const productFamilyId = this._getProductFamilyId(product, order);
             lineResults.push({
                 productName: product?.display_name || product?.name || _t("Unknown Product"),
                 productCategoryName: this._getCategoryNameById(productCategoryId),
@@ -462,6 +527,24 @@ patch(ControlButtons.prototype, {
                         }
 
                         this._setOrderReasonRules(order, reasonId, liveRules);
+
+                        const missingFamilyProductIds = this._collectMissingFamilyProductIds(
+                            order,
+                            order.get_orderlines()
+                        );
+                        if (missingFamilyProductIds.length) {
+                            try {
+                                const familyMap = await this._fetchProductFamiliesFromServer(
+                                    missingFamilyProductIds
+                                );
+                                this._setOrderProductFamilyCache(order, familyMap);
+                            } catch (error) {
+                                console.warn(
+                                    "Failed to hydrate missing product families for discount matching.",
+                                    error
+                                );
+                            }
+                        }
                     }
 
                     const applyResult = this._applyDiscountByReason(order, confirmed, liveRules, {
