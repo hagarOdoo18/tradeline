@@ -310,6 +310,13 @@ class PosSession(models.Model):
     _inherit = 'pos.session'
 
 
+    def _loader_params_product_product(self):
+        params = super()._loader_params_product_product()
+        fields_list = params.get('search_params', {}).get('fields', [])
+        if 'family_id' not in fields_list:
+            fields_list.append('family_id')
+        return params
+
 
     def _loader_params_pos_config(self):
         """Load pos.config fields"""

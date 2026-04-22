@@ -2,17 +2,16 @@
 
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 import { patch } from "@web/core/utils/patch";
-import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
 import { TextInputPopup } from "@point_of_sale/app/utils/input_popups/text_input_popup";
 import { makeAwaitable } from "@point_of_sale/app/store/make_awaitable_dialog";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { rpc } from "@web/core/network/rpc";
 
 patch(ControlButtons.prototype, {
     setup() {
         super.setup();
-        this.orm = useService("orm");
         console.log("ControlButtons patched successfully!");
     },
     _asId(value) {
@@ -89,10 +88,14 @@ patch(ControlButtons.prototype, {
             return [];
         }
 
-        const rows = await this.orm.call(
-            "pos.order",
-            "get_discount_reason_rules_pos",
-            [reasonId]
+        const rows = await rpc(
+            "/web/dataset/call_kw/pos.order/get_discount_reason_rules_pos",
+            {
+                model: "pos.order",
+                method: "get_discount_reason_rules_pos",
+                args: [reasonId],
+                kwargs: {},
+            }
         );
 
         return rows
