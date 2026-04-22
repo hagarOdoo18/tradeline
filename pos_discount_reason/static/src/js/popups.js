@@ -65,7 +65,21 @@ patch(ControlButtons.prototype, {
                 discount_percentage: Number(line.discount_percentage || 0),
                 category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
             }))
+            .filter((line) => line.category_ids.length)
             .sort((a, b) => a.sequence - b.sequence);
+    },
+
+    _getReasonCategoryNames(rules) {
+        const categoryModel = this.pos.models && this.pos.models["product.category"];
+        const categoryIds = [...new Set(rules.flatMap((rule) => rule.category_ids))];
+        if (!categoryModel) {
+            return [];
+        }
+        return categoryIds
+            .map((id) => categoryModel.getBy("id", id))
+            .filter(Boolean)
+            .map((category) => category.display_name || category.name)
+            .sort();
     },
 
     _getMatchedCategoryDiscount(product, rules, parentMap) {
@@ -111,27 +125,50 @@ patch(ControlButtons.prototype, {
         const useCategoryDiscount = Boolean(reason.use_category_discount);
 
         if (!orderlines.length) {
-            return;
+            return { ok: true };
         }
 
         if (!useCategoryDiscount) {
             orderlines.forEach((line) => line.set_discount(defaultDiscount));
-            return;
+            return { ok: true };
         }
 
         const reasonId = this._asId(reason.id);
         const rules = this._getReasonCategoryRules(reasonId);
         if (!rules.length) {
-            orderlines.forEach((line) => line.set_discount(defaultDiscount));
-            return;
+            return {
+                ok: false,
+                message: _t("This discount reason requires category rules but none are configured."),
+            };
         }
 
         const parentMap = this._buildCategoryParentMap();
+        const invalidProducts = [];
         orderlines.forEach((line) => {
             const product = line.get_product();
             const matchedDiscount = this._getMatchedCategoryDiscount(product, rules, parentMap);
-            line.set_discount(matchedDiscount !== null ? matchedDiscount : defaultDiscount);
+            if (matchedDiscount === null) {
+                invalidProducts.push(product.display_name);
+                return;
+            }
+            // Auto-fill to max configured for this category, cashier can reduce later.
+            line.set_discount(matchedDiscount);
         });
+
+        if (invalidProducts.length) {
+            const allowedCategories = this._getReasonCategoryNames(rules);
+            return {
+                ok: false,
+                message:
+                    _t("This discount reason is only allowed for categories: ") +
+                    allowedCategories.join(", ") +
+                    ". " +
+                    _t("Not allowed products: ") +
+                    invalidProducts.join(", "),
+            };
+        }
+
+        return { ok: true };
     },
 
     // Add Discount Reason Button Function
@@ -191,7 +228,7 @@ patch(ControlButtons.prototype, {
                 id: reason.id,
                 item: reason,
                 label: reason.use_category_discount
-                    ? `${reason.name} (${reason.discount_percentage}% max)`
+                    ? `${reason.name} (${_t("By Category Caps")})`
                     : `${reason.name} (${reason.discount_percentage}%)`,
                 isSelected: false,
             }));
@@ -225,12 +262,17 @@ patch(ControlButtons.prototype, {
                         console.log("Custom discount reason set to:", customReason);
                     }
                 } else {
-                    order.discount_reason_id = confirmed;
-//                    this.pos.selectedOrder = order;
-                    console.log("Discount reason set to:", confirmed.name);
-                    console.log("Discount reason set to: ezzat", order.discount_reason_id);
+                    const applyResult = this._applyDiscountByReason(order, confirmed);
+                    if (!applyResult.ok) {
+                        this.dialog.add(AlertDialog, {
+                            title: _t("Invalid Discount Reason"),
+                            body: applyResult.message,
+                        });
+                        return;
+                    }
 
-                    this._applyDiscountByReason(order, confirmed);
+                    order.discount_reason_id = confirmed;
+                    console.log("Discount reason set to:", confirmed.name);
                 }
             }
         } catch (error) {

@@ -20,6 +20,25 @@ class DiscountReason(models.Model):
         copy=True,
     )
 
+    @api.constrains("use_category_discount", "category_discount_line_ids")
+    def _check_category_discount_configuration(self):
+        for reason in self:
+            has_rules = bool(
+                reason.category_discount_line_ids.filtered(lambda line: line.category_ids)
+            )
+            if reason.use_category_discount and not has_rules:
+                raise ValidationError(
+                    _(
+                        "Category-based discount reasons require at least one category rule."
+                    )
+                )
+            if not reason.use_category_discount and reason.category_discount_line_ids:
+                raise ValidationError(
+                    _(
+                        "Remove category rules or enable 'Use Category-Based Discounts'."
+                    )
+                )
+
     @api.model
     def _load_pos_data_fields(self, config_id):
         fields_list = super()._load_pos_data_fields(config_id)
@@ -67,20 +86,6 @@ class DiscountReasonCategoryLine(models.Model):
         for line in self:
             if not line.category_ids:
                 raise ValidationError(_("Please select at least one product category."))
-
-    @api.constrains("discount_percentage", "discount_reason_id")
-    def _check_max_percentage(self):
-        for line in self:
-            if (
-                line.discount_reason_id
-                and line.discount_percentage > line.discount_reason_id.discount_percentage
-            ):
-                raise ValidationError(
-                    _(
-                        "Category discount percentage cannot exceed the discount reason "
-                        "maximum percentage."
-                    )
-                )
 
     @api.model
     def _load_pos_data_domain(self, data):

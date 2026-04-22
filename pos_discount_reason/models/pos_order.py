@@ -75,15 +75,14 @@ class PosOrder(models.Model):
             current = current.parent_id
         return chain
 
-    def _get_expected_discount_for_product(self, reason, product):
-        default_discount = reason.discount_percentage or 0.0
+    def _get_reason_category_cap_for_product(self, reason, product):
         rules = reason.category_discount_line_ids.filtered(lambda l: l.category_ids)
         if not reason.use_category_discount or not rules:
-            return default_discount
+            return None
 
         category_chain = self._get_category_chain_ids(product.categ_id)
         if not category_chain:
-            return default_discount
+            return None
 
         best_match = None
         for rule in rules.sorted(key=lambda r: (r.sequence, r.id)):
@@ -96,7 +95,11 @@ class PosOrder(models.Model):
                 ):
                     best_match = (depth, rule.sequence, rule.discount_percentage)
 
-        return best_match[2] if best_match else default_discount
+        return best_match[2] if best_match else None
+
+    def _get_reason_category_names(self, reason):
+        category_names = reason.category_discount_line_ids.mapped('category_ids').mapped('display_name')
+        return ", ".join(sorted(set(category_names))) if category_names else _("No categories configured")
 
     def _validate_locked_category_discounts(self, order_payload):
         order_vals = order_payload.get('data') if isinstance(order_payload, dict) and order_payload.get('data') else order_payload
@@ -112,8 +115,12 @@ class PosOrder(models.Model):
             return
 
         has_category_rules = bool(reason.category_discount_line_ids.filtered(lambda l: l.category_ids))
-        if not reason.use_category_discount or not has_category_rules:
-            return
+        if reason.use_category_discount and not has_category_rules:
+            raise UserError(
+                _(
+                    "Discount reason '%s' is configured for category discounts but has no category rules."
+                ) % reason.name
+            )
 
         for line_cmd in order_vals.get('lines', []):
             line_vals = self._extract_line_vals(line_cmd)
@@ -125,17 +132,45 @@ class PosOrder(models.Model):
             if not product:
                 continue
 
-            expected_discount = self._get_expected_discount_for_product(reason, product)
             actual_discount = float(line_vals.get('discount') or 0.0)
-            if float_compare(actual_discount, expected_discount, precision_digits=2) != 0:
+
+            if reason.use_category_discount:
+                category_cap = self._get_reason_category_cap_for_product(reason, product)
+                if category_cap is None:
+                    raise UserError(
+                        _(
+                            "Discount reason '%(reason)s' is only allowed for categories: %(categories)s. "
+                            "Product '%(product)s' is not allowed."
+                        ) % {
+                            'reason': reason.name,
+                            'categories': self._get_reason_category_names(reason),
+                            'product': product.display_name,
+                        }
+                    )
+
+                if float_compare(actual_discount, category_cap, precision_digits=2) == 1:
+                    raise UserError(
+                        _(
+                            "Discount for product '%(product)s' cannot exceed %(cap).2f%% "
+                            "for reason '%(reason)s'."
+                        ) % {
+                            'product': product.display_name,
+                            'cap': category_cap,
+                            'reason': reason.name,
+                        }
+                    )
+                continue
+
+            reason_cap = reason.discount_percentage or 0.0
+            if float_compare(actual_discount, reason_cap, precision_digits=2) == 1:
                 raise UserError(
                     _(
-                        "Discount for product '%(product)s' is locked by discount reason '%(reason)s'. "
-                        "Expected %(expected).2f%%."
+                        "Discount for product '%(product)s' cannot exceed %(cap).2f%% "
+                        "for reason '%(reason)s'."
                     ) % {
                         'product': product.display_name,
+                        'cap': reason_cap,
                         'reason': reason.name,
-                        'expected': expected_discount,
                     }
                 )
 

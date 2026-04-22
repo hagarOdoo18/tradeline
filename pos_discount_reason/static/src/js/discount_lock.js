@@ -103,7 +103,7 @@ function getMatchedCategoryDiscount(product, rules, parentMap) {
 }
 
 patch(PosOrderline.prototype, {
-    _getLockedCategoryDiscount() {
+    _getDiscountCap() {
         const order = this.order_id;
         if (!order) {
             return null;
@@ -124,22 +124,28 @@ patch(PosOrderline.prototype, {
         }
 
         const rules = getReasonCategoryRules(pos, reasonId);
-        if (!reason.use_category_discount || !rules.length) {
-            return null;
+        const reasonCap = Number(reason.discount_percentage || 0);
+        if (!reason.use_category_discount) {
+            return reasonCap;
+        }
+        if (!rules.length) {
+            return 0;
         }
 
         const product = this.product_id;
         const parentMap = buildCategoryParentMap(pos);
         const matchedDiscount = getMatchedCategoryDiscount(product, rules, parentMap);
-        const defaultDiscount = Number(reason.discount_percentage || 0);
-        return matchedDiscount !== null ? matchedDiscount : defaultDiscount;
+        return matchedDiscount !== null ? matchedDiscount : 0;
     },
 
     set_discount(discount) {
-        const lockedDiscount = this._getLockedCategoryDiscount();
-        if (lockedDiscount === null) {
+        const cap = this._getDiscountCap();
+        if (cap === null) {
             return super.set_discount(discount);
         }
-        return super.set_discount(lockedDiscount);
+        const requested = Number(discount || 0);
+        const normalized = Number.isFinite(requested) ? requested : 0;
+        const clamped = Math.max(0, Math.min(normalized, cap));
+        return super.set_discount(clamped);
     },
 });
