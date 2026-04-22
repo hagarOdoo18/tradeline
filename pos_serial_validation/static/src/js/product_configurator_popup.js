@@ -139,6 +139,23 @@ function sanitizeAttributeValueIdsForProduct(product, valueIds) {
         .filter((valueId) => valueId && allowedIds.has(Number(valueId)));
 }
 
+function enrichPayloadForVariantMatching(pos, payload, availability) {
+    if (!payload || !Array.isArray(payload.attribute_value_ids)) {
+        return payload;
+    }
+
+    const variantMatchIds = mapToVariantValueIds(payload.attribute_value_ids, availability);
+    payload.variant_match_value_ids = variantMatchIds;
+
+    for (const candidateId of variantMatchIds) {
+        if (!payload.attribute_value_ids.includes(candidateId)) {
+            payload.attribute_value_ids.push(candidateId);
+        }
+    }
+
+    return payload;
+}
+
 ProductConfiguratorPopup.props = {
     ...ProductConfiguratorPopup.props,
     availability: { type: Object, optional: true },
@@ -147,6 +164,18 @@ ProductConfiguratorPopup.props = {
 
 patch(PosStore.prototype, {
     async openConfigurator(product, opts = {}) {
+        const ptavModel = this.data?.models?.["product.template.attribute.value"];
+        if (ptavModel && !ptavModel.__posSerialSafeGetPatched) {
+            const originalGet = ptavModel.get.bind(ptavModel);
+            ptavModel.get = (id) =>
+                originalGet(id) || {
+                    id: Number(id),
+                    is_custom: false,
+                    attribute_id: { create_variant: "always" },
+                };
+            ptavModel.__posSerialSafeGetPatched = true;
+        }
+
         let availability = {};
         const shouldAutoPickVendor = !opts.code;
 
@@ -204,6 +233,7 @@ patch(PosStore.prototype, {
                 product,
                 preparedPayload.attribute_value_ids
             );
+            enrichPayloadForVariantMatching(this, preparedPayload, availability);
             return preparedPayload;
         }
 
@@ -221,6 +251,7 @@ patch(PosStore.prototype, {
             product,
             preparedPayload.attribute_value_ids
         );
+        enrichPayloadForVariantMatching(this, preparedPayload, availability);
         return preparedPayload;
     },
 });
