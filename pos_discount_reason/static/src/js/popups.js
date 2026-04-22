@@ -59,6 +59,12 @@ patch(ControlButtons.prototype, {
     },
 
     _getReasonCategoryRules(reasonId) {
+        const order = this.pos.get_order();
+        const cachedRules = order?._discount_reason_rule_lines_by_reason?.[reasonId];
+        if (cachedRules && cachedRules.length) {
+            return cachedRules;
+        }
+
         const linesModel = this.pos.models && this.pos.models["discount.reason.category.line"];
         if (!linesModel || !reasonId) {
             return [];
@@ -75,6 +81,38 @@ patch(ControlButtons.prototype, {
             }))
             .filter((line) => line.category_ids.length)
             .sort((a, b) => a.sequence - b.sequence);
+    },
+
+    async _fetchReasonCategoryRulesFromServer(reasonId) {
+        if (!reasonId) {
+            return [];
+        }
+
+        const rows = await this.orm.searchRead(
+            "discount.reason.category.line",
+            [["discount_reason_id", "=", reasonId]],
+            ["sequence", "discount_percentage", "category_ids", "family_ids"]
+        );
+
+        return rows
+            .map((line) => ({
+                sequence: Number(line.sequence || 10),
+                discount_percentage: Number(line.discount_percentage || 0),
+                category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
+                family_ids: (line.family_ids || []).map((familyId) => this._asId(familyId)).filter(Boolean),
+            }))
+            .filter((line) => line.category_ids.length)
+            .sort((a, b) => a.sequence - b.sequence);
+    },
+
+    _setOrderReasonRules(order, reasonId, rules) {
+        if (!order || !reasonId || !Array.isArray(rules)) {
+            return;
+        }
+        if (!order._discount_reason_rule_lines_by_reason) {
+            order._discount_reason_rule_lines_by_reason = {};
+        }
+        order._discount_reason_rule_lines_by_reason[reasonId] = rules;
     },
 
     _getReasonScopeLabels(rules) {
@@ -159,7 +197,7 @@ patch(ControlButtons.prototype, {
         return bestMatch ? bestMatch.discount : null;
     },
 
-    _applyDiscountByReason(order, reason) {
+    _applyDiscountByReason(order, reason, forcedRules = null) {
         const orderlines = order.get_orderlines();
         const defaultDiscount = Number(reason.discount_percentage || 0);
         const useCategoryDiscount = Boolean(reason.use_category_discount);
@@ -174,7 +212,9 @@ patch(ControlButtons.prototype, {
         }
 
         const reasonId = this._asId(reason.id);
-        const rules = this._getReasonCategoryRules(reasonId);
+        const rules = forcedRules && forcedRules.length
+            ? forcedRules
+            : this._getReasonCategoryRules(reasonId);
         if (!rules.length) {
             return {
                 ok: false,
@@ -305,7 +345,20 @@ patch(ControlButtons.prototype, {
                         console.log("Custom discount reason set to:", customReason);
                     }
                 } else {
-                    const applyResult = this._applyDiscountByReason(order, confirmed);
+                    const reasonId = this._asId(confirmed.id);
+                    let liveRules = [];
+                    if (confirmed.use_category_discount && reasonId) {
+                        try {
+                            liveRules = await this._fetchReasonCategoryRulesFromServer(reasonId);
+                            if (liveRules.length) {
+                                this._setOrderReasonRules(order, reasonId, liveRules);
+                            }
+                        } catch (error) {
+                            console.warn("Failed to fetch latest discount rules from server, using POS cache.", error);
+                        }
+                    }
+
+                    const applyResult = this._applyDiscountByReason(order, confirmed, liveRules);
                     if (!applyResult.ok) {
                         this.dialog.add(AlertDialog, {
                             title: _t("Invalid Discount Reason"),

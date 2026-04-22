@@ -56,6 +56,12 @@ function getReasonById(pos, reasonId) {
 }
 
 function getReasonCategoryRules(pos, reasonId) {
+    const order = pos?.get_order ? pos.get_order() : null;
+    const cachedRules = order?._discount_reason_rule_lines_by_reason?.[reasonId];
+    if (cachedRules && cachedRules.length) {
+        return cachedRules;
+    }
+
     const linesModel = pos?.models?.["discount.reason.category.line"];
     if (!linesModel || !reasonId) {
         return [];
