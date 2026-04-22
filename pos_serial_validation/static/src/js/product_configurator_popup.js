@@ -348,6 +348,38 @@ patch(ProductConfiguratorPopup.prototype, {
         return preparedPayload;
     },
 
+    computeProductProduct() {
+        super.computeProductProduct(...arguments);
+
+        const hasVariants = this.props.product.attribute_line_ids.some(
+            (line) => line.attribute_id.create_variant !== "no_variant"
+        );
+        if (!hasVariants) {
+            return;
+        }
+
+        const displayPayload = super.computePayload(...arguments);
+        const mappedValueIds = mapToVariantValueIds(
+            displayPayload.attribute_value_ids,
+            this.availability
+        );
+        if (!mappedValueIds.length) {
+            return;
+        }
+
+        const mappedProduct = this.pos.models["product.product"]
+            .filter((product) => product.raw?.product_template_variant_value_ids?.length > 0)
+            .find((product) =>
+                product.raw.product_template_variant_value_ids.every((valueId) =>
+                    mappedValueIds.includes(valueId)
+                )
+            );
+
+        if (mappedProduct) {
+            this.state.product = mappedProduct;
+        }
+    },
+
     getDisplayVariantAttributeValueIds() {
         const valueIds = super.getVariantAttributeValueIds(...arguments);
         return valueIds.filter((valueId) => {
