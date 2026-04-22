@@ -16,12 +16,15 @@
     'website': 'https://www.yourwebsite.com',
     'depends': ['point_of_sale', 'hr','base_tradeline','pos_hr'],
     'data': [
+        'security/ir.model.access.csv',
+        'views/discount_reason_views.xml',
         'views/pos_order_views.xml',
         'views/pos_config_views.xml',
     ],
     'assets': {
         'point_of_sale._assets_pos': [
             'pos_discount_reason/static/src/js/popups.js',
+            'pos_discount_reason/static/src/js/discount_lock.js',
             'pos_discount_reason/static/src/xml/control_buttons.xml',
             'pos_discount_reason/static/navbar/navbar.xml',
             'pos_discount_reason/static/src/js/payment_screen.js',

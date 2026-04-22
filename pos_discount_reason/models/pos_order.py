@@ -1,6 +1,7 @@
 # models/pos_order.py
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_compare
 
 
 class PosOrder(models.Model):
@@ -47,6 +48,100 @@ class PosOrder(models.Model):
         order_fields['sales_rep_id'] = sales_rep_id
 
         return order_fields
+
+    @staticmethod
+    def _extract_m2o_id(value):
+        if isinstance(value, dict):
+            return value.get('id')
+        if isinstance(value, (list, tuple)):
+            return value[0] if value else False
+        return value
+
+    @staticmethod
+    def _extract_line_vals(line_command):
+        if isinstance(line_command, (list, tuple)) and len(line_command) == 3:
+            return line_command[2] or {}
+        if isinstance(line_command, dict):
+            return line_command
+        return {}
+
+    def _get_category_chain_ids(self, category):
+        chain = []
+        seen = set()
+        current = category
+        while current and current.id not in seen:
+            chain.append(current.id)
+            seen.add(current.id)
+            current = current.parent_id
+        return chain
+
+    def _get_expected_discount_for_product(self, reason, product):
+        default_discount = reason.discount_percentage or 0.0
+        rules = reason.category_discount_line_ids.filtered(lambda l: l.category_ids)
+        if not reason.use_category_discount or not rules:
+            return default_discount
+
+        category_chain = self._get_category_chain_ids(product.categ_id)
+        if not category_chain:
+            return default_discount
+
+        best_match = None
+        for rule in rules.sorted(key=lambda r: (r.sequence, r.id)):
+            for category in rule.category_ids:
+                if category.id not in category_chain:
+                    continue
+                depth = category_chain.index(category.id)
+                if not best_match or depth < best_match[0] or (
+                    depth == best_match[0] and rule.sequence < best_match[1]
+                ):
+                    best_match = (depth, rule.sequence, rule.discount_percentage)
+
+        return best_match[2] if best_match else default_discount
+
+    def _validate_locked_category_discounts(self, order_payload):
+        order_vals = order_payload.get('data') if isinstance(order_payload, dict) and order_payload.get('data') else order_payload
+        if not isinstance(order_vals, dict):
+            return
+
+        reason_id = self._extract_m2o_id(order_vals.get('discount_reason_id'))
+        if not reason_id:
+            return
+
+        reason = self.env['discount.reason'].browse(reason_id).exists()
+        if not reason:
+            return
+
+        has_category_rules = bool(reason.category_discount_line_ids.filtered(lambda l: l.category_ids))
+        if not reason.use_category_discount or not has_category_rules:
+            return
+
+        for line_cmd in order_vals.get('lines', []):
+            line_vals = self._extract_line_vals(line_cmd)
+            product_id = self._extract_m2o_id(line_vals.get('product_id'))
+            if not product_id:
+                continue
+
+            product = self.env['product.product'].browse(product_id).exists()
+            if not product:
+                continue
+
+            expected_discount = self._get_expected_discount_for_product(reason, product)
+            actual_discount = float(line_vals.get('discount') or 0.0)
+            if float_compare(actual_discount, expected_discount, precision_digits=2) != 0:
+                raise UserError(
+                    _(
+                        "Discount for product '%(product)s' is locked by discount reason '%(reason)s'. "
+                        "Expected %(expected).2f%%."
+                    ) % {
+                        'product': product.display_name,
+                        'reason': reason.name,
+                        'expected': expected_discount,
+                    }
+                )
+
+    def _process_order(self, order, *args):
+        self._validate_locked_category_discounts(order)
+        return super()._process_order(order, *args)
 
     def _prepare_order_line(self, line):
         """Prepare order line data"""
@@ -123,11 +218,18 @@ class PosSession(models.Model):
         """
         data = super()._load_pos_data(data)
         data['data'][0]['sales_reps'] = self.env['sales.rep'].search_read(fields=['id', 'name'])
-        data['data'][0]['discount_reason'] = self.env['discount.reason'].search_read(fields=['id', 'name','discount_percentage'])
+        data['data'][0]['discount_reason'] = self.env['discount.reason'].search_read(
+            fields=['id', 'name', 'discount_percentage', 'use_category_discount']
+        )
+        data['data'][0]['discount_reason_category_lines'] = self.env['discount.reason.category.line'].search_read(
+            fields=['id', 'discount_reason_id', 'category_ids', 'discount_percentage', 'sequence']
+        )
         return data
 
     @api.model
     def _load_pos_data_models(self, config_id):
         data = super()._load_pos_data_models(config_id)
-        data += ['sales.rep', 'discount.reason']
+        for model_name in ['sales.rep', 'discount.reason', 'discount.reason.category.line']:
+            if model_name not in data:
+                data.append(model_name)
         return data

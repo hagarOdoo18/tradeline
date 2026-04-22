@@ -15,6 +15,124 @@ patch(ControlButtons.prototype, {
         this.orm = useService("orm");
         console.log("ControlButtons patched successfully!");
     },
+    _asId(value) {
+        if (Array.isArray(value)) {
+            return value[0] || false;
+        }
+        if (value && typeof value === "object") {
+            return value.id || false;
+        }
+        return value || false;
+    },
+
+    _buildCategoryParentMap() {
+        const parentMap = new Map();
+        const categoryModel = this.pos.models && this.pos.models["product.category"];
+        const categories = categoryModel ? categoryModel.getAll() : [];
+
+        categories.forEach((category) => {
+            parentMap.set(category.id, this._asId(category.parent_id));
+        });
+
+        return parentMap;
+    },
+
+    _getCategoryChain(categoryId, parentMap) {
+        const chain = [];
+        const visited = new Set();
+        let currentId = categoryId;
+
+        while (currentId && !visited.has(currentId)) {
+            chain.push(currentId);
+            visited.add(currentId);
+            currentId = parentMap.get(currentId);
+        }
+
+        return chain;
+    },
+
+    _getReasonCategoryRules(reasonId) {
+        const linesModel = this.pos.models && this.pos.models["discount.reason.category.line"];
+        if (!linesModel || !reasonId) {
+            return [];
+        }
+
+        return linesModel
+            .getAll()
+            .filter((line) => this._asId(line.discount_reason_id) === reasonId)
+            .map((line) => ({
+                sequence: Number(line.sequence || 10),
+                discount_percentage: Number(line.discount_percentage || 0),
+                category_ids: (line.category_ids || []).map((categoryId) => this._asId(categoryId)).filter(Boolean),
+            }))
+            .sort((a, b) => a.sequence - b.sequence);
+    },
+
+    _getMatchedCategoryDiscount(product, rules, parentMap) {
+        if (!product || !rules.length) {
+            return null;
+        }
+
+        const categoryId = this._asId(product.categ_id);
+        if (!categoryId) {
+            return null;
+        }
+
+        const categoryChain = this._getCategoryChain(categoryId, parentMap);
+        let bestMatch = null;
+
+        rules.forEach((rule) => {
+            rule.category_ids.forEach((ruleCategoryId) => {
+                const depth = categoryChain.indexOf(ruleCategoryId);
+                if (depth === -1) {
+                    return;
+                }
+
+                if (
+                    !bestMatch ||
+                    depth < bestMatch.depth ||
+                    (depth === bestMatch.depth && rule.sequence < bestMatch.sequence)
+                ) {
+                    bestMatch = {
+                        depth,
+                        sequence: rule.sequence,
+                        discount: rule.discount_percentage,
+                    };
+                }
+            });
+        });
+
+        return bestMatch ? bestMatch.discount : null;
+    },
+
+    _applyDiscountByReason(order, reason) {
+        const orderlines = order.get_orderlines();
+        const defaultDiscount = Number(reason.discount_percentage || 0);
+        const useCategoryDiscount = Boolean(reason.use_category_discount);
+
+        if (!orderlines.length) {
+            return;
+        }
+
+        if (!useCategoryDiscount) {
+            orderlines.forEach((line) => line.set_discount(defaultDiscount));
+            return;
+        }
+
+        const reasonId = this._asId(reason.id);
+        const rules = this._getReasonCategoryRules(reasonId);
+        if (!rules.length) {
+            orderlines.forEach((line) => line.set_discount(defaultDiscount));
+            return;
+        }
+
+        const parentMap = this._buildCategoryParentMap();
+        orderlines.forEach((line) => {
+            const product = line.get_product();
+            const matchedDiscount = this._getMatchedCategoryDiscount(product, rules, parentMap);
+            line.set_discount(matchedDiscount !== null ? matchedDiscount : defaultDiscount);
+        });
+    },
 
     // Add Discount Reason Button Function
     async addDiscountReason() {
@@ -72,7 +190,9 @@ patch(ControlButtons.prototype, {
             const reasonList = discountReasons.map((reason) => ({
                 id: reason.id,
                 item: reason,
-                label: `${reason.name} (${reason.discount_percentage}%)`,
+                label: reason.use_category_discount
+                    ? `${reason.name} (${reason.discount_percentage}% max)`
+                    : `${reason.name} (${reason.discount_percentage}%)`,
                 isSelected: false,
             }));
 
@@ -110,14 +230,7 @@ patch(ControlButtons.prototype, {
                     console.log("Discount reason set to:", confirmed.name);
                     console.log("Discount reason set to: ezzat", order.discount_reason_id);
 
-                    // Apply suggested discount percentage if available
-                    if (confirmed.discount_percentage > 0) {
-                        const orderlines = order.get_orderlines();
-                                orderlines.forEach(line => {
-                                    line.set_discount(confirmed.discount_percentage);
-                                    console.log(`Applied ${confirmed.discount_percentage}% discount to line:`, line.get_product().display_name);
-                                });
-                    }
+                    this._applyDiscountByReason(order, confirmed);
                 }
             }
         } catch (error) {
