@@ -21,8 +21,39 @@ function normalizeId(value) {
     return Number.isInteger(id) && id > 0 ? id : false;
 }
 
+function applyImplicitSingleValueSelections(payload, availability) {
+    if (!payload || !availability) {
+        return payload;
+    }
+
+    const attributeValueIds = Array.isArray(payload.attribute_value_ids)
+        ? payload.attribute_value_ids.map((value) => normalizeId(value)).filter(Boolean)
+        : [];
+    const allowedByLine = availability.allowed_value_ids_by_line || {};
+
+    for (const lineId of Object.keys(allowedByLine)) {
+        const allowedValueIds = getMappedValue(allowedByLine, lineId);
+        if (!Array.isArray(allowedValueIds)) {
+            continue;
+        }
+        const normalizedIds = allowedValueIds.map((value) => normalizeId(value)).filter(Boolean);
+        if (normalizedIds.length === 1 && !attributeValueIds.includes(normalizedIds[0])) {
+            attributeValueIds.push(normalizedIds[0]);
+        }
+    }
+
+    payload.attribute_value_ids = attributeValueIds;
+    return payload;
+}
+
 function applyAutoVendorSelection(payload, availability, enabled = true) {
-    if (!enabled || !payload || !availability) {
+    if (!payload || !availability) {
+        return payload;
+    }
+
+    applyImplicitSingleValueSelections(payload, availability);
+
+    if (!enabled) {
         return payload;
     }
 
