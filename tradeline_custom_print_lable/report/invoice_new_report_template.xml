@@ -66,6 +66,72 @@ padding-bottom:13px; padding-top:5px;margin-top:26px;
                 </t>
             </t>
     </template>
+    <template id="pricelist_upc_label_custom">
+
+    <t t-name="custom_product_upc_stock">
+
+                <t t-call="web.basic_layout">
+                    <t t-foreach="docs" t-as="doc">
+                        <div class="page">
+                            <div t-foreach="doc.move_ids_without_package" t-as="move">
+                                <t t-set="quantity" t-value="int(move.product_uom_qty)"/>
+                                <t t-foreach="range(quantity)" t-as="l">
+                                <div style="
+    width:7cm;
+    height:2.5cm;
+    display:inline-block;
+padding-bottom:13px; padding-top:5px;margin-top:26px;
+   margin-left:35px; margin-right:10px;
+    border:1px solid #000;
+    font-family: Arial;
+    overflow:hidden;
+">
+
+    <table style="width:100%; height:100%; border-collapse:collapse;">
+
+        <!-- السطر الأول: السعر + كود المنتج -->
+        <tr>
+            <td style="font-size:8px; text-align:right; width:50%;">
+                <strong t-field="move.product_id.lst_price"
+                        t-options="{'widget': 'monetary',
+                        'display_currency': move.product_id.company_id.currency_id}"/>
+            </td>
+            <td style="font-size:8px; text-align:left; width:50%;">
+                <span t-field="move.product_id.default_code"/>
+            </td>
+        </tr>
+
+        <!-- اسم المنتج -->
+        <tr>
+            <td colspan="2"
+                style="text-align:center; font-size:7px; padding:1px 0;">
+                <strong t-field="move.product_id.display_name"/>
+            </td>
+        </tr>
+
+        <!-- الباركود -->
+        <tr>
+            <td colspan="2" style="text-align:center;">
+                <t t-if="move.product_id.default_code">
+                    <div t-field="move.product_id.default_code"
+                         t-options="{
+                            'widget': 'barcode',
+                            'img_style': 'width:100%; height:1.2cm;'
+                         }"/>
+                </t>
+            </td>
+        </tr>
+
+    </table>
+</div>
+
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+            </t>
+    </template>
     <template id="pricelist_barcode_label_product">
     <t t-name="custom_product_barcode_product">
         <t t-call="web.basic_layout">
@@ -133,6 +199,73 @@ padding-bottom:13px; padding-top:5px;margin-top:26px;
         </t>
     </t>
 </template>
+    <template id="pricelist_upc_label_product">
+    <t t-name="custom_product_upc_product">
+        <t t-call="web.basic_layout">
+            <t t-foreach="docs" t-as="product">
+                <div class="page">
+
+                    <!-- عدد النسخ (افتراضي 1) -->
+
+
+                        <div style="
+                            width:7cm;
+                            height:2.5cm;
+                            display:inline-block;
+                            padding-bottom:13px;
+                            padding-top:5px;
+                            margin-top:26px;
+                            margin-left:35px;
+                            margin-right:10px;
+                            border:1px solid #000;
+                            font-family: Arial;
+                            overflow:hidden;
+                        ">
+
+                            <table style="width:100%; height:100%; border-collapse:collapse;">
+
+                                <!-- السعر + كود المنتج -->
+                                <tr>
+                                    <td style="font-size:8px; text-align:right; width:50%;">
+                                        <strong t-field="product.lst_price"
+                                                t-options="{
+                                                    'widget': 'monetary',
+                                                    'display_currency': product.company_id.currency_id
+                                                }"/>
+                                    </td>
+                                    <td style="font-size:8px; text-align:left; width:50%;">
+                                        <span t-field="product.default_code"/>
+                                    </td>
+                                </tr>
+
+                                <!-- اسم المنتج -->
+                                <tr>
+                                    <td colspan="2"
+                                        style="text-align:center; font-size:7px; padding:1px 0;">
+                                        <strong t-field="product.display_name"/>
+                                    </td>
+                                </tr>
+
+                                <!-- الباركود -->
+                                <tr>
+                                    <td colspan="2" style="text-align:center;">
+                                        <t t-if="product.default_code">
+                                            <div t-field="product.default_code"
+                                                 t-options="{
+                                                    'widget': 'barcode',
+                                                    'img_style': 'width:100%; height:1.2cm;'
+                                                 }"/>
+                                        </t>
+                                    </td>
+                                </tr>
+
+                            </table>
+                        </div>
+                </div>
+            </t>
+        </t>
+    </t>
+</template>
 
 
 
@@ -164,6 +297,17 @@ padding-bottom:13px; padding-top:5px;margin-top:26px;
                  <field name="paperformat_id" ref="custom_paperformat"/>
                 <field name="binding_type">report</field>
             </record>
+            <record id="custom_product_upc" model="ir.actions.report">
+                <field name="name">Product UPC</field>
+                <field name="model">stock.picking</field>
+                <field name="report_type">qweb-pdf</field>
+                <field name="report_name">tradeline_custom_print_lable.pricelist_upc_label_custom</field>
+                <field name="report_file">tradeline_custom_print_lable.pricelist_upc_label_custom</field>
+                <field name="print_report_name">'Product Barcode - %s ' % ((object.name).replace('/',''))</field>
+                <field name="binding_model_id" ref="stock.model_stock_picking"/>
+                 <field name="paperformat_id" ref="custom_paperformat"/>
+                <field name="binding_type">report</field>
+            </record>
 
 
          <record id="custom_product_producr_barcode" model="ir.actions.report">
@@ -172,6 +316,17 @@ padding-bottom:13px; padding-top:5px;margin-top:26px;
                 <field name="report_type">qweb-pdf</field>
                 <field name="report_name">tradeline_custom_print_lable.pricelist_barcode_label_product</field>
                 <field name="report_file">tradeline_custom_print_lable.pricelist_barcode_label_product</field>
+                <field name="print_report_name">'Product Barcode - %s ' % ((object.name).replace('/',''))</field>
+                <field name="binding_model_id" ref="product.model_product_product"/>
+                 <field name="paperformat_id" ref="custom_paperformat"/>
+                <field name="binding_type">report</field>
+            </record>
+         <record id="custom_product_product_upc" model="ir.actions.report">
+                <field name="name">Product UPC</field>
+                <field name="model">product.product</field>
+                <field name="report_type">qweb-pdf</field>
+                <field name="report_name">tradeline_custom_print_lable.pricelist_upc_label_product</field>
+                <field name="report_file">tradeline_custom_print_lable.pricelist_upc_label_product</field>
                 <field name="print_report_name">'Product Barcode - %s ' % ((object.name).replace('/',''))</field>
                 <field name="binding_model_id" ref="product.model_product_product"/>
                  <field name="paperformat_id" ref="custom_paperformat"/>
