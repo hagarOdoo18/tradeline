@@ -70,7 +70,12 @@ class StockQuant(models.Model):
             return ("product_id", "in", product_ids)
 
         def _rewrite(node):
-            if isinstance(node, tuple):
+            if (
+                isinstance(node, (list, tuple))
+                and len(node) >= 3
+                and isinstance(node[0], str)
+                and node[0] not in {"|", "&", "!"}
+            ):
                 return _rewrite_leaf(node)
             if isinstance(node, list):
                 return [_rewrite(item) for item in node]
