@@ -1,7 +1,77 @@
 # -*- coding: utf-8 -*-
+import re
+
 from odoo import api, fields, models
+from odoo.osv import expression
 
 from .product_search import SUPPORTED_TEXT_OPERATORS
+
+TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
+
+
+def _split_search_tokens(value):
+    tokens = [token.lower() for token in re.split(r"[\s,;/|()\-]+", (value or "").strip()) if token]
+    return [token for token in tokens if len(token) >= 2 or token.isdigit()]
+
+
+def _token_present(text, token):
+    haystack = (text or "").lower()
+    if not haystack:
+        return False
+    if re.fullmatch(r"[a-z0-9]+", token):
+        pattern = TOKEN_BOUNDARY_RE % re.escape(token)
+        return bool(re.search(pattern, haystack))
+    return token in haystack
+
+
+def _product_broad_text(product):
+    attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name"))
+    return " ".join(
+        filter(
+            None,
+            [
+                product.display_name,
+                product.name,
+                product.product_tmpl_id.name,
+                attrs_text,
+                product.barcode,
+                product.default_code,
+            ],
+        )
+    ).lower()
+
+
+def _token_any_field_domain(token, operator):
+    return expression.OR(
+        [
+            [("display_name", operator, token)],
+            [("name", operator, token)],
+            [("product_tmpl_id.name", operator, token)],
+            [("product_template_variant_value_ids.name", operator, token)],
+            [("barcode", operator, token)],
+            [("default_code", operator, token)],
+        ]
+    )
+
+
+def _search_product_ids_for_broad(env, value, operator, limit=5000):
+    value = (value or "").strip()
+    if not value:
+        return []
+
+    effective_operator = operator if operator in {"ilike", "like", "=ilike", "=like"} else "ilike"
+    tokens = _split_search_tokens(value)
+    if len(tokens) <= 1:
+        product_matches = env["product.product"].name_search(
+            name=value,
+            operator=effective_operator,
+            limit=limit,
+        )
+        return [product_id for product_id, _name in product_matches]
+
+    token_domain = expression.AND([_token_any_field_domain(token, effective_operator) for token in tokens])
+    products = env["product.product"].search(token_domain, limit=limit)
+    return [product.id for product in products if all(_token_present(_product_broad_text(product), token) for token in tokens)]
 
 
 class StockQuant(models.Model):
@@ -24,13 +94,19 @@ class StockQuant(models.Model):
         if not value:
             return []
 
-        effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
-        product_matches = self.env["product.product"].name_search(
-            name=value,
-            operator=effective_operator,
-            limit=5000,
-        )
-        product_ids = [product_id for product_id, _name in product_matches]
+        tokens = _split_search_tokens(value)
+        if len(tokens) <= 1:
+            effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
+            products = self.env["product.product"].search(
+                [("display_name", effective_operator, value)],
+                limit=5000,
+            )
+        else:
+            token_domain = expression.AND([[("display_name", "ilike", token)] for token in tokens])
+            products = self.env["product.product"].search(token_domain, limit=5000).filtered(
+                lambda product: all(_token_present((product.display_name or "").lower(), token) for token in tokens)
+            )
+        product_ids = products.ids
         if not product_ids:
             return [("id", "=", 0)]
         return [("product_id", "in", product_ids)]
@@ -59,12 +135,7 @@ class StockQuant(models.Model):
             if not value:
                 return term
 
-            product_matches = self.env["product.product"].name_search(
-                name=value,
-                operator=operator,
-                limit=5000,
-            )
-            product_ids = [product_id for product_id, _name in product_matches]
+            product_ids = _search_product_ids_for_broad(self.env, value, operator, limit=5000)
             if not product_ids:
                 return ("id", "=", 0)
             return ("product_id", "in", product_ids)
