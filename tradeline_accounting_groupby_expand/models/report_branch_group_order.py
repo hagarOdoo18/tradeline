@@ -45,21 +45,13 @@ def _search_product_ids_by_specific_text(model, value, operator="ilike", limit=5
     if not value:
         return []
 
-    effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
-    products = model.env["product.product"].search(
-        expression.OR(
-            [
-                [("display_name", effective_operator, value)],
-                [("name", effective_operator, value)],
-                [("product_tmpl_id.name", effective_operator, value)],
-                [("product_template_variant_value_ids.name", effective_operator, value)],
-                [("barcode", effective_operator, value)],
-                [("default_code", effective_operator, value)],
-            ]
-        ),
+    effective_operator = operator if operator in NAME_SEARCH_TEXT_OPERATORS else "ilike"
+    product_matches = model.env["product.product"].name_search(
+        name=value,
+        operator=effective_operator,
         limit=limit,
     )
-    return products.ids
+    return [product_id for product_id, _name in product_matches]
 
 
 def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
@@ -521,10 +513,17 @@ class AccountInvoiceReport(models.Model):
         return _rewrite_product_id_text_domain(self, domain)
 
     @api.model
-    def search(self, domain, offset=0, limit=None, order=None):
+    def _search(self, domain, offset=0, limit=None, order=None, *args, **kwargs):
         domain = self._rewrite_product_id_text_domain(domain)
         domain, _, _ = _apply_time_domain(self, domain, default_field="invoice_date")
-        return super().search(domain, offset=offset, limit=limit, order=order)
+        return super()._search(
+            domain,
+            offset=offset,
+            limit=limit,
+            order=order,
+            *args,
+            **kwargs,
+        )
 
     @api.model
     def read_group(
