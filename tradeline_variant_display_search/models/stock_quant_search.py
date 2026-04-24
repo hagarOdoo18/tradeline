@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from odoo import api, fields, models
-from odoo.osv import expression
 
 from .product_search import SUPPORTED_TEXT_OPERATORS
 
@@ -26,20 +25,12 @@ class StockQuant(models.Model):
             return []
 
         effective_operator = operator if operator in SUPPORTED_TEXT_OPERATORS else "ilike"
-        products = self.env["product.product"].search(
-            expression.OR(
-                [
-                    [("display_name", effective_operator, value)],
-                    [("name", effective_operator, value)],
-                    [("product_tmpl_id.name", effective_operator, value)],
-                    [("product_template_variant_value_ids.name", effective_operator, value)],
-                    [("barcode", effective_operator, value)],
-                    [("default_code", effective_operator, value)],
-                ]
-            ),
+        product_matches = self.env["product.product"].name_search(
+            name=value,
+            operator=effective_operator,
             limit=5000,
         )
-        product_ids = products.ids
+        product_ids = [product_id for product_id, _name in product_matches]
         if not product_ids:
             return [("id", "=", 0)]
         return [("product_id", "in", product_ids)]
@@ -88,9 +79,21 @@ class StockQuant(models.Model):
         return _rewrite(domain)
 
     @api.model
-    def search(self, domain, offset=0, limit=None, order=None):
+    def _search(self, domain, offset=0, limit=None, order=None, *args, **kwargs):
+        """Ensure product_id text filters are normalized in all ORM code paths.
+
+        Odoo list/pager loading commonly calls _search (via search_fetch/web_search_read)
+        directly, so rewriting only in search() misses some UI requests.
+        """
         domain = self._rewrite_product_id_text_domain(domain)
-        return super().search(domain, offset=offset, limit=limit, order=order)
+        return super()._search(
+            domain,
+            offset=offset,
+            limit=limit,
+            order=order,
+            *args,
+            **kwargs,
+        )
 
     @api.model
     def read_group(
