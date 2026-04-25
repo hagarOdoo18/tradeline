@@ -7,6 +7,7 @@ from odoo.osv import expression
 from .product_search import SUPPORTED_TEXT_OPERATORS
 
 TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
+DOMAIN_TEXT_OPERATORS = SUPPORTED_TEXT_OPERATORS | {"="}
 
 
 def _ordered_unique_ids(values):
@@ -152,7 +153,7 @@ class StockQuant(models.Model):
             field_name, operator, value = term[0], term[1], term[2]
             if field_name != "product_id":
                 return term
-            if operator not in SUPPORTED_TEXT_OPERATORS:
+            if operator not in DOMAIN_TEXT_OPERATORS:
                 return term
             if not isinstance(value, str):
                 return term
