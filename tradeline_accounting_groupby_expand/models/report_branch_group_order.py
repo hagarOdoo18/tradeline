@@ -4,12 +4,12 @@ import re
 from dateutil.relativedelta import relativedelta
 
 from odoo import api, fields, models
+from odoo.addons.tradeline_variant_display_search.models.product_search import resolve_broad_product_ids
 from odoo.osv import expression
 
 
 _NUMERIC_FIELD_TYPES = {"integer", "float", "monetary"}
 SUPPORTED_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
-NAME_SEARCH_TEXT_OPERATORS = {"ilike", "like", "=ilike", "=like"}
 POSITIVE_TEXT_OPERATORS = {"=", "ilike", "like", "=ilike", "=like"}
 NEGATIVE_TEXT_OPERATORS = {"!=", "<>", "not ilike", "not like"}
 TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
@@ -38,58 +38,6 @@ def _token_present(text, token):
         pattern = TOKEN_BOUNDARY_RE % re.escape(token)
         return bool(re.search(pattern, haystack))
     return token in haystack
-
-
-def _product_broad_text(product):
-    attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name"))
-    return " ".join(
-        filter(
-            None,
-            [
-                product.display_name,
-                product.name,
-                product.product_tmpl_id.name,
-                attrs_text,
-                product.barcode,
-                product.default_code,
-            ],
-        )
-    ).lower()
-
-
-def _all_tokens_match_strict(text, tokens):
-    return all(_token_present(text, token) for token in tokens)
-
-
-def _normalize_phrase_text(value):
-    normalized = re.sub(r"[^\w]+", " ", (value or "").lower(), flags=re.UNICODE)
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def _phrase_present(text, query):
-    normalized_query = _normalize_phrase_text(query)
-    if not normalized_query:
-        return False
-    normalized_text = _normalize_phrase_text(text)
-    return normalized_query in normalized_text
-
-
-def _all_tokens_match_ordered_relaxed(text, tokens):
-    haystack = (text or "").lower()
-    if not haystack:
-        return False
-    start_at = 0
-    for token in tokens:
-        idx = haystack.find(token, start_at)
-        if idx == -1:
-            return False
-        start_at = idx + len(token)
-    return True
-
-
-def _all_tokens_match_relaxed(text, tokens):
-    haystack = (text or "").lower()
-    return all(token in haystack for token in tokens)
 
 
 def _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
@@ -130,60 +78,7 @@ def _search_product_ids_by_specific_text(model, value, operator="ilike", limit=5
 
 
 def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
-    value = (value or "").strip()
-    if not value:
-        return []
-
-    effective_operator = operator if operator in NAME_SEARCH_TEXT_OPERATORS else "ilike"
-    # Reuse product.product name_search so Invoice Analysis and Apple Stock
-    # follow the same broad product matching/ranking behavior as Product Variants.
-    product_matches = model.env["product.product"].name_search(
-        name=value,
-        args=[],
-        operator=effective_operator,
-        limit=limit,
-    )
-    product_ids = _ordered_unique_ids([product_id for product_id, _name in product_matches])
-
-    tokens = _split_search_tokens(value)
-    if len(tokens) <= 1:
-        return product_ids
-
-    products_by_id = {product.id: product for product in model.env["product.product"].browse(product_ids).exists()}
-    phrase_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _phrase_present(_product_broad_text(products_by_id[product_id]), value)
-    ]
-    if phrase_ids:
-        return phrase_ids
-
-    strict_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_strict(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    if strict_ids:
-        return strict_ids
-
-    ordered_relaxed_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_ordered_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    if ordered_relaxed_ids:
-        return ordered_relaxed_ids
-
-    relaxed_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    return relaxed_ids or product_ids
+    return resolve_broad_product_ids(model.env, value, operator=operator, limit=limit)
 
 
 def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):

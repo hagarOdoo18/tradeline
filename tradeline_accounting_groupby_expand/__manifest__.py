@@ -10,6 +10,7 @@
         "web",
         "accounting_customization",
         "sales_invoice_lines_view",
+        "tradeline_variant_display_search",
     ],
     "data": [
         "views/account_invoice_report_search.xml",

@@ -4,20 +4,10 @@ import re
 from odoo import api, fields, models
 from odoo.osv import expression
 
-from .product_search import SUPPORTED_TEXT_OPERATORS
+from .product_search import SUPPORTED_TEXT_OPERATORS, resolve_broad_product_ids
 
 TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
 DOMAIN_TEXT_OPERATORS = SUPPORTED_TEXT_OPERATORS | {"="}
-
-
-def _ordered_unique_ids(values):
-    ordered = []
-    seen = set()
-    for value in values:
-        if value and value not in seen:
-            seen.add(value)
-            ordered.append(value)
-    return ordered
 
 
 def _split_search_tokens(value):
@@ -35,113 +25,8 @@ def _token_present(text, token):
     return token in haystack
 
 
-def _product_broad_text(product):
-    attrs_text = " ".join(product.product_template_variant_value_ids.mapped("name"))
-    return " ".join(
-        filter(
-            None,
-            [
-                product.display_name,
-                product.name,
-                product.product_tmpl_id.name,
-                attrs_text,
-                product.barcode,
-                product.default_code,
-            ],
-        )
-    ).lower()
-
-
-def _all_tokens_match_strict(text, tokens):
-    return all(_token_present(text, token) for token in tokens)
-
-
-def _normalize_phrase_text(value):
-    normalized = re.sub(r"[^\w]+", " ", (value or "").lower(), flags=re.UNICODE)
-    return re.sub(r"\s+", " ", normalized).strip()
-
-
-def _phrase_present(text, query):
-    normalized_query = _normalize_phrase_text(query)
-    if not normalized_query:
-        return False
-    normalized_text = _normalize_phrase_text(text)
-    return normalized_query in normalized_text
-
-
-def _all_tokens_match_ordered_relaxed(text, tokens):
-    haystack = (text or "").lower()
-    if not haystack:
-        return False
-    start_at = 0
-    for token in tokens:
-        idx = haystack.find(token, start_at)
-        if idx == -1:
-            return False
-        start_at = idx + len(token)
-    return True
-
-
-def _all_tokens_match_relaxed(text, tokens):
-    haystack = (text or "").lower()
-    return all(token in haystack for token in tokens)
-
-
 def _search_product_ids_for_broad(env, value, operator, limit=5000):
-    value = (value or "").strip()
-    if not value:
-        return []
-
-    effective_operator = operator if operator in {"ilike", "like", "=ilike", "=like"} else "ilike"
-    # Use the same search engine as Product Variants "Product (Broad)" so
-    # stock.quant text entry behaves consistently with product.product results.
-    product_matches = env["product.product"].name_search(
-        name=value,
-        args=[],
-        operator=effective_operator,
-        limit=limit,
-    )
-    product_ids = _ordered_unique_ids([product_id for product_id, _name in product_matches])
-
-    tokens = _split_search_tokens(value)
-    if len(tokens) <= 1:
-        return product_ids
-
-    products_by_id = {product.id: product for product in env["product.product"].browse(product_ids).exists()}
-    phrase_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _phrase_present(_product_broad_text(products_by_id[product_id]), value)
-    ]
-    if phrase_ids:
-        return phrase_ids
-
-    strict_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_strict(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    if strict_ids:
-        return strict_ids
-
-    ordered_relaxed_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_ordered_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    if ordered_relaxed_ids:
-        return ordered_relaxed_ids
-
-    relaxed_ids = [
-        product_id
-        for product_id in product_ids
-        if product_id in products_by_id
-        and _all_tokens_match_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
-    ]
-    return relaxed_ids or product_ids
+    return resolve_broad_product_ids(env, value, operator=operator, limit=limit)
 
 
 class StockQuant(models.Model):
