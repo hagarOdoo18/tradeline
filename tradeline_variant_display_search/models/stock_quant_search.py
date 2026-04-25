@@ -9,6 +9,16 @@ from .product_search import SUPPORTED_TEXT_OPERATORS
 TOKEN_BOUNDARY_RE = r"(?<![a-z0-9])%s(?![a-z0-9])"
 
 
+def _ordered_unique_ids(values):
+    ordered = []
+    seen = set()
+    for value in values:
+        if value and value not in seen:
+            seen.add(value)
+            ordered.append(value)
+    return ordered
+
+
 def _split_search_tokens(value):
     tokens = [token.lower() for token in re.split(r"[\s,;/|()\-]+", (value or "").strip()) if token]
     return [token for token in tokens if len(token) >= 2 or token.isdigit()]
@@ -41,37 +51,33 @@ def _product_broad_text(product):
     ).lower()
 
 
-def _token_any_field_domain(token, operator):
-    return expression.OR(
-        [
-            [("display_name", operator, token)],
-            [("name", operator, token)],
-            [("product_tmpl_id.name", operator, token)],
-            [("product_template_variant_value_ids.name", operator, token)],
-            [("barcode", operator, token)],
-            [("default_code", operator, token)],
-        ]
-    )
-
-
 def _search_product_ids_for_broad(env, value, operator, limit=5000):
     value = (value or "").strip()
     if not value:
         return []
 
     effective_operator = operator if operator in {"ilike", "like", "=ilike", "=like"} else "ilike"
+    # Use the same search engine as Product Variants "Product (Broad)" so
+    # stock.quant text entry behaves consistently with product.product results.
+    product_matches = env["product.product"].name_search(
+        name=value,
+        args=[],
+        operator=effective_operator,
+        limit=limit,
+    )
+    product_ids = _ordered_unique_ids([product_id for product_id, _name in product_matches])
+
     tokens = _split_search_tokens(value)
     if len(tokens) <= 1:
-        product_matches = env["product.product"].name_search(
-            name=value,
-            operator=effective_operator,
-            limit=limit,
-        )
-        return [product_id for product_id, _name in product_matches]
+        return product_ids
 
-    token_domain = expression.AND([_token_any_field_domain(token, effective_operator) for token in tokens])
-    products = env["product.product"].search(token_domain, limit=limit)
-    return [product.id for product in products if all(_token_present(_product_broad_text(product), token) for token in tokens)]
+    products_by_id = {product.id: product for product in env["product.product"].browse(product_ids).exists()}
+    return [
+        product_id
+        for product_id in product_ids
+        if product_id in products_by_id
+        and all(_token_present(_product_broad_text(products_by_id[product_id]), token) for token in tokens)
+    ]
 
 
 class StockQuant(models.Model):

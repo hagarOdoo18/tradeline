@@ -57,19 +57,6 @@ def _product_broad_text(product):
     ).lower()
 
 
-def _token_any_field_domain(token, operator):
-    return expression.OR(
-        [
-            [("display_name", operator, token)],
-            [("name", operator, token)],
-            [("product_tmpl_id.name", operator, token)],
-            [("product_template_variant_value_ids.name", operator, token)],
-            [("barcode", operator, token)],
-            [("default_code", operator, token)],
-        ]
-    )
-
-
 def _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
     value = (value or "").strip()
     if not value:
@@ -113,27 +100,27 @@ def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
         return []
 
     effective_operator = operator if operator in NAME_SEARCH_TEXT_OPERATORS else "ilike"
+    # Reuse product.product name_search so Invoice Analysis and Apple Stock
+    # follow the same broad product matching/ranking behavior as Product Variants.
+    product_matches = model.env["product.product"].name_search(
+        name=value,
+        args=[],
+        operator=effective_operator,
+        limit=limit,
+    )
+    product_ids = _ordered_unique_ids([product_id for product_id, _name in product_matches])
+
     tokens = _split_search_tokens(value)
     if len(tokens) <= 1:
-        product_matches = model.env["product.product"].name_search(
-            name=value,
-            operator=effective_operator,
-            limit=limit,
-        )
-        product_ids = [product_id for product_id, _name in product_matches]
-    else:
-        token_domain = expression.AND([_token_any_field_domain(token, effective_operator) for token in tokens])
-        products = model.env["product.product"].search(token_domain, limit=limit)
-        product_ids = [
-            product.id
-            for product in products
-            if all(_token_present(_product_broad_text(product), token) for token in tokens)
-        ]
+        return product_ids
 
-    # Fall back to product master item code and invoiced line item code lookups.
-    product_ids += _search_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
-    product_ids += _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=limit)
-    return _ordered_unique_ids(product_ids)
+    products_by_id = {product.id: product for product in model.env["product.product"].browse(product_ids).exists()}
+    return [
+        product_id
+        for product_id in product_ids
+        if product_id in products_by_id
+        and all(_token_present(_product_broad_text(products_by_id[product_id]), token) for token in tokens)
+    ]
 
 
 def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
