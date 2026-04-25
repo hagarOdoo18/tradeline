@@ -57,6 +57,15 @@ def _product_broad_text(product):
     ).lower()
 
 
+def _all_tokens_match_strict(text, tokens):
+    return all(_token_present(text, token) for token in tokens)
+
+
+def _all_tokens_match_relaxed(text, tokens):
+    haystack = (text or "").lower()
+    return all(token in haystack for token in tokens)
+
+
 def _search_invoiced_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
     value = (value or "").strip()
     if not value:
@@ -115,12 +124,22 @@ def _search_product_ids_by_text(model, value, operator="ilike", limit=5000):
         return product_ids
 
     products_by_id = {product.id: product for product in model.env["product.product"].browse(product_ids).exists()}
-    return [
+    strict_ids = [
         product_id
         for product_id in product_ids
         if product_id in products_by_id
-        and all(_token_present(_product_broad_text(products_by_id[product_id]), token) for token in tokens)
+        and _all_tokens_match_strict(_product_broad_text(products_by_id[product_id]), tokens)
     ]
+    if strict_ids:
+        return strict_ids
+
+    relaxed_ids = [
+        product_id
+        for product_id in product_ids
+        if product_id in products_by_id
+        and _all_tokens_match_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
+    ]
+    return relaxed_ids or product_ids
 
 
 def _search_product_ids_by_item_code(model, value, operator="ilike", limit=5000):
