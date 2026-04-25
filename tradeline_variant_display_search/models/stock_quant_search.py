@@ -56,6 +56,32 @@ def _all_tokens_match_strict(text, tokens):
     return all(_token_present(text, token) for token in tokens)
 
 
+def _normalize_phrase_text(value):
+    normalized = re.sub(r"[^\w]+", " ", (value or "").lower(), flags=re.UNICODE)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _phrase_present(text, query):
+    normalized_query = _normalize_phrase_text(query)
+    if not normalized_query:
+        return False
+    normalized_text = _normalize_phrase_text(text)
+    return normalized_query in normalized_text
+
+
+def _all_tokens_match_ordered_relaxed(text, tokens):
+    haystack = (text or "").lower()
+    if not haystack:
+        return False
+    start_at = 0
+    for token in tokens:
+        idx = haystack.find(token, start_at)
+        if idx == -1:
+            return False
+        start_at = idx + len(token)
+    return True
+
+
 def _all_tokens_match_relaxed(text, tokens):
     haystack = (text or "").lower()
     return all(token in haystack for token in tokens)
@@ -82,6 +108,15 @@ def _search_product_ids_for_broad(env, value, operator, limit=5000):
         return product_ids
 
     products_by_id = {product.id: product for product in env["product.product"].browse(product_ids).exists()}
+    phrase_ids = [
+        product_id
+        for product_id in product_ids
+        if product_id in products_by_id
+        and _phrase_present(_product_broad_text(products_by_id[product_id]), value)
+    ]
+    if phrase_ids:
+        return phrase_ids
+
     strict_ids = [
         product_id
         for product_id in product_ids
@@ -90,6 +125,15 @@ def _search_product_ids_for_broad(env, value, operator, limit=5000):
     ]
     if strict_ids:
         return strict_ids
+
+    ordered_relaxed_ids = [
+        product_id
+        for product_id in product_ids
+        if product_id in products_by_id
+        and _all_tokens_match_ordered_relaxed(_product_broad_text(products_by_id[product_id]), tokens)
+    ]
+    if ordered_relaxed_ids:
+        return ordered_relaxed_ids
 
     relaxed_ids = [
         product_id
