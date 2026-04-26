@@ -168,7 +168,13 @@ class SaleOrder(models.Model):
             domain.append(("inv_type", "=", "quotation"))
         if "invoice_status" in sale_order_model._fields:
             domain.append(("invoice_status", "=", "no"))
-        domain += ["|", ("order_line.product_id.name", "ilike", "down payment"), ("order_line.name", "ilike", "down payment")]
+        domain += [
+            "|", "|", "|",
+            ("order_line.product_id.name", "ilike", "down payment"),
+            ("order_line.product_id.name", "ilike", "downpayment"),
+            ("order_line.name", "ilike", "down payment"),
+            ("order_line.name", "ilike", "downpayment"),
+        ]
 
         if enforce_branch and "branch_id" in sale_order_model._fields and self.branch_id:
             domain.append(("branch_id", "=", self.branch_id.id))

@@ -27,6 +27,19 @@ class PosOrder(models.Model):
         return "down payment" in line_text or "downpayment" in line_text
 
     @api.model
+    def _has_downpayment_text_signal_pos(self, source_order):
+        for line in source_order.order_line:
+            line_text = " ".join(
+                value for value in [
+                    line.name or "",
+                    line.product_id.display_name if line.product_id else "",
+                ] if value
+            ).lower()
+            if "down payment" in line_text or "downpayment" in line_text:
+                return True
+        return False
+
+    @api.model
     def _build_downpayment_source_domain_pos(
         self,
         search_text=False,
@@ -49,7 +62,13 @@ class PosOrder(models.Model):
             domain.append(("inv_type", "=", "quotation"))
         if "invoice_status" in sale_order_model._fields:
             domain.append(("invoice_status", "=", "no"))
-        domain += ["|", ("order_line.product_id.name", "ilike", "down payment"), ("order_line.name", "ilike", "down payment")]
+        domain += [
+            "|", "|", "|",
+            ("order_line.product_id.name", "ilike", "down payment"),
+            ("order_line.product_id.name", "ilike", "downpayment"),
+            ("order_line.name", "ilike", "down payment"),
+            ("order_line.name", "ilike", "downpayment"),
+        ]
 
         if enforce_branch and "branch_id" in sale_order_model._fields and getattr(self.env.user, "branch_id", False):
             domain.append(("branch_id", "=", self.env.user.branch_id.id))
@@ -81,10 +100,13 @@ class PosOrder(models.Model):
         if "invoice_status" in source_order._fields and source_order.invoice_status != "no":
             return False
 
-        return any(
+        has_real_lines = any(
             self._is_downpayment_quotation_line(line)
             for line in source_order.order_line
         )
+        if has_real_lines:
+            return True
+        return self._has_downpayment_text_signal_pos(source_order)
 
     @api.model
     def _search_downpayment_source_by_reference_pos(
