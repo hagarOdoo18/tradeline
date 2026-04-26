@@ -170,23 +170,8 @@ class SaleOrder(models.Model):
             raise UserError(_("Selected quotation has no downpayment lines to load."))
         return downpayment_lines
 
-    def action_load_downpayment_quotation(self):
+    def _prepare_downpayment_line_commands(self, source_lines):
         self.ensure_one()
-        if self.state != "draft":
-            raise UserError(_("You can only load downpayment lines while quotation is in Draft."))
-
-        if self.inv_type != "quotation":
-            raise UserError(_("Load Downpayment is only allowed when Invoice Type is Quotation."))
-
-        if not self.downpayment_source_quotation_id:
-            raise UserError(_("Please select a Downpayment Quotation first."))
-
-        existing_lines = self.order_line.filtered(lambda line: not line.display_type)
-        if existing_lines:
-            raise UserError(_("Please use an empty quotation before loading downpayment lines."))
-
-        source = self.downpayment_source_quotation_id.sudo()
-        source_lines = self._get_valid_downpayment_lines(source)
         line_model = self.env["sale.order.line"]
         has_tax_id = "tax_id" in line_model._fields
         has_tax_ids = "tax_ids" in line_model._fields
@@ -218,17 +203,77 @@ class SaleOrder(models.Model):
 
             line_commands.append((0, 0, vals))
 
-        write_vals = {
-            "order_line": line_commands,
+        return line_commands
+
+    def _prepare_downpayment_fill_vals(self, source):
+        self.ensure_one()
+        source_lines = self._get_valid_downpayment_lines(source)
+        vals = {
+            "order_line": self._prepare_downpayment_line_commands(source_lines),
             "partner_id": source.partner_id.id if source.partner_id else self.partner_id.id,
             "pricelist_id": source.pricelist_id.id if source.pricelist_id else self.pricelist_id.id,
             "downpayment_source_quotation_id": source.id,
         }
         if "team_id" in self._fields and source.team_id:
-            write_vals["team_id"] = source.team_id.id
+            vals["team_id"] = source.team_id.id
         if "sales_rep_id" in self._fields and "sales_rep_id" in source._fields and source.sales_rep_id:
-            write_vals["sales_rep_id"] = source.sales_rep_id.id
+            vals["sales_rep_id"] = source.sales_rep_id.id
+        if "reference_number" in self._fields:
+            vals["reference_number"] = source.reference_number or source.name
+        return vals
 
+    @api.onchange("downpayment_source_quotation_id")
+    def _onchange_downpayment_source_quotation_id(self):
+        for order in self:
+            source = order.downpayment_source_quotation_id
+            if not source:
+                continue
+
+            if order.inv_type != "quotation":
+                return {
+                    "warning": {
+                        "title": _("Invalid Invoice Type"),
+                        "message": _("Load Downpayment is only allowed when Invoice Type is Quotation."),
+                    }
+                }
+
+            existing_lines = order.order_line.filtered(lambda line: not line.display_type)
+            if existing_lines:
+                return {
+                    "warning": {
+                        "title": _("Quotation Not Empty"),
+                        "message": _("Please use an empty quotation before loading downpayment lines."),
+                    }
+                }
+
+            try:
+                vals = order._prepare_downpayment_fill_vals(source.sudo())
+            except UserError as err:
+                return {
+                    "warning": {
+                        "title": _("Cannot Load Downpayment"),
+                        "message": str(err),
+                    }
+                }
+            order.update(vals)
+
+    def action_load_downpayment_quotation(self):
+        self.ensure_one()
+        if self.state != "draft":
+            raise UserError(_("You can only load downpayment lines while quotation is in Draft."))
+
+        if self.inv_type != "quotation":
+            raise UserError(_("Load Downpayment is only allowed when Invoice Type is Quotation."))
+
+        if not self.downpayment_source_quotation_id:
+            raise UserError(_("Please select a Downpayment Quotation first."))
+
+        existing_lines = self.order_line.filtered(lambda line: not line.display_type)
+        if existing_lines:
+            raise UserError(_("Please use an empty quotation before loading downpayment lines."))
+
+        source = self.downpayment_source_quotation_id.sudo()
+        write_vals = self._prepare_downpayment_fill_vals(source)
         self.write(write_vals)
         return True
 
