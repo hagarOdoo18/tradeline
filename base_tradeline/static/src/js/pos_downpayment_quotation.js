@@ -4,6 +4,7 @@ import { ControlButtons } from "@point_of_sale/app/screens/product_screen/contro
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
+import { TextInputPopup } from "@point_of_sale/app/utils/input_popups/text_input_popup";
 import { makeAwaitable } from "@point_of_sale/app/store/make_awaitable_dialog";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { rpc } from "@web/core/network/rpc";
@@ -20,14 +21,101 @@ function getModelRecord(pos, modelName, id) {
     return pos.models[modelName].getBy("id", id) || null;
 }
 
-function buildQuotationLabel(quotation) {
-    const partnerName = quotation.partner_name || _t("Walk-in Customer");
-    const amountLabel = quotation.amount_total_label || "";
-    const validityLabel = quotation.validity_label || _t("No Expiration");
-    return `${quotation.name} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
+function getSourceTypeLabel(source) {
+    if (source?.inv_type === "invoice") {
+        return _t("Invoice");
+    }
+    if (source?.inv_type === "quotation") {
+        return _t("Quotation");
+    }
+    return _t("Source");
+}
+
+function buildSourceLabel(source) {
+    const sourceType = getSourceTypeLabel(source);
+    const reference = source.reference_number ? ` [${source.reference_number}]` : "";
+    const partnerName = source.partner_name || _t("Walk-in Customer");
+    const amountLabel = source.amount_total_label || "";
+    const validityLabel = source.validity_label || _t("No Expiration");
+    return `${sourceType}${reference} ${source.name} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
 }
 
 patch(ControlButtons.prototype, {
+    async _loadDownpaymentSourceIntoOrder(order, details) {
+        if (!details || !Array.isArray(details.lines) || !details.lines.length) {
+            this.dialog.add(AlertDialog, {
+                title: _t("No Usable Lines"),
+                body: _t("The selected source has no downpayment lines available in POS."),
+            });
+            return;
+        }
+
+        if (details.partner_id) {
+            const partner = getModelRecord(this.pos, "res.partner", details.partner_id);
+            if (partner) {
+                order.set_partner(partner);
+            }
+        }
+
+        const missingProducts = [];
+        for (const line of details.lines) {
+            const product = getModelRecord(this.pos, "product.product", line.product_id);
+            if (!product) {
+                missingProducts.push(line.product_name || `#${line.product_id}`);
+                continue;
+            }
+
+            const quantity = Math.max(asNumber(line.qty, 1), 1);
+            order.add_product(product, { quantity, merge: false });
+            const selectedLine = order.get_selected_orderline();
+            if (!selectedLine) {
+                continue;
+            }
+            selectedLine.set_quantity(quantity);
+            selectedLine.set_unit_price(asNumber(line.price_unit, selectedLine.get_unit_price()));
+            selectedLine.set_discount(Math.max(0, asNumber(line.discount, 0)));
+        }
+
+        order.downpayment_quotation_id = details.source_id || details.quotation_id || false;
+        order.downpayment_quotation_name = details.source_name || details.quotation_name || "";
+
+        const backendMissing = Array.isArray(details.missing_products) ? details.missing_products : [];
+        const allMissing = [...new Set([...backendMissing, ...missingProducts])];
+        if (allMissing.length) {
+            this.dialog.add(AlertDialog, {
+                title: _t("Some Products Not In POS"),
+                body: _t("The following downpayment products are not available in POS and were skipped: ") + allMissing.join(", "),
+            });
+        }
+    },
+
+    async _openManualDownpaymentLookup(order) {
+        const manualReference = await makeAwaitable(this.dialog, TextInputPopup, {
+            title: _t("Manual Downpayment Reference"),
+            placeholder: _t("Enter reference number..."),
+        });
+        if (!manualReference) {
+            return;
+        }
+
+        const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_source_by_reference_pos", {
+            model: "pos.order",
+            method: "get_downpayment_source_by_reference_pos",
+            args: [manualReference, false],
+            kwargs: {},
+        });
+
+        if (!details || !details.source_id) {
+            this.dialog.add(AlertDialog, {
+                title: _t("No Source Found"),
+                body: _t("No downpayment source found for this manual reference."),
+            });
+            return;
+        }
+
+        await this._loadDownpaymentSourceIntoOrder(order, details);
+    },
+
     async selectDownpaymentQuotation() {
         const order = this.pos.get_order();
         if (!order) {
@@ -41,98 +129,64 @@ patch(ControlButtons.prototype, {
         if (order.get_orderlines().length) {
             this.dialog.add(AlertDialog, {
                 title: _t("Order Not Empty"),
-                body: _t("Please use a new empty order before loading a downpayment quotation."),
+                body: _t("Please use a new empty order before loading a downpayment source."),
             });
             return;
         }
 
         try {
-            const quotations = await rpc("/web/dataset/call_kw/pos.order/get_valid_downpayment_quotations_pos", {
+            const sources = await rpc("/web/dataset/call_kw/pos.order/get_valid_downpayment_quotations_pos", {
                 model: "pos.order",
                 method: "get_valid_downpayment_quotations_pos",
-                args: [false, 120],
+                args: [false, 120, false],
                 kwargs: {},
             });
 
-            if (!Array.isArray(quotations) || !quotations.length) {
-                this.dialog.add(AlertDialog, {
-                    title: _t("No Valid Quotations"),
-                    body: _t("No valid downpayment quotations are currently available."),
-                });
-                return;
+            const selectionList = [{
+                id: "__manual_reference__",
+                item: null,
+                label: _t("Manual Reference"),
+                isSelected: false,
+            }];
+
+            if (Array.isArray(sources) && sources.length) {
+                selectionList.push(...sources.map((source) => ({
+                    id: source.id,
+                    item: source,
+                    label: buildSourceLabel(source),
+                    isSelected: false,
+                })));
             }
 
-            const selectionList = quotations.map((quotation) => ({
-                id: quotation.id,
-                item: quotation,
-                label: buildQuotationLabel(quotation),
-                isSelected: false,
-            }));
-
             const selected = await makeAwaitable(this.dialog, SelectionPopup, {
-                title: _t("Select Downpayment Quotation"),
+                title: _t("Select Downpayment Source"),
                 list: selectionList,
             });
             if (!selected || !selected.id) {
                 return;
             }
 
-            const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_quotation_details_pos", {
-                model: "pos.order",
-                method: "get_downpayment_quotation_details_pos",
-                args: [selected.id],
-                kwargs: {},
-            });
-
-            if (!details || !Array.isArray(details.lines) || !details.lines.length) {
-                this.dialog.add(AlertDialog, {
-                    title: _t("No Usable Lines"),
-                    body: _t("This quotation has no downpayment lines available in POS."),
-                });
+            if (selected.id === "__manual_reference__") {
+                await this._openManualDownpaymentLookup(order);
                 return;
             }
 
-            if (details.partner_id) {
-                const partner = getModelRecord(this.pos, "res.partner", details.partner_id);
-                if (partner) {
-                    order.set_partner(partner);
-                }
-            }
+            const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_quotation_details_pos", {
+                model: "pos.order",
+                method: "get_downpayment_quotation_details_pos",
+                args: [selected.id, false, false, true],
+                kwargs: {},
+            });
 
-            const missingProducts = [];
-            for (const line of details.lines) {
-                const product = getModelRecord(this.pos, "product.product", line.product_id);
-                if (!product) {
-                    missingProducts.push(line.product_name || `#${line.product_id}`);
-                    continue;
-                }
-
-                const quantity = Math.max(asNumber(line.qty, 1), 1);
-                order.add_product(product, { quantity, merge: false });
-                const selectedLine = order.get_selected_orderline();
-                if (!selectedLine) {
-                    continue;
-                }
-                selectedLine.set_quantity(quantity);
-                selectedLine.set_unit_price(asNumber(line.price_unit, selectedLine.get_unit_price()));
-                selectedLine.set_discount(Math.max(0, asNumber(line.discount, 0)));
-            }
-
-            order.downpayment_quotation_id = details.quotation_id || false;
-            order.downpayment_quotation_name = details.quotation_name || "";
-
-            const backendMissing = Array.isArray(details.missing_products) ? details.missing_products : [];
-            const allMissing = [...new Set([...backendMissing, ...missingProducts])];
-            if (allMissing.length) {
-                this.dialog.add(AlertDialog, {
-                    title: _t("Some Products Not In POS"),
-                    body: _t("The following quotation products are not available in POS and were skipped: ") + allMissing.join(", "),
-                });
-            }
+            await this._loadDownpaymentSourceIntoOrder(order, details);
         } catch (error) {
+            const backendMessage =
+                error?.data?.message ||
+                error?.message ||
+                _t("Unexpected error while loading downpayment source.");
             this.dialog.add(AlertDialog, {
                 title: _t("Loading Failed"),
-                body: _t("Could not load downpayment quotations. ") + (error?.message || ""),
+                body: backendMessage,
             });
         }
     },

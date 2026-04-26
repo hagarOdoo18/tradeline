@@ -89,9 +89,14 @@ class SaleOrder(models.Model):
         required=True, )
     downpayment_source_quotation_id = fields.Many2one(
         comodel_name='sale.order',
-        string='Downpayment Quotation',
+        string='Downpayment Source',
         copy=False,
-        help='Select a valid quotation that contains downpayment lines, then click Load Downpayment.',
+        help='Select a valid downpayment source for this branch and invoice type.',
+    )
+    manual_downpayment_reference = fields.Char(
+        string='Manual Downpayment',
+        copy=False,
+        help='Enter any downpayment reference manually, then click Load Downpayment.',
     )
     sales_rep_domain = fields.Char(
         string='Sales_rep_domain',
@@ -140,34 +145,136 @@ class SaleOrder(models.Model):
         ]).lower()
         return "down payment" in line_text or "downpayment" in line_text
 
-    def _get_valid_downpayment_lines(self, source_quotation):
+    def _get_allowed_downpayment_inv_types(self):
+        return ("quotation", "invoice")
+
+    def _build_downpayment_source_domain(
+        self,
+        source_inv_type=None,
+        enforce_branch=True,
+        enforce_validity=True,
+        reference_text=False,
+    ):
+        self.ensure_one()
+        sale_order_model = self.env["sale.order"]
+        domain = [("id", "!=", self.id), ("state", "not in", ["cancel", "refund"])]
+
+        if "company_id" in sale_order_model._fields:
+            domain.append(("company_id", "=", self.company_id.id))
+        if "amount_due" in sale_order_model._fields:
+            domain.append(("amount_due", ">", 0))
+        if enforce_validity and "validity_date" in sale_order_model._fields:
+            domain += ["|", ("validity_date", "=", False), ("validity_date", ">=", fields.Date.context_today(self))]
+
+        allowed_types = self._get_allowed_downpayment_inv_types()
+        if "inv_type" in sale_order_model._fields:
+            if source_inv_type in allowed_types:
+                domain.append(("inv_type", "=", source_inv_type))
+            elif self.inv_type in allowed_types:
+                domain.append(("inv_type", "=", self.inv_type))
+            else:
+                domain.append(("inv_type", "in", list(allowed_types)))
+
+        if enforce_branch and "branch_id" in sale_order_model._fields and self.branch_id:
+            domain.append(("branch_id", "=", self.branch_id.id))
+
+        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
+            domain.append(("order_line.is_downpayment", "=", True))
+
+        ref = (reference_text or "").strip()
+        if ref:
+            ref_domain = []
+            if "reference_number" in sale_order_model._fields:
+                ref_domain.append(("reference_number", "ilike", ref))
+            if "name" in sale_order_model._fields:
+                ref_domain.append(("name", "ilike", ref))
+            if "client_order_ref" in sale_order_model._fields:
+                ref_domain.append(("client_order_ref", "ilike", ref))
+            if "barcode" in sale_order_model._fields:
+                ref_domain.append(("barcode", "ilike", ref))
+            if ref_domain:
+                if len(ref_domain) == 1:
+                    domain.append(ref_domain[0])
+                else:
+                    domain += ["|"] * (len(ref_domain) - 1) + ref_domain
+        return domain
+
+    def _find_downpayment_source_by_reference(
+        self,
+        reference_text,
+        source_inv_type=None,
+        enforce_branch=False,
+        enforce_validity=False,
+    ):
+        self.ensure_one()
+        ref = (reference_text or "").strip()
+        if not ref:
+            return self.env["sale.order"]
+
+        sale_order_model = self.env["sale.order"].sudo()
+        base_domain = self._build_downpayment_source_domain(
+            source_inv_type=source_inv_type,
+            enforce_branch=enforce_branch,
+            enforce_validity=enforce_validity,
+        )
+        fields_to_try = ["reference_number", "name", "client_order_ref", "barcode"]
+        for field_name in fields_to_try:
+            if field_name not in sale_order_model._fields:
+                continue
+            exact_match = sale_order_model.search(base_domain + [(field_name, "=", ref)], limit=1)
+            if exact_match:
+                return exact_match
+
+        return sale_order_model.search(
+            self._build_downpayment_source_domain(
+                source_inv_type=source_inv_type,
+                enforce_branch=enforce_branch,
+                enforce_validity=enforce_validity,
+                reference_text=ref,
+            ),
+            order="write_date desc, id desc",
+            limit=1,
+        )
+
+    def _get_valid_downpayment_lines(self, source_quotation, enforce_branch=True, enforce_validity=True):
         self.ensure_one()
         source_quotation.ensure_one()
 
         if source_quotation.id == self.id:
-            raise UserError(_("You cannot load downpayment lines from the same quotation."))
+            raise UserError(_("You cannot load downpayment lines from the same document."))
 
-        if source_quotation.state not in ("draft", "sent"):
-            raise UserError(_("Selected quotation must be in Draft or Quotation Sent state."))
+        if source_quotation.state in ("cancel", "refund"):
+            raise UserError(_("Selected document is cancelled/refunded and cannot be used."))
 
-        if "inv_type" in source_quotation._fields and source_quotation.inv_type != "quotation":
-            raise UserError(_("Selected document is not a quotation."))
+        if (
+            "inv_type" in source_quotation._fields
+            and self.inv_type in self._get_allowed_downpayment_inv_types()
+            and source_quotation.inv_type != self.inv_type
+        ):
+            raise UserError(
+                _("Selected source type (%s) does not match current Invoice Type (%s).")
+                % (source_quotation.inv_type, self.inv_type)
+            )
 
-        if source_quotation.validity_date and source_quotation.validity_date < fields.Date.context_today(self):
-            raise UserError(_("Selected quotation has expired and cannot be used."))
+        if (
+            enforce_validity
+            and source_quotation.validity_date
+            and source_quotation.validity_date < fields.Date.context_today(self)
+        ):
+            raise UserError(_("Selected source document has expired and cannot be used."))
 
         if source_quotation.company_id != self.company_id:
-            raise UserError(_("Selected quotation belongs to another company."))
+            raise UserError(_("Selected source document belongs to another company."))
 
-        if "branch_id" in source_quotation._fields and "branch_id" in self._fields:
+        if enforce_branch and "branch_id" in source_quotation._fields and "branch_id" in self._fields:
             if self.branch_id and source_quotation.branch_id and source_quotation.branch_id != self.branch_id:
-                raise UserError(_("Selected quotation belongs to another branch."))
+                raise UserError(_("Selected source document belongs to another branch."))
 
         downpayment_lines = source_quotation.order_line.filtered(
             lambda line: self._is_downpayment_quotation_line(line) and line.product_id
         )
         if not downpayment_lines:
-            raise UserError(_("Selected quotation has no downpayment lines to load."))
+            raise UserError(_("Selected source document has no downpayment lines to load."))
         return downpayment_lines
 
     def _prepare_downpayment_line_commands(self, source_lines):
@@ -205,9 +312,13 @@ class SaleOrder(models.Model):
 
         return line_commands
 
-    def _prepare_downpayment_fill_vals(self, source):
+    def _prepare_downpayment_fill_vals(self, source, enforce_branch=True, enforce_validity=True):
         self.ensure_one()
-        source_lines = self._get_valid_downpayment_lines(source)
+        source_lines = self._get_valid_downpayment_lines(
+            source,
+            enforce_branch=enforce_branch,
+            enforce_validity=enforce_validity,
+        )
         vals = {
             "order_line": self._prepare_downpayment_line_commands(source_lines),
             "partner_id": source.partner_id.id if source.partner_id else self.partner_id.id,
@@ -229,11 +340,11 @@ class SaleOrder(models.Model):
             if not source:
                 continue
 
-            if order.inv_type != "quotation":
+            if order.inv_type not in order._get_allowed_downpayment_inv_types():
                 return {
                     "warning": {
                         "title": _("Invalid Invoice Type"),
-                        "message": _("Load Downpayment is only allowed when Invoice Type is Quotation."),
+                        "message": _("Load Downpayment is only allowed when Invoice Type is Quotation or Invoice."),
                     }
                 }
 
@@ -247,7 +358,11 @@ class SaleOrder(models.Model):
                 }
 
             try:
-                vals = order._prepare_downpayment_fill_vals(source.sudo())
+                vals = order._prepare_downpayment_fill_vals(
+                    source.sudo(),
+                    enforce_branch=True,
+                    enforce_validity=True,
+                )
             except UserError as err:
                 return {
                     "warning": {
@@ -262,18 +377,39 @@ class SaleOrder(models.Model):
         if self.state != "draft":
             raise UserError(_("You can only load downpayment lines while quotation is in Draft."))
 
-        if self.inv_type != "quotation":
-            raise UserError(_("Load Downpayment is only allowed when Invoice Type is Quotation."))
-
-        if not self.downpayment_source_quotation_id:
-            raise UserError(_("Please select a Downpayment Quotation first."))
+        if self.inv_type not in self._get_allowed_downpayment_inv_types():
+            raise UserError(_("Load Downpayment is only allowed when Invoice Type is Quotation or Invoice."))
 
         existing_lines = self.order_line.filtered(lambda line: not line.display_type)
         if existing_lines:
             raise UserError(_("Please use an empty quotation before loading downpayment lines."))
 
-        source = self.downpayment_source_quotation_id.sudo()
-        write_vals = self._prepare_downpayment_fill_vals(source)
+        source = self.env["sale.order"]
+        manual_ref = (self.manual_downpayment_reference or "").strip()
+        if manual_ref:
+            source = self._find_downpayment_source_by_reference(
+                reference_text=manual_ref,
+                source_inv_type=self.inv_type,
+                enforce_branch=False,
+                enforce_validity=False,
+            )
+            if not source:
+                raise UserError(_("No matching downpayment source found for reference: %s") % manual_ref)
+            write_vals = self._prepare_downpayment_fill_vals(
+                source.sudo(),
+                enforce_branch=False,
+                enforce_validity=False,
+            )
+        else:
+            if not self.downpayment_source_quotation_id:
+                raise UserError(_("Please select Downpayment Source or enter Manual Downpayment first."))
+            source = self.downpayment_source_quotation_id.sudo()
+            write_vals = self._prepare_downpayment_fill_vals(
+                source,
+                enforce_branch=True,
+                enforce_validity=True,
+            )
+
         self.write(write_vals)
         return True
 

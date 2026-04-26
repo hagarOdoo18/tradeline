@@ -8,7 +8,7 @@
                     t-on-click="() => this.selectDownpaymentQuotation()"
                     style="background-color: #0b7285; color: #fff;">
                 <i class="fa fa-list-alt"/>
-                <br/>Downpayment Quotes
+                <br/>Downpayment Source
                 <t t-if="env.services.pos.get_order() and env.services.pos.get_order().downpayment_quotation_name">
                     <br/>
                     <small t-esc="env.services.pos.get_order().downpayment_quotation_name"/>
