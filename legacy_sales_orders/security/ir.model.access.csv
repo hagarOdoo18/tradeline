@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_legacy_sale_order_user,legacy.sale.order.user,model_legacy_sale_order,sales_team.group_sale_salesman,1,0,0,0
+access_legacy_sale_order_manager,legacy.sale.order.manager,model_legacy_sale_order,legacy_invoice_archive.group_legacy_invoice_archive_manager,1,0,0,0
+access_legacy_sale_order_line_user,legacy.sale.order.line.user,model_legacy_sale_order_line,sales_team.group_sale_salesman,1,0,0,0
+access_legacy_sale_order_line_manager,legacy.sale.order.line.manager,model_legacy_sale_order_line,legacy_invoice_archive.group_legacy_invoice_archive_manager,1,0,0,0

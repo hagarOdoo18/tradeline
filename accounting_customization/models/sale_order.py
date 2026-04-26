@@ -1,4 +1,4 @@
-from odoo import fields, models, api
+from odoo import fields, models, api, _
 from random import randint
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare
@@ -87,6 +87,12 @@ class SaleOrder(models.Model):
         selection=[('sro', 'SRO'),('quotation','Quotation'),
                    ('invoice', 'Invoice'), ('debit', 'Debit')],
         required=True, )
+    downpayment_source_quotation_id = fields.Many2one(
+        comodel_name='sale.order',
+        string='Downpayment Quotation',
+        copy=False,
+        help='Select a valid quotation that contains downpayment lines, then click Load Downpayment.',
+    )
     sales_rep_domain = fields.Char(
         string='Sales_rep_domain',
         required=False)
@@ -120,6 +126,111 @@ class SaleOrder(models.Model):
         else:
             self.sales_rep_domain="[('branch_id','=',0)]"
             self.discount_domain="[('branches_ids','=',0)]"
+
+    @api.model
+    def _is_downpayment_quotation_line(self, line):
+        if not line or line.display_type:
+            return False
+        if "is_downpayment" in line._fields:
+            return bool(line.is_downpayment)
+
+        line_text = " ".join([
+            line.name or "",
+            line.product_id.display_name if line.product_id else "",
+        ]).lower()
+        return "down payment" in line_text or "downpayment" in line_text
+
+    def _get_valid_downpayment_lines(self, source_quotation):
+        self.ensure_one()
+        source_quotation.ensure_one()
+
+        if source_quotation.id == self.id:
+            raise UserError(_("You cannot load downpayment lines from the same quotation."))
+
+        if source_quotation.state not in ("draft", "sent"):
+            raise UserError(_("Selected quotation must be in Draft or Quotation Sent state."))
+
+        if "inv_type" in source_quotation._fields and source_quotation.inv_type != "quotation":
+            raise UserError(_("Selected document is not a quotation."))
+
+        if source_quotation.validity_date and source_quotation.validity_date < fields.Date.context_today(self):
+            raise UserError(_("Selected quotation has expired and cannot be used."))
+
+        if source_quotation.company_id != self.company_id:
+            raise UserError(_("Selected quotation belongs to another company."))
+
+        if "branch_id" in source_quotation._fields and "branch_id" in self._fields:
+            if self.branch_id and source_quotation.branch_id and source_quotation.branch_id != self.branch_id:
+                raise UserError(_("Selected quotation belongs to another branch."))
+
+        downpayment_lines = source_quotation.order_line.filtered(
+            lambda line: self._is_downpayment_quotation_line(line) and line.product_id
+        )
+        if not downpayment_lines:
+            raise UserError(_("Selected quotation has no downpayment lines to load."))
+        return downpayment_lines
+
+    def action_load_downpayment_quotation(self):
+        self.ensure_one()
+        if self.state != "draft":
+            raise UserError(_("You can only load downpayment lines while quotation is in Draft."))
+
+        if self.inv_type != "quotation":
+            raise UserError(_("Load Downpayment is only allowed when Invoice Type is Quotation."))
+
+        if not self.downpayment_source_quotation_id:
+            raise UserError(_("Please select a Downpayment Quotation first."))
+
+        existing_lines = self.order_line.filtered(lambda line: not line.display_type)
+        if existing_lines:
+            raise UserError(_("Please use an empty quotation before loading downpayment lines."))
+
+        source = self.downpayment_source_quotation_id.sudo()
+        source_lines = self._get_valid_downpayment_lines(source)
+        line_model = self.env["sale.order.line"]
+        has_tax_id = "tax_id" in line_model._fields
+        has_tax_ids = "tax_ids" in line_model._fields
+
+        line_commands = []
+        for line in source_lines:
+            qty = line.product_uom_qty if (line.product_uom_qty or 0.0) > 0 else 1.0
+            vals = {
+                "name": line.name or line.product_id.display_name,
+                "product_id": line.product_id.id,
+                "product_uom_qty": qty,
+                "price_unit": line.price_unit or 0.0,
+                "discount": line.discount or 0.0,
+            }
+
+            if "product_uom" in line_model._fields and line.product_uom:
+                vals["product_uom"] = line.product_uom.id
+
+            tax_records = self.env["account.tax"]
+            if "tax_id" in line._fields:
+                tax_records = line.tax_id
+            elif "tax_ids" in line._fields:
+                tax_records = line.tax_ids
+
+            if has_tax_id:
+                vals["tax_id"] = [(6, 0, tax_records.ids)]
+            elif has_tax_ids:
+                vals["tax_ids"] = [(6, 0, tax_records.ids)]
+
+            line_commands.append((0, 0, vals))
+
+        write_vals = {
+            "order_line": line_commands,
+            "partner_id": source.partner_id.id if source.partner_id else self.partner_id.id,
+            "pricelist_id": source.pricelist_id.id if source.pricelist_id else self.pricelist_id.id,
+            "downpayment_source_quotation_id": source.id,
+        }
+        if "team_id" in self._fields and source.team_id:
+            write_vals["team_id"] = source.team_id.id
+        if "sales_rep_id" in self._fields and "sales_rep_id" in source._fields and source.sales_rep_id:
+            write_vals["sales_rep_id"] = source.sales_rep_id.id
+
+        self.write(write_vals)
+        return True
 
     def _prepare_invoice(self):
         res = super(SaleOrder, self)._prepare_invoice()

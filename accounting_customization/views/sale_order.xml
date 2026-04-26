@@ -30,6 +30,16 @@
                     <field name="barcode" readonly="1"/>
                     <field name="reference_number" readonly="state != 'draft'"/>
                     <field name="inv_type" readonly="state != 'draft'"/>
+                    <field name="downpayment_source_quotation_id"
+                           readonly="state != 'draft'"
+                           invisible="inv_type != 'quotation'"
+                           options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"
+                           domain="[('id', '!=', id), ('state', 'in', ['draft', 'sent']), ('inv_type', '=', 'quotation'), ('company_id', '=', company_id), '|', ('validity_date', '=', False), ('validity_date', '>=', context_today())]"/>
+                    <button name="action_load_downpayment_quotation"
+                            type="object"
+                            string="Load Downpayment"
+                            class="btn-secondary"
+                            invisible="state != 'draft' or inv_type != 'quotation' or not downpayment_source_quotation_id"/>
                     <field name="sales_rep_domain" invisible="1"/>
                     <field name="sales_rep_id"  options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'" domain="sales_rep_domain"/>
                     <field name="team_id" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'"/>

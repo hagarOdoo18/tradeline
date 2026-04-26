@@ -37,4 +37,10 @@
         'views/company.xml',
         'views/menus.xml',
     ],
+    'assets': {
+        'point_of_sale._assets_pos': [
+            'base_tradeline/static/src/js/pos_downpayment_quotation.js',
+            'base_tradeline/static/src/xml/pos_downpayment_quotation.xml',
+        ],
+    },
 }

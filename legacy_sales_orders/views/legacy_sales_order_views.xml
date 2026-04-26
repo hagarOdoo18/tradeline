@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_sale_order_list" model="ir.ui.view">
+        <field name="name">legacy.sale.order.list</field>
+        <field name="model">legacy.sale.order</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Quotations" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="date_order"/>
+                <field name="name"/>
+                <field name="source_client_ref" optional="show"/>
+                <field name="source_partner_name" string="Customer" optional="show"/>
+                <field name="source_partner_mobile" string="Customer Mobile" optional="show"/>
+                <field name="source_partner_code" string="Customer Code" optional="show"/>
+                <field name="source_user_name" string="Salesperson" optional="show"/>
+                <field name="source_sales_rep_name" string="Sales Rep" optional="show"/>
+                <field name="source_team_name" string="Sales Team" optional="show"/>
+                <field name="source_channel" string="Channel" optional="show"/>
+                <field name="source_courier" string="Courier" optional="show"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)" optional="show"/>
+                <field name="legacy_po_id" string="Linked PO (Open)" optional="show"/>
+                <button name="action_open_legacy_po" type="object" string="Open Linked PO" invisible="not legacy_po_id"/>
+                <field name="state"/>
+                <field name="amount_untaxed" sum="Untaxed" optional="show"/>
+                <field name="amount_tax" sum="Tax" optional="show"/>
+                <field name="amount_total" sum="Total"/>
+                <field name="line_count" optional="show"/>
+                <field name="source_db" optional="hide"/>
+                <field name="source_order_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_search" model="ir.ui.view">
+        <field name="name">legacy.sale.order.search</field>
+        <field name="model">legacy.sale.order</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Quotations">
+                <field name="name" string="Quotation"/>
+                <field name="source_client_ref" string="Customer Reference"/>
+                <field name="source_partner_name" string="Customer"/>
+                <field name="source_partner_mobile" string="Customer Mobile"/>
+                <field name="source_partner_tax_id" string="Tax ID"/>
+                <field name="source_sales_rep_name" string="Sales Rep"/>
+                <field name="source_user_name" string="Salesperson"/>
+                <field name="source_team_name" string="Sales Team"/>
+                <field name="source_opportunity_name" string="Opportunity"/>
+                <field name="source_cc_rep_name" string="CC Rep"/>
+                <field name="source_channel" string="Channel"/>
+                <field name="source_courier" string="Courier"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                <field name="legacy_po_id" string="Linked PO (Open)"/>
+                <field name="source_payment_journal_summary" string="Payment Journal"/>
+                <field name="state"/>
+                <field name="date_order"/>
+                <field name="source_db"/>
+                <separator/>
+                <filter name="legacy_sale_order_date_range" string="Order Date" date="date_order"/>
+                <separator/>
+                <filter name="legacy_sale_order_filter_quotations"
+                        string="Quotations"
+                        domain="[('state', 'in', ['draft', 'sent', 'cancel'])]"/>
+                <filter name="legacy_sale_order_filter_sales"
+                        string="Sales Orders"
+                        domain="[('state', 'in', ['sale', 'done'])]"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_sale_order_group_month" string="Order Month" context="{'group_by': 'date_order:month'}"/>
+                    <filter name="legacy_sale_order_group_customer" string="Customer" context="{'group_by': 'source_partner_name'}"/>
+                    <filter name="legacy_sale_order_group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="legacy_sale_order_group_salesperson" string="Salesperson" context="{'group_by': 'source_user_name'}"/>
+                    <filter name="legacy_sale_order_group_sales_rep" string="Sales Rep" context="{'group_by': 'source_sales_rep_name'}"/>
+                    <filter name="legacy_sale_order_group_team" string="Sales Team" context="{'group_by': 'source_team_name'}"/>
+                    <filter name="legacy_sale_order_group_channel" string="Channel" context="{'group_by': 'source_channel'}"/>
+                    <filter name="legacy_sale_order_group_courier" string="Courier" context="{'group_by': 'source_courier'}"/>
+                    <filter name="legacy_sale_order_group_legacy_po" string="Linked PO (Open)" context="{'group_by': 'legacy_po_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_form" model="ir.ui.view">
+        <field name="name">legacy.sale.order.form</field>
+        <field name="model">legacy.sale.order</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Quotation" create="false" edit="false" delete="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="date_order"/>
+                            <field name="confirmation_date"/>
+                            <field name="validity_date"/>
+                            <field name="state"/>
+                            <field name="source_quotation_type"/>
+                            <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                            <field name="legacy_po_id" string="Linked PO (Open)"/>
+                            <button name="action_open_legacy_po"
+                                    type="object"
+                                    string="Open Linked PO"
+                                    class="oe_link"
+                                    invisible="not legacy_po_id"/>
+                            <field name="source_origin"/>
+                            <field name="source_client_ref"/>
+                        </group>
+                        <group>
+                            <field name="source_partner_name"/>
+                            <field name="source_partner_code"/>
+                            <field name="source_partner_type"/>
+                            <field name="source_partner_mobile"/>
+                            <field name="source_partner_phone"/>
+                            <field name="source_partner_tax_id"/>
+                            <field name="source_partner_national_id"/>
+                            <field name="source_sales_rep_name"/>
+                            <field name="source_sales_rep_code"/>
+                            <field name="source_user_name"/>
+                            <field name="source_team_name"/>
+                            <field name="source_opportunity_name"/>
+                            <field name="source_cc_rep_name"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="company_id"/>
+                            <field name="currency_id"/>
+                            <field name="source_currency_name"/>
+                            <field name="source_currency_rate"/>
+                            <field name="source_channel"/>
+                            <field name="source_courier"/>
+                            <field name="source_payment_journal_summary"/>
+                        </group>
+                        <group>
+                            <field name="amount_untaxed"/>
+                            <field name="amount_tax"/>
+                            <field name="amount_total"/>
+                            <field name="line_count"/>
+                            <field name="source_db"/>
+                            <field name="source_order_id"/>
+                            <field name="import_batch_id"/>
+                            <field name="imported_at"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Lines">
+                            <field name="line_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <button name="action_open_order" type="object" string="Open Quotation"/>
+                                    <button name="action_open_legacy_po" type="object" string="Open Linked PO" invisible="not legacy_po_id"/>
+                                    <field name="order_date" string="Date"/>
+                                    <field name="source_branch_name" string="Branch"/>
+                                    <field name="order_id" string="Ref"/>
+                                    <field name="source_cc_rep_name" string="CC Rep" optional="show"/>
+                                    <field name="source_opportunity_name" string="Opportunity" optional="show"/>
+                                    <field name="source_customer_name" string="Customer Name"/>
+                                    <field name="customer_mobile" string="Customer Mobile" optional="show"/>
+                                    <field name="product_category_name" string="Product Category" optional="show"/>
+                                    <field name="source_family_name" string="Family" optional="show"/>
+                                    <field name="source_upc" string="UPC" optional="show"/>
+                                    <field name="item_code" string="Item Code" optional="show"/>
+                                    <field name="description" string="Description"/>
+                                    <field name="source_store_name" string="Store" optional="show"/>
+                                    <field name="qty_ordered" string="Quantity" sum="Total Qty"/>
+                                    <field name="price_unit" string="Unit Price"/>
+                                    <field name="discount" string="Discount (%)" optional="show"/>
+                                    <field name="price_subtotal" string="Untaxed Total" sum="Untaxed"/>
+                                    <field name="amount_total_line" string="Total" sum="Total"/>
+                                    <field name="source_payment_journal_line" string="Payment Journal" optional="show"/>
+                                    <field name="payment_amount_line" string="Payment Amount" sum="Payments" optional="show"/>
+                                    <field name="source_salesperson_name" string="Salesperson" optional="show"/>
+                                    <field name="source_sales_rep_name" string="Sales Rep" optional="show"/>
+                                    <field name="status_quotation" string="Quotation Status" optional="show"/>
+                                    <field name="status_sale" string="Sale Status" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes">
+                            <group>
+                                <field name="note"/>
+                                <field name="legacy_payload"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_pivot" model="ir.ui.view">
+        <field name="name">legacy.sale.order.pivot</field>
+        <field name="model">legacy.sale.order</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Quotations">
+                <field name="amount_untaxed" type="measure"/>
+                <field name="amount_tax" type="measure"/>
+                <field name="amount_total" type="measure"/>
+                <field name="line_count" type="measure"/>
+                <field name="date_order" interval="month" type="col"/>
+                <field name="source_partner_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_graph" model="ir.ui.view">
+        <field name="name">legacy.sale.order.graph</field>
+        <field name="model">legacy.sale.order</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Quotations" type="bar">
+                <field name="date_order" interval="month"/>
+                <field name="amount_total" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_sale_quotation" model="ir.actions.act_window">
+        <field name="name">Quotations</field>
+        <field name="res_model">legacy.sale.order</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="view_id" ref="view_legacy_sale_order_list"/>
+        <field name="search_view_id" ref="view_legacy_sale_order_search"/>
+        <field name="domain">[('state', 'in', ['draft', 'sent', 'cancel'])]</field>
+        <field name="context">{'search_default_legacy_sale_order_filter_quotations': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <record id="view_legacy_sale_order_line_list" model="ir.ui.view">
+        <field name="name">legacy.sale.order.line.list</field>
+        <field name="model">legacy.sale.order.line</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Sale Order Lines" create="false" edit="false" delete="false" export_xlsx="1">
+                <button name="action_open_order" type="object" string="Open Quotation"/>
+                <button name="action_open_legacy_po" type="object" string="Open Linked PO" invisible="not legacy_po_id"/>
+                <field name="order_date" string="Date"/>
+                <field name="source_branch_name" string="Branch"/>
+                <field name="order_id" string="Ref"/>
+                <field name="source_cc_rep_name" string="CC Rep" optional="show"/>
+                <field name="source_opportunity_name" string="Opportunity" optional="show"/>
+                <field name="source_customer_name" string="Customer Name"/>
+                <field name="customer_mobile" string="Customer mobile" optional="show"/>
+                <field name="product_category_name" string="Product Category" optional="show"/>
+                <field name="source_family_name" string="Family" optional="show"/>
+                <field name="source_upc" string="UPC" optional="show"/>
+                <field name="item_code" string="Item Code" optional="show"/>
+                <field name="description" string="Description"/>
+                <field name="source_store_name" string="Store" optional="show"/>
+                <field name="qty_ordered" string="Quantity" sum="Total Qty"/>
+                <field name="uom_name" string="UoM" optional="show"/>
+                <field name="price_unit" string="Unit Price"/>
+                <field name="discount" string="Discount (%)" optional="show"/>
+                <field name="price_subtotal" string="Untaxed Total" sum="Untaxed"/>
+                <field name="amount_total_line" string="Total" sum="Total"/>
+                <field name="source_payment_journal_line" string="Payment Journal" optional="show"/>
+                <field name="payment_amount_line" string="Payment Amount" sum="Payments" optional="show"/>
+                <field name="source_salesperson_name" string="Salesperson" optional="show"/>
+                <field name="source_sales_rep_name" string="Sales Rep" optional="show"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)" optional="show"/>
+                <field name="legacy_po_id" string="Linked PO (Open)" optional="show"/>
+                <field name="source_vendor_name" string="Vendor" optional="show"/>
+                <field name="status_quotation" string="Quotation Status" optional="show"/>
+                <field name="status_sale" string="Sale Status" optional="show"/>
+                <field name="state" string="Order State" optional="show"/>
+                <field name="source_db" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_line_search" model="ir.ui.view">
+        <field name="name">legacy.sale.order.line.search</field>
+        <field name="model">legacy.sale.order.line</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Sale Order Lines">
+                <field name="order_id" string="Ref"/>
+                <field name="source_customer_name" string="Customer Name"/>
+                <field name="customer_mobile" string="Customer Mobile"/>
+                <field name="customer_phone" string="Customer Phone"/>
+                <field name="product_name" string="Product"/>
+                <field name="item_code" string="Item Code"/>
+                <field name="source_upc" string="UPC"/>
+                <field name="product_category_name" string="Product Category"/>
+                <field name="source_family_name" string="Family"/>
+                <field name="source_vendor_name" string="Vendor"/>
+                <field name="source_salesperson_name" string="Salesperson"/>
+                <field name="source_sales_rep_name" string="Sales Rep"/>
+                <field name="source_cc_rep_name" string="CC Rep"/>
+                <field name="source_opportunity_name" string="Opportunity"/>
+                <field name="source_po_ref" string="Invoice PO Ref (Raw)"/>
+                <field name="legacy_po_id" string="Linked PO (Open)"/>
+                <field name="source_payment_journal_line" string="Payment Journal"/>
+                <field name="payment_type" string="Payment Type"/>
+                <field name="source_branch_name" string="Branch"/>
+                <field name="source_store_name" string="Store"/>
+                <field name="order_date"/>
+                <field name="state"/>
+                <field name="source_db"/>
+                <separator/>
+                <filter name="legacy_sale_order_lines_date_range" string="Order Date" date="order_date"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_sale_order_lines_group_month" string="Month" context="{'group_by': 'order_date:month'}"/>
+                    <filter name="legacy_sale_order_lines_group_date" string="Date" context="{'group_by': 'order_date'}"/>
+                    <filter name="legacy_sale_order_lines_group_ref" string="Ref" context="{'group_by': 'order_id'}"/>
+                    <filter name="legacy_sale_order_lines_group_branch" string="Branch" context="{'group_by': 'source_branch_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_store" string="Store" context="{'group_by': 'source_store_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_customer" string="Customer" context="{'group_by': 'source_customer_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_category" string="Product Category" context="{'group_by': 'product_category_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_family" string="Family" context="{'group_by': 'source_family_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_item_code" string="Item Code" context="{'group_by': 'item_code'}"/>
+                    <filter name="legacy_sale_order_lines_group_salesperson" string="Salesperson" context="{'group_by': 'source_salesperson_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_sales_rep" string="Sales Rep" context="{'group_by': 'source_sales_rep_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_cc_rep" string="CC Rep" context="{'group_by': 'source_cc_rep_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_opportunity" string="Opportunity" context="{'group_by': 'source_opportunity_name'}"/>
+                    <filter name="legacy_sale_order_lines_group_po" string="Linked PO (Open)" context="{'group_by': 'legacy_po_id'}"/>
+                    <filter name="legacy_sale_order_lines_group_payment_journal" string="Payment Journal" context="{'group_by': 'source_payment_journal_line'}"/>
+                    <filter name="legacy_sale_order_lines_group_payment_type" string="Payment Type" context="{'group_by': 'payment_type'}"/>
+                    <filter name="legacy_sale_order_lines_group_state" string="Order State" context="{'group_by': 'state'}"/>
+                    <filter name="legacy_sale_order_lines_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_line_form" model="ir.ui.view">
+        <field name="name">legacy.sale.order.line.form</field>
+        <field name="model">legacy.sale.order.line</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Sale Order Line" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="order_id"/>
+                            <field name="order_date"/>
+                            <field name="source_customer_name"/>
+                            <field name="customer_mobile"/>
+                            <field name="source_salesperson_name"/>
+                            <field name="source_sales_rep_name"/>
+                            <field name="status_quotation"/>
+                            <field name="status_sale"/>
+                        </group>
+                        <group>
+                            <field name="item_code"/>
+                            <field name="product_name"/>
+                            <field name="description"/>
+                            <field name="qty_ordered"/>
+                            <field name="price_unit"/>
+                            <field name="discount"/>
+                            <field name="price_subtotal"/>
+                            <field name="amount_total_line"/>
+                        </group>
+                    </group>
+                    <group>
+                        <button name="action_open_order" type="object" string="Open Quotation" class="oe_link"/>
+                        <button name="action_open_legacy_po" type="object" string="Open Linked PO" class="oe_link" invisible="not legacy_po_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_line_pivot" model="ir.ui.view">
+        <field name="name">legacy.sale.order.line.pivot</field>
+        <field name="model">legacy.sale.order.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Sale Order Lines">
+                <field name="qty_ordered" type="measure"/>
+                <field name="price_subtotal" type="measure"/>
+                <field name="amount_total_line" type="measure"/>
+                <field name="payment_amount_line" type="measure"/>
+                <field name="discount" type="measure"/>
+                <field name="order_date" interval="month" type="col"/>
+                <field name="source_family_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_sale_order_line_graph" model="ir.ui.view">
+        <field name="name">legacy.sale.order.line.graph</field>
+        <field name="model">legacy.sale.order.line</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Sale Order Lines" type="bar">
+                <field name="order_date" interval="month"/>
+                <field name="price_subtotal" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_sale_order_line" model="ir.actions.act_window">
+        <field name="name">Sale Order Lines</field>
+        <field name="res_model">legacy.sale.order.line</field>
+        <field name="view_mode">list,form,pivot,graph</field>
+        <field name="view_id" ref="view_legacy_sale_order_line_list"/>
+        <field name="search_view_id" ref="view_legacy_sale_order_line_search"/>
+        <field name="context">{'search_default_legacy_sale_order_lines_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_sales_root"
+              name="Legacy"
+              parent="sale.sale_order_menu"
+              sequence="90"
+              groups="sales_team.group_sale_salesman"/>
+
+    <menuitem id="menu_legacy_sale_quotation"
+              name="Quotations"
+              parent="menu_legacy_sales_root"
+              action="action_legacy_sale_quotation"
+              sequence="10"
+              groups="sales_team.group_sale_salesman"/>
+
+    <menuitem id="menu_legacy_sale_order_line"
+              name="Sale Order Lines"
+              parent="menu_legacy_sales_root"
+              action="action_legacy_sale_order_line"
+              sequence="20"
+              groups="sales_team.group_sale_salesman"/>
+</odoo>

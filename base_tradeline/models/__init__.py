@@ -10,4 +10,5 @@ from . import product_family
 from . import purchase
 from . import lot
 from . import pos_config
+from . import pos_order_downpayment
 from . import company
