@@ -15,8 +15,8 @@ class PosOrder(models.Model):
         if not line or line.display_type:
             return False
 
-        if "is_downpayment" in line._fields:
-            return bool(line.is_downpayment)
+        if "is_downpayment" in line._fields and line.is_downpayment:
+            return True
 
         line_text = " ".join(
             value for value in [
@@ -49,8 +49,7 @@ class PosOrder(models.Model):
             domain.append(("inv_type", "=", "quotation"))
         if "invoice_status" in sale_order_model._fields:
             domain.append(("invoice_status", "=", "no"))
-        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
-            domain.append(("order_line.is_downpayment", "=", True))
+        domain += ["|", ("order_line.product_id.name", "ilike", "down payment"), ("order_line.name", "ilike", "down payment")]
 
         if enforce_branch and "branch_id" in sale_order_model._fields and getattr(self.env.user, "branch_id", False):
             domain.append(("branch_id", "=", self.env.user.branch_id.id))
