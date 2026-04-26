@@ -42,27 +42,18 @@ class PosOrder(models.Model):
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.env.company.id))
-        if "amount_due" in sale_order_model._fields:
-            domain.append(("amount_due", ">", 0))
         if enforce_validity and "validity_date" in sale_order_model._fields:
             domain += ["|", ("validity_date", "=", False), ("validity_date", ">=", fields.Date.context_today(self))]
 
-        allowed_types = self._get_allowed_downpayment_inv_types()
         if "inv_type" in sale_order_model._fields:
-            if source_inv_type in allowed_types:
-                domain.append(("inv_type", "=", source_inv_type))
-            else:
-                domain.append(("inv_type", "in", list(allowed_types)))
+            domain.append(("inv_type", "=", "quotation"))
+        if "invoice_status" in sale_order_model._fields:
+            domain.append(("invoice_status", "=", "no"))
+        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
+            domain.append(("order_line.is_downpayment", "=", True))
 
         if enforce_branch and "branch_id" in sale_order_model._fields and getattr(self.env.user, "branch_id", False):
             domain.append(("branch_id", "=", self.env.user.branch_id.id))
-
-        effective_type = source_inv_type if source_inv_type in allowed_types else False
-        if effective_type == "invoice":
-            if "amount_paid" in sale_order_model._fields:
-                domain.append(("amount_paid", ">", 0))
-        elif "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
-            domain.append(("order_line.is_downpayment", "=", True))
 
         search_text = (search_text or "").strip()
         if search_text:
@@ -80,6 +71,21 @@ class PosOrder(models.Model):
                     domain += ["|"] * (len(fields_to_search) - 1) + fields_to_search
 
         return domain
+
+    @api.model
+    def _is_valid_downpayment_source_pos(self, source_order, source_inv_type=False):
+        source_type = source_order.inv_type if "inv_type" in source_order._fields else False
+        if source_inv_type and source_inv_type != "quotation":
+            return False
+        if source_type != "quotation":
+            return False
+        if "invoice_status" in source_order._fields and source_order.invoice_status != "no":
+            return False
+
+        return any(
+            self._is_downpayment_quotation_line(line)
+            for line in source_order.order_line
+        )
 
     @api.model
     def _search_downpayment_source_by_reference_pos(
@@ -127,26 +133,6 @@ class PosOrder(models.Model):
         lines = source_order.order_line.filtered(
             lambda line: self._is_downpayment_quotation_line(line)
         )
-
-        if (
-            not lines
-            and "inv_type" in source_order._fields
-            and source_order.inv_type == "invoice"
-        ):
-            has_paid_amount = False
-            if "amount_paid" in source_order._fields:
-                has_paid_amount = bool((source_order.amount_paid or 0.0) > 0.0)
-            elif "payment_ids" in source_order._fields:
-                has_paid_amount = bool(
-                    source_order.payment_ids.filtered(
-                        lambda p: p.state == "posted" and p.payment_type == "inbound"
-                    )
-                )
-
-            if has_paid_amount:
-                lines = source_order.order_line.filtered(
-                    lambda line: not line.display_type and line.product_id
-                )
 
         payload_lines = []
         missing_in_pos = []
@@ -204,18 +190,9 @@ class PosOrder(models.Model):
             enforce_validity=True,
         )
         source_orders = sale_order_model.search(domain, order="write_date desc, id desc", limit=safe_limit)
-
-        has_is_downpayment = (
-            "sale.order.line" in self.env
-            and "is_downpayment" in self.env["sale.order.line"]._fields
+        source_orders = source_orders.filtered(
+            lambda order: self._is_valid_downpayment_source_pos(order, source_inv_type=source_inv_type)
         )
-        if not has_is_downpayment:
-            source_orders = source_orders.filtered(
-                lambda order: any(
-                    self._is_downpayment_quotation_line(line)
-                    for line in order.order_line
-                )
-            )
 
         data = []
         for source in source_orders:
@@ -261,6 +238,8 @@ class PosOrder(models.Model):
         domain.append(("id", "=", quotation_id))
         source_order = sale_order_model.search(domain, limit=1)
         if not source_order:
+            return {}
+        if not self._is_valid_downpayment_source_pos(source_order, source_inv_type=source_inv_type):
             return {}
 
         return self._prepare_downpayment_source_payload_pos(source_order)

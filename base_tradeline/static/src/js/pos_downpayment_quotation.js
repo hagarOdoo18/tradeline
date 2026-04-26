@@ -40,6 +40,43 @@ function buildSourceLabel(source) {
     return `${sourceType}${reference} ${source.name} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
 }
 
+function getSelectionId(selection) {
+    if (selection === null || selection === undefined) {
+        return false;
+    }
+    if (typeof selection === "string" || typeof selection === "number") {
+        return selection;
+    }
+    if (selection.id !== undefined && selection.id !== null) {
+        return selection.id;
+    }
+    if (selection.item && selection.item.id !== undefined && selection.item.id !== null) {
+        return selection.item.id;
+    }
+    if (selection.payload && selection.payload.id !== undefined && selection.payload.id !== null) {
+        return selection.payload.id;
+    }
+    return false;
+}
+
+function getTextInputValue(result) {
+    if (typeof result === "string") {
+        return result.trim();
+    }
+    if (result && typeof result === "object") {
+        if (typeof result.payload === "string") {
+            return result.payload.trim();
+        }
+        if (typeof result.text === "string") {
+            return result.text.trim();
+        }
+        if (typeof result.value === "string") {
+            return result.value.trim();
+        }
+    }
+    return "";
+}
+
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
         if (!details) {
@@ -98,10 +135,11 @@ patch(ControlButtons.prototype, {
     },
 
     async _openManualDownpaymentLookup(order) {
-        const manualReference = await makeAwaitable(this.dialog, TextInputPopup, {
+        const popupResult = await makeAwaitable(this.dialog, TextInputPopup, {
             title: _t("Manual Downpayment Reference"),
             placeholder: _t("Enter reference number..."),
         });
+        const manualReference = getTextInputValue(popupResult);
         if (!manualReference) {
             return;
         }
@@ -141,7 +179,7 @@ patch(ControlButtons.prototype, {
 
             const selectionList = [{
                 id: "__manual_reference__",
-                item: null,
+                item: { id: "__manual_reference__" },
                 label: _t("Manual Reference"),
                 isSelected: false,
             }];
@@ -159,11 +197,12 @@ patch(ControlButtons.prototype, {
                 title: _t("Select Downpayment Source"),
                 list: selectionList,
             });
-            if (!selected || !selected.id) {
+            const selectedId = getSelectionId(selected);
+            if (!selectedId) {
                 return;
             }
 
-            if (selected.id === "__manual_reference__") {
+            if (selectedId === "__manual_reference__") {
                 await this._openManualDownpaymentLookup(order);
                 return;
             }
@@ -171,7 +210,7 @@ patch(ControlButtons.prototype, {
             const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_quotation_details_pos", {
                 model: "pos.order",
                 method: "get_downpayment_quotation_details_pos",
-                args: [selected.id, false, false, true],
+                args: [asNumber(selectedId, 0), false, false, true],
                 kwargs: {},
             });
 

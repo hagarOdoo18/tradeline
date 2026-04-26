@@ -161,29 +161,18 @@ class SaleOrder(models.Model):
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.company_id.id))
-        if "amount_due" in sale_order_model._fields:
-            domain.append(("amount_due", ">", 0))
         if enforce_validity and "validity_date" in sale_order_model._fields:
             domain += ["|", ("validity_date", "=", False), ("validity_date", ">=", fields.Date.context_today(self))]
 
-        allowed_types = self._get_allowed_downpayment_inv_types()
         if "inv_type" in sale_order_model._fields:
-            if source_inv_type in allowed_types:
-                domain.append(("inv_type", "=", source_inv_type))
-            elif self.inv_type in allowed_types:
-                domain.append(("inv_type", "=", self.inv_type))
-            else:
-                domain.append(("inv_type", "in", list(allowed_types)))
+            domain.append(("inv_type", "=", "quotation"))
+        if "invoice_status" in sale_order_model._fields:
+            domain.append(("invoice_status", "=", "no"))
+        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
+            domain.append(("order_line.is_downpayment", "=", True))
 
         if enforce_branch and "branch_id" in sale_order_model._fields and self.branch_id:
             domain.append(("branch_id", "=", self.branch_id.id))
-
-        effective_type = source_inv_type if source_inv_type else (self.inv_type if self.inv_type in allowed_types else False)
-        if effective_type == "invoice":
-            if "amount_paid" in sale_order_model._fields:
-                domain.append(("amount_paid", ">", 0))
-        elif "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
-            domain.append(("order_line.is_downpayment", "=", True))
 
         ref = (reference_text or "").strip()
         if ref:
@@ -256,15 +245,10 @@ class SaleOrder(models.Model):
         if source_quotation.state in ("cancel", "refund"):
             raise UserError(_("Selected document is cancelled/refunded and cannot be used."))
 
-        if (
-            "inv_type" in source_quotation._fields
-            and self.inv_type in self._get_allowed_downpayment_inv_types()
-            and source_quotation.inv_type != self.inv_type
-        ):
-            raise UserError(
-                _("Selected source type (%s) does not match current Invoice Type (%s).")
-                % (source_quotation.inv_type, self.inv_type)
-            )
+        if "inv_type" in source_quotation._fields and source_quotation.inv_type != "quotation":
+            raise UserError(_("Selected source document must be a quotation."))
+        if "invoice_status" in source_quotation._fields and source_quotation.invoice_status != "no":
+            raise UserError(_("Selected source quotation must be in 'Nothing to Invoice' status."))
 
         if (
             enforce_validity
@@ -285,33 +269,6 @@ class SaleOrder(models.Model):
         )
         if downpayment_lines:
             return downpayment_lines
-
-        # For invoice sources, fallback to regular lines when there is paid amount.
-        if (
-            "inv_type" in source_quotation._fields
-            and source_quotation.inv_type == "invoice"
-        ):
-            has_paid_amount = False
-            if "amount_paid" in source_quotation._fields:
-                has_paid_amount = bool((source_quotation.amount_paid or 0.0) > 0.0)
-            elif "payment_ids" in source_quotation._fields:
-                has_paid_amount = bool(
-                    source_quotation.payment_ids.filtered(
-                        lambda p: p.state == "posted" and p.payment_type == "inbound"
-                    )
-                )
-
-            invoice_lines = source_quotation.order_line.filtered(
-                lambda line: not line.display_type and line.product_id
-            )
-            if has_paid_amount and invoice_lines:
-                return invoice_lines
-
-            if allow_empty:
-                return self.env["sale.order.line"]
-            raise UserError(
-                _("Selected invoice has no paid downpayment amount or usable lines to load.")
-            )
 
         if allow_empty:
             return self.env["sale.order.line"]
