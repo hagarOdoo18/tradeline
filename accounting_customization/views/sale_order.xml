@@ -43,7 +43,7 @@
                             type="object"
                             string="Load Downpayment"
                             class="btn-secondary"
-                            invisible="state != 'draft' or inv_type not in ['quotation', 'invoice'] or (not downpayment_source_quotation_id and not manual_downpayment_reference)"/>
+                            invisible="state != 'draft' or inv_type not in ['quotation', 'invoice'] or not downpayment_source_quotation_id"/>
                     <field name="sales_rep_domain" invisible="1"/>
                     <field name="sales_rep_id"  options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'" domain="sales_rep_domain"/>
                     <field name="team_id" options="{'no_create': True, 'no_create_edit':True, 'no_open': True}" readonly="state != 'draft'"/>

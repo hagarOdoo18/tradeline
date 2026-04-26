@@ -42,10 +42,10 @@ function buildSourceLabel(source) {
 
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
-        if (!details || !Array.isArray(details.lines) || !details.lines.length) {
+        if (!details) {
             this.dialog.add(AlertDialog, {
-                title: _t("No Usable Lines"),
-                body: _t("The selected source has no downpayment lines available in POS."),
+                title: _t("No Source Data"),
+                body: _t("Could not read data from selected source."),
             });
             return;
         }
@@ -79,6 +79,14 @@ patch(ControlButtons.prototype, {
         order.downpayment_quotation_id = details.source_id || details.quotation_id || false;
         order.downpayment_quotation_name = details.source_name || details.quotation_name || "";
 
+        if (!Array.isArray(details.lines) || !details.lines.length) {
+            this.dialog.add(AlertDialog, {
+                title: _t("Customer Loaded"),
+                body: _t("Customer was loaded from source, but no usable downpayment lines were found."),
+            });
+            return;
+        }
+
         const backendMissing = Array.isArray(details.missing_products) ? details.missing_products : [];
         const allMissing = [...new Set([...backendMissing, ...missingProducts])];
         if (allMissing.length) {
@@ -97,23 +105,12 @@ patch(ControlButtons.prototype, {
         if (!manualReference) {
             return;
         }
-
-        const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_source_by_reference_pos", {
-            model: "pos.order",
-            method: "get_downpayment_source_by_reference_pos",
-            args: [manualReference, false],
-            kwargs: {},
+        order.downpayment_quotation_id = false;
+        order.downpayment_quotation_name = `${_t("Manual Ref")}: ${manualReference}`;
+        this.dialog.add(AlertDialog, {
+            title: _t("Manual Mode"),
+            body: _t("Reference saved. Please enter customer and other fields manually."),
         });
-
-        if (!details || !details.source_id) {
-            this.dialog.add(AlertDialog, {
-                title: _t("No Source Found"),
-                body: _t("No downpayment source found for this manual reference."),
-            });
-            return;
-        }
-
-        await this._loadDownpaymentSourceIntoOrder(order, details);
     },
 
     async selectDownpaymentQuotation() {

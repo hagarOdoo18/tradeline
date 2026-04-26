@@ -178,7 +178,11 @@ class SaleOrder(models.Model):
         if enforce_branch and "branch_id" in sale_order_model._fields and self.branch_id:
             domain.append(("branch_id", "=", self.branch_id.id))
 
-        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
+        effective_type = source_inv_type if source_inv_type else (self.inv_type if self.inv_type in allowed_types else False)
+        if effective_type == "invoice":
+            if "amount_paid" in sale_order_model._fields:
+                domain.append(("amount_paid", ">", 0))
+        elif "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
             domain.append(("order_line.is_downpayment", "=", True))
 
         ref = (reference_text or "").strip()
@@ -236,7 +240,13 @@ class SaleOrder(models.Model):
             limit=1,
         )
 
-    def _get_valid_downpayment_lines(self, source_quotation, enforce_branch=True, enforce_validity=True):
+    def _get_valid_downpayment_lines(
+        self,
+        source_quotation,
+        enforce_branch=True,
+        enforce_validity=True,
+        allow_empty=False,
+    ):
         self.ensure_one()
         source_quotation.ensure_one()
 
@@ -273,9 +283,39 @@ class SaleOrder(models.Model):
         downpayment_lines = source_quotation.order_line.filtered(
             lambda line: self._is_downpayment_quotation_line(line) and line.product_id
         )
-        if not downpayment_lines:
-            raise UserError(_("Selected source document has no downpayment lines to load."))
-        return downpayment_lines
+        if downpayment_lines:
+            return downpayment_lines
+
+        # For invoice sources, fallback to regular lines when there is paid amount.
+        if (
+            "inv_type" in source_quotation._fields
+            and source_quotation.inv_type == "invoice"
+        ):
+            has_paid_amount = False
+            if "amount_paid" in source_quotation._fields:
+                has_paid_amount = bool((source_quotation.amount_paid or 0.0) > 0.0)
+            elif "payment_ids" in source_quotation._fields:
+                has_paid_amount = bool(
+                    source_quotation.payment_ids.filtered(
+                        lambda p: p.state == "posted" and p.payment_type == "inbound"
+                    )
+                )
+
+            invoice_lines = source_quotation.order_line.filtered(
+                lambda line: not line.display_type and line.product_id
+            )
+            if has_paid_amount and invoice_lines:
+                return invoice_lines
+
+            if allow_empty:
+                return self.env["sale.order.line"]
+            raise UserError(
+                _("Selected invoice has no paid downpayment amount or usable lines to load.")
+            )
+
+        if allow_empty:
+            return self.env["sale.order.line"]
+        raise UserError(_("Selected source document has no downpayment lines to load."))
 
     def _prepare_downpayment_line_commands(self, source_lines):
         self.ensure_one()
@@ -312,19 +352,27 @@ class SaleOrder(models.Model):
 
         return line_commands
 
-    def _prepare_downpayment_fill_vals(self, source, enforce_branch=True, enforce_validity=True):
+    def _prepare_downpayment_fill_vals(
+        self,
+        source,
+        enforce_branch=True,
+        enforce_validity=True,
+        allow_empty_lines=False,
+    ):
         self.ensure_one()
         source_lines = self._get_valid_downpayment_lines(
             source,
             enforce_branch=enforce_branch,
             enforce_validity=enforce_validity,
+            allow_empty=allow_empty_lines,
         )
         vals = {
-            "order_line": self._prepare_downpayment_line_commands(source_lines),
             "partner_id": source.partner_id.id if source.partner_id else self.partner_id.id,
             "pricelist_id": source.pricelist_id.id if source.pricelist_id else self.pricelist_id.id,
             "downpayment_source_quotation_id": source.id,
         }
+        if source_lines:
+            vals["order_line"] = self._prepare_downpayment_line_commands(source_lines)
         if "team_id" in self._fields and source.team_id:
             vals["team_id"] = source.team_id.id
         if "sales_rep_id" in self._fields and "sales_rep_id" in source._fields and source.sales_rep_id:
@@ -362,6 +410,7 @@ class SaleOrder(models.Model):
                     source.sudo(),
                     enforce_branch=True,
                     enforce_validity=True,
+                    allow_empty_lines=True,
                 )
             except UserError as err:
                 return {
@@ -384,31 +433,16 @@ class SaleOrder(models.Model):
         if existing_lines:
             raise UserError(_("Please use an empty quotation before loading downpayment lines."))
 
-        source = self.env["sale.order"]
-        manual_ref = (self.manual_downpayment_reference or "").strip()
-        if manual_ref:
-            source = self._find_downpayment_source_by_reference(
-                reference_text=manual_ref,
-                source_inv_type=self.inv_type,
-                enforce_branch=False,
-                enforce_validity=False,
-            )
-            if not source:
-                raise UserError(_("No matching downpayment source found for reference: %s") % manual_ref)
-            write_vals = self._prepare_downpayment_fill_vals(
-                source.sudo(),
-                enforce_branch=False,
-                enforce_validity=False,
-            )
-        else:
-            if not self.downpayment_source_quotation_id:
-                raise UserError(_("Please select Downpayment Source or enter Manual Downpayment first."))
-            source = self.downpayment_source_quotation_id.sudo()
-            write_vals = self._prepare_downpayment_fill_vals(
-                source,
-                enforce_branch=True,
-                enforce_validity=True,
-            )
+        if not self.downpayment_source_quotation_id:
+            raise UserError(_("Please select Downpayment Source first."))
+
+        source = self.downpayment_source_quotation_id.sudo()
+        write_vals = self._prepare_downpayment_fill_vals(
+            source,
+            enforce_branch=True,
+            enforce_validity=True,
+            allow_empty_lines=True,
+        )
 
         self.write(write_vals)
         return True

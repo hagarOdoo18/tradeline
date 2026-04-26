@@ -57,7 +57,11 @@ class PosOrder(models.Model):
         if enforce_branch and "branch_id" in sale_order_model._fields and getattr(self.env.user, "branch_id", False):
             domain.append(("branch_id", "=", self.env.user.branch_id.id))
 
-        if "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
+        effective_type = source_inv_type if source_inv_type in allowed_types else False
+        if effective_type == "invoice":
+            if "amount_paid" in sale_order_model._fields:
+                domain.append(("amount_paid", ">", 0))
+        elif "sale.order.line" in self.env and "is_downpayment" in self.env["sale.order.line"]._fields:
             domain.append(("order_line.is_downpayment", "=", True))
 
         search_text = (search_text or "").strip()
@@ -123,6 +127,26 @@ class PosOrder(models.Model):
         lines = source_order.order_line.filtered(
             lambda line: self._is_downpayment_quotation_line(line)
         )
+
+        if (
+            not lines
+            and "inv_type" in source_order._fields
+            and source_order.inv_type == "invoice"
+        ):
+            has_paid_amount = False
+            if "amount_paid" in source_order._fields:
+                has_paid_amount = bool((source_order.amount_paid or 0.0) > 0.0)
+            elif "payment_ids" in source_order._fields:
+                has_paid_amount = bool(
+                    source_order.payment_ids.filtered(
+                        lambda p: p.state == "posted" and p.payment_type == "inbound"
+                    )
+                )
+
+            if has_paid_amount:
+                lines = source_order.order_line.filtered(
+                    lambda line: not line.display_type and line.product_id
+                )
 
         payload_lines = []
         missing_in_pos = []
