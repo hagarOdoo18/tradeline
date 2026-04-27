@@ -145,6 +145,26 @@ class SaleOrder(models.Model):
         ]).lower()
         return "down payment" in line_text or "downpayment" in line_text
 
+    def _has_downpayment_product_lines(self):
+        self.ensure_one()
+        return bool(
+            self.order_line.filtered(
+                lambda line: line.product_id and self._is_downpayment_quotation_line(line)
+            )
+        )
+
+    @api.onchange("inv_type")
+    def _onchange_inv_type_validate_downpayment(self):
+        for order in self:
+            if order.inv_type != "quotation" and order._has_downpayment_product_lines():
+                raise UserError(_("Down Payment product can only be used when Invoice Type is Quotation."))
+
+    @api.constrains("inv_type", "order_line", "order_line.product_id", "order_line.name", "order_line.display_type")
+    def _check_inv_type_validate_downpayment(self):
+        for order in self:
+            if order.inv_type != "quotation" and order._has_downpayment_product_lines():
+                raise ValidationError(_("Down Payment product can only be used when Invoice Type is Quotation."))
+
     def _get_allowed_downpayment_inv_types(self):
         return ("quotation", "invoice")
 
@@ -725,6 +745,12 @@ class SaleOrderLine(models.Model):
                 self.discount = category_cap if category_cap is not None else 0.0
             else:
                 self.discount = reason.discount_percentage or 0.0
+        if (
+            self.order_id
+            and self.order_id.inv_type != "quotation"
+            and self.order_id._is_downpayment_quotation_line(self)
+        ):
+            raise UserError(_("Down Payment product can only be used when Invoice Type is Quotation."))
 
 
     def _prepare_invoice_line(self, **optional_values):
