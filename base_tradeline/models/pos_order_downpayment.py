@@ -40,12 +40,37 @@ class PosOrder(models.Model):
         return False
 
     @api.model
+    def _resolve_pos_branch_id(self, branch_id=False, pos_config_id=False):
+        resolved_branch_id = False
+        try:
+            resolved_branch_id = int(branch_id or 0)
+        except (TypeError, ValueError):
+            resolved_branch_id = False
+        if resolved_branch_id:
+            return resolved_branch_id
+
+        try:
+            config_id = int(pos_config_id or 0)
+        except (TypeError, ValueError):
+            config_id = False
+        if config_id and "pos.config" in self.env:
+            config = self.env["pos.config"].sudo().browse(config_id)
+            if config.exists() and "branch_id" in config._fields and config.branch_id:
+                return config.branch_id.id
+
+        if getattr(self.env.user, "branch_id", False):
+            return self.env.user.branch_id.id
+        return False
+
+    @api.model
     def _build_downpayment_source_domain_pos(
         self,
         search_text=False,
         source_inv_type=False,
         enforce_branch=True,
         enforce_validity=True,
+        branch_id=False,
+        pos_config_id=False,
     ):
         if "sale.order" not in self.env:
             return []
@@ -70,8 +95,13 @@ class PosOrder(models.Model):
             ("order_line.name", "ilike", "downpayment"),
         ]
 
-        if enforce_branch and "branch_id" in sale_order_model._fields and getattr(self.env.user, "branch_id", False):
-            domain.append(("branch_id", "=", self.env.user.branch_id.id))
+        if enforce_branch and "branch_id" in sale_order_model._fields:
+            effective_branch_id = self._resolve_pos_branch_id(
+                branch_id=branch_id,
+                pos_config_id=pos_config_id,
+            )
+            if effective_branch_id:
+                domain.append(("branch_id", "=", effective_branch_id))
 
         search_text = (search_text or "").strip()
         if search_text:
@@ -117,6 +147,8 @@ class PosOrder(models.Model):
         source_inv_type=False,
         enforce_branch=False,
         enforce_validity=False,
+        branch_id=False,
+        pos_config_id=False,
     ):
         if "sale.order" not in self.env:
             return self.env["sale.order"]
@@ -130,6 +162,8 @@ class PosOrder(models.Model):
             source_inv_type=source_inv_type,
             enforce_branch=enforce_branch,
             enforce_validity=enforce_validity,
+            branch_id=branch_id,
+            pos_config_id=pos_config_id,
         )
 
         for field_name in ("reference_number", "name", "client_order_ref", "barcode"):
@@ -145,6 +179,8 @@ class PosOrder(models.Model):
                 source_inv_type=source_inv_type,
                 enforce_branch=enforce_branch,
                 enforce_validity=enforce_validity,
+                branch_id=branch_id,
+                pos_config_id=pos_config_id,
             ),
             order="write_date desc, id desc",
             limit=1,
@@ -195,7 +231,14 @@ class PosOrder(models.Model):
         }
 
     @api.model
-    def get_valid_downpayment_quotations_pos(self, search_text=False, limit=100, source_inv_type=False):
+    def get_valid_downpayment_quotations_pos(
+        self,
+        search_text=False,
+        limit=100,
+        source_inv_type=False,
+        branch_id=False,
+        pos_config_id=False,
+    ):
         if "sale.order" not in self.env:
             return []
 
@@ -211,6 +254,8 @@ class PosOrder(models.Model):
             source_inv_type=source_inv_type,
             enforce_branch=True,
             enforce_validity=True,
+            branch_id=branch_id,
+            pos_config_id=pos_config_id,
         )
         source_orders = sale_order_model.search(domain, order="write_date desc, id desc", limit=safe_limit)
         source_orders = source_orders.filtered(
@@ -243,6 +288,8 @@ class PosOrder(models.Model):
         source_inv_type=False,
         allow_cross_branch=False,
         enforce_validity=True,
+        branch_id=False,
+        pos_config_id=False,
     ):
         if "sale.order" not in self.env:
             return {}
@@ -257,6 +304,8 @@ class PosOrder(models.Model):
             source_inv_type=source_inv_type,
             enforce_branch=not allow_cross_branch,
             enforce_validity=enforce_validity,
+            branch_id=branch_id,
+            pos_config_id=pos_config_id,
         )
         domain.append(("id", "=", quotation_id))
         source_order = sale_order_model.search(domain, limit=1)
@@ -268,12 +317,20 @@ class PosOrder(models.Model):
         return self._prepare_downpayment_source_payload_pos(source_order)
 
     @api.model
-    def get_downpayment_source_by_reference_pos(self, reference_text, source_inv_type=False):
+    def get_downpayment_source_by_reference_pos(
+        self,
+        reference_text,
+        source_inv_type=False,
+        branch_id=False,
+        pos_config_id=False,
+    ):
         source_order = self._search_downpayment_source_by_reference_pos(
             reference_text=reference_text,
             source_inv_type=source_inv_type,
             enforce_branch=False,
             enforce_validity=False,
+            branch_id=branch_id,
+            pos_config_id=pos_config_id,
         )
         if not source_order:
             return {}

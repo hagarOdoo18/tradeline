@@ -77,6 +77,40 @@ function getTextInputValue(result) {
     return "";
 }
 
+function getCurrentPosConfigId(pos) {
+    const raw = pos?.config?.id;
+    if (raw === null || raw === undefined) {
+        return false;
+    }
+    if (typeof raw === "number") {
+        return raw;
+    }
+    if (Array.isArray(raw) && raw.length) {
+        return asNumber(raw[0], 0) || false;
+    }
+    if (typeof raw === "object" && raw.id !== undefined) {
+        return asNumber(raw.id, 0) || false;
+    }
+    return asNumber(raw, 0) || false;
+}
+
+function getCurrentPosBranchId(pos) {
+    const raw = pos?.config?.branch_id;
+    if (raw === null || raw === undefined) {
+        return false;
+    }
+    if (typeof raw === "number") {
+        return raw;
+    }
+    if (Array.isArray(raw) && raw.length) {
+        return asNumber(raw[0], 0) || false;
+    }
+    if (typeof raw === "object" && raw.id !== undefined) {
+        return asNumber(raw.id, 0) || false;
+    }
+    return asNumber(raw, 0) || false;
+}
+
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
         if (!details) {
@@ -170,10 +204,12 @@ patch(ControlButtons.prototype, {
         }
 
         try {
+            const currentConfigId = getCurrentPosConfigId(this.pos);
+            const currentBranchId = getCurrentPosBranchId(this.pos);
             const sources = await rpc("/web/dataset/call_kw/pos.order/get_valid_downpayment_quotations_pos", {
                 model: "pos.order",
                 method: "get_valid_downpayment_quotations_pos",
-                args: [false, 120, false],
+                args: [false, 120, false, currentBranchId, currentConfigId],
                 kwargs: {},
             });
 
@@ -210,7 +246,7 @@ patch(ControlButtons.prototype, {
             const details = await rpc("/web/dataset/call_kw/pos.order/get_downpayment_quotation_details_pos", {
                 model: "pos.order",
                 method: "get_downpayment_quotation_details_pos",
-                args: [asNumber(selectedId, 0), false, false, true],
+                args: [asNumber(selectedId, 0), false, false, true, currentBranchId, currentConfigId],
                 kwargs: {},
             });
 
