@@ -111,6 +111,59 @@ function getCurrentPosBranchId(pos) {
     return asNumber(raw, 0) || false;
 }
 
+function addProductToOrderCompat(pos, order, product, quantity) {
+    const options = { quantity, merge: false };
+    if (order && typeof order.add_product === "function") {
+        order.add_product(product, options);
+        return order;
+    }
+    if (order && typeof order.addProduct === "function") {
+        order.addProduct(product, options);
+        return order;
+    }
+    if (pos && typeof pos.addProductToCurrentOrder === "function") {
+        pos.addProductToCurrentOrder(product, options);
+        return pos.get_order ? pos.get_order() : order;
+    }
+    throw new Error(_t("Could not add product to order in this POS runtime."));
+}
+
+function getSelectedOrderlineCompat(order) {
+    if (!order) {
+        return null;
+    }
+    if (typeof order.get_selected_orderline === "function") {
+        return order.get_selected_orderline();
+    }
+    if (typeof order.getSelectedOrderline === "function") {
+        return order.getSelectedOrderline();
+    }
+    return null;
+}
+
+function setLineValuesCompat(line, quantity, priceUnit, discount) {
+    if (!line) {
+        return;
+    }
+    if (typeof line.set_quantity === "function") {
+        line.set_quantity(quantity);
+    } else if (typeof line.setQuantity === "function") {
+        line.setQuantity(quantity);
+    }
+
+    if (typeof line.set_unit_price === "function") {
+        line.set_unit_price(priceUnit);
+    } else if (typeof line.setUnitPrice === "function") {
+        line.setUnitPrice(priceUnit);
+    }
+
+    if (typeof line.set_discount === "function") {
+        line.set_discount(discount);
+    } else if (typeof line.setDiscount === "function") {
+        line.setDiscount(discount);
+    }
+}
+
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
         if (!details) {
@@ -129,6 +182,7 @@ patch(ControlButtons.prototype, {
         }
 
         const missingProducts = [];
+        let workingOrder = order;
         for (const line of details.lines) {
             const product = getModelRecord(this.pos, "product.product", line.product_id);
             if (!product) {
@@ -137,18 +191,25 @@ patch(ControlButtons.prototype, {
             }
 
             const quantity = Math.max(asNumber(line.qty, 1), 1);
-            order.add_product(product, { quantity, merge: false });
-            const selectedLine = order.get_selected_orderline();
+            workingOrder = addProductToOrderCompat(this.pos, workingOrder, product, quantity);
+            const selectedLine = getSelectedOrderlineCompat(workingOrder);
             if (!selectedLine) {
                 continue;
             }
-            selectedLine.set_quantity(quantity);
-            selectedLine.set_unit_price(asNumber(line.price_unit, selectedLine.get_unit_price()));
-            selectedLine.set_discount(Math.max(0, asNumber(line.discount, 0)));
+            const currentUnitPrice = typeof selectedLine.get_unit_price === "function"
+                ? selectedLine.get_unit_price()
+                : (typeof selectedLine.getUnitPrice === "function" ? selectedLine.getUnitPrice() : 0);
+            setLineValuesCompat(
+                selectedLine,
+                quantity,
+                asNumber(line.price_unit, currentUnitPrice),
+                Math.max(0, asNumber(line.discount, 0))
+            );
         }
 
-        order.downpayment_quotation_id = details.source_id || details.quotation_id || false;
-        order.downpayment_quotation_name = details.source_name || details.quotation_name || "";
+        const orderToUpdate = workingOrder || order;
+        orderToUpdate.downpayment_quotation_id = details.source_id || details.quotation_id || false;
+        orderToUpdate.downpayment_quotation_name = details.source_name || details.quotation_name || "";
 
         if (!Array.isArray(details.lines) || !details.lines.length) {
             this.dialog.add(AlertDialog, {

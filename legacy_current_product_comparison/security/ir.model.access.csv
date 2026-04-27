@@ -1,0 +1,6 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_legacy_product_month_fact_user,legacy.product.month.fact.user,model_legacy_product_month_fact,account.group_account_readonly,1,0,0,0
+access_legacy_product_month_fact_manager,legacy.product.month.fact.manager,model_legacy_product_month_fact,legacy_invoice_archive.group_legacy_invoice_archive_manager,1,1,1,1
+access_legacy_product_month_fact_system,legacy.product.month.fact.system,model_legacy_product_month_fact,base.group_system,1,1,1,1
+access_legacy_current_product_compare_month_user,legacy.current.product.compare.month.user,model_legacy_current_product_compare_month,account.group_account_readonly,1,0,0,0
+access_legacy_current_product_compare_month_manager,legacy.current.product.compare.month.manager,model_legacy_current_product_compare_month,legacy_invoice_archive.group_legacy_invoice_archive_manager,1,0,0,0

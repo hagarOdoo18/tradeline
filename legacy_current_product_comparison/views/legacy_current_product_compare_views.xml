@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_current_product_compare_month_list" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.month.list</field>
+        <field name="model">legacy.current.product.compare.month</field>
+        <field name="arch" type="xml">
+            <list string="Legacy to Current Comparison" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="period_month"/>
+                <field name="source_default_code" string="Legacy Item Code"/>
+                <field name="source_name" string="Legacy Product"/>
+                <field name="target_product_id" string="Current Product"/>
+                <button name="action_open_target_product" type="object" string="Open Product" invisible="not target_product_id"/>
+                <button name="action_open_mapping" type="object" string="Open Mapping"/>
+                <field name="match_status"/>
+                <field name="match_method" optional="show"/>
+                <field name="source_category_name" optional="show"/>
+                <field name="source_brand_name" optional="show"/>
+                <field name="legacy_sales_qty" sum="Legacy Sales Qty"/>
+                <field name="current_sales_qty" sum="Current Sales Qty"/>
+                <field name="delta_sales_qty" sum="Sales Qty Delta"/>
+                <field name="legacy_sales_amount" sum="Legacy Sales Amount"/>
+                <field name="current_sales_amount" sum="Current Sales Amount"/>
+                <field name="delta_sales_amount" sum="Sales Amount Delta"/>
+                <field name="legacy_stock_close_qty" sum="Legacy Stock Qty"/>
+                <field name="current_stock_close_qty" sum="Current Stock Qty"/>
+                <field name="legacy_stock_close_value" sum="Legacy Stock Value"/>
+                <field name="current_stock_close_value" sum="Current Stock Value"/>
+                <field name="delta_stock_value" sum="Stock Value Delta"/>
+                <field name="value_available"/>
+                <field name="warehouse_key" optional="hide"/>
+                <field name="source_db" optional="hide"/>
+                <field name="source_product_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_month_search" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.month.search</field>
+        <field name="model">legacy.current.product.compare.month</field>
+        <field name="arch" type="xml">
+            <search string="Legacy to Current Comparison">
+                <field name="source_default_code"/>
+                <field name="source_barcode"/>
+                <field name="source_name"/>
+                <field name="target_product_id"/>
+                <field name="target_default_code"/>
+                <field name="target_barcode"/>
+                <field name="target_name"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <field name="period_month"/>
+                <field name="warehouse_key"/>
+                <field name="source_db"/>
+                <separator/>
+                <filter name="compare_matched_only"
+                        string="Matched Only"
+                        domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False)]"/>
+                <filter name="compare_unmatched"
+                        string="Unmatched"
+                        domain="[('target_product_id', '=', False)]"/>
+                <filter name="compare_review"
+                        string="Needs Review"
+                        domain="[('match_status', '=', 'review')]"/>
+                <filter name="compare_value_missing"
+                        string="Missing Valuation"
+                        domain="[('value_available', '=', False)]"/>
+                <filter name="compare_has_legacy_only"
+                        string="Legacy Data Only"
+                        domain="[('has_legacy_data', '=', True), ('has_current_data', '=', False)]"/>
+                <filter name="compare_has_current_only"
+                        string="Current Data Only"
+                        domain="[('has_legacy_data', '=', False), ('has_current_data', '=', True)]"/>
+                <separator/>
+                <filter name="compare_period_range" string="Period" date="period_month"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="compare_group_month" string="Month" context="{'group_by': 'period_month:month'}"/>
+                    <filter name="compare_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
+                    <filter name="compare_group_legacy_product" string="Legacy Product" context="{'group_by': 'source_name'}"/>
+                    <filter name="compare_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
+                    <filter name="compare_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="compare_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                    <filter name="compare_group_match_status" string="Match Status" context="{'group_by': 'match_status'}"/>
+                    <filter name="compare_group_match_method" string="Match Method" context="{'group_by': 'match_method'}"/>
+                    <filter name="compare_group_source_db" string="Source Db" context="{'group_by': 'source_db'}"/>
+                    <filter name="compare_group_warehouse" string="Warehouse Key" context="{'group_by': 'warehouse_key'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_month_pivot" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.month.pivot</field>
+        <field name="model">legacy.current.product.compare.month</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy to Current Comparison">
+                <field name="legacy_sales_qty" type="measure"/>
+                <field name="current_sales_qty" type="measure"/>
+                <field name="delta_sales_qty" type="measure"/>
+                <field name="legacy_sales_amount" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="delta_sales_amount" type="measure"/>
+                <field name="legacy_stock_close_qty" type="measure"/>
+                <field name="current_stock_close_qty" type="measure"/>
+                <field name="legacy_stock_close_value" type="measure"/>
+                <field name="current_stock_close_value" type="measure"/>
+                <field name="delta_stock_value" type="measure"/>
+                <field name="period_month" interval="month" type="col"/>
+                <field name="source_category_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_month_graph" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.month.graph</field>
+        <field name="model">legacy.current.product.compare.month</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy to Current Comparison" type="line">
+                <field name="period_month" interval="month"/>
+                <field name="legacy_sales_amount" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="delta_sales_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_current_product_compare_month" model="ir.actions.act_window">
+        <field name="name">Legacy to Current Comparison</field>
+        <field name="res_model">legacy.current.product.compare.month</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_current_product_compare_month_search"/>
+        <field name="context">{'search_default_compare_matched_only': 1, 'search_default_compare_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_current_product_compare_month"
+              name="Legacy to Current Comparison"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_compare_month"
+              sequence="90"
+              groups="account.group_account_readonly"/>
+</odoo>
