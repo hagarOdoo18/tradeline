@@ -28,3 +28,4 @@ streamlit_executive_dashboard/.venv/
 # Data artifacts
 *.csv.bak
 valaution inspection/
+node_executive_dashboard/
