@@ -163,8 +163,6 @@ class SaleOrder(models.Model):
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.company_id.id))
-        if enforce_validity and "validity_date" in sale_order_model._fields:
-            domain += ["|", ("validity_date", "=", False), ("validity_date", ">=", fields.Date.context_today(self))]
 
         if "inv_type" in sale_order_model._fields:
             domain.append(("inv_type", "=", "quotation"))
@@ -256,13 +254,6 @@ class SaleOrder(models.Model):
             raise UserError(_("Selected source document must be a quotation."))
         if "invoice_status" in source_quotation._fields and source_quotation.invoice_status != "no":
             raise UserError(_("Selected source quotation must be in 'Nothing to Invoice' status."))
-
-        if (
-            enforce_validity
-            and source_quotation.validity_date
-            and source_quotation.validity_date < fields.Date.context_today(self)
-        ):
-            raise UserError(_("Selected source document has expired and cannot be used."))
 
         if source_quotation.company_id != self.company_id:
             raise UserError(_("Selected source document belongs to another company."))

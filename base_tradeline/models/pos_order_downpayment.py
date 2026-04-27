@@ -57,8 +57,6 @@ class PosOrder(models.Model):
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.env.company.id))
-        if enforce_validity and "validity_date" in sale_order_model._fields:
-            domain += ["|", ("validity_date", "=", False), ("validity_date", ">=", fields.Date.context_today(self))]
 
         if "inv_type" in sale_order_model._fields:
             domain.append(("inv_type", "=", "quotation"))
