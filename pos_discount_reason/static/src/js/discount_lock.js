@@ -179,7 +179,16 @@ async function hydrateLineFamilyAndRefreshDiscount(order, line) {
 patch(PosOrder.prototype, {
     add_product(product, options) {
         const existingLines = new Set(this.get_orderlines());
-        const result = super.add_product(product, options);
+        let result;
+        if (typeof super.add_product === "function") {
+            result = super.add_product(product, options);
+        } else if (typeof super.addProduct === "function") {
+            result = super.addProduct(product, options);
+        } else if (typeof this.addProduct === "function") {
+            result = this.addProduct(product, options);
+        } else {
+            return result;
+        }
         const selectedLine = this.get_selected_orderline();
         const reasonId = asId(this.discount_reason_id);
 

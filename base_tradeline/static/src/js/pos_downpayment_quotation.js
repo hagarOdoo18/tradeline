@@ -113,10 +113,6 @@ function getCurrentPosBranchId(pos) {
 
 function addProductToOrderCompat(pos, order, product, quantity) {
     const options = { quantity, merge: false };
-    if (order && typeof order.add_product === "function") {
-        order.add_product(product, options);
-        return order;
-    }
     if (order && typeof order.addProduct === "function") {
         order.addProduct(product, options);
         return order;
@@ -124,6 +120,10 @@ function addProductToOrderCompat(pos, order, product, quantity) {
     if (pos && typeof pos.addProductToCurrentOrder === "function") {
         pos.addProductToCurrentOrder(product, options);
         return pos.get_order ? pos.get_order() : order;
+    }
+    if (order && typeof order.add_product === "function") {
+        order.add_product(product, options);
+        return order;
     }
     throw new Error(_t("Could not add product to order in this POS runtime."));
 }
