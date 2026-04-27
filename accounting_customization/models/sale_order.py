@@ -157,7 +157,9 @@ class SaleOrder(models.Model):
     ):
         self.ensure_one()
         sale_order_model = self.env["sale.order"]
-        domain = [("id", "!=", self.id), ("state", "not in", ["cancel", "refund"])]
+        domain = [("id", "!=", self.id)]
+        if "state" in sale_order_model._fields:
+            domain.append(("state", "in", ["draft", "sent", "sale"]))
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.company_id.id))
@@ -247,8 +249,8 @@ class SaleOrder(models.Model):
         if source_quotation.id == self.id:
             raise UserError(_("You cannot load downpayment lines from the same document."))
 
-        if source_quotation.state in ("cancel", "refund"):
-            raise UserError(_("Selected document is cancelled/refunded and cannot be used."))
+        if "state" in source_quotation._fields and source_quotation.state not in ("draft", "sent", "sale"):
+            raise UserError(_("Selected source document must be in Quotation or Sales Order status."))
 
         if "inv_type" in source_quotation._fields and source_quotation.inv_type != "quotation":
             raise UserError(_("Selected source document must be a quotation."))

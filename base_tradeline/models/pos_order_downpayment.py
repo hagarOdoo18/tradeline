@@ -51,7 +51,9 @@ class PosOrder(models.Model):
             return []
 
         sale_order_model = self.env["sale.order"].sudo()
-        domain = [("state", "not in", ["cancel", "refund"])]
+        domain = []
+        if "state" in sale_order_model._fields:
+            domain.append(("state", "in", ["draft", "sent", "sale"]))
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.env.company.id))
@@ -96,6 +98,8 @@ class PosOrder(models.Model):
         if source_inv_type and source_inv_type != "quotation":
             return False
         if source_type != "quotation":
+            return False
+        if "state" in source_order._fields and source_order.state not in ("draft", "sent", "sale"):
             return False
         if "invoice_status" in source_order._fields and source_order.invoice_status != "no":
             return False

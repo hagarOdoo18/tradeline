@@ -34,7 +34,7 @@
                            readonly="state != 'draft'"
                            invisible="inv_type not in ['quotation', 'invoice']"
                            options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"
-                           domain="[('id', '!=', id), ('state', 'not in', ['cancel', 'refund']), ('inv_type', '=', 'quotation'), ('invoice_status', '=', 'no'), ('company_id', '=', company_id), ('branch_id', '=', branch_id), '|', ('validity_date', '=', False), ('validity_date', '>=', context_today()), '|', '|', '|', ('order_line.product_id.name', 'ilike', 'down payment'), ('order_line.product_id.name', 'ilike', 'downpayment'), ('order_line.name', 'ilike', 'down payment'), ('order_line.name', 'ilike', 'downpayment')]"/>
+                           domain="[('id', '!=', id), ('state', 'in', ['draft', 'sent', 'sale']), ('inv_type', '=', 'quotation'), ('invoice_status', '=', 'no'), ('company_id', '=', company_id), ('branch_id', '=', branch_id), '|', ('validity_date', '=', False), ('validity_date', '>=', context_today()), '|', '|', '|', ('order_line.product_id.name', 'ilike', 'down payment'), ('order_line.product_id.name', 'ilike', 'downpayment'), ('order_line.name', 'ilike', 'down payment'), ('order_line.name', 'ilike', 'downpayment')]"/>
                     <field name="manual_downpayment_reference"
                            readonly="state != 'draft'"
                            invisible="inv_type not in ['quotation', 'invoice']"
