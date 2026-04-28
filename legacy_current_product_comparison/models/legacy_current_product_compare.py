@@ -320,7 +320,7 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 JOIN account_move am
                     ON am.id = aml.move_id
                 WHERE aml.product_id IS NOT NULL
-                  AND aml.display_type IS NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
                   AND am.state = 'posted'
                   AND am.move_type IN ('out_invoice', 'out_refund')
                   AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
