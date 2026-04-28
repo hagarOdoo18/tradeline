@@ -14,6 +14,11 @@ MATCH_METHOD_SELECTION = [
     ("none", "None"),
 ]
 
+BASELINE_MODE_SELECTION = [
+    ("yoy", "Same Month Last Year"),
+    ("custom_legacy", "Custom Legacy Month"),
+]
+
 
 class LegacyProductMonthFact(models.Model):
     _name = "legacy.product.month.fact"
@@ -452,5 +457,300 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 has_current_data
             FROM combined
             WHERE source_product_id IS NOT NULL
+            """
+        )
+
+
+class LegacyCurrentProductCompareBaseline(models.Model):
+    _name = "legacy.current.product.compare.baseline"
+    _description = "Legacy to Current Product Comparison (Baseline)"
+    _auto = False
+    _order = "current_period_month desc, baseline_mode, baseline_period_month desc, source_default_code, source_name, id"
+    _rec_name = "source_name"
+
+    source_db = fields.Char(readonly=True)
+    source_product_id = fields.Integer(readonly=True)
+    source_default_code = fields.Char(readonly=True)
+    source_barcode = fields.Char(readonly=True)
+    source_name = fields.Char(readonly=True)
+    source_category_name = fields.Char(readonly=True)
+    source_brand_name = fields.Char(readonly=True)
+
+    target_product_id = fields.Many2one("product.product", readonly=True)
+    target_product_tmpl_id = fields.Many2one("product.template", readonly=True)
+    target_default_code = fields.Char(readonly=True)
+    target_barcode = fields.Char(readonly=True)
+    target_name = fields.Char(readonly=True)
+
+    match_status = fields.Selection(selection=MATCH_STATUS_SELECTION, readonly=True)
+    match_method = fields.Selection(selection=MATCH_METHOD_SELECTION, readonly=True)
+    confidence = fields.Float(readonly=True)
+    manual_override = fields.Boolean(readonly=True)
+
+    baseline_mode = fields.Selection(selection=BASELINE_MODE_SELECTION, readonly=True)
+    current_period_month = fields.Date(readonly=True)
+    baseline_period_month = fields.Date(readonly=True)
+    baseline_key = fields.Char(readonly=True)
+
+    current_sales_qty = fields.Float(readonly=True)
+    current_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_sales_qty = fields.Float(readonly=True)
+    baseline_legacy_sales_amount = fields.Float(readonly=True)
+    delta_sales_qty = fields.Float(readonly=True)
+    delta_sales_amount = fields.Float(readonly=True)
+    delta_sales_qty_pct = fields.Float(readonly=True)
+    delta_sales_amount_pct = fields.Float(readonly=True)
+
+    baseline_has_legacy_data = fields.Boolean(readonly=True)
+
+    def action_open_mapping(self):
+        self.ensure_one()
+        domain = [
+            ("source_db", "=", self.source_db or ""),
+            ("source_product_id", "=", self.source_product_id or 0),
+        ]
+        mapping = self.env["legacy.product.map"].search(domain, limit=1)
+        action = self.env["ir.actions.actions"]._for_xml_id("legacy_invoice_archive.action_legacy_product_map")
+        if mapping:
+            action.update(
+                {
+                    "res_id": mapping.id,
+                    "view_mode": "form",
+                    "views": [(False, "form")],
+                    "target": "current",
+                }
+            )
+        else:
+            action["domain"] = domain
+        return action
+
+    def action_open_target_product(self):
+        self.ensure_one()
+        if not self.target_product_id:
+            return False
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Product",
+            "res_model": "product.product",
+            "res_id": self.target_product_id.id,
+            "view_mode": "form",
+            "target": "current",
+        }
+
+    def init(self):
+        tools.drop_view_if_exists(self.env.cr, self._table)
+        self.env.cr.execute(
+            f"""
+            CREATE OR REPLACE VIEW {self._table} AS
+            WITH mapped_products AS (
+                SELECT
+                    lpm.source_db,
+                    lpm.source_product_id,
+                    lpm.source_default_code,
+                    lpm.source_barcode,
+                    lpm.source_name,
+                    lpm.source_category_name,
+                    lpm.source_brand_name,
+                    lpm.target_product_id,
+                    lpm.match_status,
+                    lpm.match_method,
+                    COALESCE(lpm.confidence, 0.0) AS confidence,
+                    COALESCE(lpm.manual_override, FALSE) AS manual_override
+                FROM legacy_product_map lpm
+                WHERE lpm.target_product_id IS NOT NULL
+            ),
+            months_current AS (
+                SELECT generate_series(
+                    DATE '2026-01-01',
+                    GREATEST(DATE '2026-01-01', date_trunc('month', CURRENT_DATE)::date),
+                    INTERVAL '1 month'
+                )::date AS period_month
+            ),
+            current_sales AS (
+                SELECT
+                    aml.product_id,
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.quantity, 0.0))
+                            ELSE ABS(COALESCE(aml.quantity, 0.0))
+                        END
+                    ) AS current_sales_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
+                            ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
+                        END
+                    ) AS current_sales_amount
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+                GROUP BY aml.product_id, date_trunc('month', COALESCE(am.invoice_date, am.date))::date
+            ),
+            current_sales_mapped AS (
+                SELECT
+                    mp.source_db,
+                    mp.source_product_id,
+                    cs.period_month,
+                    cs.current_sales_qty,
+                    cs.current_sales_amount
+                FROM mapped_products mp
+                LEFT JOIN current_sales cs
+                    ON cs.product_id = mp.target_product_id
+            ),
+            current_grid AS (
+                SELECT
+                    mp.source_db,
+                    mp.source_product_id,
+                    mp.source_default_code,
+                    mp.source_barcode,
+                    mp.source_name,
+                    mp.source_category_name,
+                    mp.source_brand_name,
+                    mp.target_product_id,
+                    mp.match_status,
+                    mp.match_method,
+                    mp.confidence,
+                    mp.manual_override,
+                    m.period_month AS current_period_month
+                FROM mapped_products mp
+                JOIN months_current m ON TRUE
+            ),
+            current_facts AS (
+                SELECT
+                    cg.*,
+                    COALESCE(csm.current_sales_qty, 0.0) AS current_sales_qty,
+                    COALESCE(csm.current_sales_amount, 0.0) AS current_sales_amount
+                FROM current_grid cg
+                LEFT JOIN current_sales_mapped csm
+                    ON csm.source_db = cg.source_db
+                   AND csm.source_product_id = cg.source_product_id
+                   AND csm.period_month = cg.current_period_month
+            ),
+            legacy_sales AS (
+                SELECT
+                    lmf.source_db,
+                    lmf.source_product_id,
+                    lmf.period_month::date AS baseline_period_month,
+                    SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS legacy_sales_qty,
+                    SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS legacy_sales_amount
+                FROM legacy_product_month_fact lmf
+                WHERE lmf.period_month < DATE '2026-01-01'
+                GROUP BY lmf.source_db, lmf.source_product_id, lmf.period_month::date
+            ),
+            legacy_months AS (
+                SELECT DISTINCT baseline_period_month
+                FROM legacy_sales
+            ),
+            yoy_rows AS (
+                SELECT
+                    cf.*,
+                    'yoy'::text AS baseline_mode,
+                    (cf.current_period_month - INTERVAL '1 year')::date AS baseline_period_month
+                FROM current_facts cf
+            ),
+            custom_rows AS (
+                SELECT
+                    cf.*,
+                    'custom_legacy'::text AS baseline_mode,
+                    lm.baseline_period_month
+                FROM current_facts cf
+                JOIN legacy_months lm ON TRUE
+            ),
+            all_rows AS (
+                SELECT * FROM yoy_rows
+                UNION ALL
+                SELECT * FROM custom_rows
+            ),
+            combined AS (
+                SELECT
+                    ar.source_db,
+                    ar.source_product_id,
+                    ar.source_default_code,
+                    ar.source_barcode,
+                    ar.source_name,
+                    ar.source_category_name,
+                    ar.source_brand_name,
+                    ar.target_product_id,
+                    pp.product_tmpl_id AS target_product_tmpl_id,
+                    pp.default_code AS target_default_code,
+                    pp.barcode AS target_barcode,
+                    pt.name AS target_name,
+                    ar.match_status,
+                    ar.match_method,
+                    ar.confidence,
+                    ar.manual_override,
+                    ar.baseline_mode,
+                    ar.current_period_month,
+                    ar.baseline_period_month,
+                    ar.current_sales_qty,
+                    ar.current_sales_amount,
+                    COALESCE(ls.legacy_sales_qty, 0.0) AS baseline_legacy_sales_qty,
+                    COALESCE(ls.legacy_sales_amount, 0.0) AS baseline_legacy_sales_amount,
+                    (ls.source_product_id IS NOT NULL) AS baseline_has_legacy_data
+                FROM all_rows ar
+                LEFT JOIN legacy_sales ls
+                    ON ls.source_db = ar.source_db
+                   AND ls.source_product_id = ar.source_product_id
+                   AND ls.baseline_period_month = ar.baseline_period_month
+                LEFT JOIN product_product pp
+                    ON pp.id = ar.target_product_id
+                LEFT JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+            )
+            SELECT
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        current_period_month DESC,
+                        baseline_mode,
+                        baseline_period_month DESC,
+                        source_default_code NULLS LAST,
+                        source_name NULLS LAST,
+                        source_product_id
+                ) AS id,
+                source_db,
+                source_product_id,
+                source_default_code,
+                source_barcode,
+                source_name,
+                source_category_name,
+                source_brand_name,
+                target_product_id,
+                target_product_tmpl_id,
+                target_default_code,
+                target_barcode,
+                target_name,
+                match_status,
+                match_method,
+                confidence,
+                manual_override,
+                baseline_mode,
+                current_period_month,
+                baseline_period_month,
+                CASE
+                    WHEN baseline_mode = 'yoy' THEN to_char(baseline_period_month, 'YYYY-MM')
+                    ELSE to_char(current_period_month, 'YYYY-MM') || ' vs ' || to_char(baseline_period_month, 'YYYY-MM')
+                END AS baseline_key,
+                current_sales_qty,
+                current_sales_amount,
+                baseline_legacy_sales_qty,
+                baseline_legacy_sales_amount,
+                current_sales_qty - baseline_legacy_sales_qty AS delta_sales_qty,
+                current_sales_amount - baseline_legacy_sales_amount AS delta_sales_amount,
+                CASE
+                    WHEN baseline_legacy_sales_qty = 0 THEN NULL
+                    ELSE ((current_sales_qty - baseline_legacy_sales_qty) / baseline_legacy_sales_qty) * 100.0
+                END AS delta_sales_qty_pct,
+                CASE
+                    WHEN baseline_legacy_sales_amount = 0 THEN NULL
+                    ELSE ((current_sales_amount - baseline_legacy_sales_amount) / baseline_legacy_sales_amount) * 100.0
+                END AS delta_sales_amount_pct,
+                baseline_has_legacy_data
+            FROM combined
             """
         )

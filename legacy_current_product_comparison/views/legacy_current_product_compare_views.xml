@@ -140,4 +140,138 @@
               action="action_legacy_current_product_compare_month"
               sequence="90"
               groups="account.group_account_readonly"/>
+
+    <record id="view_legacy_current_product_compare_baseline_list" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.baseline.list</field>
+        <field name="model">legacy.current.product.compare.baseline</field>
+        <field name="arch" type="xml">
+            <list string="Legacy to Current Baseline Comparison" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="current_period_month"/>
+                <field name="baseline_period_month"/>
+                <field name="baseline_mode"/>
+                <field name="source_default_code" string="Legacy Item Code"/>
+                <field name="source_name" string="Legacy Product"/>
+                <field name="target_product_id" string="Current Product"/>
+                <button name="action_open_target_product" type="object" string="Open Product" invisible="not target_product_id"/>
+                <button name="action_open_mapping" type="object" string="Open Mapping"/>
+                <field name="match_status"/>
+                <field name="match_method" optional="show"/>
+                <field name="confidence" optional="show"/>
+                <field name="source_category_name" optional="show"/>
+                <field name="source_brand_name" optional="show"/>
+                <field name="current_sales_qty" sum="Current Sales Qty"/>
+                <field name="baseline_legacy_sales_qty" sum="Legacy Baseline Qty"/>
+                <field name="delta_sales_qty" sum="Sales Qty Delta"/>
+                <field name="delta_sales_qty_pct" optional="show"/>
+                <field name="current_sales_amount" sum="Current Sales Amount"/>
+                <field name="baseline_legacy_sales_amount" sum="Legacy Baseline Amount"/>
+                <field name="delta_sales_amount" sum="Sales Amount Delta"/>
+                <field name="delta_sales_amount_pct" optional="show"/>
+                <field name="baseline_has_legacy_data"/>
+                <field name="source_db" optional="hide"/>
+                <field name="source_product_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_baseline_search" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.baseline.search</field>
+        <field name="model">legacy.current.product.compare.baseline</field>
+        <field name="arch" type="xml">
+            <search string="Legacy to Current Baseline Comparison">
+                <field name="source_default_code"/>
+                <field name="source_barcode"/>
+                <field name="source_name"/>
+                <field name="target_product_id"/>
+                <field name="target_default_code"/>
+                <field name="target_barcode"/>
+                <field name="target_name"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="match_status"/>
+                <field name="match_method"/>
+                <field name="baseline_mode"/>
+                <field name="current_period_month"/>
+                <field name="baseline_period_month"/>
+                <field name="source_db"/>
+                <separator/>
+                <filter name="baseline_matched_only"
+                        string="Matched Only"
+                        domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False)]"/>
+                <filter name="baseline_confidence_1"
+                        string="Confidence 1.0"
+                        domain="[('confidence', '=', 1.0)]"/>
+                <filter name="baseline_mode_yoy"
+                        string="YoY Mode"
+                        domain="[('baseline_mode', '=', 'yoy')]"/>
+                <filter name="baseline_mode_custom"
+                        string="Custom Legacy Month"
+                        domain="[('baseline_mode', '=', 'custom_legacy')]"/>
+                <filter name="baseline_missing_legacy"
+                        string="Missing Legacy Baseline"
+                        domain="[('baseline_has_legacy_data', '=', False)]"/>
+                <separator/>
+                <filter name="baseline_current_period_range" string="Current Period" date="current_period_month"/>
+                <filter name="baseline_legacy_period_range" string="Legacy Baseline Period" date="baseline_period_month"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="baseline_group_current_month" string="Current Month" context="{'group_by': 'current_period_month:month'}"/>
+                    <filter name="baseline_group_legacy_month" string="Legacy Baseline Month" context="{'group_by': 'baseline_period_month:month'}"/>
+                    <filter name="baseline_group_mode" string="Baseline Mode" context="{'group_by': 'baseline_mode'}"/>
+                    <filter name="baseline_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
+                    <filter name="baseline_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
+                    <filter name="baseline_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="baseline_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                    <filter name="baseline_group_match_method" string="Match Method" context="{'group_by': 'match_method'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_baseline_pivot" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.baseline.pivot</field>
+        <field name="model">legacy.current.product.compare.baseline</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy to Current Baseline Comparison">
+                <field name="current_sales_qty" type="measure"/>
+                <field name="baseline_legacy_sales_qty" type="measure"/>
+                <field name="delta_sales_qty" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="baseline_legacy_sales_amount" type="measure"/>
+                <field name="delta_sales_amount" type="measure"/>
+                <field name="delta_sales_qty_pct" type="measure"/>
+                <field name="delta_sales_amount_pct" type="measure"/>
+                <field name="current_period_month" interval="month" type="col"/>
+                <field name="baseline_mode" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_baseline_graph" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.baseline.graph</field>
+        <field name="model">legacy.current.product.compare.baseline</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy to Current Baseline Comparison" type="line">
+                <field name="current_period_month" interval="month"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="baseline_legacy_sales_amount" type="measure"/>
+                <field name="delta_sales_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_current_product_compare_baseline" model="ir.actions.act_window">
+        <field name="name">Legacy to Current Baseline Comparison</field>
+        <field name="res_model">legacy.current.product.compare.baseline</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
+        <field name="context">{'search_default_baseline_matched_only': 1, 'search_default_baseline_confidence_1': 1, 'search_default_baseline_mode_yoy': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_current_product_compare_baseline"
+              name="Legacy to Current Baseline Comparison"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_compare_baseline"
+              sequence="91"
+              groups="account.group_account_readonly"/>
 </odoo>
