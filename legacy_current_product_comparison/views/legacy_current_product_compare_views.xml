@@ -152,13 +152,13 @@
                 <field name="source_default_code" string="Legacy Item Code"/>
                 <field name="source_name" string="Legacy Product"/>
                 <field name="target_product_id" string="Current Product"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name" optional="show"/>
                 <button name="action_open_target_product" type="object" string="Open Product" invisible="not target_product_id"/>
                 <button name="action_open_mapping" type="object" string="Open Mapping"/>
                 <field name="match_status"/>
                 <field name="match_method" optional="show"/>
                 <field name="confidence" optional="show"/>
-                <field name="source_category_name" optional="show"/>
-                <field name="source_brand_name" optional="show"/>
                 <field name="current_sales_qty" sum="Current Sales Qty"/>
                 <field name="baseline_legacy_sales_qty" sum="Legacy Baseline Qty"/>
                 <field name="delta_sales_qty" sum="Sales Qty Delta"/>
@@ -179,9 +179,11 @@
         <field name="model">legacy.current.product.compare.baseline</field>
         <field name="arch" type="xml">
             <search string="Legacy to Current Baseline Comparison">
+                <field name="source_name"
+                       string="Product/Code/Barcode"
+                       filter_domain="['|','|','|','|','|',('source_name','ilike',self),('source_default_code','ilike',self),('source_barcode','ilike',self),('target_name','ilike',self),('target_default_code','ilike',self),('target_barcode','ilike',self)]"/>
                 <field name="source_default_code"/>
                 <field name="source_barcode"/>
-                <field name="source_name"/>
                 <field name="target_product_id"/>
                 <field name="target_default_code"/>
                 <field name="target_barcode"/>
@@ -195,6 +197,9 @@
                 <field name="baseline_period_month"/>
                 <field name="source_db"/>
                 <separator/>
+                <filter name="baseline_ready_scope"
+                        string="Matched + Confidence 1.0 + YoY"
+                        domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False), ('confidence', '=', 1.0), ('baseline_mode', '=', 'yoy')]"/>
                 <filter name="baseline_matched_only"
                         string="Matched Only"
                         domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False)]"/>
@@ -265,7 +270,7 @@
         <field name="res_model">legacy.current.product.compare.baseline</field>
         <field name="view_mode">graph,pivot,list</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
-        <field name="context">{'search_default_baseline_matched_only': 1, 'search_default_baseline_confidence_1': 1, 'search_default_baseline_mode_yoy': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_baseline_ready_scope': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_baseline"
