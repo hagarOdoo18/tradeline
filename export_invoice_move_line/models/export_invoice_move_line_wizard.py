@@ -134,7 +134,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                     if dic_lots['product_name'] in[ line.product_id.display_name,line.product_id.name]:
                         serials += str(dic_lots['lot_name'])+" , "
 
-
+                self.env.company = line.move_id.company_id.id
                 sheet.write(row, 0, str( line.move_id.invoice_date or ''))
                 sheet.write(row, 1,  line.move_id.branch_id.name or '')
                 sheet.write(row, 2,  line.move_id.name or '')
