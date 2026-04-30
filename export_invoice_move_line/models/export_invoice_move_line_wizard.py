@@ -133,8 +133,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 for dic_lots in list_lots:
                     if dic_lots['product_name'] in[ line.product_id.display_name,line.product_id.name]:
                         serials += str(dic_lots['lot_name'])+" , "
-
-                self.env.company = line.move_id.company_id.id
+                cost = line.sudo().product_id.standard_price
                 sheet.write(row, 0, str( line.move_id.invoice_date or ''))
                 sheet.write(row, 1,  line.move_id.branch_id.name or '')
                 sheet.write(row, 2,  line.move_id.name or '')
@@ -150,13 +149,13 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 12, line.product_id.display_name or '')
                 sheet.write(row, 13, line.quantity if line.move_id.move_type != 'out_refund' else line.quantity *-1 or '')
                 sheet.write(row, 14, serials or '')
-                sheet.write(row, 15, float(line.product_id.standard_price) or 0)
+                sheet.write(row, 15, float(cost) or 0)
                 sheet.write(row, 16, float(line.price_unit) or 0)
                 sheet.write(row, 17, line.discount or 0)
                 sheet.write(row, 18, line.price_subtotal if line.move_id.move_type != 'out_refund' else  line.price_subtotal*-1 or 0)
                 sheet.write(row, 19, line.price_total  if line.move_id.move_type != 'out_refund' else  line.price_total*-1 or 0)
                 sheet.write(row, 20, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
-                sheet.write(row, 21, float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1 or 0)
+                sheet.write(row, 21, float(cost * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1 or 0)
                 sheet.write(row, 22,amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, payment_journals if line.move_id.id not in invoices  else '')
                 sheet.write(row, 24, amount if line.move_id.id not in invoices  else 0)
@@ -199,6 +198,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                         amount += ',' + str(payment.amount)
 
                 total = line.move_id.amount_total
+                cost = line.sudo().product_id.standard_price
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
                 credit = self.get_credit_note(line.move_id)
@@ -224,13 +224,13 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 12, line.product_id.display_name or '')
                 sheet.write(row, 13, line.quantity  if line.move_id.move_type != 'out_refund' else line.quantity *-1 or '')
                 sheet.write(row, 14, serials or '')
-                sheet.write(row, 15, float(line.product_id.standard_price) or 0)
+                sheet.write(row, 15, float(cost) or 0)
                 sheet.write(row, 16, float(line.price_unit) or 0)
                 sheet.write(row, 17, line.discount or 0)
                 sheet.write(row, 18, line.price_subtotal  if line.move_id.move_type != 'out_refund' else  line.price_subtotal*-1 or 0)
                 sheet.write(row, 19, line.price_total  if line.move_id.move_type != 'out_refund' else  line.price_total*-1 or 0)
                 sheet.write(row, 20, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
-                sheet.write(row, 21,  float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
+                sheet.write(row, 21,  float(cost * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
                 sheet.write(row, 22,amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 23, payment_journals if line.move_id.id not in invoices  else '')
                 sheet.write(row, 24, amount if line.move_id.id not in invoices  else 0)
@@ -273,6 +273,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                         amount += ',' + str(payment.amount)
 
                 total = line.move_id.amount_total
+                cost = line.sudo().product_id.standard_price
+
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
                 credit = self.get_credit_note(line.move_id)
@@ -304,13 +306,13 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 18, line.product_id.display_name or '')
                 sheet.write(row, 19, line.quantity  if line.move_id.move_type != 'out_refund' else line.quantity *-1 or '')
                 sheet.write(row, 20, serials or '')
-                sheet.write(row, 21, float(line.product_id.standard_price) or 0)
+                sheet.write(row, 21, float(cost) or 0)
                 sheet.write(row, 22, float(line.price_unit) or 0)
                 sheet.write(row, 23, line.discount or 0)
                 sheet.write(row, 24, line.price_subtotal  if line.move_id.move_type != 'out_refund' else  line.price_subtotal*-1 or 0)
                 sheet.write(row, 25, line.price_total  if line.move_id.move_type != 'out_refund' else  line.price_total*-1 or 0)
                 sheet.write(row, 26, amount_untaxed_signed if line.move_id.id not in invoices  else 0)
-                sheet.write(row, 27,  float(line.product_id.standard_price * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
+                sheet.write(row, 27,  float(cost * line.quantity) if line.move_id.move_type != 'out_refund' else  float(line.product_id.standard_price * line.quantity) *-1  or 0)
                 sheet.write(row, 28,amount_total_signed if line.move_id.id not in invoices  else 0)
                 sheet.write(row, 29, payment_journals if line.move_id.id not in invoices  else '')
                 sheet.write(row, 30, amount if line.move_id.id not in invoices  else 0)
