@@ -39,6 +39,18 @@ class LegacyProductMonthFact(models.Model):
 
     legacy_sales_qty = fields.Float()
     legacy_sales_amount = fields.Float()
+    legacy_return_qty = fields.Float()
+    legacy_return_amount = fields.Float()
+    legacy_discount_amount = fields.Float()
+    legacy_gross_sales_amount = fields.Float()
+    legacy_net_sales_amount = fields.Float()
+    legacy_asp = fields.Float()
+    legacy_cogs_amount = fields.Float()
+    legacy_margin_amount = fields.Float()
+    legacy_margin_pct = fields.Float()
+    legacy_cost_available = fields.Boolean(default=False, index=True)
+    legacy_cost_source = fields.Char()
+    legacy_margin_comparable = fields.Boolean(default=False, index=True)
     legacy_stock_close_qty = fields.Float()
     legacy_stock_close_value = fields.Float()
     value_available = fields.Boolean(default=False, index=True)
@@ -87,17 +99,49 @@ class LegacyCurrentProductCompareMonth(models.Model):
 
     legacy_sales_qty = fields.Float(readonly=True)
     legacy_sales_amount = fields.Float(readonly=True)
+    legacy_return_qty = fields.Float(readonly=True)
+    legacy_return_amount = fields.Float(readonly=True)
+    legacy_discount_amount = fields.Float(readonly=True)
+    legacy_gross_sales_amount = fields.Float(readonly=True)
+    legacy_net_sales_amount = fields.Float(readonly=True)
+    legacy_asp = fields.Float(readonly=True)
+    legacy_cogs_amount = fields.Float(readonly=True)
+    legacy_margin_amount = fields.Float(readonly=True)
+    legacy_margin_pct = fields.Float(readonly=True)
+    legacy_cost_available = fields.Boolean(readonly=True)
+    legacy_cost_source = fields.Char(readonly=True)
+    legacy_margin_comparable = fields.Boolean(readonly=True)
     legacy_stock_close_qty = fields.Float(readonly=True)
     legacy_stock_close_value = fields.Float(readonly=True)
 
     current_sales_qty = fields.Float(readonly=True)
     current_sales_amount = fields.Float(readonly=True)
+    current_return_qty = fields.Float(readonly=True)
+    current_return_amount = fields.Float(readonly=True)
+    current_discount_amount = fields.Float(readonly=True)
+    current_gross_sales_amount = fields.Float(readonly=True)
+    current_net_sales_amount = fields.Float(readonly=True)
+    current_asp = fields.Float(readonly=True)
+    current_cogs_amount = fields.Float(readonly=True)
+    current_margin_amount = fields.Float(readonly=True)
+    current_margin_pct = fields.Float(readonly=True)
+    current_cost_available = fields.Boolean(readonly=True)
     current_stock_close_qty = fields.Float(readonly=True)
     current_stock_close_value = fields.Float(readonly=True)
 
     delta_sales_qty = fields.Float(readonly=True)
     delta_sales_amount = fields.Float(readonly=True)
+    delta_return_qty = fields.Float(readonly=True)
+    delta_return_amount = fields.Float(readonly=True)
+    delta_discount_amount = fields.Float(readonly=True)
+    delta_gross_sales_amount = fields.Float(readonly=True)
+    delta_net_sales_amount = fields.Float(readonly=True)
+    delta_asp = fields.Float(readonly=True)
+    delta_cogs_amount = fields.Float(readonly=True)
+    delta_margin_amount = fields.Float(readonly=True)
+    delta_margin_pct = fields.Float(readonly=True)
     delta_stock_value = fields.Float(readonly=True)
+    margin_comparable = fields.Boolean(readonly=True)
     value_available = fields.Boolean(readonly=True)
 
     has_legacy_data = fields.Boolean(readonly=True)
@@ -293,6 +337,18 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     lmf.source_brand_name,
                     COALESCE(lmf.legacy_sales_qty, 0.0) AS legacy_sales_qty,
                     COALESCE(lmf.legacy_sales_amount, 0.0) AS legacy_sales_amount,
+                    COALESCE(lmf.legacy_return_qty, 0.0) AS legacy_return_qty,
+                    COALESCE(lmf.legacy_return_amount, 0.0) AS legacy_return_amount,
+                    COALESCE(lmf.legacy_discount_amount, 0.0) AS legacy_discount_amount,
+                    COALESCE(lmf.legacy_gross_sales_amount, 0.0) AS legacy_gross_sales_amount,
+                    COALESCE(lmf.legacy_net_sales_amount, COALESCE(lmf.legacy_sales_amount, 0.0)) AS legacy_net_sales_amount,
+                    lmf.legacy_asp AS legacy_asp,
+                    lmf.legacy_cogs_amount,
+                    lmf.legacy_margin_amount,
+                    lmf.legacy_margin_pct,
+                    COALESCE(lmf.legacy_cost_available, FALSE) AS legacy_cost_available,
+                    lmf.legacy_cost_source,
+                    COALESCE(lmf.legacy_margin_comparable, FALSE) AS legacy_margin_comparable,
                     lmf.legacy_stock_close_qty,
                     lmf.legacy_stock_close_value,
                     COALESCE(lmf.value_available, FALSE) AS legacy_value_available
@@ -320,7 +376,35 @@ class LegacyCurrentProductCompareMonth(models.Model):
                             WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
                             ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
                         END
-                    ) AS current_sales_amount
+                    ) AS current_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_discount_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_gross_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund'
+                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                        END
+                    ) AS current_cogs_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -337,7 +421,23 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     mp.source_product_id,
                     cs.period_month,
                     cs.current_sales_qty,
-                    cs.current_sales_amount
+                    cs.current_sales_amount,
+                    cs.current_return_qty,
+                    cs.current_return_amount,
+                    cs.current_discount_amount,
+                    cs.current_gross_sales_amount,
+                    cs.current_sales_amount AS current_net_sales_amount,
+                    CASE
+                        WHEN cs.current_sales_qty = 0 THEN NULL
+                        ELSE cs.current_sales_amount / cs.current_sales_qty
+                    END AS current_asp,
+                    cs.current_cogs_amount,
+                    (cs.current_sales_amount - cs.current_cogs_amount) AS current_margin_amount,
+                    CASE
+                        WHEN cs.current_sales_amount = 0 THEN NULL
+                        ELSE ((cs.current_sales_amount - cs.current_cogs_amount) / cs.current_sales_amount) * 100.0
+                    END AS current_margin_pct,
+                    COALESCE(cs.current_cost_available, FALSE) AS current_cost_available
                 FROM mapped_products mp
                 JOIN current_sales cs
                     ON cs.product_id = mp.target_product_id
@@ -352,6 +452,16 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     'all'::text AS warehouse_key,
                     COALESCE(csm.current_sales_qty, 0.0) AS current_sales_qty,
                     COALESCE(csm.current_sales_amount, 0.0) AS current_sales_amount,
+                    COALESCE(csm.current_return_qty, 0.0) AS current_return_qty,
+                    COALESCE(csm.current_return_amount, 0.0) AS current_return_amount,
+                    COALESCE(csm.current_discount_amount, 0.0) AS current_discount_amount,
+                    COALESCE(csm.current_gross_sales_amount, 0.0) AS current_gross_sales_amount,
+                    COALESCE(csm.current_net_sales_amount, 0.0) AS current_net_sales_amount,
+                    csm.current_asp,
+                    csm.current_cogs_amount,
+                    csm.current_margin_amount,
+                    csm.current_margin_pct,
+                    COALESCE(csm.current_cost_available, FALSE) AS current_cost_available,
                     cst.current_stock_close_qty,
                     cst.current_stock_close_value,
                     COALESCE(cst.current_value_available, FALSE) AS current_value_available
@@ -383,18 +493,62 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     COALESCE(mp.manual_override, FALSE) AS manual_override,
                     COALESCE(lf.legacy_sales_qty, 0.0) AS legacy_sales_qty,
                     COALESCE(lf.legacy_sales_amount, 0.0) AS legacy_sales_amount,
+                    COALESCE(lf.legacy_return_qty, 0.0) AS legacy_return_qty,
+                    COALESCE(lf.legacy_return_amount, 0.0) AS legacy_return_amount,
+                    COALESCE(lf.legacy_discount_amount, 0.0) AS legacy_discount_amount,
+                    COALESCE(lf.legacy_gross_sales_amount, 0.0) AS legacy_gross_sales_amount,
+                    COALESCE(lf.legacy_net_sales_amount, COALESCE(lf.legacy_sales_amount, 0.0)) AS legacy_net_sales_amount,
+                    lf.legacy_asp,
+                    lf.legacy_cogs_amount,
+                    lf.legacy_margin_amount,
+                    lf.legacy_margin_pct,
+                    COALESCE(lf.legacy_cost_available, FALSE) AS legacy_cost_available,
+                    lf.legacy_cost_source,
+                    COALESCE(lf.legacy_margin_comparable, FALSE) AS legacy_margin_comparable,
                     lf.legacy_stock_close_qty,
                     lf.legacy_stock_close_value,
                     COALESCE(cm.current_sales_qty, 0.0) AS current_sales_qty,
                     COALESCE(cm.current_sales_amount, 0.0) AS current_sales_amount,
+                    COALESCE(cm.current_return_qty, 0.0) AS current_return_qty,
+                    COALESCE(cm.current_return_amount, 0.0) AS current_return_amount,
+                    COALESCE(cm.current_discount_amount, 0.0) AS current_discount_amount,
+                    COALESCE(cm.current_gross_sales_amount, 0.0) AS current_gross_sales_amount,
+                    COALESCE(cm.current_net_sales_amount, 0.0) AS current_net_sales_amount,
+                    cm.current_asp,
+                    cm.current_cogs_amount,
+                    cm.current_margin_amount,
+                    cm.current_margin_pct,
+                    COALESCE(cm.current_cost_available, FALSE) AS current_cost_available,
                     cm.current_stock_close_qty,
                     cm.current_stock_close_value,
                     COALESCE(cm.current_sales_qty, 0.0) - COALESCE(lf.legacy_sales_qty, 0.0) AS delta_sales_qty,
                     COALESCE(cm.current_sales_amount, 0.0) - COALESCE(lf.legacy_sales_amount, 0.0) AS delta_sales_amount,
+                    COALESCE(cm.current_return_qty, 0.0) - COALESCE(lf.legacy_return_qty, 0.0) AS delta_return_qty,
+                    COALESCE(cm.current_return_amount, 0.0) - COALESCE(lf.legacy_return_amount, 0.0) AS delta_return_amount,
+                    COALESCE(cm.current_discount_amount, 0.0) - COALESCE(lf.legacy_discount_amount, 0.0) AS delta_discount_amount,
+                    COALESCE(cm.current_gross_sales_amount, 0.0) - COALESCE(lf.legacy_gross_sales_amount, 0.0) AS delta_gross_sales_amount,
+                    COALESCE(cm.current_net_sales_amount, 0.0) - COALESCE(lf.legacy_net_sales_amount, 0.0) AS delta_net_sales_amount,
+                    CASE
+                        WHEN cm.current_asp IS NULL OR lf.legacy_asp IS NULL THEN NULL
+                        ELSE cm.current_asp - lf.legacy_asp
+                    END AS delta_asp,
+                    CASE
+                        WHEN cm.current_cogs_amount IS NULL OR lf.legacy_cogs_amount IS NULL THEN NULL
+                        ELSE cm.current_cogs_amount - lf.legacy_cogs_amount
+                    END AS delta_cogs_amount,
+                    CASE
+                        WHEN cm.current_margin_amount IS NULL OR lf.legacy_margin_amount IS NULL THEN NULL
+                        ELSE cm.current_margin_amount - lf.legacy_margin_amount
+                    END AS delta_margin_amount,
+                    CASE
+                        WHEN cm.current_margin_pct IS NULL OR lf.legacy_margin_pct IS NULL THEN NULL
+                        ELSE cm.current_margin_pct - lf.legacy_margin_pct
+                    END AS delta_margin_pct,
                     CASE
                         WHEN cm.current_stock_close_value IS NULL OR lf.legacy_stock_close_value IS NULL THEN NULL
                         ELSE cm.current_stock_close_value - lf.legacy_stock_close_value
                     END AS delta_stock_value,
+                    (COALESCE(lf.legacy_cost_available, FALSE) AND COALESCE(cm.current_cost_available, FALSE)) AS margin_comparable,
                     (COALESCE(lf.legacy_value_available, FALSE) AND COALESCE(cm.current_value_available, FALSE)) AS value_available,
                     (lf.source_product_id IS NOT NULL) AS has_legacy_data,
                     (cm.source_product_id IS NOT NULL) AS has_current_data
@@ -443,15 +597,47 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 manual_override,
                 legacy_sales_qty,
                 legacy_sales_amount,
+                legacy_return_qty,
+                legacy_return_amount,
+                legacy_discount_amount,
+                legacy_gross_sales_amount,
+                legacy_net_sales_amount,
+                legacy_asp,
+                legacy_cogs_amount,
+                legacy_margin_amount,
+                legacy_margin_pct,
+                legacy_cost_available,
+                legacy_cost_source,
+                legacy_margin_comparable,
                 legacy_stock_close_qty,
                 legacy_stock_close_value,
                 current_sales_qty,
                 current_sales_amount,
+                current_return_qty,
+                current_return_amount,
+                current_discount_amount,
+                current_gross_sales_amount,
+                current_net_sales_amount,
+                current_asp,
+                current_cogs_amount,
+                current_margin_amount,
+                current_margin_pct,
+                current_cost_available,
                 current_stock_close_qty,
                 current_stock_close_value,
                 delta_sales_qty,
                 delta_sales_amount,
+                delta_return_qty,
+                delta_return_amount,
+                delta_discount_amount,
+                delta_gross_sales_amount,
+                delta_net_sales_amount,
+                delta_asp,
+                delta_cogs_amount,
+                delta_margin_amount,
+                delta_margin_pct,
                 delta_stock_value,
+                margin_comparable,
                 value_available,
                 has_legacy_data,
                 has_current_data
@@ -494,13 +680,44 @@ class LegacyCurrentProductCompareBaseline(models.Model):
 
     current_sales_qty = fields.Float(readonly=True)
     current_sales_amount = fields.Float(readonly=True)
+    current_return_qty = fields.Float(readonly=True)
+    current_return_amount = fields.Float(readonly=True)
+    current_discount_amount = fields.Float(readonly=True)
+    current_gross_sales_amount = fields.Float(readonly=True)
+    current_net_sales_amount = fields.Float(readonly=True)
+    current_asp = fields.Float(readonly=True)
+    current_cogs_amount = fields.Float(readonly=True)
+    current_margin_amount = fields.Float(readonly=True)
+    current_margin_pct = fields.Float(readonly=True)
+    current_cost_available = fields.Boolean(readonly=True)
     baseline_legacy_sales_qty = fields.Float(readonly=True)
     baseline_legacy_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_return_qty = fields.Float(readonly=True)
+    baseline_legacy_return_amount = fields.Float(readonly=True)
+    baseline_legacy_discount_amount = fields.Float(readonly=True)
+    baseline_legacy_gross_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_net_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_asp = fields.Float(readonly=True)
+    baseline_legacy_cogs_amount = fields.Float(readonly=True)
+    baseline_legacy_margin_amount = fields.Float(readonly=True)
+    baseline_legacy_margin_pct = fields.Float(readonly=True)
+    baseline_legacy_cost_available = fields.Boolean(readonly=True)
+    baseline_legacy_margin_comparable = fields.Boolean(readonly=True)
     delta_sales_qty = fields.Float(readonly=True)
     delta_sales_amount = fields.Float(readonly=True)
     delta_sales_qty_pct = fields.Float(readonly=True)
     delta_sales_amount_pct = fields.Float(readonly=True)
+    delta_return_qty = fields.Float(readonly=True)
+    delta_return_amount = fields.Float(readonly=True)
+    delta_discount_amount = fields.Float(readonly=True)
+    delta_gross_sales_amount = fields.Float(readonly=True)
+    delta_net_sales_amount = fields.Float(readonly=True)
+    delta_asp = fields.Float(readonly=True)
+    delta_cogs_amount = fields.Float(readonly=True)
+    delta_margin_amount = fields.Float(readonly=True)
+    delta_margin_pct = fields.Float(readonly=True)
 
+    margin_comparable = fields.Boolean(readonly=True)
     baseline_has_legacy_data = fields.Boolean(readonly=True)
 
     def action_open_mapping(self):
@@ -581,7 +798,35 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                             WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
                             ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
                         END
-                    ) AS current_sales_amount
+                    ) AS current_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_discount_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_gross_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund'
+                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                        END
+                    ) AS current_cogs_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -598,7 +843,23 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     mp.source_product_id,
                     cs.period_month,
                     cs.current_sales_qty,
-                    cs.current_sales_amount
+                    cs.current_sales_amount,
+                    cs.current_return_qty,
+                    cs.current_return_amount,
+                    cs.current_discount_amount,
+                    cs.current_gross_sales_amount,
+                    cs.current_sales_amount AS current_net_sales_amount,
+                    CASE
+                        WHEN cs.current_sales_qty = 0 THEN NULL
+                        ELSE cs.current_sales_amount / cs.current_sales_qty
+                    END AS current_asp,
+                    cs.current_cogs_amount,
+                    (cs.current_sales_amount - cs.current_cogs_amount) AS current_margin_amount,
+                    CASE
+                        WHEN cs.current_sales_amount = 0 THEN NULL
+                        ELSE ((cs.current_sales_amount - cs.current_cogs_amount) / cs.current_sales_amount) * 100.0
+                    END AS current_margin_pct,
+                    COALESCE(cs.current_cost_available, FALSE) AS current_cost_available
                 FROM mapped_products mp
                 LEFT JOIN current_sales cs
                     ON cs.product_id = mp.target_product_id
@@ -625,7 +886,17 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 SELECT
                     cg.*,
                     COALESCE(csm.current_sales_qty, 0.0) AS current_sales_qty,
-                    COALESCE(csm.current_sales_amount, 0.0) AS current_sales_amount
+                    COALESCE(csm.current_sales_amount, 0.0) AS current_sales_amount,
+                    COALESCE(csm.current_return_qty, 0.0) AS current_return_qty,
+                    COALESCE(csm.current_return_amount, 0.0) AS current_return_amount,
+                    COALESCE(csm.current_discount_amount, 0.0) AS current_discount_amount,
+                    COALESCE(csm.current_gross_sales_amount, 0.0) AS current_gross_sales_amount,
+                    COALESCE(csm.current_net_sales_amount, 0.0) AS current_net_sales_amount,
+                    csm.current_asp,
+                    csm.current_cogs_amount,
+                    csm.current_margin_amount,
+                    csm.current_margin_pct,
+                    COALESCE(csm.current_cost_available, FALSE) AS current_cost_available
                 FROM current_grid cg
                 LEFT JOIN current_sales_mapped csm
                     ON csm.source_db = cg.source_db
@@ -638,7 +909,37 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     lmf.source_product_id,
                     lmf.period_month::date AS baseline_period_month,
                     SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS legacy_sales_qty,
-                    SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS legacy_sales_amount
+                    SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS legacy_sales_amount,
+                    SUM(COALESCE(lmf.legacy_return_qty, 0.0)) AS legacy_return_qty,
+                    SUM(COALESCE(lmf.legacy_return_amount, 0.0)) AS legacy_return_amount,
+                    SUM(COALESCE(lmf.legacy_discount_amount, 0.0)) AS legacy_discount_amount,
+                    SUM(COALESCE(lmf.legacy_gross_sales_amount, 0.0)) AS legacy_gross_sales_amount,
+                    SUM(COALESCE(lmf.legacy_net_sales_amount, COALESCE(lmf.legacy_sales_amount, 0.0))) AS legacy_net_sales_amount,
+                    CASE
+                        WHEN SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) = 0 THEN NULL
+                        ELSE SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) / SUM(COALESCE(lmf.legacy_sales_qty, 0.0))
+                    END AS legacy_asp,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_cogs_amount, 0.0))
+                        ELSE NULL
+                    END AS legacy_cogs_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                        ELSE NULL
+                    END AS legacy_margin_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                             AND SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) != 0
+                        THEN (
+                            SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                            / SUM(COALESCE(lmf.legacy_sales_amount, 0.0))
+                        ) * 100.0
+                        ELSE NULL
+                    END AS legacy_margin_pct,
+                    BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE)) AS legacy_cost_available,
+                    BOOL_OR(COALESCE(lmf.legacy_margin_comparable, FALSE)) AS legacy_margin_comparable
                 FROM legacy_product_month_fact lmf
                 WHERE lmf.period_month < DATE '2026-01-01'
                 GROUP BY lmf.source_db, lmf.source_product_id, lmf.period_month::date
@@ -690,8 +991,29 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     ar.baseline_period_month,
                     ar.current_sales_qty,
                     ar.current_sales_amount,
+                    ar.current_return_qty,
+                    ar.current_return_amount,
+                    ar.current_discount_amount,
+                    ar.current_gross_sales_amount,
+                    ar.current_net_sales_amount,
+                    ar.current_asp,
+                    ar.current_cogs_amount,
+                    ar.current_margin_amount,
+                    ar.current_margin_pct,
+                    ar.current_cost_available,
                     COALESCE(ls.legacy_sales_qty, 0.0) AS baseline_legacy_sales_qty,
                     COALESCE(ls.legacy_sales_amount, 0.0) AS baseline_legacy_sales_amount,
+                    COALESCE(ls.legacy_return_qty, 0.0) AS baseline_legacy_return_qty,
+                    COALESCE(ls.legacy_return_amount, 0.0) AS baseline_legacy_return_amount,
+                    COALESCE(ls.legacy_discount_amount, 0.0) AS baseline_legacy_discount_amount,
+                    COALESCE(ls.legacy_gross_sales_amount, 0.0) AS baseline_legacy_gross_sales_amount,
+                    COALESCE(ls.legacy_net_sales_amount, 0.0) AS baseline_legacy_net_sales_amount,
+                    ls.legacy_asp AS baseline_legacy_asp,
+                    ls.legacy_cogs_amount AS baseline_legacy_cogs_amount,
+                    ls.legacy_margin_amount AS baseline_legacy_margin_amount,
+                    ls.legacy_margin_pct AS baseline_legacy_margin_pct,
+                    COALESCE(ls.legacy_cost_available, FALSE) AS baseline_legacy_cost_available,
+                    COALESCE(ls.legacy_margin_comparable, FALSE) AS baseline_legacy_margin_comparable,
                     (ls.source_product_id IS NOT NULL) AS baseline_has_legacy_data
                 FROM all_rows ar
                 LEFT JOIN legacy_sales ls
@@ -738,8 +1060,29 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 END AS baseline_key,
                 current_sales_qty,
                 current_sales_amount,
+                current_return_qty,
+                current_return_amount,
+                current_discount_amount,
+                current_gross_sales_amount,
+                current_net_sales_amount,
+                current_asp,
+                current_cogs_amount,
+                current_margin_amount,
+                current_margin_pct,
+                current_cost_available,
                 baseline_legacy_sales_qty,
                 baseline_legacy_sales_amount,
+                baseline_legacy_return_qty,
+                baseline_legacy_return_amount,
+                baseline_legacy_discount_amount,
+                baseline_legacy_gross_sales_amount,
+                baseline_legacy_net_sales_amount,
+                baseline_legacy_asp,
+                baseline_legacy_cogs_amount,
+                baseline_legacy_margin_amount,
+                baseline_legacy_margin_pct,
+                baseline_legacy_cost_available,
+                baseline_legacy_margin_comparable,
                 current_sales_qty - baseline_legacy_sales_qty AS delta_sales_qty,
                 current_sales_amount - baseline_legacy_sales_amount AS delta_sales_amount,
                 CASE
@@ -750,6 +1093,28 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     WHEN baseline_legacy_sales_amount = 0 THEN NULL
                     ELSE ((current_sales_amount - baseline_legacy_sales_amount) / baseline_legacy_sales_amount) * 100.0
                 END AS delta_sales_amount_pct,
+                current_return_qty - baseline_legacy_return_qty AS delta_return_qty,
+                current_return_amount - baseline_legacy_return_amount AS delta_return_amount,
+                current_discount_amount - baseline_legacy_discount_amount AS delta_discount_amount,
+                current_gross_sales_amount - baseline_legacy_gross_sales_amount AS delta_gross_sales_amount,
+                current_net_sales_amount - baseline_legacy_net_sales_amount AS delta_net_sales_amount,
+                CASE
+                    WHEN current_asp IS NULL OR baseline_legacy_asp IS NULL THEN NULL
+                    ELSE current_asp - baseline_legacy_asp
+                END AS delta_asp,
+                CASE
+                    WHEN current_cogs_amount IS NULL OR baseline_legacy_cogs_amount IS NULL THEN NULL
+                    ELSE current_cogs_amount - baseline_legacy_cogs_amount
+                END AS delta_cogs_amount,
+                CASE
+                    WHEN current_margin_amount IS NULL OR baseline_legacy_margin_amount IS NULL THEN NULL
+                    ELSE current_margin_amount - baseline_legacy_margin_amount
+                END AS delta_margin_amount,
+                CASE
+                    WHEN current_margin_pct IS NULL OR baseline_legacy_margin_pct IS NULL THEN NULL
+                    ELSE current_margin_pct - baseline_legacy_margin_pct
+                END AS delta_margin_pct,
+                (baseline_legacy_cost_available AND current_cost_available) AS margin_comparable,
                 baseline_has_legacy_data
             FROM combined
             """

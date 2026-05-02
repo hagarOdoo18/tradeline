@@ -21,6 +21,34 @@
                 <field name="legacy_sales_amount" sum="Legacy Sales Amount"/>
                 <field name="current_sales_amount" sum="Current Sales Amount"/>
                 <field name="delta_sales_amount" sum="Sales Amount Delta"/>
+                <field name="legacy_return_qty" sum="Legacy Return Qty" optional="show"/>
+                <field name="current_return_qty" sum="Current Return Qty" optional="show"/>
+                <field name="delta_return_qty" sum="Return Qty Delta" optional="show"/>
+                <field name="legacy_return_amount" sum="Legacy Return Amount" optional="hide"/>
+                <field name="current_return_amount" sum="Current Return Amount" optional="hide"/>
+                <field name="delta_return_amount" sum="Return Amount Delta" optional="hide"/>
+                <field name="legacy_discount_amount" sum="Legacy Discount" optional="show"/>
+                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
+                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
+                <field name="legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
+                <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
+                <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
+                <field name="legacy_net_sales_amount" sum="Legacy Net Sales" optional="show"/>
+                <field name="current_net_sales_amount" sum="Current Net Sales" optional="show"/>
+                <field name="delta_net_sales_amount" sum="Net Sales Delta" optional="show"/>
+                <field name="legacy_asp" optional="hide"/>
+                <field name="current_asp" optional="hide"/>
+                <field name="delta_asp" optional="hide"/>
+                <field name="legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
+                <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
+                <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
+                <field name="legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
+                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
+                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="legacy_margin_pct" optional="hide"/>
+                <field name="current_margin_pct" optional="hide"/>
+                <field name="delta_margin_pct" optional="hide"/>
+                <field name="margin_comparable" optional="hide"/>
                 <field name="legacy_stock_close_qty" sum="Legacy Stock Qty"/>
                 <field name="current_stock_close_qty" sum="Current Stock Qty"/>
                 <field name="legacy_stock_close_value" sum="Legacy Stock Value"/>
@@ -72,6 +100,12 @@
                 <filter name="compare_has_current_only"
                         string="Current Data Only"
                         domain="[('has_legacy_data', '=', False), ('has_current_data', '=', True)]"/>
+                <filter name="compare_margin_comparable_only"
+                        string="Margin Comparable Only"
+                        domain="[('margin_comparable', '=', True)]"/>
+                <filter name="compare_finance_ops_core"
+                        string="Finance + Ops Core"
+                        domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False)]"/>
                 <separator/>
                 <filter name="compare_period_range" string="Period" date="period_month"/>
                 <separator/>
@@ -102,6 +136,33 @@
                 <field name="legacy_sales_amount" type="measure"/>
                 <field name="current_sales_amount" type="measure"/>
                 <field name="delta_sales_amount" type="measure"/>
+                <field name="legacy_return_qty" type="measure"/>
+                <field name="current_return_qty" type="measure"/>
+                <field name="delta_return_qty" type="measure"/>
+                <field name="legacy_return_amount" type="measure"/>
+                <field name="current_return_amount" type="measure"/>
+                <field name="delta_return_amount" type="measure"/>
+                <field name="legacy_discount_amount" type="measure"/>
+                <field name="current_discount_amount" type="measure"/>
+                <field name="delta_discount_amount" type="measure"/>
+                <field name="legacy_gross_sales_amount" type="measure"/>
+                <field name="current_gross_sales_amount" type="measure"/>
+                <field name="delta_gross_sales_amount" type="measure"/>
+                <field name="legacy_net_sales_amount" type="measure"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
+                <field name="legacy_asp" type="measure"/>
+                <field name="current_asp" type="measure"/>
+                <field name="delta_asp" type="measure"/>
+                <field name="legacy_cogs_amount" type="measure"/>
+                <field name="current_cogs_amount" type="measure"/>
+                <field name="delta_cogs_amount" type="measure"/>
+                <field name="legacy_margin_amount" type="measure"/>
+                <field name="current_margin_amount" type="measure"/>
+                <field name="delta_margin_amount" type="measure"/>
+                <field name="legacy_margin_pct" type="measure"/>
+                <field name="current_margin_pct" type="measure"/>
+                <field name="delta_margin_pct" type="measure"/>
                 <field name="legacy_stock_close_qty" type="measure"/>
                 <field name="current_stock_close_qty" type="measure"/>
                 <field name="legacy_stock_close_value" type="measure"/>
@@ -119,9 +180,9 @@
         <field name="arch" type="xml">
             <graph string="Legacy to Current Comparison" type="line">
                 <field name="period_month" interval="month"/>
-                <field name="legacy_sales_amount" type="measure"/>
-                <field name="current_sales_amount" type="measure"/>
-                <field name="delta_sales_amount" type="measure"/>
+                <field name="legacy_net_sales_amount" type="measure"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
             </graph>
         </field>
     </record>
@@ -167,6 +228,34 @@
                 <field name="baseline_legacy_sales_amount" sum="Legacy Baseline Amount"/>
                 <field name="delta_sales_amount" sum="Sales Amount Delta"/>
                 <field name="delta_sales_amount_pct" optional="show"/>
+                <field name="current_return_qty" sum="Current Return Qty" optional="show"/>
+                <field name="baseline_legacy_return_qty" sum="Legacy Return Qty" optional="show"/>
+                <field name="delta_return_qty" sum="Return Qty Delta" optional="show"/>
+                <field name="current_return_amount" sum="Current Return Amount" optional="hide"/>
+                <field name="baseline_legacy_return_amount" sum="Legacy Return Amount" optional="hide"/>
+                <field name="delta_return_amount" sum="Return Amount Delta" optional="hide"/>
+                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
+                <field name="baseline_legacy_discount_amount" sum="Legacy Discount" optional="show"/>
+                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
+                <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
+                <field name="baseline_legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
+                <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
+                <field name="current_net_sales_amount" sum="Current Net Sales" optional="show"/>
+                <field name="baseline_legacy_net_sales_amount" sum="Legacy Net Sales" optional="show"/>
+                <field name="delta_net_sales_amount" sum="Net Sales Delta" optional="show"/>
+                <field name="current_asp" optional="hide"/>
+                <field name="baseline_legacy_asp" optional="hide"/>
+                <field name="delta_asp" optional="hide"/>
+                <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
+                <field name="baseline_legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
+                <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
+                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
+                <field name="baseline_legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
+                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="current_margin_pct" optional="hide"/>
+                <field name="baseline_legacy_margin_pct" optional="hide"/>
+                <field name="delta_margin_pct" optional="hide"/>
+                <field name="margin_comparable" optional="hide"/>
                 <field name="baseline_has_legacy_data"/>
                 <field name="source_db" optional="hide"/>
                 <field name="source_product_id" optional="hide"/>
@@ -215,6 +304,12 @@
                 <filter name="baseline_missing_legacy"
                         string="Missing Legacy Baseline"
                         domain="[('baseline_has_legacy_data', '=', False)]"/>
+                <filter name="baseline_margin_comparable_only"
+                        string="Margin Comparable Only"
+                        domain="[('margin_comparable', '=', True)]"/>
+                <filter name="baseline_finance_ops_core"
+                        string="Finance + Ops Core"
+                        domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False), ('confidence', '=', 1.0)]"/>
                 <separator/>
                 <filter name="baseline_current_period_range" string="Current Period" date="current_period_month"/>
                 <filter name="baseline_legacy_period_range" string="Legacy Baseline Period" date="baseline_period_month"/>
@@ -246,6 +341,30 @@
                 <field name="delta_sales_amount" type="measure"/>
                 <field name="delta_sales_qty_pct" type="measure"/>
                 <field name="delta_sales_amount_pct" type="measure"/>
+                <field name="current_return_qty" type="measure"/>
+                <field name="baseline_legacy_return_qty" type="measure"/>
+                <field name="delta_return_qty" type="measure"/>
+                <field name="current_discount_amount" type="measure"/>
+                <field name="baseline_legacy_discount_amount" type="measure"/>
+                <field name="delta_discount_amount" type="measure"/>
+                <field name="current_gross_sales_amount" type="measure"/>
+                <field name="baseline_legacy_gross_sales_amount" type="measure"/>
+                <field name="delta_gross_sales_amount" type="measure"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="baseline_legacy_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
+                <field name="current_asp" type="measure"/>
+                <field name="baseline_legacy_asp" type="measure"/>
+                <field name="delta_asp" type="measure"/>
+                <field name="current_cogs_amount" type="measure"/>
+                <field name="baseline_legacy_cogs_amount" type="measure"/>
+                <field name="delta_cogs_amount" type="measure"/>
+                <field name="current_margin_amount" type="measure"/>
+                <field name="baseline_legacy_margin_amount" type="measure"/>
+                <field name="delta_margin_amount" type="measure"/>
+                <field name="current_margin_pct" type="measure"/>
+                <field name="baseline_legacy_margin_pct" type="measure"/>
+                <field name="delta_margin_pct" type="measure"/>
                 <field name="current_period_month" interval="month" type="col"/>
                 <field name="baseline_mode" type="row"/>
             </pivot>
@@ -258,9 +377,9 @@
         <field name="arch" type="xml">
             <graph string="Legacy to Current Baseline Comparison" type="line">
                 <field name="current_period_month" interval="month"/>
-                <field name="current_sales_amount" type="measure"/>
-                <field name="baseline_legacy_sales_amount" type="measure"/>
-                <field name="delta_sales_amount" type="measure"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="baseline_legacy_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
             </graph>
         </field>
     </record>
