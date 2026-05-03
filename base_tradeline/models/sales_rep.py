@@ -26,12 +26,12 @@ class SalesRep(models.Model):
         string='call center',
         required=False)
 
-    @api.constrains('code')
-    def constrains_code(self):
-        for record in self:
-            code = self.search([('code', '=', record.code,('id','!=', record.id)), ])
-            if code:
-                raise ValidationError('This code is already in use.')
+    # @api.constrains('code')
+    # def constrains_code(self):
+    #     for record in self:
+    #         code = self.search([('code', '=', record.code,('id','!=', record.id))])
+    #         if code:
+    #             raise ValidationError('This code is already in use.')
     def name_get(self):
         # TDE: this could be cleaned a bit I think
         result=[]
