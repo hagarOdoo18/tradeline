@@ -10,14 +10,13 @@
                     <div class="alert alert-warning" role="alert">
                         Reassigns every customer invoice, credit note,
                         vendor bill, vendor refund, sale order and POS order
-                        currently owned by <strong>Old Sales Rep</strong>
-                        to <strong>New Sales Rep</strong>, then
-                        <strong>deletes the Old Sales Rep user</strong>
-                        (or archives the user if delete is blocked by other
-                        references).
+                        tied to any of the selected
+                        <strong>Old Sales Reps</strong> to the
+                        <strong>New Sales Rep</strong>, then archives the
+                        old sales reps.
                     </div>
                     <group>
-                        <field name="old_rep_id"
+                        <field name="old_rep_ids"  widget="many2many_tags"
                                options="{'no_create': True}"/>
                         <field name="new_rep_id"
                                options="{'no_create': True}"/>
@@ -25,10 +24,10 @@
                 </sheet>
                 <footer>
                     <button name="action_change"
-                            string="Change &amp; Delete Old"
+                            string="Change &amp; Archive Old"
                             type="object"
                             class="btn-primary"
-                            confirm="This will overwrite the salesperson on every matching record AND delete (or archive) the old user. Continue?"/>
+                            confirm="This will overwrite the sales rep on every matching record and archive every selected old sales rep. Continue?"/>
                     <button string="Cancel"
                             class="btn-secondary"
                             special="cancel"/>
