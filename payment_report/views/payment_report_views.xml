@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- payment.report.line list -->
+    <record id="view_payment_report_line_list" model="ir.ui.view">
+        <field name="name">payment.report.line.list</field>
+        <field name="model">payment.report.line</field>
+        <field name="arch" type="xml">
+            <list string="Payment Report" create="false" edit="false" delete="false">
+                <field name="branch_id"/>
+                <field name="date"/>
+                <field name="invoice_name"/>
+                <field name="sale_order_name"/>
+                <field name="partner_id"/>
+                <field name="journal_name"/>
+                <field name="source_type"/>
+                <field name="amount" sum="Total"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- payment.report.line search -->
+    <record id="view_payment_report_line_search" model="ir.ui.view">
+        <field name="name">payment.report.line.search</field>
+        <field name="model">payment.report.line</field>
+        <field name="arch" type="xml">
+            <search string="Payment Report">
+                <field name="branch_id"/>
+                <field name="partner_id"/>
+                <field name="invoice_name"/>
+                <field name="sale_order_name"/>
+                <field name="journal_name"/>
+                <field name="date"/>
+                <filter name="filter_invoice" string="Invoices"
+                        domain="[('source_type', 'in', ['invoice', 'invoice_pos'])]"/>
+                <filter name="filter_credit" string="Credit Notes"
+                        domain="[('source_type', 'in', ['credit', 'credit_pos'])]"/>
+                <filter name="filter_order" string="Order Payments"
+                        domain="[('source_type', '=', 'order_payment')]"/>
+                <group expand="1" string="Group By">
+                    <filter name="group_by_branch" string="Branch"
+                            context="{'group_by': 'branch_id'}"/>
+                    <filter name="group_by_partner" string="Partner"
+                            context="{'group_by': 'partner_id'}"/>
+                    <filter name="group_by_source" string="Source"
+                            context="{'group_by': 'source_type'}"/>
+                    <filter name="group_by_journal" string="Journal / Method"
+                            context="{'group_by': 'journal_name'}"/>
+                    <filter name="group_by_date" string="Date"
+                            context="{'group_by': 'date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- payment.report.line pivot -->
+    <record id="view_payment_report_line_pivot" model="ir.ui.view">
+        <field name="name">payment.report.line.pivot</field>
+        <field name="model">payment.report.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Payment Report Pivot">
+                <field name="branch_id" type="row"/>
+                <field name="source_type" type="col"/>
+                <field name="amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- payment.report.line graph -->
+    <record id="view_payment_report_line_graph" model="ir.ui.view">
+        <field name="name">payment.report.line.graph</field>
+        <field name="model">payment.report.line</field>
+        <field name="arch" type="xml">
+            <graph string="Payment Report Graph" type="bar">
+                <field name="branch_id"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_payment_report_line" model="ir.actions.act_window">
+        <field name="name">Payment Report</field>
+        <field name="res_model">payment.report.line</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_payment_report_line_search"/>
+    </record>
+
+</odoo>

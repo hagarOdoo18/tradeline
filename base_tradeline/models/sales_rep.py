@@ -26,6 +26,13 @@ class SalesRep(models.Model):
         string='call center',
         required=False)
 
+    active = fields.Boolean(
+        string='Active',
+        default=True,
+        help='If unchecked, the sales rep is archived: hidden from '
+             'selection lists but kept for history on existing records.',
+    )
+
     # @api.constrains('code')
     # def constrains_code(self):
     #     for record in self:
