@@ -7,26 +7,21 @@
     'description': """
 Payment Report
 ==============
-Generate a per-branch payment report combining:
+SQL-view-backed report combining:
 
-* Posted out_invoices and their reconciled (or POS) payments
-* Posted out_refund credit notes (negative amounts)
-* account.payment records linked to a sale order
+* Posted out_invoices reconciled to an account.payment
+* Posted out_invoices via POS (no account.payment)
+* Posted out_refunds reconciled to an account.payment (negative)
+* Posted out_refunds via POS
+* account.payment with sale_order_id, state='paid' (signed by payment_type)
 
-Output is rendered as list, pivot and graph views, plus a per-branch summary
-(record count, total invoice, total payment, difference) and an optional
-QWeb PDF.
+Branch and POS columns are detected at runtime — the report works even
+if those modules aren't installed.
 """,
     'author': 'Tradeline',
     'website': 'https://Tradeline.com',
-    # NOTE: requires a multi-branch module that provides `res.branch` and adds
-    # `branch_id` to account.move and account.payment. Adjust the dep below to
-    # match the branch module installed in your database.
     'depends': [
         'account',
-        'sale_management',
-        'point_of_sale',
-        'branch',
     ],
     'data': [
         'security/ir.model.access.csv',

@@ -95,7 +95,7 @@ class SyncCustomer(models.TransientModel):
                 customer_url = ('https://%s/admin/api/%s/customers.json'
                                 % (store_name, version))
                 headers = shopify_instance._get_shopify_headers()
-                response = requests.request('GET', customer_url,
+                response = requests.request('GET', customer_url,verify=False,
                                             headers=headers, data=[])
                 if 'customers' in response.json():
                     shopify_customers = response.json()['customers']
