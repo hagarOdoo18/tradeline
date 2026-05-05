@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_change_sales_rep_wizard_form" model="ir.ui.view">
+        <field name="name">change.sales.rep.wizard.form</field>
+        <field name="model">change.sales.rep.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Change Sales Representative">
+                <sheet>
+                    <div class="alert alert-warning" role="alert">
+                        Reassigns every customer invoice, credit note,
+                        vendor bill, vendor refund, sale order and POS order
+                        tied to any of the selected
+                        <strong>Old Sales Reps</strong> to the
+                        <strong>New Sales Rep</strong>, then archives the
+                        old sales reps.
+                    </div>
+                    <group>
+                        <field name="old_rep_ids"  widget="many2many_tags"
+                               options="{'no_create': True}"/>
+                        <field name="new_rep_id"
+                               options="{'no_create': True}"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_change"
+                            string="Change &amp; Archive Old"
+                            type="object"
+                            class="btn-primary"
+                            confirm="This will overwrite the sales rep on every matching record and archive every selected old sales rep. Continue?"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_change_sales_rep_wizard" model="ir.actions.act_window">
+        <field name="name">Change Sales Representative</field>
+        <field name="res_model">change.sales.rep.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_change_sales_rep_wizard"
+              name="Change Sales Representative"
+              parent="sale.menu_sale_config"
+              action="action_change_sales_rep_wizard"
+              sequence="100"/>
+
+</odoo>

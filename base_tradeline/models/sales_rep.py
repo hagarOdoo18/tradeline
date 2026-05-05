@@ -1,4 +1,5 @@
 from odoo import fields, models, api
+from setuptools.config._validate_pyproject import ValidationError
 
 
 class SalesRep(models.Model):
@@ -25,8 +26,19 @@ class SalesRep(models.Model):
         string='call center',
         required=False)
 
+    active = fields.Boolean(
+        string='Active',
+        default=True,
+        help='If unchecked, the sales rep is archived: hidden from '
+             'selection lists but kept for history on existing records.',
+    )
 
-
+    # @api.constrains('code')
+    # def constrains_code(self):
+    #     for record in self:
+    #         code = self.search([('code', '=', record.code,('id','!=', record.id))])
+    #         if code:
+    #             raise ValidationError('This code is already in use.')
     def name_get(self):
         # TDE: this could be cleaned a bit I think
         result=[]

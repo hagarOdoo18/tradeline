@@ -8,7 +8,10 @@
             <field name="arch" type="xml">
                 <form string="sales rep">
                     <sheet>
-
+                        <widget name="web_ribbon"
+                                title="Archived"
+                                bg_color="bg-danger"
+                                invisible="active"/>
                         <group>
                             <group>
                                 <field name="name"/>
@@ -18,8 +21,8 @@
                             <group>
                                 <field name="mail"/>
                                 <field name="type"/>
+                                <field name="active" invisible="1"/>
                             </group>
-                           
                         </group>
                     </sheet>
                 </form>
@@ -30,11 +33,25 @@
             <field name="name">sales.rep.list</field>
             <field name="model">sales.rep</field>
             <field name="arch" type="xml">
-                <list string="sales rep">
+                <list string="sales rep" decoration-muted="not active">
                     <field name="name"/>
                     <field name="code"/>
                     <field name="is_call_center"/>
+                    <field name="active" optional="hide"/>
                 </list>
+            </field>
+        </record>
+
+        <record id="sales_rep_search_view" model="ir.ui.view">
+            <field name="name">sales.rep.search</field>
+            <field name="model">sales.rep</field>
+            <field name="arch" type="xml">
+                <search string="Sales Rep">
+                    <field name="name"/>
+                    <field name="code"/>
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active', '=', False)]"/>
+                </search>
             </field>
         </record>
 

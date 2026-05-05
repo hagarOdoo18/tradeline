@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_payment_report_open"
+              name="Payment Report"
+              parent="account.menu_finance_reports"
+              action="action_payment_report_line"
+              sequence="90"/>
+
+</odoo>

@@ -167,177 +167,177 @@ class WebHook(http.Controller):
                         ('company_id', 'in',
                          [shopify_instance_id.company_id.id, False])
                     ]).id
-                if not product_id:
-                    product_id = request.env['product.template'].with_user(
-                        SUPERUSER_ID).create(
-                        {
-                            "name": data['title'],
-                            "type": 'consu',
-                            'is_storable': True,
-                            'image_1920': image,
-                            "categ_id": request.env.ref(
-                                'product.product_category_all').id,
-                            'product_tag_ids': product_tags,
-                            'description': data['body_html'],
-                            'company_id': shopify_instance_id.company_id.id,
-                            'default_code': data['variants'][0]['sku'] if
-                            data['variants'][0]['sku'] else None,
-                            'barcode': data['variants'][0]['barcode'] if
-                            data['variants'][0]['barcode'] else None,
-                            'list_price': data['variants'][0]['price'] if
-                            data['variants'][0]['price'] else None,
-                        })
-                    product_id.shopify_sync_ids.sudo().create({
-                        'instance_id': shopify_instance_id.id,
-                        'shopify_product': data.get('id'),
-                        'product_id': product_id.id,
-                    })
-                    product_product = request.env[
-                        'product.product'].sudo().search(
-                        [('product_tmpl_id', '=', product_id.id)]).id
-                    stock = request.env[
-                        'stock.quant'].with_user(
-                        SUPERUSER_ID).create(
-                        {
-                            'location_id': shopify_instance_id.
-                            warehouse_id.lot_stock_id.id,
-                            'product_id': product_product,
-                            'quantity': data['variants'][0][
-                                'inventory_quantity'],
-                        })
-                    stock.action_apply_inventory()
-                    variants = data.get("variants")
-                    variant = variants[0]
-                    fulfillment_service = variant.get("fulfillment_service")
-                    if fulfillment_service == 'gift_card':
-                        product_id.gift_card = True
-                    else:
-                        product_id.gift_card = False
-                    shopify_price_list = []
-                    if data['options']:
-                        for option in data['options']:
-                            attribute_id = request.env[
-                                'product.attribute'].with_user(
-                                SUPERUSER_ID).search(
-                                [
-                                    ('shopify_attribute', '=', option['id']),
-                                    ('shopify_instance_id', '=',
-                                     shopify_instance_id.id)
-                                ])
-                            att_val_ids = request.env[
-                                'product.attribute.value'].with_user(
-                                SUPERUSER_ID).search(
-                                [
-                                    ('name', 'in', option['values']),
-                                    ('attribute_id', '=', attribute_id.id)
-                                ])
-                            att_line = {
-                                'attribute_id': attribute_id.id,
-                                'value_ids': [(4, att_val.id) for att_val in
-                                              att_val_ids]
-                            }
-                            product_id.with_user(SUPERUSER_ID).write(
-                                {
-                                    'attribute_line_ids': [(0, 0, att_line)]
-                                })
-                        for shopify_var in data['variants']:
-                            shopify_var_list = []
-                            shopify_var_id_list = []
-                            r = 3
-                            for i in range(1, r):
-                                if shopify_var['option' + str(i)] is not None:
-                                    shopify_var_list.append(
-                                        shopify_var['option' + str(i)])
-                            for option in data['options']:
-                                for var in shopify_var_list:
-                                    if var in option['values']:
-                                        attribute_id = request.env[
-                                            'product.attribute'].sudo().search(
-                                            [
-                                                ('shopify_attribute', '=',
-                                                 option['id']),
-                                                ('shopify_instance_id', '=',
-                                                 shopify_instance_id.id)
-                                            ])
-                                        att_val_id = (
-                                            attribute_id.value_ids.filtered(
-                                                lambda x: x.name == var
-                                            ))
-                                        shopify_var_id_list.append(att_val_id)
-                            for variant in product_id.product_variant_ids:
-                                o_var_list = (
-                                    variant.product_template_variant_value_ids.
-                                    mapped('product_attribute_value_id'))
-                                o_var_list = [rec for rec in o_var_list]
-                                if o_var_list == shopify_var_id_list:
-                                    variant.sudo().write({
-                                        'shopify_variant': shopify_var['id'],
-                                        'shopify_instance_id':
-                                            shopify_instance_id.id,
-                                        'company_id':
-                                            shopify_instance_id.company_id.id,
-                                        'default_code': shopify_var['sku'] if
-                                        shopify_var['sku'] else None,
-                                        'lst_price': shopify_var['price'],
-                                        'qty_available': int(
-                                            shopify_var['inventory_quantity']),
-                                        'weight': shopify_var['weight'],
-                                        'barcode': shopify_var['barcode'],
-                                    })
-                                    price_dict = {
-                                        shopify_var['id']: shopify_var['price'],
-                                        'variant': shopify_var['title']
-                                    }
-                                    shopify_price_list.append(price_dict)
-                                    variant.shopify_sync_ids.sudo().create({
-                                        'instance_id': shopify_instance_id.id,
-                                        'shopify_product': shopify_var['id'],
-                                        'product_prod_id': variant.id,
-                                    })
-                                    request.env[
-                                        'stock.quant'].sudo().with_user(
-                                        SUPERUSER_ID).create(
-                                        {
-                                            'location_id': shopify_instance_id.
-                                            warehouse_id.lot_stock_id.id,
-                                            'product_id': variant.id,
-                                            'inventory_quantity': int(
-                                                shopify_var[
-                                                    'inventory_quantity']),
-                                            'inventory_date':
-                                                variant.create_date,
-                                            'quantity': int(
-                                                shopify_var[
-                                                    'inventory_quantity']),
-                                            'on_hand': True
-                                        }).action_apply_inventory()
-                        for rec in shopify_price_list:
-                            product_product_id = request.env[
-                                'product.product'].sudo().search(
-                                [('shopify_variant', '=', list(rec.keys())[0])])
-                            product_attribute_id = request.env[
-                                'product.template.attribute.value'].sudo(
-                            ).search(
-                                [
-                                    ('ptav_product_variant_ids', '=',
-                                     product_product_id.id)
-                                ])
-                            default_price = product_product_id.lst_price
-                            extra_price = float(
-                                list(rec.values())[0]) - default_price
-                            product_attribute_id.sudo().with_user(
-                                SUPERUSER_ID).write(
-                                {
-                                    'price_extra': float(extra_price)
-                                })
-                    else:
-                        for variant in product_id.product_variant_ids:
-                            variant.sudo().write({
-                                'shopify_variant': data['id'],
-                                'shopify_instance_id': shopify_instance_id.id,
-                                'company_id': shopify_instance_id.company_id.id,
-                            })
-                    return {"Message": "Success"}
+                # if not product_id:
+                #     product_id = request.env['product.template'].with_user(
+                #         SUPERUSER_ID).create(
+                #         {
+                #             "name": data['title'],
+                #             "type": 'consu',
+                #             'is_storable': True,
+                #             'image_1920': image,
+                #             "categ_id": request.env.ref(
+                #                 'product.product_category_all').id,
+                #             'product_tag_ids': product_tags,
+                #             'description': data['body_html'],
+                #             'company_id': shopify_instance_id.company_id.id,
+                #             'default_code': data['variants'][0]['sku'] if
+                #             data['variants'][0]['sku'] else None,
+                #             'barcode': data['variants'][0]['barcode'] if
+                #             data['variants'][0]['barcode'] else None,
+                #             'list_price': data['variants'][0]['price'] if
+                #             data['variants'][0]['price'] else None,
+                #         })
+                #     product_id.shopify_sync_ids.sudo().create({
+                #         'instance_id': shopify_instance_id.id,
+                #         'shopify_product': data.get('id'),
+                #         'product_id': product_id.id,
+                #     })
+                #     product_product = request.env[
+                #         'product.product'].sudo().search(
+                #         [('product_tmpl_id', '=', product_id.id)]).id
+                #     stock = request.env[
+                #         'stock.quant'].with_user(
+                #         SUPERUSER_ID).create(
+                #         {
+                #             'location_id': shopify_instance_id.
+                #             warehouse_id.lot_stock_id.id,
+                #             'product_id': product_product,
+                #             'quantity': data['variants'][0][
+                #                 'inventory_quantity'],
+                #         })
+                #     stock.action_apply_inventory()
+                #     variants = data.get("variants")
+                #     variant = variants[0]
+                #     fulfillment_service = variant.get("fulfillment_service")
+                #     if fulfillment_service == 'gift_card':
+                #         product_id.gift_card = True
+                #     else:
+                #         product_id.gift_card = False
+                #     shopify_price_list = []
+                #     if data['options']:
+                #         for option in data['options']:
+                #             attribute_id = request.env[
+                #                 'product.attribute'].with_user(
+                #                 SUPERUSER_ID).search(
+                #                 [
+                #                     ('shopify_attribute', '=', option['id']),
+                #                     ('shopify_instance_id', '=',
+                #                      shopify_instance_id.id)
+                #                 ])
+                #             att_val_ids = request.env[
+                #                 'product.attribute.value'].with_user(
+                #                 SUPERUSER_ID).search(
+                #                 [
+                #                     ('name', 'in', option['values']),
+                #                     ('attribute_id', '=', attribute_id.id)
+                #                 ])
+                #             att_line = {
+                #                 'attribute_id': attribute_id.id,
+                #                 'value_ids': [(4, att_val.id) for att_val in
+                #                               att_val_ids]
+                #             }
+                #             product_id.with_user(SUPERUSER_ID).write(
+                #                 {
+                #                     'attribute_line_ids': [(0, 0, att_line)]
+                #                 })
+                #         for shopify_var in data['variants']:
+                #             shopify_var_list = []
+                #             shopify_var_id_list = []
+                #             r = 3
+                #             for i in range(1, r):
+                #                 if shopify_var['option' + str(i)] is not None:
+                #                     shopify_var_list.append(
+                #                         shopify_var['option' + str(i)])
+                #             for option in data['options']:
+                #                 for var in shopify_var_list:
+                #                     if var in option['values']:
+                #                         attribute_id = request.env[
+                #                             'product.attribute'].sudo().search(
+                #                             [
+                #                                 ('shopify_attribute', '=',
+                #                                  option['id']),
+                #                                 ('shopify_instance_id', '=',
+                #                                  shopify_instance_id.id)
+                #                             ])
+                #                         att_val_id = (
+                #                             attribute_id.value_ids.filtered(
+                #                                 lambda x: x.name == var
+                #                             ))
+                #                         shopify_var_id_list.append(att_val_id)
+                #             for variant in product_id.product_variant_ids:
+                #                 o_var_list = (
+                #                     variant.product_template_variant_value_ids.
+                #                     mapped('product_attribute_value_id'))
+                #                 o_var_list = [rec for rec in o_var_list]
+                #                 if o_var_list == shopify_var_id_list:
+                #                     variant.sudo().write({
+                #                         'shopify_variant': shopify_var['id'],
+                #                         'shopify_instance_id':
+                #                             shopify_instance_id.id,
+                #                         'company_id':
+                #                             shopify_instance_id.company_id.id,
+                #                         'default_code': shopify_var['sku'] if
+                #                         shopify_var['sku'] else None,
+                #                         'lst_price': shopify_var['price'],
+                #                         'qty_available': int(
+                #                             shopify_var['inventory_quantity']),
+                #                         'weight': shopify_var['weight'],
+                #                         'barcode': shopify_var['barcode'],
+                #                     })
+                #                     price_dict = {
+                #                         shopify_var['id']: shopify_var['price'],
+                #                         'variant': shopify_var['title']
+                #                     }
+                #                     shopify_price_list.append(price_dict)
+                #                     variant.shopify_sync_ids.sudo().create({
+                #                         'instance_id': shopify_instance_id.id,
+                #                         'shopify_product': shopify_var['id'],
+                #                         'product_prod_id': variant.id,
+                #                     })
+                #                     request.env[
+                #                         'stock.quant'].sudo().with_user(
+                #                         SUPERUSER_ID).create(
+                #                         {
+                #                             'location_id': shopify_instance_id.
+                #                             warehouse_id.lot_stock_id.id,
+                #                             'product_id': variant.id,
+                #                             'inventory_quantity': int(
+                #                                 shopify_var[
+                #                                     'inventory_quantity']),
+                #                             'inventory_date':
+                #                                 variant.create_date,
+                #                             'quantity': int(
+                #                                 shopify_var[
+                #                                     'inventory_quantity']),
+                #                             'on_hand': True
+                #                         }).action_apply_inventory()
+                #         for rec in shopify_price_list:
+                #             product_product_id = request.env[
+                #                 'product.product'].sudo().search(
+                #                 [('shopify_variant', '=', list(rec.keys())[0])])
+                #             product_attribute_id = request.env[
+                #                 'product.template.attribute.value'].sudo(
+                #             ).search(
+                #                 [
+                #                     ('ptav_product_variant_ids', '=',
+                #                      product_product_id.id)
+                #                 ])
+                #             default_price = product_product_id.lst_price
+                #             extra_price = float(
+                #                 list(rec.values())[0]) - default_price
+                #             product_attribute_id.sudo().with_user(
+                #                 SUPERUSER_ID).write(
+                #                 {
+                #                     'price_extra': float(extra_price)
+                #                 })
+                #     else:
+                #         for variant in product_id.product_variant_ids:
+                #             variant.sudo().write({
+                #                 'shopify_variant': data['id'],
+                #                 'shopify_instance_id': shopify_instance_id.id,
+                #                 'company_id': shopify_instance_id.company_id.id,
+                #             })
+                #     return {"Message": "Success"}
         except Exception as e:
             request.env['log.message'].sudo().create({
                 'name': 'Product Creation not processed',
@@ -396,225 +396,225 @@ class WebHook(http.Controller):
                      ('company_id', 'in', [False,
                                            shopify_instance_id.company_id.id])
                      ])
-                if product_id:
-                    product_id.with_user(SUPERUSER_ID).write({
-                        'name': data['title'],
-                        'image_1920': image,
-                        'company_id': shopify_instance_id.company_id.id,
-                        'description': data['body_html'],
-                        'product_tag_ids': product_tags,
-                        'default_code': data['variants'][0]['sku'] if
-                        data['variants'][0]['sku'] else None,
-                    })
-                    shopify_price_list = []
-                    if data['options'] or data['variants']:
-                        for shopify_var in data['variants']:
-                            sync = request.env['shopify.sync'].with_user(
-                                SUPERUSER_ID).search([('shopify_variant_id',
-                                                       '=',
-                                                       shopify_var[
-                                                           'id'])])
-                            if sync:
-                                sync.product_prod_id.with_user(
-                                    SUPERUSER_ID).write(
-                                    {
-                                        'list_price': shopify_var[
-                                            'price']
-                                    })
-                            for option in data['options']:
-                                attribute_id = request.env[
-                                    'product.attribute'].with_user(
-                                    SUPERUSER_ID).search(
-                                    [('shopify_attribute', '=',
-                                      option['id']),
-                                     ('shopify_instance_id', '=',
-                                      shopify_instance_id.id)
-                                     ])
-                                if not attribute_id:
-                                    attribute_id = request.env[
-                                        'product.attribute'].with_user(
-                                        SUPERUSER_ID).create(
-                                        {
-                                            'name': option['name'],
-                                            'shopify_attribute':
-                                                option['id'],
-                                            'shopify_instance_id':
-                                                shopify_instance_id.id,
-                                        })
-                                    for opt_val in option['values']:
-                                        att_val = {
-                                            'name': opt_val
-                                        }
-                                        attribute_id.with_user(
-                                            SUPERUSER_ID).write(
-                                            {
-                                                'value_ids': [(0, 0, att_val)]
-                                            })
-                                        att_val_ids = (request.env[
-                                            'product.'
-                                            'attribute.value'].with_user(
-                                            SUPERUSER_ID).search(
-                                            [
-                                                (
-                                                    'name', 'in',
-                                                    option['values']),
-                                                ('attribute_id', '=',
-                                                 attribute_id.id)
-                                            ]))
-                                        att_line = {
-                                            'attribute_id': attribute_id.id,
-                                            'value_ids': [(4, att_val.id) for
-                                                          att_val in
-                                                          att_val_ids]
-                                        }
-                                        product_id.with_user(
-                                            SUPERUSER_ID).write(
-                                            {
-                                                'attribute_line_ids': [
-                                                    (0, 0, att_line)]
-                                            })
-                                else:
-                                    for opt_val in option['values']:
-                                        att_val_ids = (
-                                            attribute_id.value_ids.filtered(
-                                                lambda x: x.name == opt_val))
-                                        if not att_val_ids:
-                                            att_val = {
-                                                'name': opt_val
-                                            }
-                                            attribute_id.with_user(
-                                                SUPERUSER_ID).write(
-                                                {
-                                                    'value_ids': [
-                                                        (0, 0, att_val)]
-                                                })
-                            if data['options']:
-                                product_id.write({
-                                    'attribute_line_ids': [(5,)],
-                                })
-                                for option in data['options']:
-                                    attribute_id = request.env[
-                                        'product.attribute'].with_user(
-                                        SUPERUSER_ID).search(
-                                        [
-                                            ('shopify_attribute',
-                                             '=', option['id']),
-                                            (
-                                                'shopify_instance_id', '=',
-                                                shopify_instance_id.id)
-                                        ])
-                                    att_val_ids = request.env[
-                                        'product.attribute.value'].with_user(
-                                        SUPERUSER_ID).search(
-                                        [
-                                            ('name', 'in',
-                                             option['values']),
-                                            ('attribute_id', '=',
-                                             attribute_id.id)
-                                        ])
-                                    att_line = {
-                                        'attribute_id': attribute_id.id,
-                                        'value_ids': [(4, att_val.id) for
-                                                      att_val in
-                                                      att_val_ids]
-                                    }
-                                    product_id.with_user(SUPERUSER_ID).write({
-                                        'attribute_line_ids': [
-                                            (0, 0, att_line)]
-                                    })
-                            for shopify_variant in data['variants']:
-                                shopify_var_list = []
-                                shopify_var_id_list = []
-                                r = 4
-                                for i in range(1, r):
-                                    if shopify_variant['option'
-                                                       + str(i)] is not None:
-                                        shopify_var_list.append(
-                                            shopify_variant['option' + str(i)])
-                                    else:
-                                        break
-                                for option in data['options']:
-                                    for variant in shopify_var_list:
-                                        if variant in option['values']:
-                                            attribute_id = request.env[
-                                                'product.attribute'].with_user(
-                                                SUPERUSER_ID).search(
-                                                [('shopify_attribute', '=',
-                                                  option['id']),
-                                                 ('shopify_instance_id', '=',
-                                                  shopify_instance_id.id)
-                                                 ])
-                                            att_val_id = (
-                                                attribute_id.value_ids.filtered(
-                                                    lambda x: x.name == variant
-                                                ))
-                                            shopify_var_id_list.append(
-                                                att_val_id)
-                                for odoo_var in product_id.product_variant_ids:
-                                    odoo_var_list = (
-                                        odoo_var.
-                                        product_template_variant_value_ids.
-                                        mapped(
-                                            'product_attribute_value_id'))
-                                    odoo_var_list = [rec for rec in
-                                                     odoo_var_list]
-                                    if odoo_var_list == shopify_var_id_list:
-                                        odoo_var.with_user(SUPERUSER_ID).write(
-                                            {
-                                                'shopify_variant':
-                                                    shopify_variant['id'],
-                                                'shopify_instance_id':
-                                                    shopify_instance_id.id,
-                                                'synced_product': True,
-                                                'company_id':
-                                                    shopify_instance_id.
-                                                    company_id.id,
-                                                'default_code':
-                                                    shopify_variant['sku'] if
-                                                    shopify_variant[
-                                                        'sku'] else None,
-                                                'lst_price': shopify_variant[
-                                                    'price'],
-                                                'qty_available': int(
-                                                    shopify_variant[
-                                                        'inventory_quantity']),
-                                                'weight': shopify_variant[
-                                                    'weight'],
-                                                'barcode': shopify_variant[
-                                                    'barcode'],
-                                            })
-                                        price_dict = {
-                                            shopify_variant['id']:
-                                                shopify_variant[
-                                                    'price'],
-                                            'variant': shopify_variant['title']
-                                        }
-                                        shopify_price_list.append(price_dict)
-                                        stock_quant = request.env[
-                                            'stock.quant'].with_user(
-                                            SUPERUSER_ID).search(
-                                            [('product_id', '=', odoo_var.id)]
-                                        )
-                                        stock_quant.unlink()
-                                        request.env[
-                                            'stock.quant'].sudo().with_user(
-                                            SUPERUSER_ID).create(
-                                            {
-                                                'location_id':
-                                                    shopify_instance_id.
-                                                    warehouse_id.
-                                                    lot_stock_id.id,
-                                                'product_id': odoo_var.id,
-                                                'inventory_quantity': int(
-                                                    shopify_var[
-                                                        'inventory_quantity']),
-                                                'inventory_date': odoo_var.
-                                                    create_date,
-                                                'quantity': int(
-                                                    shopify_variant[
-                                                        'inventory_quantity']),
-                                                'on_hand': True
-                                            })
+                # if product_id:
+                #     product_id.with_user(SUPERUSER_ID).write({
+                #         'name': data['title'],
+                #         'image_1920': image,
+                #         'company_id': shopify_instance_id.company_id.id,
+                #         'description': data['body_html'],
+                #         'product_tag_ids': product_tags,
+                #         'default_code': data['variants'][0]['sku'] if
+                #         data['variants'][0]['sku'] else None,
+                #     })
+                #     shopify_price_list = []
+                #     if data['options'] or data['variants']:
+                #         for shopify_var in data['variants']:
+                #             sync = request.env['shopify.sync'].with_user(
+                #                 SUPERUSER_ID).search([('shopify_variant_id',
+                #                                        '=',
+                #                                        shopify_var[
+                #                                            'id'])])
+                #             if sync:
+                #                 sync.product_prod_id.with_user(
+                #                     SUPERUSER_ID).write(
+                #                     {
+                #                         'list_price': shopify_var[
+                #                             'price']
+                #                     })
+                #             for option in data['options']:
+                #                 attribute_id = request.env[
+                #                     'product.attribute'].with_user(
+                #                     SUPERUSER_ID).search(
+                #                     [('shopify_attribute', '=',
+                #                       option['id']),
+                #                      ('shopify_instance_id', '=',
+                #                       shopify_instance_id.id)
+                #                      ])
+                #                 if not attribute_id:
+                #                     attribute_id = request.env[
+                #                         'product.attribute'].with_user(
+                #                         SUPERUSER_ID).create(
+                #                         {
+                #                             'name': option['name'],
+                #                             'shopify_attribute':
+                #                                 option['id'],
+                #                             'shopify_instance_id':
+                #                                 shopify_instance_id.id,
+                #                         })
+                #                     for opt_val in option['values']:
+                #                         att_val = {
+                #                             'name': opt_val
+                #                         }
+                #                         attribute_id.with_user(
+                #                             SUPERUSER_ID).write(
+                #                             {
+                #                                 'value_ids': [(0, 0, att_val)]
+                #                             })
+                #                         att_val_ids = (request.env[
+                #                             'product.'
+                #                             'attribute.value'].with_user(
+                #                             SUPERUSER_ID).search(
+                #                             [
+                #                                 (
+                #                                     'name', 'in',
+                #                                     option['values']),
+                #                                 ('attribute_id', '=',
+                #                                  attribute_id.id)
+                #                             ]))
+                #                         att_line = {
+                #                             'attribute_id': attribute_id.id,
+                #                             'value_ids': [(4, att_val.id) for
+                #                                           att_val in
+                #                                           att_val_ids]
+                #                         }
+                #                         product_id.with_user(
+                #                             SUPERUSER_ID).write(
+                #                             {
+                #                                 'attribute_line_ids': [
+                #                                     (0, 0, att_line)]
+                #                             })
+                #                 else:
+                #                     for opt_val in option['values']:
+                #                         att_val_ids = (
+                #                             attribute_id.value_ids.filtered(
+                #                                 lambda x: x.name == opt_val))
+                #                         if not att_val_ids:
+                #                             att_val = {
+                #                                 'name': opt_val
+                #                             }
+                #                             attribute_id.with_user(
+                #                                 SUPERUSER_ID).write(
+                #                                 {
+                #                                     'value_ids': [
+                #                                         (0, 0, att_val)]
+                #                                 })
+                #             if data['options']:
+                #                 product_id.write({
+                #                     'attribute_line_ids': [(5,)],
+                #                 })
+                #                 for option in data['options']:
+                #                     attribute_id = request.env[
+                #                         'product.attribute'].with_user(
+                #                         SUPERUSER_ID).search(
+                #                         [
+                #                             ('shopify_attribute',
+                #                              '=', option['id']),
+                #                             (
+                #                                 'shopify_instance_id', '=',
+                #                                 shopify_instance_id.id)
+                #                         ])
+                #                     att_val_ids = request.env[
+                #                         'product.attribute.value'].with_user(
+                #                         SUPERUSER_ID).search(
+                #                         [
+                #                             ('name', 'in',
+                #                              option['values']),
+                #                             ('attribute_id', '=',
+                #                              attribute_id.id)
+                #                         ])
+                #                     att_line = {
+                #                         'attribute_id': attribute_id.id,
+                #                         'value_ids': [(4, att_val.id) for
+                #                                       att_val in
+                #                                       att_val_ids]
+                #                     }
+                #                     product_id.with_user(SUPERUSER_ID).write({
+                #                         'attribute_line_ids': [
+                #                             (0, 0, att_line)]
+                #                     })
+                #             for shopify_variant in data['variants']:
+                #                 shopify_var_list = []
+                #                 shopify_var_id_list = []
+                #                 r = 4
+                #                 for i in range(1, r):
+                #                     if shopify_variant['option'
+                #                                        + str(i)] is not None:
+                #                         shopify_var_list.append(
+                #                             shopify_variant['option' + str(i)])
+                #                     else:
+                #                         break
+                #                 for option in data['options']:
+                #                     for variant in shopify_var_list:
+                #                         if variant in option['values']:
+                #                             attribute_id = request.env[
+                #                                 'product.attribute'].with_user(
+                #                                 SUPERUSER_ID).search(
+                #                                 [('shopify_attribute', '=',
+                #                                   option['id']),
+                #                                  ('shopify_instance_id', '=',
+                #                                   shopify_instance_id.id)
+                #                                  ])
+                #                             att_val_id = (
+                #                                 attribute_id.value_ids.filtered(
+                #                                     lambda x: x.name == variant
+                #                                 ))
+                #                             shopify_var_id_list.append(
+                #                                 att_val_id)
+                #                 for odoo_var in product_id.product_variant_ids:
+                #                     odoo_var_list = (
+                #                         odoo_var.
+                #                         product_template_variant_value_ids.
+                #                         mapped(
+                #                             'product_attribute_value_id'))
+                #                     odoo_var_list = [rec for rec in
+                #                                      odoo_var_list]
+                #                     if odoo_var_list == shopify_var_id_list:
+                #                         odoo_var.with_user(SUPERUSER_ID).write(
+                #                             {
+                #                                 'shopify_variant':
+                #                                     shopify_variant['id'],
+                #                                 'shopify_instance_id':
+                #                                     shopify_instance_id.id,
+                #                                 'synced_product': True,
+                #                                 'company_id':
+                #                                     shopify_instance_id.
+                #                                     company_id.id,
+                #                                 'default_code':
+                #                                     shopify_variant['sku'] if
+                #                                     shopify_variant[
+                #                                         'sku'] else None,
+                #                                 'lst_price': shopify_variant[
+                #                                     'price'],
+                #                                 'qty_available': int(
+                #                                     shopify_variant[
+                #                                         'inventory_quantity']),
+                #                                 'weight': shopify_variant[
+                #                                     'weight'],
+                #                                 'barcode': shopify_variant[
+                #                                     'barcode'],
+                #                             })
+                #                         price_dict = {
+                #                             shopify_variant['id']:
+                #                                 shopify_variant[
+                #                                     'price'],
+                #                             'variant': shopify_variant['title']
+                #                         }
+                #                         shopify_price_list.append(price_dict)
+                #                         stock_quant = request.env[
+                #                             'stock.quant'].with_user(
+                #                             SUPERUSER_ID).search(
+                #                             [('product_id', '=', odoo_var.id)]
+                #                         )
+                #                         stock_quant.unlink()
+                #                         request.env[
+                #                             'stock.quant'].sudo().with_user(
+                #                             SUPERUSER_ID).create(
+                #                             {
+                #                                 'location_id':
+                #                                     shopify_instance_id.
+                #                                     warehouse_id.
+                #                                     lot_stock_id.id,
+                #                                 'product_id': odoo_var.id,
+                #                                 'inventory_quantity': int(
+                #                                     shopify_var[
+                #                                         'inventory_quantity']),
+                #                                 'inventory_date': odoo_var.
+                #                                     create_date,
+                #                                 'quantity': int(
+                #                                     shopify_variant[
+                #                                         'inventory_quantity']),
+                #                                 'on_hand': True
+                #                             })
                 return {'Messages': 'Success'}
         except Exception:
             request.env['log.message'].sudo().create({
@@ -653,10 +653,10 @@ class WebHook(http.Controller):
                         ('company_id', 'in', [False,
                                               shopify_instance_id.company_id.id
                                               ])], limit=1)
-                if product_id:
-                    product_id.with_user(SUPERUSER_ID).write({
-                        'active': False
-                    })
+                # if product_id:
+                #     product_id.with_user(SUPERUSER_ID).write({
+                #         'active': False
+                #     })
                 return {'Message': 'Success'}
         except Exception:
             request.env['log.message'].sudo().create({
