@@ -155,13 +155,6 @@ class PosOrder(models.Model):
         if not reason:
             return
 
-        if (reason.discount_type or "percentage") == "fixed_amount" and reason.use_category_discount:
-            raise UserError(
-                _(
-                    "Discount reason '%s' is configured as fixed amount, so category caps are not allowed."
-                ) % reason.name
-            )
-
         has_category_rules = bool(reason.category_discount_line_ids.filtered(lambda l: l.category_ids))
         if reason.use_category_discount and not has_category_rules:
             raise UserError(
@@ -174,6 +167,7 @@ class PosOrder(models.Model):
             fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
             discounted_total = 0.0
             precision_rounding = self.env.company.currency_id.rounding
+            eligible_line_count = 0
 
             for line_cmd in order_vals.get("lines", []):
                 line_vals = self._extract_line_vals(line_cmd)
@@ -181,6 +175,8 @@ class PosOrder(models.Model):
                 if float_compare(base_amount, 0.0, precision_rounding=precision_rounding) <= 0:
                     continue
 
+                product_id = self._extract_m2o_id(line_vals.get("product_id"))
+                product = self.env["product.product"].browse(product_id).exists() if product_id else False
                 actual_discount = float(line_vals.get("discount") or 0.0)
                 if float_compare(actual_discount, 100.0, precision_digits=2) == 1:
                     raise UserError(
@@ -188,7 +184,49 @@ class PosOrder(models.Model):
                             "Line discount cannot exceed 100%% for fixed discount reason '%s'."
                         ) % reason.name
                     )
+
+                if reason.use_category_discount:
+                    if not product:
+                        if float_compare(actual_discount, 0.0, precision_digits=2) == 1:
+                            raise UserError(
+                                _(
+                                    "Product '%(product)s' is not eligible for discount reason '%(reason)s'. "
+                                    "Allowed scope: %(scope)s."
+                                ) % {
+                                    'product': "#%s" % product_id,
+                                    'reason': reason.name,
+                                    'scope': self._get_reason_scope_display(reason),
+                                }
+                            )
+                        continue
+                    category_cap = self._get_reason_category_cap_for_product(reason, product)
+                    if category_cap is None:
+                        if float_compare(actual_discount, 0.0, precision_digits=2) == 1:
+                            raise UserError(
+                                _(
+                                    "Product '%(product)s' is not eligible for discount reason '%(reason)s'. "
+                                    "Allowed scope: %(scope)s."
+                                ) % {
+                                    'product': product.display_name if product else "#%s" % product_id,
+                                    'reason': reason.name,
+                                    'scope': self._get_reason_scope_display(reason),
+                                }
+                            )
+                        continue
+                    eligible_line_count += 1
+
                 discounted_total += base_amount * (actual_discount / 100.0)
+
+            if reason.use_category_discount and has_category_rules and not eligible_line_count:
+                raise UserError(
+                    _(
+                        "No order lines are eligible for discount reason '%(reason)s'. "
+                        "Remove the discount reason or add products from allowed scope: %(scope)s."
+                    ) % {
+                        'reason': reason.name,
+                        'scope': self._get_reason_scope_display(reason),
+                    }
+                )
 
             if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
                 raise UserError(

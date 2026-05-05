@@ -23,11 +23,6 @@ class DiscountReason(models.Model):
     @api.constrains("use_category_discount", "category_discount_line_ids", "discount_type")
     def _check_category_discount_configuration(self):
         for reason in self:
-            if reason.discount_type == "fixed_amount" and reason.use_category_discount:
-                raise ValidationError(
-                    _("Category-based rules are only supported for percentage discount reasons.")
-                )
-
             has_rules = bool(
                 reason.category_discount_line_ids.filtered(lambda line: line.category_ids)
             )

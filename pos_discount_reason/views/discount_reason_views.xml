@@ -6,11 +6,11 @@
         <field name="inherit_id" ref="base_tradeline.discount_reason_form_view"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='discount_percentage']" position="after">
-                <field name="use_category_discount" readonly="state != 'new'" invisible="discount_type == 'fixed_amount'"/>
+                <field name="use_category_discount" readonly="state != 'new'"/>
             </xpath>
 
             <xpath expr="//sheet/group" position="after">
-                <group string="Category Discount Rules" invisible="use_category_discount == False or discount_type == 'fixed_amount'">
+                <group string="Category Discount Rules" invisible="use_category_discount == False">
                     <field name="category_discount_line_ids" nolabel="1" readonly="state != 'new'">
                         <list editable="bottom">
                             <field name="sequence" optional="hide"/>

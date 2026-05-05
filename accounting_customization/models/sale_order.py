@@ -467,6 +467,13 @@ class SaleOrder(models.Model):
     def _reason_is_fixed_amount_mode(self, reason):
         return bool(reason and (reason.discount_type or "percentage") == "fixed_amount")
 
+    def _reason_has_category_scope(self, reason):
+        return bool(
+            reason
+            and "use_category_discount" in reason._fields
+            and reason.use_category_discount
+        )
+
     def _get_discount_reason_line_base_amount(self, line):
         base_amount = (line.price_unit or 0.0) * (line.product_uom_qty or 0.0)
         return max(base_amount, 0.0)
@@ -477,15 +484,31 @@ class SaleOrder(models.Model):
         currency = self.currency_id
         precision_rounding = currency.rounding if currency else 0.01
 
-        eligible_lines = [
-            (line, self._get_discount_reason_line_base_amount(line))
-            for line in lines
-        ]
+        has_category_scope = self._reason_has_category_scope(reason)
+        if has_category_scope:
+            rules = self._get_reason_category_rules(reason)
+            if not rules:
+                raise UserError(
+                    "This discount reason requires category rules but none are configured."
+                )
+
+        eligible_lines = []
+        for line in lines:
+            if has_category_scope and self._get_reason_category_cap_for_product(reason, line.product_id) is None:
+                continue
+            eligible_lines.append((line, self._get_discount_reason_line_base_amount(line)))
         eligible_lines = [(line, base) for line, base in eligible_lines if base > 0]
         eligible_base_total = sum(base for _, base in eligible_lines)
 
         if float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 0:
             return {line.id: 0.0 for line in lines}
+
+        if has_category_scope and not eligible_lines:
+            raise UserError(
+                "No order lines are eligible for this discount reason. "
+                "Remove discount reason or add eligible products from allowed scope: %s."
+                % self._get_reason_allowed_categories_display(reason)
+            )
 
         if float_compare(eligible_base_total, 0.0, precision_rounding=precision_rounding) <= 0:
             raise UserError("Cannot apply fixed discount on zero-value order lines.")
@@ -539,7 +562,7 @@ class SaleOrder(models.Model):
 
     def _get_reason_category_cap_for_product(self, reason, product):
         rules = self._get_reason_category_rules(reason)
-        if not self._reason_uses_category_mode(reason) or not rules:
+        if not self._reason_has_category_scope(reason) or not rules:
             return None
 
         category_chain = self._get_category_chain_ids(product.categ_id)
@@ -648,10 +671,36 @@ class SaleOrder(models.Model):
             if order._reason_is_fixed_amount_mode(reason):
                 fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
                 precision_rounding = order.currency_id.rounding if order.currency_id else 0.01
+                has_category_scope = order._reason_has_category_scope(reason)
+                if has_category_scope and not order._get_reason_category_rules(reason):
+                    raise UserError(
+                        "This discount reason requires category rules but none are configured."
+                    )
 
+                eligible_count = 0
                 for line in lines:
+                    if has_category_scope:
+                        category_cap = order._get_reason_category_cap_for_product(reason, line.product_id)
+                        if category_cap is None:
+                            if float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1:
+                                raise UserError(
+                                    "Product '%s' is not eligible for this discount reason. Allowed scope: %s."
+                                    % (
+                                        line.product_id.display_name,
+                                        order._get_reason_allowed_categories_display(reason),
+                                    )
+                                )
+                            continue
+                        eligible_count += 1
                     if float_compare(line.discount or 0.0, 100.0, precision_digits=2) == 1:
                         raise UserError("Discount Not Matched with Discount Reason")
+
+                if has_category_scope and not eligible_count:
+                    raise UserError(
+                        "No order lines are eligible for this discount reason. "
+                        "Remove discount reason or add eligible products from allowed scope: %s."
+                        % order._get_reason_allowed_categories_display(reason)
+                    )
 
                 discounted_total = order._get_order_lines_discount_amount_total(lines)
                 if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
@@ -868,6 +917,13 @@ class SaleOrderLine(models.Model):
 
                 reason = line.order_id.discount_id
                 if line.order_id._reason_is_fixed_amount_mode(reason):
+                    if line.order_id._reason_has_category_scope(reason):
+                        rules = line.order_id._get_reason_category_rules(reason)
+                        if not rules:
+                            raise UserError("This discount reason requires category rules but none are configured.")
+                        category_cap = line.order_id._get_reason_category_cap_for_product(reason, line.product_id)
+                        if category_cap is None and float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1:
+                            raise UserError("Product Not Eligible For Selected Discount Reason")
                     if float_compare(line.discount or 0.0, 100.0, precision_digits=2) == 1:
                         raise UserError("Discount Not Matched with Discount Reason")
                     lines = line.order_id.order_line.filtered("product_id")

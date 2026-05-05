@@ -278,9 +278,12 @@ patch(ControlButtons.prototype, {
         return Math.max(qty * unitPrice, 0);
     },
 
-    _applyFixedAmountDiscount(order, reason) {
+    _applyFixedAmountDiscount(order, reason, forcedRules = null) {
         const orderlines = order.get_orderlines();
         const fixedAmount = Number(reason.fixed_discount_amount || 0);
+        const useCategoryDiscount = Boolean(reason.use_category_discount);
+        const reasonId = this._asId(reason.id);
+        let rules = [];
 
         if (!orderlines.length) {
             return { ok: true };
@@ -291,11 +294,42 @@ patch(ControlButtons.prototype, {
             return { ok: true };
         }
 
+        if (useCategoryDiscount) {
+            rules = forcedRules && forcedRules.length
+                ? forcedRules
+                : this._getReasonCategoryRules(reasonId);
+            if (!rules.length) {
+                return {
+                    ok: false,
+                    message: _t("This discount reason requires category rules but none are configured."),
+                };
+            }
+        }
+
+        const parentMap = useCategoryDiscount ? this._buildCategoryParentMap() : null;
         const eligibleLines = orderlines
-            .map((line) => ({ line, base: this._getOrderlineBaseAmount(line) }))
-            .filter(({ base }) => base > 0);
+            .map((line) => {
+                const base = this._getOrderlineBaseAmount(line);
+                if (!useCategoryDiscount) {
+                    return { line, base, eligible: true };
+                }
+                const product = line.get_product();
+                const match = this._getMatchedCategoryRule(product, rules, parentMap, order);
+                return { line, base, eligible: match !== null };
+            })
+            .filter(({ base, eligible }) => base > 0 && eligible);
 
         if (!eligibleLines.length) {
+            if (useCategoryDiscount) {
+                const allowedScope = this._getReasonScopeLabels(rules);
+                return {
+                    ok: false,
+                    message: _t("No order lines are eligible for this discount reason. Allowed scope: ") +
+                        allowedScope.join("; ") +
+                        ". " +
+                        _t("Remove discount reason or add eligible products."),
+                };
+            }
             return {
                 ok: false,
                 message: _t("Cannot apply fixed discount on zero-value order lines."),
@@ -340,7 +374,7 @@ patch(ControlButtons.prototype, {
         }
 
         if (isFixedAmount) {
-            return this._applyFixedAmountDiscount(order, reason);
+            return this._applyFixedAmountDiscount(order, reason, forcedRules);
         }
 
         if (!useCategoryDiscount) {
@@ -449,7 +483,9 @@ patch(ControlButtons.prototype, {
                 id: reason.id,
                 item: reason,
                 label: reason.discount_type === "fixed_amount"
-                    ? `${reason.name} (${_t("Fixed")}: ${Number(reason.fixed_discount_amount || 0).toFixed(2)})`
+                    ? reason.use_category_discount
+                        ? `${reason.name} (${_t("Fixed")}: ${Number(reason.fixed_discount_amount || 0).toFixed(2)} • ${_t("By Category")})`
+                        : `${reason.name} (${_t("Fixed")}: ${Number(reason.fixed_discount_amount || 0).toFixed(2)})`
                     : reason.use_category_discount
                     ? `${reason.name} (${_t("By Category Caps")})`
                     : `${reason.name} (${reason.discount_percentage}%)`,
