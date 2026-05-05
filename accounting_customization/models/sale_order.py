@@ -1,7 +1,7 @@
 from odoo import fields, models, api, _
 from random import randint
 from odoo.exceptions import UserError
-from odoo.tools.float_utils import float_compare
+from odoo.tools.float_utils import float_compare, float_is_zero
 
 from odoo.http import Controller, request, route
 from odoo.exceptions import ValidationError
@@ -459,9 +459,68 @@ class SaleOrder(models.Model):
     def _reason_uses_category_mode(self, reason):
         return bool(
             reason
+            and (reason.discount_type or "percentage") == "percentage"
             and "use_category_discount" in reason._fields
             and reason.use_category_discount
         )
+
+    def _reason_is_fixed_amount_mode(self, reason):
+        return bool(reason and (reason.discount_type or "percentage") == "fixed_amount")
+
+    def _get_discount_reason_line_base_amount(self, line):
+        base_amount = (line.price_unit or 0.0) * (line.product_uom_qty or 0.0)
+        return max(base_amount, 0.0)
+
+    def _compute_fixed_reason_line_discounts(self, reason, lines):
+        self.ensure_one()
+        fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+        currency = self.currency_id
+        precision_rounding = currency.rounding if currency else 0.01
+
+        eligible_lines = [
+            (line, self._get_discount_reason_line_base_amount(line))
+            for line in lines
+        ]
+        eligible_lines = [(line, base) for line, base in eligible_lines if base > 0]
+        eligible_base_total = sum(base for _, base in eligible_lines)
+
+        if float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 0:
+            return {line.id: 0.0 for line in lines}
+
+        if float_compare(eligible_base_total, 0.0, precision_rounding=precision_rounding) <= 0:
+            raise UserError("Cannot apply fixed discount on zero-value order lines.")
+
+        if float_compare(fixed_amount, eligible_base_total, precision_rounding=precision_rounding) == 1:
+            raise UserError(
+                "Fixed discount amount cannot exceed eligible order lines total (%.2f)."
+                % eligible_base_total
+            )
+
+        percentages = {}
+        remaining_amount = fixed_amount
+        for index, (line, base_amount) in enumerate(eligible_lines):
+            if index == len(eligible_lines) - 1:
+                line_discount_amount = remaining_amount
+            else:
+                line_discount_amount = fixed_amount * (base_amount / eligible_base_total)
+                remaining_amount -= line_discount_amount
+
+            discount_percentage = (line_discount_amount / base_amount) * 100 if base_amount else 0.0
+            percentages[line.id] = min(max(discount_percentage, 0.0), 100.0)
+
+        for line in lines - self.env["sale.order.line"].browse(list(percentages.keys())):
+            percentages[line.id] = 0.0
+
+        return percentages
+
+    def _get_order_lines_discount_amount_total(self, lines):
+        total = 0.0
+        for line in lines:
+            base_amount = self._get_discount_reason_line_base_amount(line)
+            if base_amount <= 0:
+                continue
+            total += base_amount * ((line.discount or 0.0) / 100.0)
+        return total
 
     def _get_reason_category_rules(self, reason):
         if not reason or "category_discount_line_ids" not in reason._fields:
@@ -543,6 +602,12 @@ class SaleOrder(models.Model):
             if not lines:
                 continue
 
+            if order._reason_is_fixed_amount_mode(reason):
+                fixed_percentages = order._compute_fixed_reason_line_discounts(reason, lines)
+                for line in lines:
+                    line.discount = fixed_percentages.get(line.id, 0.0)
+                continue
+
             if not order._reason_uses_category_mode(reason):
                 for line in lines:
                     line.discount = reason.discount_percentage or 0.0
@@ -578,6 +643,28 @@ class SaleOrder(models.Model):
 
             lines = order.order_line.filtered("product_id")
             if not lines:
+                continue
+
+            if order._reason_is_fixed_amount_mode(reason):
+                fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+                precision_rounding = order.currency_id.rounding if order.currency_id else 0.01
+
+                for line in lines:
+                    if float_compare(line.discount or 0.0, 100.0, precision_digits=2) == 1:
+                        raise UserError("Discount Not Matched with Discount Reason")
+
+                discounted_total = order._get_order_lines_discount_amount_total(lines)
+                if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
+                    raise UserError(
+                        "Discount Not Matched with Discount Reason. Total line discounts exceed fixed amount %.2f."
+                        % fixed_amount
+                    )
+                if (
+                    require_positive_standard
+                    and float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 1
+                    and float_is_zero(discounted_total, precision_rounding=precision_rounding)
+                ):
+                    raise UserError("Remove Discount Reason")
                 continue
 
             if not order._reason_uses_category_mode(reason):
@@ -740,7 +827,9 @@ class SaleOrderLine(models.Model):
             self.warranty_id =  warranty.id
         if self.order_id and self.order_id.discount_id and self.product_id:
             reason = self.order_id.discount_id
-            if self.order_id._reason_uses_category_mode(reason):
+            if self.order_id._reason_is_fixed_amount_mode(reason):
+                self.order_id._apply_discount_reason_to_lines()
+            elif self.order_id._reason_uses_category_mode(reason):
                 category_cap = self.order_id._get_reason_category_cap_for_product(reason, self.product_id)
                 self.discount = category_cap if category_cap is not None else 0.0
             else:
@@ -778,7 +867,16 @@ class SaleOrderLine(models.Model):
                     continue
 
                 reason = line.order_id.discount_id
-                if line.order_id._reason_uses_category_mode(reason):
+                if line.order_id._reason_is_fixed_amount_mode(reason):
+                    if float_compare(line.discount or 0.0, 100.0, precision_digits=2) == 1:
+                        raise UserError("Discount Not Matched with Discount Reason")
+                    lines = line.order_id.order_line.filtered("product_id")
+                    fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+                    precision_rounding = line.order_id.currency_id.rounding if line.order_id.currency_id else 0.01
+                    discounted_total = line.order_id._get_order_lines_discount_amount_total(lines)
+                    if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
+                        raise UserError("Discount Not Matched with Discount Reason")
+                elif line.order_id._reason_uses_category_mode(reason):
                     rules = line.order_id._get_reason_category_rules(reason)
                     if not rules:
                         raise UserError("This discount reason requires category rules but none are configured.")

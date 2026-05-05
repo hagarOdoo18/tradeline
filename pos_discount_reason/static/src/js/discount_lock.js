@@ -206,13 +206,17 @@ patch(PosOrder.prototype, {
             return result;
         }
 
-        selectedLine.set_discount(cap);
-
         const reasonValue = this.discount_reason_id;
         const pos = this.pos || this.env?.services?.pos;
         const reason = (reasonValue && typeof reasonValue === "object")
             ? reasonValue
             : getReasonById(pos, reasonId);
+        if (reason?.discount_type === "fixed_amount") {
+            return result;
+        }
+
+        selectedLine.set_discount(cap);
+
         const rules = this._discount_reason_rule_lines_by_reason?.[reasonId] || [];
         const hasFamilyScopedRules = rules.some((rule) => (rule.family_ids || []).length > 0);
         if (reason?.use_category_discount && hasFamilyScopedRules && !getProductFamilyId(selectedLine.product_id, this)) {
@@ -244,6 +248,10 @@ patch(PosOrderline.prototype, {
             : getReasonById(pos, reasonId);
         if (!reason) {
             return null;
+        }
+
+        if (reason.discount_type === "fixed_amount") {
+            return 100;
         }
 
         const reasonCap = Number(reason.discount_percentage || 0);

@@ -1,7 +1,7 @@
 # models/pos_order.py
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
-from odoo.tools.float_utils import float_compare
+from odoo.tools.float_utils import float_compare, float_is_zero
 
 
 class PosOrder(models.Model):
@@ -136,6 +136,12 @@ class PosOrder(models.Model):
 
         return "; ".join(display_parts) if display_parts else _("No category rules configured")
 
+    @staticmethod
+    def _get_pos_line_base_amount(line_vals):
+        qty = float(line_vals.get("qty") or 0.0)
+        unit_price = float(line_vals.get("price_unit") or 0.0)
+        return max(qty * unit_price, 0.0)
+
     def _validate_locked_category_discounts(self, order_payload):
         order_vals = order_payload.get('data') if isinstance(order_payload, dict) and order_payload.get('data') else order_payload
         if not isinstance(order_vals, dict):
@@ -149,6 +155,13 @@ class PosOrder(models.Model):
         if not reason:
             return
 
+        if (reason.discount_type or "percentage") == "fixed_amount" and reason.use_category_discount:
+            raise UserError(
+                _(
+                    "Discount reason '%s' is configured as fixed amount, so category caps are not allowed."
+                ) % reason.name
+            )
+
         has_category_rules = bool(reason.category_discount_line_ids.filtered(lambda l: l.category_ids))
         if reason.use_category_discount and not has_category_rules:
             raise UserError(
@@ -156,6 +169,47 @@ class PosOrder(models.Model):
                     "Discount reason '%s' is configured for category discounts but has no category rules."
                 ) % reason.name
             )
+
+        if (reason.discount_type or "percentage") == "fixed_amount":
+            fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+            discounted_total = 0.0
+            precision_rounding = self.env.company.currency_id.rounding
+
+            for line_cmd in order_vals.get("lines", []):
+                line_vals = self._extract_line_vals(line_cmd)
+                base_amount = self._get_pos_line_base_amount(line_vals)
+                if float_compare(base_amount, 0.0, precision_rounding=precision_rounding) <= 0:
+                    continue
+
+                actual_discount = float(line_vals.get("discount") or 0.0)
+                if float_compare(actual_discount, 100.0, precision_digits=2) == 1:
+                    raise UserError(
+                        _(
+                            "Line discount cannot exceed 100%% for fixed discount reason '%s'."
+                        ) % reason.name
+                    )
+                discounted_total += base_amount * (actual_discount / 100.0)
+
+            if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
+                raise UserError(
+                    _(
+                        "Total line discounts exceed fixed discount amount %(amount).2f "
+                        "for reason '%(reason)s'."
+                    ) % {
+                        "amount": fixed_amount,
+                        "reason": reason.name,
+                    }
+                )
+            if (
+                float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 1
+                and float_is_zero(discounted_total, precision_rounding=precision_rounding)
+            ):
+                raise UserError(
+                    _(
+                        "Discount reason '%s' requires discount allocation on at least one line."
+                    ) % reason.name
+                )
+            return
 
         eligible_line_count = 0
         for line_cmd in order_vals.get('lines', []):
@@ -357,7 +411,7 @@ class PosSession(models.Model):
         data = super()._load_pos_data(data)
         data['data'][0]['sales_reps'] = self.env['sales.rep'].search_read(fields=['id', 'name'])
         data['data'][0]['discount_reason'] = self.env['discount.reason'].search_read(
-            fields=['id', 'name', 'discount_percentage', 'use_category_discount']
+            fields=['id', 'name', 'discount_percentage', 'use_category_discount', 'discount_type', 'fixed_discount_amount']
         )
         data['data'][0]['discount_reason_category_lines'] = self.env['discount.reason.category.line'].search_read(
             fields=['id', 'discount_reason_id', 'category_ids', 'family_ids', 'discount_percentage', 'sequence']

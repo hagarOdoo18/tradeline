@@ -1,4 +1,5 @@
-from odoo import fields, models, api
+from odoo import _, fields, models, api
+from odoo.exceptions import ValidationError
 
 
 class DiscountReason (models.Model):
@@ -22,6 +23,21 @@ class DiscountReason (models.Model):
     discount_percentage = fields.Float(
         string='Discount Percentage (%)',tracking=True,
         required=True)
+    discount_type = fields.Selection(
+        selection=[
+            ('percentage', 'Percentage'),
+            ('fixed_amount', 'Fixed Amount'),
+        ],
+        string='Discount Type',
+        default='percentage',
+        required=True,
+        tracking=True,
+    )
+    fixed_discount_amount = fields.Float(
+        string='Fixed Discount Amount',
+        tracking=True,
+        default=0.0,
+    )
 
     state = fields.Selection(
         string='State',
@@ -47,7 +63,7 @@ class DiscountReason (models.Model):
 
     @api.model
     def _load_pos_data_fields(self, config_id):
-        return ['id', 'name', 'discount_percentage']
+        return ['id', 'name', 'discount_percentage', 'discount_type', 'fixed_discount_amount']
 
     def _load_pos_data(self, data):
         domain = self._load_pos_data_domain(data)
@@ -57,3 +73,14 @@ class DiscountReason (models.Model):
             'data': delivery_providers,
             'fields': fields,
         }
+
+    @api.constrains('discount_type', 'discount_percentage', 'fixed_discount_amount')
+    def _check_discount_reason_amount_configuration(self):
+        for reason in self:
+            if reason.discount_type == 'percentage':
+                if reason.discount_percentage < 0 or reason.discount_percentage > 100:
+                    raise ValidationError(_("Discount percentage must be between 0 and 100."))
+                continue
+
+            if reason.fixed_discount_amount < 0:
+                raise ValidationError(_("Fixed discount amount cannot be negative."))

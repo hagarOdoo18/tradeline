@@ -20,9 +20,14 @@ class DiscountReason(models.Model):
         copy=True,
     )
 
-    @api.constrains("use_category_discount", "category_discount_line_ids")
+    @api.constrains("use_category_discount", "category_discount_line_ids", "discount_type")
     def _check_category_discount_configuration(self):
         for reason in self:
+            if reason.discount_type == "fixed_amount" and reason.use_category_discount:
+                raise ValidationError(
+                    _("Category-based rules are only supported for percentage discount reasons.")
+                )
+
             has_rules = bool(
                 reason.category_discount_line_ids.filtered(lambda line: line.category_ids)
             )
@@ -44,6 +49,10 @@ class DiscountReason(models.Model):
         fields_list = super()._load_pos_data_fields(config_id)
         if "use_category_discount" not in fields_list:
             fields_list.append("use_category_discount")
+        if "discount_type" not in fields_list:
+            fields_list.append("discount_type")
+        if "fixed_discount_amount" not in fields_list:
+            fields_list.append("fixed_discount_amount")
         return fields_list
 
 

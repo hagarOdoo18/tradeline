@@ -265,13 +265,82 @@ patch(ControlButtons.prototype, {
         return bestMatch;
     },
 
+    _getOrderlineBaseAmount(line) {
+        if (!line) {
+            return 0;
+        }
+        const qty = (typeof line.get_quantity === "function")
+            ? Number(line.get_quantity() || 0)
+            : Number(line.qty || 0);
+        const unitPrice = (typeof line.get_unit_price === "function")
+            ? Number(line.get_unit_price() || 0)
+            : Number(line.price_unit || line.price || 0);
+        return Math.max(qty * unitPrice, 0);
+    },
+
+    _applyFixedAmountDiscount(order, reason) {
+        const orderlines = order.get_orderlines();
+        const fixedAmount = Number(reason.fixed_discount_amount || 0);
+
+        if (!orderlines.length) {
+            return { ok: true };
+        }
+
+        if (fixedAmount <= 0) {
+            orderlines.forEach((line) => line.set_discount(0));
+            return { ok: true };
+        }
+
+        const eligibleLines = orderlines
+            .map((line) => ({ line, base: this._getOrderlineBaseAmount(line) }))
+            .filter(({ base }) => base > 0);
+
+        if (!eligibleLines.length) {
+            return {
+                ok: false,
+                message: _t("Cannot apply fixed discount on zero-value order lines."),
+            };
+        }
+
+        const totalBase = eligibleLines.reduce((sum, entry) => sum + entry.base, 0);
+        if (fixedAmount - totalBase > 0.0001) {
+            return {
+                ok: false,
+                message: _t("Fixed discount amount cannot exceed order lines total."),
+            };
+        }
+
+        let remaining = fixedAmount;
+        eligibleLines.forEach((entry, index) => {
+            const lineAmount = (index === eligibleLines.length - 1)
+                ? remaining
+                : fixedAmount * (entry.base / totalBase);
+            remaining -= lineAmount;
+            const pct = entry.base ? (lineAmount / entry.base) * 100 : 0;
+            entry.line.set_discount(Math.max(0, Math.min(pct, 100)));
+        });
+
+        const eligibleSet = new Set(eligibleLines.map(({ line }) => line));
+        orderlines.forEach((line) => {
+            if (!eligibleSet.has(line)) {
+                line.set_discount(0);
+            }
+        });
+        return { ok: true };
+    },
+
     _applyDiscountByReason(order, reason, forcedRules = null) {
         const orderlines = order.get_orderlines();
         const defaultDiscount = Number(reason.discount_percentage || 0);
+        const isFixedAmount = reason.discount_type === "fixed_amount";
         const useCategoryDiscount = Boolean(reason.use_category_discount);
 
         if (!orderlines.length) {
             return { ok: true };
+        }
+
+        if (isFixedAmount) {
+            return this._applyFixedAmountDiscount(order, reason);
         }
 
         if (!useCategoryDiscount) {
@@ -379,7 +448,9 @@ patch(ControlButtons.prototype, {
             const reasonList = discountReasons.map((reason) => ({
                 id: reason.id,
                 item: reason,
-                label: reason.use_category_discount
+                label: reason.discount_type === "fixed_amount"
+                    ? `${reason.name} (${_t("Fixed")}: ${Number(reason.fixed_discount_amount || 0).toFixed(2)})`
+                    : reason.use_category_discount
                     ? `${reason.name} (${_t("By Category Caps")})`
                     : `${reason.name} (${reason.discount_percentage}%)`,
                 isSelected: false,
