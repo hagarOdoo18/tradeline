@@ -16,7 +16,7 @@
                             <field name="sequence" optional="hide"/>
                             <field name="category_ids" widget="many2many_tags"/>
                             <field name="family_ids" widget="many2many_tags"/>
-                            <field name="discount_percentage"/>
+                            <field name="discount_percentage" column_invisible="parent.discount_type == 'fixed_amount'"/>
                         </list>
                     </field>
                 </group>
