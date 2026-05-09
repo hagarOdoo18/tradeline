@@ -3,7 +3,8 @@ access_bank_Details,bank_Details_user,model_bank_details,,1,1,1,1
 access_channel_channel,channel_channel_user,model_channel_channel,,1,1,1,1
 access_courier_courier,courier_courier_user,model_courier_courier,,1,1,1,1
 access_discount_reason,discount_reason_user,model_discount_reason,,1,1,1,1
-access_sales_rep,sales_rep_user,model_sales_rep,,1,1,1,1
+access_sales_rep_manager,sales_rep_manager,model_sales_rep,branch.admin_accounting,1,1,1,1
+access_sales_rep,sales_rep_user,model_sales_rep,,1,0,0,0
 access_product_warranty,product_product_warranty,model_product_warranty,,1,0,0,0
 access_product_warranty_admin,product_warranty_admin,model_product_warranty,base_tradeline.group_product_warranty,1,1,1,1
 access_product_family,product_family_user,model_product_family,,1,0,0,0
