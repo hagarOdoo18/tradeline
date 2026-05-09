@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <record id="view_payment_report_line_list" model="ir.ui.view">
-        <field name="name">payment.report.line.list</field>
-        <field name="model">payment.report.line</field>
+    <record id="view_payment_report_list" model="ir.ui.view">
+        <field name="name">payment.report.list</field>
+        <field name="model">payment.report</field>
         <field name="arch" type="xml">
             <list string="Payment Report"
                   create="false" edit="false" delete="false">
@@ -19,9 +19,9 @@
         </field>
     </record>
 
-    <record id="view_payment_report_line_search" model="ir.ui.view">
-        <field name="name">payment.report.line.search</field>
-        <field name="model">payment.report.line</field>
+    <record id="view_payment_report_search" model="ir.ui.view">
+        <field name="name">payment.reportsearch</field>
+        <field name="model">payment.report</field>
         <field name="arch" type="xml">
             <search string="Payment Report">
                 <field name="branch_name"/>
@@ -39,11 +39,11 @@
         </field>
     </record>
 
-    <record id="action_payment_report_line" model="ir.actions.act_window">
+    <record id="action_payment_report" model="ir.actions.act_window">
         <field name="name">Payment Report</field>
-        <field name="res_model">payment.report.line</field>
+        <field name="res_model">payment.report</field>
         <field name="view_mode">list</field>
-        <field name="search_view_id" ref="view_payment_report_line_search"/>
+        <field name="search_view_id" ref="view_payment_report_search"/>
     </record>
 
 </odoo>
