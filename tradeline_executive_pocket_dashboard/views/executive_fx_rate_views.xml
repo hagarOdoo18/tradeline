@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_executive_fx_rate_tree" model="ir.ui.view">
+        <field name="name">tradeline.executive.fx.rate.list</field>
+        <field name="model">tradeline.executive.fx.rate</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="fetched_at"/>
+                <field name="pair"/>
+                <field name="rate"/>
+                <field name="change_pct"/>
+                <field name="status"/>
+                <field name="is_stale"/>
+                <field name="source_symbol"/>
+                <field name="message"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_executive_fx_rate_form" model="ir.ui.view">
+        <field name="name">tradeline.executive.fx.rate.form</field>
+        <field name="model">tradeline.executive.fx.rate</field>
+        <field name="arch" type="xml">
+            <form create="0" edit="0" delete="0">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="pair"/>
+                            <field name="rate"/>
+                            <field name="change_pct"/>
+                            <field name="status"/>
+                            <field name="is_stale"/>
+                        </group>
+                        <group>
+                            <field name="source_name"/>
+                            <field name="source_symbol"/>
+                            <field name="source_timestamp"/>
+                            <field name="fetched_at"/>
+                            <field name="inverted_from_symbol"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="message"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_executive_fx_rate" model="ir.actions.act_window">
+        <field name="name">FX Snapshots</field>
+        <field name="res_model">tradeline.executive.fx.rate</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem
+        id="menu_executive_fx_snapshots"
+        name="FX Snapshots"
+        parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_operations"
+        action="tradeline_executive_pocket_dashboard.action_executive_fx_rate"
+        sequence="2"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
+    />
+</odoo>
+
