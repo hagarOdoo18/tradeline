@@ -9,6 +9,16 @@
                 </div>
                 <div class="tl-exec-controls">
                     <label>
+                        <span>Company</span>
+                        <select multiple="multiple" t-on-change="onCompanyChange">
+                            <t t-foreach="companyOptions" t-as="company" t-key="company.id">
+                                <option t-att-value="company.id" t-att-selected="state.filters.company_ids.includes(company.id) ? 'selected' : null">
+                                    <t t-esc="company.name"/>
+                                </option>
+                            </t>
+                        </select>
+                    </label>
+                    <label>
                         <span>Start</span>
                         <input type="date" t-model="state.filters.start_date" t-on-change="onDateChange"/>
                     </label>
@@ -62,7 +72,7 @@
 
                 <div class="tl-chart-grid">
                     <div class="tl-chart-card">
-                        <h3>Top Drivers (<t t-esc="state.selectedDomain"/>)</h3>
+                        <h3>Top Drivers (<t t-esc="state.selectedDomain"/> / <t t-esc="selectedMetricLabel"/>)</h3>
                         <div class="tl-bar-chart">
                             <t t-foreach="topChartRows" t-as="item" t-key="item.dimension">
                                 <div class="tl-bar-row">
@@ -139,25 +149,43 @@
                             <button class="btn btn-secondary" t-on-click="onOpenNativeView">Open Native View</button>
                         </div>
                     </div>
+
+                    <div class="tl-drill-coverage">
+                        <span class="tl-drill-badge">Records in selected domain: <strong><t t-esc="_formatNumber(selectedDomainCoverage)"/></strong></span>
+                    </div>
+
                     <div class="tl-drill-filters">
                         <label>
                             <span>Domain</span>
                             <select t-model="state.selectedDomain" t-on-change="onDomainChange">
-                                <option value="finance">Finance</option>
-                                <option value="sales">Sales</option>
-                                <option value="inventory">Inventory</option>
-                                <option value="pipeline">Pipeline</option>
+                                <t t-foreach="availableDomains" t-as="domain" t-key="domain.key">
+                                    <option t-att-value="domain.key"><t t-esc="domain.label"/></option>
+                                </t>
                             </select>
                         </label>
                         <label>
                             <span>Group By</span>
                             <select t-model="state.selectedGroupBy" t-on-change="onGroupChange">
-                                <t t-foreach="availableGroups" t-as="grp" t-key="grp">
-                                    <option t-att-value="grp"><t t-esc="grp"/></option>
+                                <t t-foreach="availableGroups" t-as="grp" t-key="grp.key">
+                                    <option t-att-value="grp.key"><t t-esc="grp.label"/></option>
+                                </t>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Metric</span>
+                            <select t-model="state.selectedMetric" t-on-change="onMetricChange">
+                                <t t-foreach="availableMetrics" t-as="m" t-key="m.key">
+                                    <option t-att-value="m.key"><t t-esc="m.label"/></option>
                                 </t>
                             </select>
                         </label>
                     </div>
+
+                    <t t-if="!hasRows">
+                        <div class="tl-empty-state">
+                            No rows for the current selection. Try broadening date/company filters or change Domain/Group/Metric.
+                        </div>
+                    </t>
 
                     <div class="tl-table-wrap">
                         <table class="table table-sm table-striped">

@@ -4,13 +4,6 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, onWillStart, useState } from "@odoo/owl";
 
-const DRILL_GROUPS = {
-    finance: ["branch", "customer", "payment_state"],
-    sales: ["branch", "salesperson", "customer"],
-    inventory: ["category", "company", "product"],
-    pipeline: ["stage", "owner", "branch"],
-};
-
 export class ExecutivePocketDashboard extends Component {
     setup() {
         this.orm = useService("orm");
@@ -25,8 +18,8 @@ export class ExecutivePocketDashboard extends Component {
             lens: "overview",
             selectedDomain: "finance",
             selectedGroupBy: "branch",
+            selectedMetric: "net_revenue",
             filters: {
-                date_preset: "MTD",
                 start_date: this._formatDate(start),
                 end_date: this._formatDate(today),
                 company_ids: [],
@@ -62,14 +55,44 @@ export class ExecutivePocketDashboard extends Component {
         return this.state.bundle?.drilldown?.columns || [];
     }
 
+    get coverage() {
+        return this.state.bundle?.coverage || {};
+    }
+
+    get companyOptions() {
+        return this.state.bundle?.filter_options?.companies || [];
+    }
+
+    get domainCatalog() {
+        return this.state.bundle?.drill_catalog || [];
+    }
+
+    get selectedDomainCatalog() {
+        return this.domainCatalog.find((d) => d.key === this.state.selectedDomain) || this.domainCatalog[0] || null;
+    }
+
+    get availableDomains() {
+        return this.domainCatalog;
+    }
+
     get availableGroups() {
-        return DRILL_GROUPS[this.state.selectedDomain] || ["branch"];
+        return this.selectedDomainCatalog?.groups || [];
+    }
+
+    get availableMetrics() {
+        return this.selectedDomainCatalog?.metrics || [];
+    }
+
+    get selectedDomainCoverage() {
+        return Number(this.coverage[this.state.selectedDomain] || 0);
     }
 
     get chartMetricColumn() {
         const columns = this.drillColumns || [];
         const preference = [
+            this.state.selectedMetric,
             "net_revenue",
+            "net_margin",
             "allocated_value",
             "weighted_pipeline",
             "open_pipeline",
@@ -100,11 +123,37 @@ export class ExecutivePocketDashboard extends Component {
             }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 8);
-        const maxValue = rows.reduce((m, r) => Math.max(m, r.value), 0) || 1;
+        const maxValue = rows.reduce((m, r) => Math.max(m, Math.abs(r.value)), 0) || 1;
         return rows.map((row) => ({
             ...row,
-            pct: Math.max(6, Math.round((row.value / maxValue) * 100)),
+            pct: Math.max(6, Math.round((Math.abs(row.value) / maxValue) * 100)),
         }));
+    }
+
+    get selectedMetricLabel() {
+        const metric = this.availableMetrics.find((m) => m.key === this.state.selectedMetric);
+        return metric?.label || this.state.selectedMetric;
+    }
+
+    get hasRows() {
+        return (this.drillRows || []).length > 0;
+    }
+
+    _syncSelectionFromBundle() {
+        const domainCfg = this.selectedDomainCatalog;
+        if (!domainCfg) {
+            return;
+        }
+
+        const groupExists = (domainCfg.groups || []).some((g) => g.key === this.state.selectedGroupBy);
+        if (!groupExists) {
+            this.state.selectedGroupBy = domainCfg.default_group;
+        }
+
+        const metricExists = (domainCfg.metrics || []).some((m) => m.key === this.state.selectedMetric);
+        if (!metricExists) {
+            this.state.selectedMetric = domainCfg.default_metric;
+        }
     }
 
     async _loadBundle() {
@@ -117,6 +166,10 @@ export class ExecutivePocketDashboard extends Component {
                 [this.state.filters, this.state.lens, ["overview", this.state.selectedDomain, this.state.selectedGroupBy, "details"]]
             );
             this.state.bundle = bundle;
+            if (!this.state.filters.company_ids.length && bundle?.meta?.scope?.company_ids?.length) {
+                this.state.filters.company_ids = [...bundle.meta.scope.company_ids];
+            }
+            this._syncSelectionFromBundle();
             await this._reloadDrilldown();
         } catch (error) {
             this.state.error = error?.message || "Failed to load dashboard";
@@ -130,12 +183,12 @@ export class ExecutivePocketDashboard extends Component {
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, "value", this.state.selectedGroupBy, this.state.filters, 30, 0]
+                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, 30, 0]
             );
             if (this.state.bundle) {
                 this.state.bundle.drilldown = drilldown;
             }
-        } catch (error) {
+        } catch (_error) {
             this.notification.add("Failed to load drilldown data", { type: "warning" });
         }
     }
@@ -183,7 +236,7 @@ export class ExecutivePocketDashboard extends Component {
 
     _shorten(text, maxLen = 26) {
         const input = String(text || "");
-        return input.length > maxLen ? `${input.slice(0, maxLen - 1)}…` : input;
+        return input.length > maxLen ? `${input.slice(0, maxLen - 1)}...` : input;
     }
 
     _sparklineBarHeight(points, idx) {
@@ -207,10 +260,13 @@ export class ExecutivePocketDashboard extends Component {
             return "-";
         }
         const text = String(column || "");
-        if (text.includes("revenue") || text.includes("value") || text.includes("pipeline")) {
+        if (text.includes("revenue") || text.includes("value") || text.includes("pipeline") || text.includes("margin")) {
+            if (text.includes("pct")) {
+                return this._formatPercent(value);
+            }
             return this._formatCurrency(value);
         }
-        if (text.includes("rate")) {
+        if (text.includes("rate") || text.includes("cost")) {
             return Number(value).toFixed(6);
         }
         if (text.includes("pct") || text.includes("percent")) {
@@ -229,14 +285,24 @@ export class ExecutivePocketDashboard extends Component {
 
     async onDomainChange(ev) {
         this.state.selectedDomain = ev.target.value;
-        const groups = this.availableGroups;
-        this.state.selectedGroupBy = groups[0];
+        this._syncSelectionFromBundle();
         await this._reloadDrilldown();
     }
 
     async onGroupChange(ev) {
         this.state.selectedGroupBy = ev.target.value;
         await this._reloadDrilldown();
+    }
+
+    async onMetricChange(ev) {
+        this.state.selectedMetric = ev.target.value;
+        await this._reloadDrilldown();
+    }
+
+    async onCompanyChange(ev) {
+        const selected = [...ev.target.selectedOptions].map((opt) => Number(opt.value)).filter((id) => Number.isFinite(id));
+        this.state.filters.company_ids = selected;
+        await this._loadBundle();
     }
 
     async onDateChange() {
@@ -249,7 +315,7 @@ export class ExecutivePocketDashboard extends Component {
             await this.orm.call("tradeline.executive.dashboard.service", "refresh_fx_rates", []);
             await this._loadBundle();
             this.notification.add("FX rates refreshed", { type: "success" });
-        } catch (error) {
+        } catch (_error) {
             this.notification.add("FX refresh failed, showing last good rates", { type: "warning" });
             await this._loadBundle();
         } finally {
@@ -260,7 +326,7 @@ export class ExecutivePocketDashboard extends Component {
     async openNativeView(domain) {
         const map = {
             finance: { name: "Invoices", model: "account.move", domain: [["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]]] },
-            sales: { name: "Sales Orders", model: "sale.order", domain: [] },
+            sales: { name: "Invoices", model: "account.move", domain: [["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]]] },
             inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
             pipeline: { name: "Opportunities", model: "crm.lead", domain: [["type", "=", "opportunity"]] },
         };
@@ -269,10 +335,7 @@ export class ExecutivePocketDashboard extends Component {
             type: "ir.actions.act_window",
             name: target.name,
             res_model: target.model,
-            views: [
-                [false, "list"],
-                [false, "form"],
-            ],
+            views: [[false, "list"], [false, "form"]],
             view_mode: "list,form",
             domain: target.domain,
             context: {},

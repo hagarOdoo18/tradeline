@@ -20,6 +20,66 @@ class ExecutiveDashboardService(models.AbstractModel):
         "EUR/EGP": {"source_symbol": "EUREGP=X", "invert": False},
         "GBP/EGP": {"source_symbol": "GBPEGP=X", "invert": False},
     }
+    DRILL_CATALOG = {
+        "finance": {
+            "label": "Finance",
+            "description": "Revenue, collections, receivables, and margin quality.",
+            "groups": {"branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
+            "metrics": {
+                "net_revenue": "Net Revenue",
+                "net_margin": "Net Margin",
+                "margin_pct": "Margin %",
+                "credit_note_value": "Credit Note Value",
+                "invoice_count": "Invoice Count",
+            },
+            "default_group": "branch",
+            "default_metric": "net_revenue",
+        },
+        "sales": {
+            "label": "Sales",
+            "description": "Performance, mix, and margin breakdown.",
+            "groups": {
+                "branch": "Branch",
+                "salesperson": "Salesperson",
+                "customer": "Customer",
+                "category": "Category",
+                "product": "Product",
+            },
+            "metrics": {
+                "net_revenue": "Net Revenue",
+                "net_margin": "Net Margin",
+                "margin_pct": "Margin %",
+                "average_basket": "Average Basket",
+                "invoice_count": "Invoice Count",
+            },
+            "default_group": "branch",
+            "default_metric": "net_revenue",
+        },
+        "inventory": {
+            "label": "Inventory",
+            "description": "Inventory cost exposure by product/category/company.",
+            "groups": {"category": "Category", "company": "Company", "product": "Product"},
+            "metrics": {
+                "allocated_value": "Allocated Inventory Cost",
+                "on_hand_qty": "On Hand Qty",
+                "unit_cost": "Unit Cost",
+            },
+            "default_group": "category",
+            "default_metric": "allocated_value",
+        },
+        "pipeline": {
+            "label": "Pipeline",
+            "description": "Open and weighted opportunity pipeline.",
+            "groups": {"stage": "Stage", "owner": "Owner", "branch": "Branch"},
+            "metrics": {
+                "weighted_pipeline": "Weighted Pipeline",
+                "open_pipeline": "Open Pipeline",
+                "open_opportunities": "Open Opportunities",
+            },
+            "default_group": "stage",
+            "default_metric": "weighted_pipeline",
+        },
+    }
 
     def _dictfetchall(self):
         columns = [desc[0] for desc in self.env.cr.description]
@@ -134,9 +194,119 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         return " AND ".join(clauses), params
 
+    def _resolve_domain_and_group(self, domain: str, group_by: str) -> tuple[str, str]:
+        domain = (domain or "finance").lower()
+        if domain not in self.DRILL_CATALOG:
+            domain = "finance"
+        cfg = self.DRILL_CATALOG[domain]
+        group_by = (group_by or cfg["default_group"]).lower()
+        if group_by not in cfg["groups"]:
+            group_by = cfg["default_group"]
+        return domain, group_by
+
+    def _resolve_metric(self, domain: str, metric: str) -> str:
+        cfg = self.DRILL_CATALOG.get(domain, self.DRILL_CATALOG["finance"])
+        metric = (metric or cfg["default_metric"]).lower()
+        if metric not in cfg["metrics"]:
+            metric = cfg["default_metric"]
+        return metric
+
+    def _margin_summary(self, filters: dict) -> dict:
+        data = {
+            "net_margin": 0.0,
+            "negative_margin_lines": 0.0,
+            "untaxed_revenue": 0.0,
+            "margin_pct": 0.0,
+            "source": "none",
+        }
+        if not (self._has_table("account_move") and self._has_table("account_move_line")):
+            return data
+
+        where_sql, params = self._build_scope_clause(
+            alias="move",
+            table_name="account_move",
+            filters=filters,
+            include_sales_rep=True,
+        )
+        params += [filters["start_date"], filters["end_date"]]
+
+        has_total_cost = self._has_column("account_move_line", "total_cost")
+        has_price_subtotal = self._has_column("account_move_line", "price_subtotal")
+        if not (has_total_cost and has_price_subtotal):
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(
+                        CASE WHEN move.move_type = 'out_refund'
+                             THEN -ABS(COALESCE(move.amount_untaxed_signed, 0))
+                             ELSE ABS(COALESCE(move.amount_untaxed_signed, 0))
+                        END
+                    ), 0) AS net_margin
+                FROM account_move move
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
+            row = self._dictfetchone()
+            data["net_margin"] = float(row.get("net_margin") or 0)
+            data["untaxed_revenue"] = data["net_margin"]
+            data["margin_pct"] = 100.0 if data["net_margin"] else 0.0
+            data["source"] = "invoice_untaxed_proxy"
+            return data
+
+        self.env.cr.execute(
+            f"""
+            SELECT
+                COALESCE(SUM(
+                    CASE
+                        WHEN move.move_type = 'out_refund'
+                        THEN -(ABS(COALESCE(line.price_subtotal, 0)) - ABS(COALESCE(line.total_cost, 0)))
+                        ELSE ABS(COALESCE(line.price_subtotal, 0)) - ABS(COALESCE(line.total_cost, 0))
+                    END
+                ), 0) AS net_margin,
+                COUNT(*) FILTER (
+                    WHERE move.move_type IN ('out_invoice', 'out_receipt')
+                      AND (ABS(COALESCE(line.price_subtotal, 0)) - ABS(COALESCE(line.total_cost, 0))) < 0
+                ) AS negative_margin_lines,
+                COALESCE(SUM(
+                    CASE
+                        WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(line.price_subtotal, 0))
+                        ELSE ABS(COALESCE(line.price_subtotal, 0))
+                    END
+                ), 0) AS untaxed_revenue
+            FROM account_move_line line
+            JOIN account_move move ON move.id = line.move_id
+            WHERE {where_sql}
+              AND move.state = 'posted'
+              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+              AND (line.display_type = 'product' OR line.display_type IS NULL)
+            """,
+            params,
+        )
+        row = self._dictfetchone()
+        data["net_margin"] = float(row.get("net_margin") or 0)
+        data["negative_margin_lines"] = float(row.get("negative_margin_lines") or 0)
+        data["untaxed_revenue"] = float(row.get("untaxed_revenue") or 0)
+        data["margin_pct"] = (data["net_margin"] / data["untaxed_revenue"] * 100.0) if data["untaxed_revenue"] else 0.0
+        data["source"] = "line_total_cost"
+        return data
+
     def _finance_summary(self, filters: dict) -> dict:
         if not self._has_table("account_move"):
-            return {"gross_sales": 0, "net_revenue": 0, "collections_total": 0, "overdue_receivables": 0, "credit_note_value": 0}
+            return {
+                "gross_sales": 0,
+                "net_revenue": 0,
+                "collections_total": 0,
+                "overdue_receivables": 0,
+                "credit_note_value": 0,
+                "net_margin": 0,
+                "margin_pct": 0,
+                "margin_source": "none",
+            }
 
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
         params += [filters["start_date"], filters["end_date"]]
@@ -200,11 +370,22 @@ class ExecutiveDashboardService(models.AbstractModel):
             "overdue_receivables": overdue_receivables,
         }
         result["return_rate"] = (result["credit_note_value"] / result["gross_sales"] * 100.0) if result["gross_sales"] else 0.0
+        margin = self._margin_summary(filters)
+        result["net_margin"] = margin["net_margin"]
+        result["margin_pct"] = margin["margin_pct"]
+        result["margin_source"] = margin["source"]
         return result
 
     def _sales_summary(self, filters: dict) -> dict:
         if not self._has_table("account_move"):
-            return {"invoice_count": 0, "average_basket": 0, "net_revenue": 0, "negative_margin_invoices": 0}
+            return {
+                "invoice_count": 0,
+                "average_basket": 0,
+                "net_revenue": 0,
+                "net_margin": 0,
+                "margin_pct": 0,
+                "negative_margin_invoices": 0,
+            }
 
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
         params += [filters["start_date"], filters["end_date"]]
@@ -223,11 +404,14 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         row = self._dictfetchone()
+        margin = self._margin_summary(filters)
         return {
             "invoice_count": float(row.get("invoice_count") or 0),
             "average_basket": float(row.get("average_basket") or 0),
             "net_revenue": float(row.get("net_revenue") or 0),
-            "negative_margin_invoices": 0.0,
+            "net_margin": margin["net_margin"],
+            "margin_pct": margin["margin_pct"],
+            "negative_margin_invoices": margin["negative_margin_lines"],
         }
 
     def _inventory_summary(self, filters: dict) -> dict:
@@ -360,6 +544,95 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         return alerts
 
+    def _export_drill_catalog(self):
+        domains = []
+        for key, cfg in self.DRILL_CATALOG.items():
+            domains.append(
+                {
+                    "key": key,
+                    "label": cfg["label"],
+                    "description": cfg["description"],
+                    "groups": [{"key": group_key, "label": group_label} for group_key, group_label in cfg["groups"].items()],
+                    "metrics": [{"key": metric_key, "label": metric_label} for metric_key, metric_label in cfg["metrics"].items()],
+                    "default_group": cfg["default_group"],
+                    "default_metric": cfg["default_metric"],
+                }
+            )
+        return domains
+
+    def _get_filter_options(self, scope: dict):
+        companies = self.env["res.company"].sudo().search([("id", "in", scope.get("company_ids") or [])], order="name")
+        company_options = [{"id": company.id, "name": company.name} for company in companies]
+
+        branch_options = []
+        if "res.branch" in self.env:
+            branch_domain = []
+            if scope.get("company_ids"):
+                branch_domain.append(("company_id", "in", scope["company_ids"]))
+            branches = self.env["res.branch"].sudo().search(branch_domain, order="name")
+            branch_options = [{"id": branch.id, "name": branch.name} for branch in branches]
+
+        salesperson_options = []
+        if "sales_rep" in self.env:
+            reps = self.env["sales_rep"].sudo().search([], order="name")
+            salesperson_options = [{"id": rep.id, "name": rep.name} for rep in reps]
+
+        return {
+            "companies": company_options,
+            "branches": branch_options,
+            "salespersons": salesperson_options,
+        }
+
+    def _data_coverage(self, scope: dict):
+        coverage = {"finance": 0, "sales": 0, "inventory": 0, "pipeline": 0}
+        if self._has_table("account_move"):
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"]]
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS count_rows
+                FROM account_move move
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
+            count_moves = int((self._dictfetchone() or {}).get("count_rows") or 0)
+            coverage["finance"] = count_moves
+            coverage["sales"] = count_moves
+
+        if self._has_table("stock_quant"):
+            quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS count_rows
+                FROM stock_quant quant
+                JOIN stock_location location ON location.id = quant.location_id
+                WHERE {quant_where}
+                  AND location.usage = 'internal'
+                """,
+                quant_params,
+            )
+            coverage["inventory"] = int((self._dictfetchone() or {}).get("count_rows") or 0)
+
+        if self._has_table("crm_lead"):
+            lead_where, lead_params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=scope, include_sales_rep=True)
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS count_rows
+                FROM crm_lead lead
+                WHERE {lead_where}
+                  AND lead.type = 'opportunity'
+                  AND lead.active IS TRUE
+                """,
+                lead_params,
+            )
+            coverage["pipeline"] = int((self._dictfetchone() or {}).get("count_rows") or 0)
+
+        return coverage
+
     @api.model
     def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None):
         scope = self._resolve_filter_scope(filters)
@@ -369,21 +642,29 @@ class ExecutiveDashboardService(models.AbstractModel):
         pipeline = self._pipeline_summary(scope)
         fx_watch = self.get_fx_watch()
         alerts = self._build_alerts(finance, sales, inventory, pipeline, fx_watch)
+        coverage = self._data_coverage(scope)
+        filter_options = self._get_filter_options(scope)
 
         cards = [
             {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral"},
+            {"key": "net_margin", "label": "Net Margin", "value": finance["net_margin"], "unit": "EGP", "tone": "neutral"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral"},
             {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning"},
             {"key": "open_pipeline", "label": "Open Pipeline", "value": pipeline["open_pipeline"], "unit": "EGP", "tone": "neutral"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral"},
+            {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral"},
             {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
         ]
 
-        default_domain = drill_path[0] if drill_path else "finance"
+        default_domain = "finance"
+        if drill_path and len(drill_path) > 1:
+            default_domain = drill_path[1]
+        default_domain, default_group = self._resolve_domain_and_group(default_domain, "")
+        default_metric = self._resolve_metric(default_domain, "")
         drilldown = self.get_drilldown(
             default_domain,
-            metric="value",
-            group_by="branch",
+            metric=default_metric,
+            group_by=default_group,
             filters=filters,
             limit=25,
             offset=0,
@@ -403,6 +684,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             },
             "cards": cards,
             "alerts": alerts,
+            "coverage": coverage,
+            "filter_options": filter_options,
+            "drill_catalog": self._export_drill_catalog(),
             "sections": {
                 "finance": finance,
                 "sales": sales,
@@ -410,7 +694,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "pipeline": pipeline,
             },
             "fx_watch": fx_watch,
-            "drill_path": drill_path or ["overview", default_domain, "branch", "details"],
+            "drill_path": drill_path or ["overview", default_domain, default_group, "details"],
             "drilldown": drilldown,
         }
 
@@ -429,20 +713,20 @@ class ExecutiveDashboardService(models.AbstractModel):
         scope = self._resolve_filter_scope(filters)
         limit = max(1, min(int(limit or 25), 200))
         offset = max(0, int(offset or 0))
-        domain = (domain or "finance").lower()
-        group_by = (group_by or "branch").lower()
+        domain, group_by = self._resolve_domain_and_group(domain, group_by)
+        metric = self._resolve_metric(domain, metric)
 
         if domain == "finance":
-            return self._finance_drilldown(scope, group_by, limit, offset)
+            return self._finance_drilldown(scope, group_by, metric, limit, offset)
         if domain == "sales":
-            return self._sales_drilldown(scope, group_by, limit, offset)
+            return self._sales_drilldown(scope, group_by, metric, limit, offset)
         if domain == "inventory":
-            return self._inventory_drilldown(scope, group_by, limit, offset)
+            return self._inventory_drilldown(scope, group_by, metric, limit, offset)
         if domain == "pipeline":
-            return self._pipeline_drilldown(scope, group_by, limit, offset)
-        return {"domain": domain, "group_by": group_by, "rows": [], "columns": []}
+            return self._pipeline_drilldown(scope, group_by, metric, limit, offset)
+        return {"domain": domain, "group_by": group_by, "metric": metric, "rows": [], "columns": []}
 
-    def _finance_drilldown(self, scope, group_by, limit, offset):
+    def _finance_drilldown(self, scope, group_by, metric, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
         has_branch = self._has_table("res_branch")
@@ -459,13 +743,23 @@ class ExecutiveDashboardService(models.AbstractModel):
             dim_sql = "COALESCE(move.payment_state, 'unknown')"
             joins = ""
 
+        order_metric = metric if metric in {"invoice_count", "net_revenue", "credit_note_value", "net_margin", "margin_pct"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
                 {dim_sql} AS dimension,
                 COUNT(*) AS invoice_count,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
+                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value,
+                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE ABS(COALESCE(move.amount_untaxed_signed, 0)) END), 0) AS net_margin,
+                CASE
+                    WHEN COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) = 0
+                    THEN 0
+                    ELSE (
+                        COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE ABS(COALESCE(move.amount_untaxed_signed, 0)) END), 0)
+                        / NULLIF(COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0), 0)
+                    ) * 100.0
+                END AS margin_pct
             FROM account_move move
             {joins}
             WHERE {where_sql}
@@ -473,15 +767,21 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension
-            ORDER BY net_revenue DESC
+            ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "finance", "group_by": group_by, "columns": ["dimension", "invoice_count", "net_revenue", "credit_note_value"], "rows": rows}
+        return {
+            "domain": "finance",
+            "group_by": group_by,
+            "metric": metric,
+            "columns": ["dimension", "invoice_count", "net_revenue", "net_margin", "margin_pct", "credit_note_value"],
+            "rows": rows,
+        }
 
-    def _sales_drilldown(self, scope, group_by, limit, offset):
+    def _sales_drilldown(self, scope, group_by, metric, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
         has_branch = self._has_table("res_branch")
@@ -501,14 +801,53 @@ class ExecutiveDashboardService(models.AbstractModel):
         elif group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+        elif group_by == "category":
+            dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
+            joins = """
+                JOIN account_move_line line
+                  ON line.move_id = move.id
+                 AND (line.display_type = 'product' OR line.display_type IS NULL)
+                LEFT JOIN product_product product ON product.id = line.product_id
+                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                LEFT JOIN product_category category ON category.id = template.categ_id
+            """
+        elif group_by == "product":
+            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', COALESCE(line.product_id, 0)::text))"
+            joins = """
+                JOIN account_move_line line
+                  ON line.move_id = move.id
+                 AND (line.display_type = 'product' OR line.display_type IS NULL)
+                LEFT JOIN product_product product ON product.id = line.product_id
+                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+            """
 
+        use_line_cost = (
+            group_by in {"category", "product"}
+            and self._has_column("account_move_line", "total_cost")
+            and self._has_column("account_move_line", "price_subtotal")
+        )
+        margin_sql = (
+            "COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -(ABS(COALESCE(line.price_subtotal, 0)) - ABS(COALESCE(line.total_cost, 0))) ELSE ABS(COALESCE(line.price_subtotal, 0)) - ABS(COALESCE(line.total_cost, 0)) END), 0)"
+            if use_line_cost
+            else "COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE ABS(COALESCE(move.amount_untaxed_signed, 0)) END), 0)"
+        )
+        margin_pct_sql = f"""
+            CASE
+                WHEN COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) = 0
+                THEN 0
+                ELSE ({margin_sql} / NULLIF(COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0), 0)) * 100.0
+            END
+        """
+        order_metric = metric if metric in {"invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
                 {dim_sql} AS dimension,
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
                 COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
+                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
+                {margin_sql} AS net_margin,
+                {margin_pct_sql} AS margin_pct
             FROM account_move move
             {joins}
             WHERE {where_sql}
@@ -516,15 +855,21 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension
-            ORDER BY net_revenue DESC
+            ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "sales", "group_by": group_by, "columns": ["dimension", "invoice_count", "average_basket", "net_revenue"], "rows": rows}
+        return {
+            "domain": "sales",
+            "group_by": group_by,
+            "metric": metric,
+            "columns": ["dimension", "invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"],
+            "rows": rows,
+        }
 
-    def _inventory_drilldown(self, scope, group_by, limit, offset):
+    def _inventory_drilldown(self, scope, group_by, metric, limit, offset):
         quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
         svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
         params = quant_params + svl_params + [limit, offset]
@@ -546,6 +891,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_category category ON category.id = template.categ_id
             """
 
+        order_metric = metric if metric in {"allocated_value", "on_hand_qty", "unit_cost"} else "allocated_value"
         self.env.cr.execute(
             f"""
             WITH quant_agg AS (
@@ -580,19 +926,29 @@ class ExecutiveDashboardService(models.AbstractModel):
             SELECT
                 {dim_sql} AS dimension,
                 COALESCE(SUM(inv.on_hand_qty), 0) AS on_hand_qty,
-                COALESCE(SUM(inv.allocated_value), 0) AS allocated_value
+                COALESCE(SUM(inv.allocated_value), 0) AS allocated_value,
+                CASE
+                    WHEN COALESCE(SUM(inv.on_hand_qty), 0) = 0 THEN 0
+                    ELSE COALESCE(SUM(inv.allocated_value), 0) / NULLIF(COALESCE(SUM(inv.on_hand_qty), 0), 0)
+                END AS unit_cost
             FROM inv
             {dim_join}
             GROUP BY dimension
-            ORDER BY allocated_value DESC
+            ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "inventory", "group_by": group_by, "columns": ["dimension", "on_hand_qty", "allocated_value"], "rows": rows}
+        return {
+            "domain": "inventory",
+            "group_by": group_by,
+            "metric": metric,
+            "columns": ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
+            "rows": rows,
+        }
 
-    def _pipeline_drilldown(self, scope, group_by, limit, offset):
+    def _pipeline_drilldown(self, scope, group_by, metric, limit, offset):
         where_sql, params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=scope, include_sales_rep=True)
         params += [limit, offset]
 
@@ -620,6 +976,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 dim_sql = "CONCAT('Branch #', COALESCE(lead.branch_id, 0)::text)"
                 joins = ""
 
+        order_metric = metric if metric in {"open_opportunities", "open_pipeline", "weighted_pipeline"} else "weighted_pipeline"
         self.env.cr.execute(
             f"""
             SELECT
@@ -631,13 +988,19 @@ class ExecutiveDashboardService(models.AbstractModel):
             {joins}
             WHERE {where_sql}
             GROUP BY dimension
-            ORDER BY weighted_pipeline DESC
+            ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "pipeline", "group_by": group_by, "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"], "rows": rows}
+        return {
+            "domain": "pipeline",
+            "group_by": group_by,
+            "metric": metric,
+            "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
+            "rows": rows,
+        }
 
     @api.model
     def get_fx_watch(self):

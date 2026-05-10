@@ -1,6 +1,6 @@
 .tl-exec-pocket {
     padding: 16px;
-    background: #f5f7fb;
+    background: linear-gradient(160deg, #f6f8fc 0%, #eef4ff 100%);
     min-height: calc(100vh - 16px);
     max-height: calc(100vh - 16px);
     overflow-y: auto;
@@ -53,6 +53,12 @@
     min-width: 140px;
 }
 
+.tl-exec-controls select[multiple] {
+    min-width: 220px;
+    min-height: 78px;
+    text-transform: none;
+}
+
 .tl-alert-ribbon {
     display: flex;
     flex-wrap: wrap;
@@ -86,7 +92,7 @@
 
 .tl-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
     margin-bottom: 12px;
 }
@@ -162,7 +168,7 @@
 .tl-bar-fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, #6366f1, #0ea5e9);
+    background: linear-gradient(90deg, #4f46e5, #0ea5e9);
 }
 
 .tl-bar-value {
@@ -271,12 +277,16 @@
     font-size: 12px;
 }
 
-.tl-fx-meta .up {
+.tl-fx-meta .up,
+.tl-fx-periods .up,
+.tl-mini-head .up {
     color: #047857;
     font-weight: 700;
 }
 
-.tl-fx-meta .down {
+.tl-fx-meta .down,
+.tl-fx-periods .down,
+.tl-mini-head .down {
     color: #b91c1c;
     font-weight: 700;
 }
@@ -305,6 +315,20 @@
     background: #fff;
 }
 
+.tl-drill-coverage {
+    margin-bottom: 8px;
+}
+
+.tl-drill-badge {
+    font-size: 12px;
+    background: #eef2ff;
+    color: #3730a3;
+    padding: 4px 10px;
+    border-radius: 999px;
+    display: inline-flex;
+    gap: 6px;
+}
+
 .tl-drill-filters {
     display: flex;
     gap: 8px;
@@ -319,6 +343,16 @@
     font-size: 11px;
     text-transform: uppercase;
     font-weight: 600;
+    color: #4b5563;
+}
+
+.tl-empty-state {
+    border: 1px dashed #d1d5db;
+    border-radius: 10px;
+    padding: 10px;
+    margin: 8px 0;
+    background: #f9fafb;
+    font-size: 13px;
     color: #4b5563;
 }
 
@@ -375,5 +409,9 @@
     .tl-fx-periods {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-}
 
+    .tl-exec-controls select[multiple] {
+        min-width: 160px;
+        min-height: 72px;
+    }
+}
