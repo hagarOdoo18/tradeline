@@ -30,7 +30,8 @@
         top: 0;
         bottom: 0;
         right: 0;
-        width: min(42vw, 620px);
+        width: 42vw;
+        max-width: 620px;
         height: 100vh;
     }
 
