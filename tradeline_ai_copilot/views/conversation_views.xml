@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_copilot_conversation_tree" model="ir.ui.view">
+        <field name="name">ai.copilot.conversation.tree</field>
+        <field name="model">ai.copilot.conversation</field>
+        <field name="arch" type="xml">
+            <list string="Conversations">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="provider"/>
+                <field name="llm_model"/>
+                <field name="message_count"/>
+                <field name="write_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_conversation_form" model="ir.ui.view">
+        <field name="name">ai.copilot.conversation.form</field>
+        <field name="model">ai.copilot.conversation</field>
+        <field name="arch" type="xml">
+            <form string="Conversation">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="user_id"/>
+                        <field name="provider"/>
+                        <field name="llm_model"/>
+                        <field name="mode"/>
+                        <field name="pinned"/>
+                        <field name="archived"/>
+                    </group>
+                    <group>
+                        <field name="context_model"/>
+                        <field name="context_record_id"/>
+                    </group>
+                    <notebook>
+                        <page string="Messages">
+                            <field name="message_ids" readonly="1">
+                                <list>
+                                    <field name="role"/>
+                                    <field name="content"/>
+                                    <field name="provider"/>
+                                    <field name="llm_model"/>
+                                    <field name="create_date"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Generated Files">
+                            <field name="generated_file_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="file_type"/>
+                                    <field name="row_count"/>
+                                    <field name="download_url" widget="url"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_generated_file_tree" model="ir.ui.view">
+        <field name="name">ai.copilot.generated.file.tree</field>
+        <field name="model">ai.copilot.generated.file</field>
+        <field name="arch" type="xml">
+            <list string="Generated Files">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="conversation_id"/>
+                <field name="file_type"/>
+                <field name="source_model"/>
+                <field name="row_count"/>
+                <field name="download_url" widget="url"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_generated_file_form" model="ir.ui.view">
+        <field name="name">ai.copilot.generated.file.form</field>
+        <field name="model">ai.copilot.generated.file</field>
+        <field name="arch" type="xml">
+            <form string="Generated File">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="file_type"/>
+                        <field name="user_id"/>
+                        <field name="conversation_id"/>
+                        <field name="source_model"/>
+                        <field name="row_count"/>
+                        <field name="download_url" widget="url"/>
+                    </group>
+                    <group>
+                        <field name="attachment_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_audit_log_tree" model="ir.ui.view">
+        <field name="name">ai.copilot.audit.log.tree</field>
+        <field name="model">ai.copilot.audit.log</field>
+        <field name="arch" type="xml">
+            <list string="Audit Logs" create="false">
+                <field name="user_id"/>
+                <field name="provider"/>
+                <field name="llm_model"/>
+                <field name="intent"/>
+                <field name="model_accessed"/>
+                <field name="row_count"/>
+                <field name="duration_ms"/>
+                <field name="status"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_audit_log_form" model="ir.ui.view">
+        <field name="name">ai.copilot.audit.log.form</field>
+        <field name="model">ai.copilot.audit.log</field>
+        <field name="arch" type="xml">
+            <form string="Audit Log" create="false">
+                <sheet>
+                    <group>
+                        <field name="user_id"/>
+                        <field name="conversation_id"/>
+                        <field name="provider"/>
+                        <field name="llm_model"/>
+                        <field name="intent"/>
+                        <field name="status"/>
+                        <field name="duration_ms"/>
+                    </group>
+                    <group>
+                        <field name="model_accessed"/>
+                        <field name="fields_accessed"/>
+                        <field name="row_count"/>
+                        <field name="file_generated"/>
+                    </group>
+                    <group>
+                        <field name="prompt"/>
+                        <field name="domain_json"/>
+                        <field name="error_message"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>
+

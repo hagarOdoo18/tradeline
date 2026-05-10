@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="ai_copilot_default_settings" model="ai.copilot.settings">
+        <field name="name">Default Settings</field>
+    </record>
+</odoo>
+

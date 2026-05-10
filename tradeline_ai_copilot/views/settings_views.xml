@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_copilot_settings_form" model="ir.ui.view">
+        <field name="name">ai.copilot.settings.form</field>
+        <field name="model">ai.copilot.settings</field>
+        <field name="arch" type="xml">
+            <form string="AI Copilot Settings">
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="default_provider"/>
+                        <field name="default_openai_model"/>
+                        <field name="default_claude_model"/>
+                        <field name="temperature"/>
+                        <field name="max_tokens"/>
+                        <field name="timeout_seconds"/>
+                    </group>
+                    <group string="Provider Credentials">
+                        <field name="openai_api_key" password="True"/>
+                        <field name="claude_api_key" password="True"/>
+                    </group>
+                    <group string="Feature Toggles">
+                        <field name="enable_charts"/>
+                        <field name="enable_csv"/>
+                        <field name="enable_xlsx"/>
+                        <field name="enable_pdf"/>
+                        <field name="enable_page_context"/>
+                        <field name="enable_history"/>
+                        <field name="enable_audit_logs"/>
+                    </group>
+                    <group string="Limits">
+                        <field name="max_preview_rows"/>
+                        <field name="max_export_rows_csv"/>
+                        <field name="max_export_rows_xlsx"/>
+                    </group>
+                    <group string="Security Guardrails">
+                        <field name="hard_deny_model_prefixes"/>
+                        <field name="hard_deny_field_patterns"/>
+                        <field name="sql_view_allowlist" widget="text"/>
+                    </group>
+                    <group string="UI">
+                        <field name="brand_color"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_allowed_model_tree" model="ir.ui.view">
+        <field name="name">ai.copilot.allowed.model.tree</field>
+        <field name="model">ai.copilot.allowed.model</field>
+        <field name="arch" type="xml">
+            <list string="Allowed Models" create="false">
+                <field name="model_name"/>
+                <field name="display_name"/>
+                <field name="enabled"/>
+                <field name="max_rows"/>
+                <field name="allow_groupby"/>
+                <field name="allow_export"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_copilot_allowed_model_form" model="ir.ui.view">
+        <field name="name">ai.copilot.allowed.model.form</field>
+        <field name="model">ai.copilot.allowed.model</field>
+        <field name="arch" type="xml">
+            <form string="Allowed Model">
+                <sheet>
+                    <group>
+                        <field name="model_name" readonly="1"/>
+                        <field name="display_name"/>
+                        <field name="model_id" readonly="1"/>
+                        <field name="enabled"/>
+                    </group>
+                    <group>
+                        <field name="max_rows"/>
+                        <field name="allow_groupby"/>
+                        <field name="allow_export"/>
+                    </group>
+                    <group>
+                        <field name="allowed_fields_csv" widget="text"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>
+

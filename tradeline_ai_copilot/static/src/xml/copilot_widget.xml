@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="tradeline_ai_copilot.PanelContent">
+        <div class="tl-ai-header">
+            <div>
+                <h3>Tradeline AI BI Copilot</h3>
+                <p>Read-only business intelligence assistant</p>
+            </div>
+            <div class="tl-ai-mode-switch" t-if="!props.embedded">
+                <button t-on-click="() => switchMode('compact')">Compact</button>
+                <button t-on-click="() => switchMode('side')">Side</button>
+                <button t-on-click="() => switchMode('fullscreen')">Full</button>
+            </div>
+        </div>
+
+        <div class="tl-ai-controls">
+            <label>
+                Provider
+                <select t-model="state.provider">
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude</option>
+                </select>
+            </label>
+            <label>
+                Model
+                <input type="text" t-model="state.model" placeholder="Default model"/>
+            </label>
+        </div>
+
+        <div class="tl-ai-messages">
+            <t t-if="!state.messages.length">
+                <div class="tl-ai-empty">
+                    Ask about sales, purchases, inventory, accounting, or any readable business model.
+                </div>
+            </t>
+            <t t-foreach="state.messages" t-as="msg" t-key="msg_index" t-foreach-index="msg_index">
+                <div t-att-class="'tl-ai-message ' + (msg.role === 'user' ? 'is-user' : 'is-assistant')">
+                    <t t-if="msg.role === 'user'">
+                        <div class="tl-ai-bubble"><t t-esc="msg.content"/></div>
+                    </t>
+                    <t t-else="">
+                        <t t-if="msg.blocks">
+                            <t t-foreach="msg.blocks" t-as="block" t-key="block_index" t-foreach-index="block_index">
+                                <t t-if="block.type === 'text'">
+                                    <div class="tl-ai-bubble"><t t-esc="block.content"/></div>
+                                </t>
+                                <t t-elif="block.type === 'kpi'">
+                                    <div class="tl-ai-kpi-grid">
+                                        <t t-foreach="block.items" t-as="kpi" t-key="kpi.label">
+                                            <div class="tl-ai-kpi-card">
+                                                <span class="label"><t t-esc="kpi.label"/></span>
+                                                <strong><t t-esc="kpi.value"/></strong>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+                                <t t-elif="block.type === 'table'">
+                                    <div class="tl-ai-table-wrap">
+                                        <table class="table table-sm">
+                                            <thead>
+                                                <tr>
+                                                    <t t-foreach="block.columns" t-as="col" t-key="col">
+                                                        <th><t t-esc="col"/></th>
+                                                    </t>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="block.rows" t-as="row" t-key="row_idx" t-foreach-index="row_idx">
+                                                    <tr>
+                                                        <t t-foreach="block.columns" t-as="col" t-key="col">
+                                                            <td><t t-esc="normalizeValue(row[col])"/></td>
+                                                        </t>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </t>
+                                <t t-elif="block.type === 'chart'">
+                                    <div class="tl-ai-chart">
+                                        <strong><t t-esc="block.title"/></strong>
+                                        <ul>
+                                            <t t-foreach="block.data.labels" t-as="label" t-key="chart_idx" t-foreach-index="chart_idx">
+                                                <li>
+                                                    <span><t t-esc="label"/></span>
+                                                    <strong><t t-esc="block.data.datasets[0].data[chart_idx]"/></strong>
+                                                </li>
+                                            </t>
+                                        </ul>
+                                    </div>
+                                </t>
+                                <t t-elif="block.type === 'download'">
+                                    <div class="tl-ai-download">
+                                        <button class="btn btn-secondary btn-sm" t-on-click="() => openDownload(block.url)">
+                                            <t t-esc="block.label"/>
+                                        </button>
+                                    </div>
+                                </t>
+                            </t>
+                        </t>
+                    </t>
+                </div>
+            </t>
+        </div>
+
+        <div class="tl-ai-actions">
+            <button class="btn btn-outline-primary btn-sm" t-on-click="() => exportAgain('csv')" t-att-disabled="state.loading">
+                Export CSV
+            </button>
+            <button class="btn btn-outline-primary btn-sm" t-on-click="() => exportAgain('xlsx')" t-att-disabled="state.loading">
+                Export XLSX
+            </button>
+        </div>
+
+        <div class="tl-ai-input">
+            <textarea
+                placeholder="Ask a business question..."
+                t-att-value="state.input"
+                t-on-input="onInput"
+                t-on-keydown="onKeydown"
+            />
+            <button class="btn btn-primary" t-att-disabled="state.loading" t-on-click="sendMessage">
+                <t t-if="state.loading">Running...</t>
+                <t t-else="">Send</t>
+            </button>
+        </div>
+    </t>
+
+    <t t-name="tradeline_ai_copilot.FloatingWidget">
+        <div t-att-class="rootClass" t-if="props.embedded || state.open">
+            <div class="tl-ai-panel">
+                <t t-call="tradeline_ai_copilot.PanelContent"/>
+            </div>
+        </div>
+        <button t-if="!props.embedded &amp;&amp; !state.open" class="tl-ai-bubble-btn" t-on-click="toggleOpen">
+            AI
+        </button>
+        <button t-if="!props.embedded &amp;&amp; state.open" class="tl-ai-close-btn" t-on-click="toggleOpen">
+            ×
+        </button>
+    </t>
+
+    <t t-name="tradeline_ai_copilot.WorkspaceAction">
+        <div class="tl-ai-workspace-page">
+            <div class="tl-ai-copilot tl-ai-copilot--embedded">
+                <div class="tl-ai-panel">
+                    <t t-call="tradeline_ai_copilot.PanelContent"/>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>
+
