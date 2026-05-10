@@ -6,6 +6,88 @@ from odoo import api, fields, models, _
 class PosOrder(models.Model):
     _inherit = "pos.order"
 
+    downpayment_source_quotation_id = fields.Many2one(
+        "sale.order",
+        string="Downpayment Source Quotation",
+        readonly=True,
+        copy=False,
+    )
+    downpayment_source_quotation_name = fields.Char(
+        string="Downpayment Source Name",
+        readonly=True,
+        copy=False,
+    )
+    downpayment_source_reference_number = fields.Char(
+        string="Downpayment Source Reference",
+        readonly=True,
+        copy=False,
+    )
+
+    @api.model
+    def _extract_int_id(self, value):
+        if isinstance(value, dict):
+            value = value.get("id")
+        elif isinstance(value, (list, tuple)):
+            value = value[0] if value else False
+        try:
+            parsed = int(value or 0)
+        except (TypeError, ValueError):
+            return False
+        return parsed or False
+
+    @api.model
+    def _order_fields(self, ui_order):
+        order_fields = super()._order_fields(ui_order)
+        source_id = self._extract_int_id(ui_order.get("downpayment_quotation_id"))
+        source_name = (ui_order.get("downpayment_quotation_name") or "").strip()
+
+        if source_id and "sale.order" in self.env:
+            source = self.env["sale.order"].sudo().browse(source_id)
+            if source.exists():
+                order_fields["downpayment_source_quotation_id"] = source.id
+                order_fields["downpayment_source_quotation_name"] = source.name or source_name
+                if "reference_number" in source._fields:
+                    order_fields["downpayment_source_reference_number"] = source.reference_number or source.name
+                else:
+                    order_fields["downpayment_source_reference_number"] = source.name
+                return order_fields
+
+        if source_name:
+            order_fields["downpayment_source_quotation_name"] = source_name
+            if source_name.lower().startswith("manual ref"):
+                manual_ref = source_name.split(":", 1)[1].strip() if ":" in source_name else ""
+                order_fields["downpayment_source_reference_number"] = manual_ref or source_name
+
+        return order_fields
+
+    def _create_invoice(self, move_vals):
+        self.ensure_one()
+        move = super()._create_invoice(move_vals)
+        if not move or not move.exists() or "reference_number" not in move._fields:
+            return move
+
+        quotation_reference = False
+        if self.downpayment_source_quotation_id:
+            source = self.downpayment_source_quotation_id
+            if "reference_number" in source._fields and source.reference_number:
+                quotation_reference = source.reference_number
+            else:
+                quotation_reference = source.name
+        elif self.downpayment_source_reference_number:
+            quotation_reference = self.downpayment_source_reference_number
+        elif self.downpayment_source_quotation_name:
+            quotation_reference = self.downpayment_source_quotation_name
+
+        if not quotation_reference:
+            return move
+
+        current_reference = (move.reference_number or "").strip()
+        invoice_origin = (move.invoice_origin or "").strip()
+        tracking_number = (self.tracking_number or "").strip() if "tracking_number" in self._fields else ""
+        if not current_reference or current_reference in {invoice_origin, tracking_number}:
+            move.reference_number = quotation_reference
+        return move
+
     @api.model
     def _get_allowed_downpayment_inv_types(self):
         return ("quotation", "invoice")

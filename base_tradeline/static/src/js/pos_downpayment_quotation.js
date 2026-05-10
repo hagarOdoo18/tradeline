@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
@@ -164,6 +165,31 @@ function setLineValuesCompat(line, quantity, priceUnit, discount) {
         line.setDiscount(discount);
     }
 }
+
+patch(PosOrder.prototype, {
+    setup(defaultObj, options) {
+        super.setup(...arguments);
+        if (this.downpayment_quotation_id === undefined) {
+            this.downpayment_quotation_id = false;
+        }
+        if (this.downpayment_quotation_name === undefined) {
+            this.downpayment_quotation_name = "";
+        }
+    },
+
+    export_as_JSON() {
+        const json = super.export_as_JSON(...arguments);
+        json.downpayment_quotation_id = this.downpayment_quotation_id || false;
+        json.downpayment_quotation_name = this.downpayment_quotation_name || "";
+        return json;
+    },
+
+    init_from_JSON(json) {
+        super.init_from_JSON(...arguments);
+        this.downpayment_quotation_id = json?.downpayment_quotation_id || false;
+        this.downpayment_quotation_name = json?.downpayment_quotation_name || "";
+    },
+});
 
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
