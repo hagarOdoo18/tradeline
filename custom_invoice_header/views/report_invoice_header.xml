@@ -354,6 +354,11 @@
                     <br/>
                     <t t-esc="o.order_number"  class="m-0"/>
                 </div>
+                <div class="col-3">
+                    <strong>Quotation Number :</strong>
+                    <br/>
+                    <t t-esc="o.quotation_number" class="m-0"/>
+                </div>
             </div>
               <div id="informations" class="row mt32" style="font-size:9px;"  t-if="o.bank_id">
 

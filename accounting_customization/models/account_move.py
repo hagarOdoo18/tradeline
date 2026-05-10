@@ -29,6 +29,13 @@ class AccountMove(models.Model):
         string='Reference Number',
         required=False)
 
+    quotation_number = fields.Char(
+        string='Quotation Number',
+        compute='_compute_quotation_number',
+        store=True,
+        readonly=True,
+    )
+
     opportunity_id = fields.Many2one(
         comodel_name='crm.lead',
         string='Opportunity',
@@ -89,6 +96,27 @@ class AccountMove(models.Model):
 
     company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
                                     )
+
+    @api.depends(
+        'invoice_origin',
+        'reference_number',
+        'invoice_line_ids.sale_line_ids.order_id.name',
+    )
+    def _compute_quotation_number(self):
+        for move in self:
+            quotation_names = move.invoice_line_ids.mapped('sale_line_ids.order_id.name')
+            if not quotation_names and move.invoice_origin:
+                quotation_names = [
+                    part.strip()
+                    for part in (move.invoice_origin or '').split(',')
+                    if part and part.strip()
+                ]
+
+            normalized_names = [name for name in quotation_names if name]
+            if not normalized_names and move.reference_number:
+                normalized_names = [move.reference_number]
+
+            move.quotation_number = ', '.join(dict.fromkeys(normalized_names)) if normalized_names else False
 
     @api.depends(
         'invoice_payments_widget',
