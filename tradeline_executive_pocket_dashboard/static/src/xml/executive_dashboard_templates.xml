@@ -72,7 +72,7 @@
                         <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
                             <div class="tl-fx-card" t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'">
                                 <div class="tl-fx-pair"><t t-esc="fx.pair"/></div>
-                                <div class="tl-fx-rate"><t t-esc="Number(fx.rate || 0).toFixed(6)"/></div>
+                                <div class="tl-fx-rate"><t t-esc="_formatFxRate(fx.rate)"/></div>
                                 <div class="tl-fx-meta">
                                     <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
                                         <t t-esc="_formatPercent(fx.change_pct || 0)"/>
@@ -92,7 +92,7 @@
                     <div class="tl-drill-head">
                         <h2>Granular Drilldown</h2>
                         <div class="tl-drill-actions">
-                            <button class="btn btn-secondary" t-on-click="() => openNativeView(state.selectedDomain)">Open Native View</button>
+                            <button class="btn btn-secondary" t-on-click="onOpenNativeView">Open Native View</button>
                         </div>
                     </div>
                     <div class="tl-drill-filters">
