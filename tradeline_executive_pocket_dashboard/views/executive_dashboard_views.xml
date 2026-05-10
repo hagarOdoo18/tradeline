@@ -17,7 +17,7 @@
         id="menu_executive_pocket_root"
         name="Executive Pocket"
         sequence="5"
-        groups="tradeline_executive_pocket_dashboard.group_exec_viewer"
+        groups="base.group_user"
     />
 
     <menuitem
@@ -26,7 +26,7 @@
         parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
         action="tradeline_executive_pocket_dashboard.action_executive_pocket_dashboard"
         sequence="1"
-        groups="tradeline_executive_pocket_dashboard.group_exec_viewer"
+        groups="base.group_user"
     />
 
     <menuitem
