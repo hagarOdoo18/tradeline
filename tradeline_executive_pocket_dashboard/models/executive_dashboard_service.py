@@ -15,6 +15,13 @@ class ExecutiveDashboardService(models.AbstractModel):
     _name = "tradeline.executive.dashboard.service"
     _description = "Executive Dashboard Service"
 
+    FX_PERIOD_DAYS = {
+        "1D": 1,
+        "1M": 30,
+        "3M": 90,
+        "6M": 180,
+        "1Y": 365,
+    }
     FX_TARGETS = {
         "USD/EGP": {"source_symbol": "USDEGP=X", "invert": False},
         "EUR/EGP": {"source_symbol": "EUREGP=X", "invert": False},
@@ -604,7 +611,11 @@ class ExecutiveDashboardService(models.AbstractModel):
         return domains
 
     def _get_filter_options(self, scope: dict):
-        companies = self.env["res.company"].sudo().search([("id", "in", scope.get("company_ids") or [])], order="name")
+        if self.env.user.has_group("tradeline_executive_pocket_dashboard.group_exec_admin"):
+            company_domain = []
+        else:
+            company_domain = [("id", "in", self.env.user.company_ids.ids)]
+        companies = self.env["res.company"].sudo().search(company_domain, order="name")
         company_options = [{"id": company.id, "name": company.name} for company in companies]
 
         branch_options = []
@@ -676,6 +687,83 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         return coverage
 
+    def _daily_sales_snapshot(self, scope: dict) -> dict:
+        window_end = scope["end_date"]
+        window_start = max(scope["start_date"], window_end - timedelta(days=6))
+        days = [window_start + timedelta(days=idx) for idx in range((window_end - window_start).days + 1)]
+        rows_map = {}
+
+        if self._has_table("account_move"):
+            where_sql, params = self._build_scope_clause(
+                alias="move",
+                table_name="account_move",
+                filters=scope,
+                include_sales_rep=True,
+            )
+            params += [window_start, window_end]
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    move.invoice_date::date AS day,
+                    COUNT(*) AS invoice_count,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
+                FROM account_move move
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY day
+                ORDER BY day
+                """,
+                params,
+            )
+            for rec in self._dictfetchall():
+                day = rec.get("day")
+                if day:
+                    rows_map[fields.Date.to_date(day)] = {
+                        "invoice_count": int(rec.get("invoice_count") or 0),
+                        "net_revenue": float(rec.get("net_revenue") or 0.0),
+                    }
+
+        rows = []
+        total_revenue = 0.0
+        total_invoices = 0
+        for day in days:
+            data = rows_map.get(day, {})
+            invoice_count = int(data.get("invoice_count") or 0)
+            net_revenue = float(data.get("net_revenue") or 0.0)
+            avg_basket = (net_revenue / invoice_count) if invoice_count else 0.0
+            total_revenue += net_revenue
+            total_invoices += invoice_count
+            rows.append(
+                {
+                    "date": str(day),
+                    "invoice_count": invoice_count,
+                    "net_revenue": net_revenue,
+                    "average_basket": avg_basket,
+                }
+            )
+
+        today_value = rows[-1]["net_revenue"] if rows else 0.0
+        yesterday_value = rows[-2]["net_revenue"] if len(rows) > 1 else 0.0
+        avg_daily_revenue = (total_revenue / len(rows)) if rows else 0.0
+        avg_basket_total = (total_revenue / total_invoices) if total_invoices else 0.0
+
+        return {
+            "window_start": str(window_start),
+            "window_end": str(window_end),
+            "rows": rows,
+            "stats": {
+                "total_net_revenue": total_revenue,
+                "total_invoices": total_invoices,
+                "avg_daily_revenue": avg_daily_revenue,
+                "avg_basket": avg_basket_total,
+                "today_revenue": today_value,
+                "yesterday_revenue": yesterday_value,
+                "day_over_day_pct": self._percent_change(today_value, yesterday_value),
+            },
+        }
+
     @api.model
     def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None):
         scope = self._resolve_filter_scope(filters)
@@ -684,6 +772,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         sales = self._sales_summary(scope, margin_status=margin_status)
         inventory = self._inventory_summary(scope)
         pipeline = self._pipeline_summary(scope)
+        daily_snapshot = self._daily_sales_snapshot(scope)
         fx_watch = self.get_fx_watch()
         alerts = self._build_alerts(finance, sales, inventory, pipeline, fx_watch)
         coverage = self._data_coverage(scope)
@@ -738,6 +827,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "sales": sales,
                 "inventory": inventory,
                 "pipeline": pipeline,
+                "daily_snapshot": daily_snapshot,
             },
             "fx_watch": fx_watch,
             "drill_path": drill_path or ["overview", default_domain, default_group, "details"],
@@ -1165,6 +1255,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             else:
                 sparkline = list(reversed([h.rate for h in history]))
             period_changes = self._compute_period_changes(model, rec.pair, rec.rate or 0.0, now)
+            period_changes = self._fill_missing_period_changes(period_changes, rec.pair, rec.rate or 0.0, now)
             one_day_change = period_changes.get("1D")
             if one_day_change is None:
                 one_day_change = rec.change_pct or 0.0
@@ -1181,7 +1272,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "message": rec.message or "",
                     "age_minutes": age_minutes,
                     "sparkline": sparkline,
-                    "display_label": f"1 {rec.pair.split('/')[0]} = ? {rec.pair.split('/')[1]}",
+                    "display_label": f"1 {rec.pair.split('/')[0]} = {rec.pair.split('/')[1]}",
                 }
             )
 
@@ -1193,10 +1284,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _fetch_yahoo_quotes(self, symbols: list[str]) -> dict:
         quote_url = "https://query1.finance.yahoo.com/v7/finance/quote"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            "Accept": "application/json",
-        }
+        headers = self._yahoo_headers()
         params = {"symbols": ",".join(symbols)}
 
         last_error = None
@@ -1248,6 +1336,168 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"Yahoo finance request failed after retries. quote_error={last_error}; chart_errors={'; '.join(fallback_errors)}"
         )
 
+    def _yahoo_headers(self):
+        return {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "application/json",
+        }
+
+    def _fetch_yahoo_chart_points(self, symbol: str, range_window: str = "1y", interval: str = "1d") -> list[tuple]:
+        chart_url = "https://query2.finance.yahoo.com/v8/finance/chart/{symbol}"
+        response = requests.get(
+            chart_url.format(symbol=symbol),
+            params={"interval": interval, "range": range_window},
+            headers=self._yahoo_headers(),
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        result = ((payload or {}).get("chart") or {}).get("result") or []
+        if not result:
+            return []
+        block = result[0] or {}
+        timestamps = block.get("timestamp") or []
+        quote = (((block.get("indicators") or {}).get("quote") or [{}])[0] or {})
+        closes = quote.get("close") or []
+        points = []
+        for idx, ts in enumerate(timestamps):
+            if idx >= len(closes):
+                continue
+            close = closes[idx]
+            if close in (None, False):
+                continue
+            try:
+                rate = float(close)
+            except Exception:
+                continue
+            if rate <= 0:
+                continue
+            dt = fields.Datetime.to_datetime(datetime.utcfromtimestamp(int(ts)))
+            points.append((dt, rate))
+        return points
+
+    def _period_changes_from_points(self, points: list[tuple], current_rate: float, now_dt, invert: bool = False) -> dict:
+        normalized = []
+        for point_dt, raw_rate in points or []:
+            if not raw_rate:
+                continue
+            rate = (1.0 / raw_rate) if invert else raw_rate
+            if rate and rate > 0:
+                normalized.append((point_dt, float(rate)))
+
+        output = {}
+        for label, days in self.FX_PERIOD_DAYS.items():
+            cutoff = now_dt - timedelta(days=days)
+            baseline = None
+            for point_dt, rate in normalized:
+                if point_dt <= cutoff:
+                    baseline = rate
+                else:
+                    break
+            if baseline is None and normalized:
+                baseline = normalized[0][1]
+            output[label] = self._percent_change(current_rate, baseline) if baseline else None
+        return output
+
+    def _fill_missing_period_changes(self, period_changes: dict, pair: str, current_rate: float, now_dt) -> dict:
+        output = dict(period_changes or {})
+        if not any(value is None for value in output.values()):
+            return output
+        cfg = self.FX_TARGETS.get(pair) or {}
+        symbol = cfg.get("source_symbol")
+        invert = bool(cfg.get("invert"))
+        if not symbol or not current_rate:
+            return output
+        try:
+            points = self._fetch_yahoo_chart_points(symbol=symbol, range_window="1y", interval="1d")
+            fallback = self._period_changes_from_points(points, current_rate=current_rate, now_dt=now_dt, invert=invert)
+            for label, value in fallback.items():
+                if output.get(label) is None:
+                    output[label] = value
+        except Exception:
+            _logger.exception("FX period fallback failed for %s", pair)
+        return output
+
+    def _backfill_fx_period_anchors(self, model, pair: str, current_rate: float, fetched_at):
+        if not current_rate:
+            return 0
+        missing_labels = []
+        for label, days in self.FX_PERIOD_DAYS.items():
+            cutoff = fetched_at - timedelta(days=days)
+            baseline = model.search(
+                [("pair", "=", pair), ("status", "=", "ok"), ("fetched_at", "<=", cutoff)],
+                order="fetched_at desc,id desc",
+                limit=1,
+            )
+            if not baseline:
+                missing_labels.append(label)
+        if not missing_labels:
+            return 0
+
+        cfg = self.FX_TARGETS.get(pair) or {}
+        symbol = cfg.get("source_symbol")
+        invert = bool(cfg.get("invert"))
+        if not symbol:
+            return 0
+
+        try:
+            points = self._fetch_yahoo_chart_points(symbol=symbol, range_window="1y", interval="1d")
+        except Exception:
+            _logger.exception("FX backfill failed while fetching chart for %s", pair)
+            return 0
+
+        normalized = []
+        for point_dt, raw_rate in points:
+            rate = (1.0 / raw_rate) if invert else raw_rate
+            if rate and rate > 0:
+                normalized.append((point_dt, rate))
+        if not normalized:
+            return 0
+
+        created = 0
+        for label in missing_labels:
+            days = self.FX_PERIOD_DAYS[label]
+            cutoff = fetched_at - timedelta(days=days)
+            anchor = None
+            for point_dt, rate in normalized:
+                if point_dt <= cutoff:
+                    anchor = (point_dt, rate)
+                else:
+                    break
+            if not anchor:
+                anchor = normalized[0]
+            anchor_dt, anchor_rate = anchor
+            if anchor_rate <= 0:
+                continue
+            existing = model.search(
+                [
+                    ("pair", "=", pair),
+                    ("status", "=", "ok"),
+                    ("fetched_at", ">=", anchor_dt - timedelta(hours=12)),
+                    ("fetched_at", "<=", anchor_dt + timedelta(hours=12)),
+                ],
+                limit=1,
+            )
+            if existing:
+                continue
+            model.create(
+                {
+                    "pair": pair,
+                    "rate": anchor_rate,
+                    "change_pct": self._percent_change(current_rate, anchor_rate) or 0.0,
+                    "source_name": "Yahoo Finance",
+                    "source_symbol": symbol,
+                    "source_timestamp": anchor_dt,
+                    "fetched_at": anchor_dt,
+                    "is_stale": False,
+                    "status": "ok",
+                    "message": f"historical backfill anchor ({label})",
+                    "inverted_from_symbol": symbol if invert else False,
+                }
+            )
+            created += 1
+        return created
+
     def _to_datetime_from_epoch(self, value):
         if not value:
             return False
@@ -1264,15 +1514,8 @@ class ExecutiveDashboardService(models.AbstractModel):
         return ((current_rate - baseline_rate) / baseline_rate) * 100.0
 
     def _compute_period_changes(self, model, pair: str, current_rate: float, now_dt):
-        periods = {
-            "1D": 1,
-            "1M": 30,
-            "3M": 90,
-            "6M": 180,
-            "1Y": 365,
-        }
         output = {}
-        for label, days in periods.items():
+        for label, days in self.FX_PERIOD_DAYS.items():
             cutoff = now_dt - timedelta(days=days)
             baseline = model.search(
                 [("pair", "=", pair), ("status", "=", "ok"), ("fetched_at", "<=", cutoff)],
@@ -1346,6 +1589,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                         }
                     )
                     created += 1
+                    created += self._backfill_fx_period_anchors(model, pair, rate, fetched_at)
                 else:
                     last_good = model.search(
                         [("pair", "=", pair), ("status", "=", "ok")],
@@ -1369,6 +1613,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                         }
                     )
                     created += 1
+                    created += self._backfill_fx_period_anchors(model, pair, fallback_rate, fetched_at)
                     errors.append(f"No quote for {source_symbol}")
             except Exception as exc:
                 last_good = model.search(
@@ -1392,6 +1637,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     }
                 )
                 created += 1
+                created += self._backfill_fx_period_anchors(model, pair, float(last_good.rate or 0.0), fetched_at)
                 errors.append(f"{pair}: {exc}")
                 _logger.exception("FX refresh failed for pair %s", pair)
 

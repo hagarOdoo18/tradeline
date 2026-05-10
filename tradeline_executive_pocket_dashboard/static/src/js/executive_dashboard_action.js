@@ -64,6 +64,34 @@ export class ExecutivePocketDashboard extends Component {
         return this.state.bundle?.coverage || {};
     }
 
+    get dailySnapshot() {
+        return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} };
+    }
+
+    get dailySnapshotRows() {
+        return this.dailySnapshot.rows || [];
+    }
+
+    get dailySnapshotStats() {
+        return this.dailySnapshot.stats || {};
+    }
+
+    get dailySnapshotBars() {
+        const rows = this.dailySnapshotRows;
+        if (!rows.length) {
+            return [];
+        }
+        const maxValue = rows.reduce((max, row) => Math.max(max, Math.abs(Number(row.net_revenue || 0))), 0) || 1;
+        return rows.map((row) => {
+            const value = Number(row.net_revenue || 0);
+            return {
+                ...row,
+                value,
+                pct: Math.max(6, Math.round((Math.abs(value) / maxValue) * 100)),
+            };
+        });
+    }
+
     get companyOptions() {
         return this.state.bundle?.filter_options?.companies || [];
     }
@@ -262,6 +290,20 @@ export class ExecutivePocketDashboard extends Component {
         return `${num.toFixed(2)}%`;
     }
 
+    _formatPercentOrDash(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return "--";
+        }
+        return this._formatPercent(value);
+    }
+
+    _trendClass(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return "neutral";
+        }
+        return Number(value) >= 0 ? "up" : "down";
+    }
+
     _periodRows(periodChanges = {}) {
         return ["1D", "1M", "3M", "6M", "1Y"].map((label) => ({
             label,
@@ -279,20 +321,16 @@ export class ExecutivePocketDashboard extends Component {
         return input.length > maxLen ? `${input.slice(0, maxLen - 1)}...` : input;
     }
 
-    _sparklineBarHeight(points, idx) {
-        const list = Array.isArray(points) ? points : [];
-        if (!list.length) {
-            return 8;
+    _formatDayLabel(value) {
+        const dt = new Date(`${value}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) {
+            return value;
         }
-        const numeric = list.map((v) => Number(v || 0));
-        const min = Math.min(...numeric);
-        const max = Math.max(...numeric);
-        const val = Number(numeric[idx] || 0);
-        if (max <= min) {
-            return 10;
-        }
-        const normalized = (val - min) / (max - min);
-        return Math.max(4, Math.round(normalized * 24));
+        return dt.toLocaleDateString("en-EG", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+        });
     }
 
     _formatCell(column, value) {

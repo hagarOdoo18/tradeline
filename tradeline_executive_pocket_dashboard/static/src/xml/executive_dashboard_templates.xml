@@ -122,19 +122,36 @@
                         </div>
                     </div>
                     <div class="tl-chart-card">
-                        <h3>FX Mini Trends (last updates)</h3>
-                        <div class="tl-mini-trends">
-                            <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
-                                <div class="tl-mini-trend">
-                                    <div class="tl-mini-head">
-                                        <span><t t-esc="fx.pair"/></span>
-                                        <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(fx.change_pct || 0)"/></span>
+                        <h3>Daily Sales Snapshot (Odoo)</h3>
+                        <div class="tl-snapshot-stats">
+                            <div class="tl-snapshot-stat">
+                                <span>Today Revenue</span>
+                                <strong><t t-esc="_formatCurrency(dailySnapshotStats.today_revenue || 0)"/></strong>
+                            </div>
+                            <div class="tl-snapshot-stat">
+                                <span>7D Revenue</span>
+                                <strong><t t-esc="_formatCurrency(dailySnapshotStats.total_net_revenue || 0)"/></strong>
+                            </div>
+                            <div class="tl-snapshot-stat">
+                                <span>Avg Basket</span>
+                                <strong><t t-esc="_formatCurrency(dailySnapshotStats.avg_basket || 0)"/></strong>
+                            </div>
+                        </div>
+                        <div class="tl-snapshot-dod">
+                            Day-over-day:
+                            <span t-att-class="_trendClass(dailySnapshotStats.day_over_day_pct)">
+                                <t t-esc="_formatPercentOrDash(dailySnapshotStats.day_over_day_pct)"/>
+                            </span>
+                        </div>
+                        <div class="tl-snapshot-bars">
+                            <t t-foreach="dailySnapshotBars" t-as="item" t-key="item.date">
+                                <div class="tl-snapshot-row">
+                                    <div class="tl-snapshot-day"><t t-esc="_formatDayLabel(item.date)"/></div>
+                                    <div class="tl-snapshot-track">
+                                        <div class="tl-snapshot-fill" t-att-style="'width:' + item.pct + '%'"/>
                                     </div>
-                                    <div class="tl-mini-bars">
-                                        <t t-foreach="fx.sparkline || []" t-as="point" t-key="point_index" t-foreach-index="point_index">
-                                            <span class="tl-mini-bar" t-att-style="'height:' + _sparklineBarHeight(fx.sparkline, point_index) + 'px'"/>
-                                        </t>
-                                    </div>
+                                    <div class="tl-snapshot-value"><t t-esc="_formatCurrency(item.value)"/></div>
+                                    <div class="tl-snapshot-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv</div>
                                 </div>
                             </t>
                         </div>
@@ -156,8 +173,8 @@
                                 <div class="tl-fx-rate"><t t-esc="_formatFxRate(fx.rate)"/></div>
                                 <div class="tl-fx-egp">EGP</div>
                                 <div class="tl-fx-meta">
-                                    <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
-                                        1D <t t-esc="_formatPercent(fx.change_pct)"/>
+                                    <span t-att-class="_trendClass(fx.change_pct)">
+                                        1D <t t-esc="_formatPercentOrDash(fx.change_pct)"/>
                                     </span>
                                     <span>
                                         <t t-if="fx.is_stale">Stale</t>
@@ -168,7 +185,7 @@
                                     <t t-foreach="_periodRows(fx.period_changes || {})" t-as="pc" t-key="pc.label">
                                         <span class="tl-fx-chip">
                                             <strong><t t-esc="pc.label"/></strong>
-                                            <span t-att-class="(pc.value || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(pc.value)"/></span>
+                                            <span t-att-class="_trendClass(pc.value)"><t t-esc="_formatPercentOrDash(pc.value)"/></span>
                                         </span>
                                     </t>
                                 </div>
