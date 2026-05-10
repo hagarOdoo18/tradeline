@@ -6,7 +6,7 @@ import { Component, useState } from "@odoo/owl";
 
 class CopilotBase extends Component {
     setup() {
-        this.rpc = useService("rpc");
+        this.orm = useService("orm");
         this.notification = useService("notification");
         this.state = useState({
             open: this.props.embedded || false,
@@ -58,13 +58,15 @@ class CopilotBase extends Component {
         this.state.loading = true;
 
         try {
-            const response = await this.rpc("/ai_copilot/chat/send", {
-                message: content,
-                conversation_id: this.state.conversationId,
-                context: this._buildContext(),
-                provider: this.state.provider,
-                model: this.state.model || undefined,
-            });
+            const response = await this.orm.call("ai.copilot.ui", "chat_send", [
+                {
+                    message: content,
+                    conversation_id: this.state.conversationId,
+                    context: this._buildContext(),
+                    provider: this.state.provider,
+                    model: this.state.model || undefined,
+                },
+            ]);
             this.state.conversationId = response.conversation_id;
             this.state.queryMeta = response.query_meta || null;
             this.state.messages.push({
@@ -85,11 +87,13 @@ class CopilotBase extends Component {
         }
         this.state.loading = true;
         try {
-            const route = fileType === "csv" ? "/ai_copilot/export/csv" : "/ai_copilot/export/xlsx";
-            const result = await this.rpc(route, {
-                query_meta: this.state.queryMeta,
-                conversation_id: this.state.conversationId,
-            });
+            const result = await this.orm.call("ai.copilot.ui", "export_file", [
+                {
+                    file_type: fileType,
+                    query_meta: this.state.queryMeta,
+                    conversation_id: this.state.conversationId,
+                },
+            ]);
             if (result?.url) {
                 window.open(result.url, "_blank");
             }
