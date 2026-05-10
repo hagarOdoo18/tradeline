@@ -125,6 +125,11 @@ export class ExecutivePocketDashboard extends Component {
         return `${num.toFixed(2)}%`;
     }
 
+    _formatFxRate(value) {
+        const num = Number(value || 0);
+        return num.toFixed(6);
+    }
+
     _formatCell(column, value) {
         if (value === null || value === undefined) {
             return "-";
@@ -196,6 +201,10 @@ export class ExecutivePocketDashboard extends Component {
             domain: target.domain,
             target: "current",
         });
+    }
+
+    async onOpenNativeView() {
+        await this.openNativeView(this.state.selectedDomain);
     }
 }
 

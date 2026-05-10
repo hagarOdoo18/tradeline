@@ -18,6 +18,7 @@
         name="Executive Pocket"
         sequence="5"
         groups="base.group_user"
+        web_icon="tradeline_executive_pocket_dashboard,static/description/tradeline_logo.png"
     />
 
     <menuitem
