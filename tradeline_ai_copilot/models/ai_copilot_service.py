@@ -76,6 +76,88 @@ class AICopilotService(models.AbstractModel):
         "bills",
         "receivables",
     }
+    MODULE_ROUTES = {
+        "sales": {
+            "model": "sale.order",
+            "keywords": {"sale", "sales", "order", "orders", "quotation", "customer", "revenue"},
+        },
+        "purchases": {
+            "model": "purchase.order",
+            "keywords": {"purchase", "purchases", "po", "supplier", "vendor", "procurement", "buy"},
+        },
+        "inventory": {
+            "model": "stock.quant",
+            "keywords": {"inventory", "stock", "warehouse", "sku", "onhand", "on-hand", "quantity"},
+        },
+        "accounting": {
+            "model": "account.move",
+            "keywords": {"accounting", "invoice", "invoices", "bill", "bills", "receivable", "payable", "aging"},
+        },
+        "payments": {
+            "model": "account.payment",
+            "keywords": {"payment", "payments", "collection", "collected", "cash", "bank"},
+        },
+    }
+    PRIORITY_FIELDS_BY_MODEL = {
+        "sale.order": [
+            "name",
+            "date_order",
+            "partner_id",
+            "user_id",
+            "amount_total",
+            "state",
+            "company_id",
+            "currency_id",
+        ],
+        "purchase.order": [
+            "name",
+            "date_order",
+            "partner_id",
+            "user_id",
+            "amount_total",
+            "state",
+            "company_id",
+            "currency_id",
+        ],
+        "stock.quant": [
+            "product_id",
+            "location_id",
+            "quantity",
+            "reserved_quantity",
+            "available_quantity",
+            "company_id",
+            "in_date",
+        ],
+        "account.move": [
+            "name",
+            "invoice_date",
+            "partner_id",
+            "move_type",
+            "state",
+            "amount_total",
+            "amount_residual",
+            "company_id",
+        ],
+        "account.payment": [
+            "name",
+            "date",
+            "partner_id",
+            "payment_type",
+            "state",
+            "amount",
+            "journal_id",
+            "company_id",
+        ],
+        "res.partner": [
+            "name",
+            "customer_rank",
+            "supplier_rank",
+            "email",
+            "phone",
+            "mobile",
+            "company_id",
+        ],
+    }
 
     def _assert_internal_user(self):
         if self.env.is_superuser():
@@ -170,6 +252,110 @@ class AICopilotService(models.AbstractModel):
         if context_payload and context_payload.get("model"):
             return context_payload["model"]
         return "sale.order"
+
+    def _route_prompt(self, prompt, context_payload=None):
+        text = (prompt or "").strip().lower()
+        context_payload = context_payload or {}
+        context_model = context_payload.get("model")
+        explicit_context_ref = any(token in text for token in ["this ", "current ", "selected "])
+        if explicit_context_ref and context_model:
+            return {
+                "intent": "context",
+                "module": "context",
+                "model_name": context_model,
+                "context_model": context_model,
+            }
+
+        words = set(re.findall(r"[a-z0-9_\\-]+", text))
+        scores = {}
+        for module_name, cfg in self.MODULE_ROUTES.items():
+            score = 0
+            for keyword in cfg["keywords"]:
+                if keyword in text or keyword in words:
+                    score += 1
+            if score:
+                scores[module_name] = score
+
+        if not scores:
+            if context_model:
+                return {
+                    "intent": "context_default",
+                    "module": "context",
+                    "model_name": context_model,
+                    "context_model": context_model,
+                }
+            return {
+                "needs_clarification": True,
+                "intent": "clarification",
+                "content": (
+                    "I can analyze Sales, Purchases, Inventory, Accounting, and Payments. "
+                    "Please tell me which area you want, for example: "
+                    "'show sales this month' or 'show unpaid invoices'."
+                ),
+            }
+
+        top_score = max(scores.values())
+        winners = [name for name, score in scores.items() if score == top_score]
+        if len(winners) > 1 and len(words) < 6 and not context_model:
+            return {
+                "needs_clarification": True,
+                "intent": "clarification",
+                "content": (
+                    "Your request could map to multiple modules. "
+                    "Please specify one of: Sales, Purchases, Inventory, Accounting, or Payments."
+                ),
+            }
+
+        module_name = winners[0]
+        model_name = self.MODULE_ROUTES[module_name]["model"]
+        if module_name == "accounting" and any(token in text for token in ["payment", "payments", "collection", "collected"]):
+            module_name = "payments"
+            model_name = "account.payment"
+        if any(token in text for token in ["customer list", "customers", "partners"]):
+            model_name = "res.partner"
+        return {
+            "intent": "module_query",
+            "module": module_name,
+            "model_name": model_name,
+            "context_model": context_model or False,
+        }
+
+    def _build_router_domain(self, model, route_info, prompt):
+        domain = self._default_domain(model)
+        text = (prompt or "").lower()
+        model_name = route_info.get("model_name")
+
+        if model_name == "sale.order" and "state" in model._fields:
+            domain.append(("state", "in", ["sale", "done"]))
+        elif model_name == "purchase.order" and "state" in model._fields:
+            domain.append(("state", "in", ["purchase", "done"]))
+        elif model_name == "account.move":
+            if "state" in model._fields:
+                domain.append(("state", "=", "posted"))
+            if "move_type" in model._fields:
+                if any(token in text for token in ["bill", "bills", "vendor", "supplier"]):
+                    domain.append(("move_type", "in", ["in_invoice", "in_refund"]))
+                else:
+                    domain.append(("move_type", "in", ["out_invoice", "out_receipt", "out_refund"]))
+            if "amount_residual" in model._fields and any(token in text for token in ["unpaid", "overdue", "receivable", "due"]):
+                domain.append(("amount_residual", ">", 0))
+        elif model_name == "account.payment":
+            if "state" in model._fields:
+                domain.append(("state", "=", "posted"))
+        elif model_name == "res.partner":
+            if any(token in text for token in ["supplier", "vendor"]) and "supplier_rank" in model._fields:
+                domain.append(("supplier_rank", ">", 0))
+            elif "customer_rank" in model._fields:
+                domain.append(("customer_rank", ">", 0))
+        elif model_name == "stock.quant":
+            if "quantity" in model._fields and any(token in text for token in ["low stock", "out of stock", "zero stock"]):
+                domain.append(("quantity", "<=", 0))
+        return domain
+
+    def _prioritized_fields(self, model_name, safe_fields):
+        priority = [field for field in self.PRIORITY_FIELDS_BY_MODEL.get(model_name, []) if field in safe_fields]
+        rest = [field for field in safe_fields if field not in priority]
+        return priority + rest
 
     def _precheck_prompt(self, prompt):
         text = (prompt or "").strip().lower()
@@ -494,15 +680,20 @@ class AICopilotService(models.AbstractModel):
         self._assert_internal_user()
         settings = self.get_settings()
 
-        model_name = self._resolve_model(prompt, context_payload or {})
+        route_info = self._route_prompt(prompt, context_payload=context_payload)
+        if route_info.get("needs_clarification"):
+            raise ValidationError(route_info["content"])
+
+        model_name = route_info["model_name"]
         model, policy = self._check_model_access(model_name)
         hard_limit = min(policy.max_rows or 1000, settings.max_export_rows_xlsx or 50000)
         default_limit = min(settings.max_preview_rows or 150, hard_limit)
         limit = self._parse_top_limit(prompt, default_limit, hard_limit)
 
-        domain = self._default_domain(model)
+        domain = self._build_router_domain(model, route_info, prompt)
         safe_fields = self._safe_fields_for_model(model_name)[:8]
-        if "display_name" not in safe_fields and "name" in model._fields:
+        safe_fields = self._prioritized_fields(model_name, safe_fields)
+        if "display_name" not in safe_fields and "name" in model._fields and "name" not in safe_fields:
             safe_fields = ["name"] + safe_fields
         safe_fields = safe_fields[:8]
         rows = self._build_table_rows(model_name, domain, limit, safe_fields)
@@ -512,6 +703,8 @@ class AICopilotService(models.AbstractModel):
             "domain": domain,
             "rows": rows,
             "limit": limit,
+            "route_intent": route_info.get("intent"),
+            "route_module": route_info.get("module"),
         }
 
     @api.model
@@ -564,6 +757,8 @@ class AICopilotService(models.AbstractModel):
             columns = query["fields"]
             limit = query["limit"]
             domain = query["domain"]
+            route_intent = query.get("route_intent") or "module_query"
+            route_module = query.get("route_module") or "unknown"
 
             summary_text = self._llm_summary(
                 provider,
@@ -585,6 +780,7 @@ class AICopilotService(models.AbstractModel):
             kpi_block = {
                 "type": "kpi",
                 "items": [
+                    {"label": "Module", "value": route_module},
                     {"label": "Model", "value": model_name},
                     {"label": "Rows", "value": len(rows)},
                     {"label": "Limit", "value": limit},
@@ -642,6 +838,7 @@ class AICopilotService(models.AbstractModel):
             duration_ms = int((time.time() - start_time) * 1000)
             audit_payload.update(
                 {
+                    "intent": route_intent,
                     "model_accessed": model_name,
                     "fields_accessed": ",".join(columns),
                     "domain_json": str(domain),
@@ -664,6 +861,26 @@ class AICopilotService(models.AbstractModel):
                     "limit": limit,
                 },
                 "file_ids": file_entries,
+            }
+        except ValidationError as exc:
+            duration_ms = int((time.time() - start_time) * 1000)
+            self._log_audit(
+                conversation,
+                {
+                    **audit_payload,
+                    "intent": "clarification",
+                    "status": "ok",
+                    "row_count": 0,
+                    "duration_ms": duration_ms,
+                    "file_generated": False,
+                },
+            )
+            return {
+                "provider": provider,
+                "llm_model": llm_model,
+                "blocks": [{"type": "clarification", "content": str(exc)}],
+                "query_meta": {},
+                "file_ids": [],
             }
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)

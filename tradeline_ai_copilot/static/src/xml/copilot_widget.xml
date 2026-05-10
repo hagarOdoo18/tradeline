@@ -70,6 +70,12 @@
                                             <span><t t-esc="block.content"/></span>
                                         </div>
                                     </t>
+                                    <t t-elif="block.type === 'clarification'">
+                                        <div class="tl-ai-warning">
+                                            <i class="fa fa-info-circle"/>
+                                            <span><t t-esc="block.content"/></span>
+                                        </div>
+                                    </t>
                                     <t t-elif="block.type === 'kpi'">
                                         <div class="tl-ai-kpi-grid">
                                             <t t-foreach="block.items" t-as="kpi" t-key="kpi.label">
