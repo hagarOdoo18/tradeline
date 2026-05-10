@@ -46,6 +46,36 @@ class AICopilotService(models.AbstractModel):
         "stock": "stock.quant",
         "product": "product.product",
     }
+    BUSINESS_HINT_KEYWORDS = {
+        "sales",
+        "sale",
+        "customer",
+        "invoice",
+        "payment",
+        "purchase",
+        "supplier",
+        "inventory",
+        "stock",
+        "product",
+        "top",
+        "total",
+        "compare",
+        "summary",
+        "summarize",
+        "export",
+        "download",
+        "csv",
+        "excel",
+        "xlsx",
+        "report",
+        "show",
+        "list",
+        "trend",
+        "kpi",
+        "orders",
+        "bills",
+        "receivables",
+    }
 
     def _assert_internal_user(self):
         if self.env.is_superuser():
@@ -140,6 +170,34 @@ class AICopilotService(models.AbstractModel):
         if context_payload and context_payload.get("model"):
             return context_payload["model"]
         return "sale.order"
+
+    def _precheck_prompt(self, prompt):
+        text = (prompt or "").strip().lower()
+        if not text:
+            return {
+                "intent": "clarification",
+                "content": "Please ask a business question, for example: show sales this month.",
+            }
+
+        if re.match(r"^(hi|hello|hey|yo|sup|good morning|good afternoon|good evening|thanks|thank you)[\s!.?]*$", text):
+            return {
+                "intent": "smalltalk",
+                "content": (
+                    "Hi. I can help with read-only business intelligence in Odoo. "
+                    "Try: show sales this month, compare purchases this quarter, or export top customers to Excel."
+                ),
+            }
+
+        words = re.findall(r"[a-z0-9_]+", text)
+        if len(words) <= 2 and not any(keyword in text for keyword in self.BUSINESS_HINT_KEYWORDS):
+            return {
+                "intent": "clarification",
+                "content": (
+                    "I need a business question to analyze data. "
+                    "Example: show top 10 customers by sales this month."
+                ),
+            }
+        return False
 
     def _parse_top_limit(self, prompt, default_limit, hard_max):
         match = re.search(r"\btop\s+(\d+)\b", prompt or "", flags=re.IGNORECASE)
@@ -476,6 +534,30 @@ class AICopilotService(models.AbstractModel):
         }
 
         try:
+            precheck = self._precheck_prompt(prompt)
+            if precheck:
+                duration_ms = int((time.time() - start_time) * 1000)
+                blocks = [
+                    {"type": "text", "content": precheck["content"]},
+                ]
+                self._log_audit(
+                    conversation,
+                    {
+                        **audit_payload,
+                        "intent": precheck["intent"],
+                        "row_count": 0,
+                        "duration_ms": duration_ms,
+                        "file_generated": False,
+                    },
+                )
+                return {
+                    "provider": provider,
+                    "llm_model": llm_model,
+                    "blocks": blocks,
+                    "query_meta": {},
+                    "file_ids": [],
+                }
+
             query = self.run_query(prompt, context_payload=context_payload)
             model_name = query["model_name"]
             rows = query["rows"]
