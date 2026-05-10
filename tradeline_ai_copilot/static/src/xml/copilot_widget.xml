@@ -29,13 +29,13 @@
             </div>
 
             <div class="tl-ai-mode-group" t-if="!props.embedded">
-                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'compact' ? 'is-active' : '')" t-on-click="() => switchMode('compact')" title="Compact">
+                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'compact' ? 'is-active' : '')" t-on-click="onModeCompact" title="Compact">
                     <i class="fa fa-window-minimize"/>
                 </button>
-                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'side' ? 'is-active' : '')" t-on-click="() => switchMode('side')" title="Side panel">
+                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'side' ? 'is-active' : '')" t-on-click="onModeSide" title="Side panel">
                     <i class="fa fa-columns"/>
                 </button>
-                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'fullscreen' ? 'is-active' : '')" t-on-click="() => switchMode('fullscreen')" title="Fullscreen">
+                <button t-att-class="'tl-ai-mode-btn ' + (state.mode === 'fullscreen' ? 'is-active' : '')" t-on-click="onModeFullscreen" title="Fullscreen">
                     <i class="fa fa-arrows-alt"/>
                 </button>
             </div>

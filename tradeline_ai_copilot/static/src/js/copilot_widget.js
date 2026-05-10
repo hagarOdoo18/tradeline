@@ -34,6 +34,9 @@ class CopilotBase extends Component {
             provider: "openai",
             model: "",
         });
+        this.onModeCompact = () => this.switchMode("compact");
+        this.onModeSide = () => this.switchMode("side");
+        this.onModeFullscreen = () => this.switchMode("fullscreen");
     }
 
     get rootClass() {
