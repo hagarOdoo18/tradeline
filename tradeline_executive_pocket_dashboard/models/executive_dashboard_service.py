@@ -686,18 +686,24 @@ class ExecutiveDashboardService(models.AbstractModel):
                 sparkline = list(reversed([(1.0 / h.rate) if h.rate else 0.0 for h in legacy_history]))
             else:
                 sparkline = list(reversed([h.rate for h in history]))
+            period_changes = self._compute_period_changes(model, rec.pair, rec.rate or 0.0, now)
+            one_day_change = period_changes.get("1D")
+            if one_day_change is None:
+                one_day_change = rec.change_pct or 0.0
+
             cards.append(
                 {
                     "pair": rec.pair,
                     "rate": rec.rate,
-                    "change_pct": rec.change_pct or 0.0,
+                    "change_pct": one_day_change,
+                    "period_changes": period_changes,
                     "status": rec.status,
                     "is_stale": is_stale,
                     "last_update": rec.fetched_at.isoformat() if rec.fetched_at else None,
                     "message": rec.message or "",
                     "age_minutes": age_minutes,
                     "sparkline": sparkline,
-                    "display_label": f"1 {rec.pair.split('/')[0]} = {rec.pair.split('/')[1]}",
+                    "display_label": f"1 {rec.pair.split('/')[0]} = ? {rec.pair.split('/')[1]}",
                 }
             )
 
@@ -771,6 +777,32 @@ class ExecutiveDashboardService(models.AbstractModel):
             return fields.Datetime.to_datetime(datetime.utcfromtimestamp(int(value)))
         except Exception:
             return False
+
+    def _percent_change(self, current_rate: float, baseline_rate: float):
+        current_rate = float(current_rate or 0.0)
+        baseline_rate = float(baseline_rate or 0.0)
+        if baseline_rate <= 0:
+            return None
+        return ((current_rate - baseline_rate) / baseline_rate) * 100.0
+
+    def _compute_period_changes(self, model, pair: str, current_rate: float, now_dt):
+        periods = {
+            "1D": 1,
+            "1M": 30,
+            "3M": 90,
+            "6M": 180,
+            "1Y": 365,
+        }
+        output = {}
+        for label, days in periods.items():
+            cutoff = now_dt - timedelta(days=days)
+            baseline = model.search(
+                [("pair", "=", pair), ("status", "=", "ok"), ("fetched_at", "<=", cutoff)],
+                order="fetched_at desc,id desc",
+                limit=1,
+            )
+            output[label] = self._percent_change(current_rate, baseline.rate) if baseline else None
+        return output
 
     @api.model
     def refresh_fx_rates(self):
@@ -885,7 +917,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 errors.append(f"{pair}: {exc}")
                 _logger.exception("FX refresh failed for pair %s", pair)
 
-        retention_cutoff = fetched_at - timedelta(days=30)
+        retention_cutoff = fetched_at - timedelta(days=400)
         old_recs = model.search([("fetched_at", "<", retention_cutoff)])
         if old_recs:
             old_recs.unlink()
