@@ -14,6 +14,12 @@
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(246, 248, 252, 0.95);
+    backdrop-filter: blur(4px);
+    padding: 10px 0 8px;
 }
 
 .tl-exec-title-block h1 {
@@ -31,9 +37,11 @@
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    align-items: flex-end;
 }
 
-.tl-exec-controls label {
+.tl-exec-controls label,
+.tl-control {
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -53,10 +61,115 @@
     min-width: 140px;
 }
 
-.tl-exec-controls select[multiple] {
-    min-width: 220px;
-    min-height: 78px;
+.tl-company-control {
+    min-width: 280px;
+    position: relative;
+}
+
+.tl-company-trigger {
+    border: 1px solid #cfd6e3;
+    border-radius: 10px;
+    background: #fff;
+    min-height: 38px;
+    padding: 8px 10px;
+    min-width: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #111827;
+}
+
+.tl-company-summary {
+    font-size: 13px;
     text-transform: none;
+    font-weight: 600;
+    max-width: 236px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tl-company-caret {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.tl-company-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: min(360px, 92vw);
+    border: 1px solid #d8dfed;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(17, 24, 39, 0.12);
+    padding: 10px;
+}
+
+.tl-company-popover input {
+    width: 100%;
+    min-width: 0;
+}
+
+.tl-company-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: 8px 0;
+}
+
+.tl-company-list {
+    max-height: 220px;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 6px;
+}
+
+.tl-company-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 13px;
+    text-transform: none;
+    font-weight: 500;
+}
+
+.tl-company-item:hover {
+    background: #f8fafc;
+}
+
+.tl-active-companies {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.tl-active-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #6b7280;
+}
+
+.tl-active-chip {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #e8eefc;
+    color: #1f3b75;
+    border: 1px solid #d3def8;
+}
+
+.tl-active-chip.is-all {
+    background: #f8fafc;
+    color: #334155;
+    border-color: #d1d5db;
 }
 
 .tl-alert-ribbon {
@@ -329,6 +442,12 @@
     gap: 6px;
 }
 
+.tl-drill-desc {
+    margin-left: 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+
 .tl-drill-filters {
     display: flex;
     gap: 8px;
@@ -393,6 +512,21 @@
         font-size: 20px;
     }
 
+    .tl-control,
+    .tl-company-control {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .tl-company-trigger {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .tl-company-popover {
+        width: 100%;
+    }
+
     .tl-chart-grid {
         grid-template-columns: 1fr;
     }
@@ -408,10 +542,5 @@
 
     .tl-fx-periods {
         grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .tl-exec-controls select[multiple] {
-        min-width: 160px;
-        min-height: 72px;
     }
 }

@@ -19,6 +19,11 @@ export class ExecutivePocketDashboard extends Component {
             selectedDomain: "finance",
             selectedGroupBy: "branch",
             selectedMetric: "net_revenue",
+            companyPicker: {
+                open: false,
+                search: "",
+                draft_ids: [],
+            },
             filters: {
                 start_date: this._formatDate(start),
                 end_date: this._formatDate(today),
@@ -63,6 +68,30 @@ export class ExecutivePocketDashboard extends Component {
         return this.state.bundle?.filter_options?.companies || [];
     }
 
+    get selectedCompanyLabels() {
+        const optionMap = new Map(this.companyOptions.map((c) => [c.id, c.name]));
+        return (this.state.filters.company_ids || []).map((id) => optionMap.get(id)).filter(Boolean);
+    }
+
+    get companySelectionSummary() {
+        const selected = this.selectedCompanyLabels;
+        if (!selected.length) {
+            return "All accessible companies";
+        }
+        if (selected.length === 1) {
+            return selected[0];
+        }
+        return `${selected.length} companies selected`;
+    }
+
+    get filteredCompanyOptions() {
+        const q = String(this.state.companyPicker.search || "").trim().toLowerCase();
+        if (!q) {
+            return this.companyOptions;
+        }
+        return this.companyOptions.filter((c) => String(c.name || "").toLowerCase().includes(q));
+    }
+
     get domainCatalog() {
         return this.state.bundle?.drill_catalog || [];
     }
@@ -85,6 +114,10 @@ export class ExecutivePocketDashboard extends Component {
 
     get selectedDomainCoverage() {
         return Number(this.coverage[this.state.selectedDomain] || 0);
+    }
+
+    get selectedDomainDescription() {
+        return this.selectedDomainCatalog?.description || "";
     }
 
     get chartMetricColumn() {
@@ -156,6 +189,12 @@ export class ExecutivePocketDashboard extends Component {
         }
     }
 
+    _syncCompanyDraft() {
+        const validIds = new Set(this.companyOptions.map((c) => c.id));
+        const current = Array.isArray(this.state.filters.company_ids) ? this.state.filters.company_ids : [];
+        this.state.companyPicker.draft_ids = current.filter((id) => validIds.has(id));
+    }
+
     async _loadBundle() {
         this.state.loading = true;
         this.state.error = "";
@@ -169,6 +208,7 @@ export class ExecutivePocketDashboard extends Component {
             if (!this.state.filters.company_ids.length && bundle?.meta?.scope?.company_ids?.length) {
                 this.state.filters.company_ids = [...bundle.meta.scope.company_ids];
             }
+            this._syncCompanyDraft();
             this._syncSelectionFromBundle();
             await this._reloadDrilldown();
         } catch (error) {
@@ -299,9 +339,42 @@ export class ExecutivePocketDashboard extends Component {
         await this._reloadDrilldown();
     }
 
-    async onCompanyChange(ev) {
-        const selected = [...ev.target.selectedOptions].map((opt) => Number(opt.value)).filter((id) => Number.isFinite(id));
-        this.state.filters.company_ids = selected;
+    onToggleCompanyPicker() {
+        this.state.companyPicker.open = !this.state.companyPicker.open;
+        if (this.state.companyPicker.open) {
+            this._syncCompanyDraft();
+        }
+    }
+
+    onCompanySearchInput(ev) {
+        this.state.companyPicker.search = ev.target.value || "";
+    }
+
+    onDraftCompanyToggle(ev) {
+        const id = Number(ev.target.value);
+        if (!Number.isFinite(id)) {
+            return;
+        }
+        const selected = new Set(this.state.companyPicker.draft_ids || []);
+        if (ev.target.checked) {
+            selected.add(id);
+        } else {
+            selected.delete(id);
+        }
+        this.state.companyPicker.draft_ids = [...selected];
+    }
+
+    onSelectAllCompanies() {
+        this.state.companyPicker.draft_ids = this.companyOptions.map((c) => c.id);
+    }
+
+    onClearCompanySelection() {
+        this.state.companyPicker.draft_ids = [];
+    }
+
+    async onApplyCompanySelection() {
+        this.state.filters.company_ids = [...(this.state.companyPicker.draft_ids || [])];
+        this.state.companyPicker.open = false;
         await this._loadBundle();
     }
 

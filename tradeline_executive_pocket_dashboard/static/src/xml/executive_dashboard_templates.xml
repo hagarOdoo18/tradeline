@@ -8,25 +8,50 @@
                     <p>General to granular executive analytics with live FX watch.</p>
                 </div>
                 <div class="tl-exec-controls">
-                    <label>
+                    <div class="tl-control tl-company-control">
                         <span>Company</span>
-                        <select multiple="multiple" t-on-change="onCompanyChange">
-                            <t t-foreach="companyOptions" t-as="company" t-key="company.id">
-                                <option t-att-value="company.id" t-att-selected="state.filters.company_ids.includes(company.id) ? 'selected' : null">
-                                    <t t-esc="company.name"/>
-                                </option>
-                            </t>
-                        </select>
-                    </label>
-                    <label>
+                        <button type="button" class="tl-company-trigger" t-on-click="onToggleCompanyPicker">
+                            <span class="tl-company-summary"><t t-esc="companySelectionSummary"/></span>
+                            <span class="tl-company-caret">v</span>
+                        </button>
+                        <t t-if="state.companyPicker.open">
+                            <div class="tl-company-popover">
+                                <input
+                                    type="text"
+                                    placeholder="Search company..."
+                                    t-model="state.companyPicker.search"
+                                    t-on-input="onCompanySearchInput"
+                                />
+                                <div class="tl-company-actions">
+                                    <button type="button" class="btn btn-sm btn-light" t-on-click="onSelectAllCompanies">All</button>
+                                    <button type="button" class="btn btn-sm btn-light" t-on-click="onClearCompanySelection">Clear</button>
+                                    <button type="button" class="btn btn-sm btn-primary" t-on-click="onApplyCompanySelection">Apply</button>
+                                </div>
+                                <div class="tl-company-list">
+                                    <t t-foreach="filteredCompanyOptions" t-as="company" t-key="company.id">
+                                        <label class="tl-company-item">
+                                            <input
+                                                type="checkbox"
+                                                t-att-value="company.id"
+                                                t-att-checked="state.companyPicker.draft_ids.includes(company.id) ? 'checked' : null"
+                                                t-on-change="onDraftCompanyToggle"
+                                            />
+                                            <span><t t-esc="company.name"/></span>
+                                        </label>
+                                    </t>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                    <label class="tl-control">
                         <span>Start</span>
                         <input type="date" t-model="state.filters.start_date" t-on-change="onDateChange"/>
                     </label>
-                    <label>
+                    <label class="tl-control">
                         <span>End</span>
                         <input type="date" t-model="state.filters.end_date" t-on-change="onDateChange"/>
                     </label>
-                    <label>
+                    <label class="tl-control">
                         <span>Lens</span>
                         <select t-model="state.lens" t-on-change="onLensChange">
                             <option value="overview">Overview</option>
@@ -35,6 +60,17 @@
                             <option value="cash">Cash</option>
                         </select>
                     </label>
+                </div>
+                <div class="tl-active-companies">
+                    <span class="tl-active-label">Active Companies</span>
+                    <t t-if="selectedCompanyLabels.length">
+                        <t t-foreach="selectedCompanyLabels" t-as="name" t-key="name_index" t-foreach-index="name_index">
+                            <span class="tl-active-chip"><t t-esc="name"/></span>
+                        </t>
+                    </t>
+                    <t t-else="">
+                        <span class="tl-active-chip is-all">All accessible companies</span>
+                    </t>
                 </div>
             </div>
 
@@ -152,6 +188,9 @@
 
                     <div class="tl-drill-coverage">
                         <span class="tl-drill-badge">Records in selected domain: <strong><t t-esc="_formatNumber(selectedDomainCoverage)"/></strong></span>
+                        <t t-if="selectedDomainDescription">
+                            <span class="tl-drill-desc"><t t-esc="selectedDomainDescription"/></span>
+                        </t>
                     </div>
 
                     <div class="tl-drill-filters">
