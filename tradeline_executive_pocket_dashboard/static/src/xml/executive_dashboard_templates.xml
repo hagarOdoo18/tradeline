@@ -60,6 +60,41 @@
                     </t>
                 </div>
 
+                <div class="tl-chart-grid">
+                    <div class="tl-chart-card">
+                        <h3>Top Drivers (<t t-esc="state.selectedDomain"/>)</h3>
+                        <div class="tl-bar-chart">
+                            <t t-foreach="topChartRows" t-as="item" t-key="item.dimension">
+                                <div class="tl-bar-row">
+                                    <div class="tl-bar-label"><t t-esc="_shorten(item.dimension, 28)"/></div>
+                                    <div class="tl-bar-track">
+                                        <div class="tl-bar-fill" t-att-style="'width:' + item.pct + '%'"/>
+                                    </div>
+                                    <div class="tl-bar-value"><t t-esc="_formatCell(item.metric, item.value)"/></div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                    <div class="tl-chart-card">
+                        <h3>FX Mini Trends (last updates)</h3>
+                        <div class="tl-mini-trends">
+                            <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
+                                <div class="tl-mini-trend">
+                                    <div class="tl-mini-head">
+                                        <span><t t-esc="fx.pair"/></span>
+                                        <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(fx.change_pct || 0)"/></span>
+                                    </div>
+                                    <div class="tl-mini-bars">
+                                        <t t-foreach="fx.sparkline || []" t-as="point" t-key="point_index" t-foreach-index="point_index">
+                                            <span class="tl-mini-bar" t-att-style="'height:' + _sparklineBarHeight(fx.sparkline, point_index) + 'px'"/>
+                                        </t>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="tl-fx-panel">
                     <div class="tl-fx-head">
                         <h2>Currencies To Watch</h2>
@@ -71,8 +106,9 @@
                     <div class="tl-fx-grid">
                         <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
                             <div class="tl-fx-card" t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'">
-                                <div class="tl-fx-pair"><t t-esc="fx.pair"/></div>
+                                <div class="tl-fx-pair"><t t-esc="fx.display_label || fx.pair"/></div>
                                 <div class="tl-fx-rate"><t t-esc="_formatFxRate(fx.rate)"/></div>
+                                <div class="tl-fx-egp">EGP</div>
                                 <div class="tl-fx-meta">
                                     <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
                                         <t t-esc="_formatPercent(fx.change_pct || 0)"/>

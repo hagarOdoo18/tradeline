@@ -16,9 +16,9 @@ class ExecutiveDashboardService(models.AbstractModel):
     _description = "Executive Dashboard Service"
 
     FX_TARGETS = {
-        "EGP/USD": {"source_symbol": "USDEGP=X", "invert": True},
-        "EGP/EUR": {"source_symbol": "EUREGP=X", "invert": True},
-        "EGP/GBP": {"source_symbol": "GBPEGP=X", "invert": True},
+        "USD/EGP": {"source_symbol": "USDEGP=X", "invert": False},
+        "EUR/EGP": {"source_symbol": "EUREGP=X", "invert": False},
+        "GBP/EGP": {"source_symbol": "GBPEGP=X", "invert": False},
     }
 
     def _dictfetchall(self):
@@ -445,8 +445,13 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _finance_drilldown(self, scope, group_by, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
-        dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
-        joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+        has_branch = self._has_table("res_branch")
+        if has_branch:
+            dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+            joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+        else:
+            dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+            joins = ""
         if group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
@@ -479,8 +484,13 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _sales_drilldown(self, scope, group_by, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
-        dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
-        joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+        has_branch = self._has_table("res_branch")
+        if has_branch:
+            dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+            joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+        else:
+            dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+            joins = ""
         if group_by == "salesperson":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
@@ -603,8 +613,12 @@ class ExecutiveDashboardService(models.AbstractModel):
                     LEFT JOIN res_partner user_partner ON user_partner.id = u.partner_id
                 """
         elif group_by == "branch":
-            dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
-            joins = "LEFT JOIN res_branch branch ON branch.id = lead.branch_id"
+            if self._has_table("res_branch"):
+                dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                joins = "LEFT JOIN res_branch branch ON branch.id = lead.branch_id"
+            else:
+                dim_sql = "CONCAT('Branch #', COALESCE(lead.branch_id, 0)::text)"
+                joins = ""
 
         self.env.cr.execute(
             f"""
@@ -630,8 +644,30 @@ class ExecutiveDashboardService(models.AbstractModel):
         pairs = list(self.FX_TARGETS.keys())
         records = []
         model = self.env["tradeline.executive.fx.rate"].sudo()
+        legacy_aliases = {
+            "USD/EGP": "EGP/USD",
+            "EUR/EGP": "EGP/EUR",
+            "GBP/EGP": "EGP/GBP",
+        }
         for pair in pairs:
             rec = model.search([("pair", "=", pair)], order="fetched_at desc,id desc", limit=1)
+            if not rec:
+                legacy = model.search([("pair", "=", legacy_aliases.get(pair, ""))], order="fetched_at desc,id desc", limit=1)
+                if legacy:
+                    fallback_rate = (1.0 / legacy.rate) if legacy.rate else 0.0
+                    rec = model.new(
+                        {
+                            "pair": pair,
+                            "rate": fallback_rate,
+                            "change_pct": -(legacy.change_pct or 0.0),
+                            "status": legacy.status,
+                            "is_stale": legacy.is_stale,
+                            "message": f"Derived from legacy pair {legacy.pair}",
+                            "fetched_at": legacy.fetched_at,
+                            "source_symbol": legacy.source_symbol,
+                            "source_name": legacy.source_name,
+                        }
+                    )
             if rec:
                 records.append(rec)
 
@@ -645,7 +681,11 @@ class ExecutiveDashboardService(models.AbstractModel):
             is_stale = bool(rec.is_stale or rec.status != "ok" or age_minutes > 6)
 
             history = model.search([("pair", "=", rec.pair)], order="fetched_at desc", limit=30)
-            sparkline = list(reversed([h.rate for h in history]))
+            if not history and rec.pair in legacy_aliases:
+                legacy_history = model.search([("pair", "=", legacy_aliases[rec.pair])], order="fetched_at desc", limit=30)
+                sparkline = list(reversed([(1.0 / h.rate) if h.rate else 0.0 for h in legacy_history]))
+            else:
+                sparkline = list(reversed([h.rate for h in history]))
             cards.append(
                 {
                     "pair": rec.pair,
@@ -657,6 +697,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "message": rec.message or "",
                     "age_minutes": age_minutes,
                     "sparkline": sparkline,
+                    "display_label": f"1 {rec.pair.split('/')[0]} = {rec.pair.split('/')[1]}",
                 }
             )
 

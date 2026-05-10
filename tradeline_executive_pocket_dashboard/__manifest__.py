@@ -8,7 +8,6 @@
     "license": "LGPL-3",
     "depends": [
         "web",
-        "branch",
         "account",
         "sale_management",
         "stock",

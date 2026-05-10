@@ -66,6 +66,47 @@ export class ExecutivePocketDashboard extends Component {
         return DRILL_GROUPS[this.state.selectedDomain] || ["branch"];
     }
 
+    get chartMetricColumn() {
+        const columns = this.drillColumns || [];
+        const preference = [
+            "net_revenue",
+            "allocated_value",
+            "weighted_pipeline",
+            "open_pipeline",
+            "average_basket",
+            "on_hand_qty",
+            "invoice_count",
+            "open_opportunities",
+        ];
+        for (const key of preference) {
+            if (columns.includes(key)) {
+                return key;
+            }
+        }
+        return columns.find((c) => c !== "dimension") || null;
+    }
+
+    get topChartRows() {
+        const metric = this.chartMetricColumn;
+        if (!metric) {
+            return [];
+        }
+        const rows = [...(this.drillRows || [])]
+            .filter((row) => row && row.dimension !== undefined && row[metric] !== undefined)
+            .map((row) => ({
+                dimension: row.dimension,
+                metric,
+                value: Number(row[metric] || 0),
+            }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 8);
+        const maxValue = rows.reduce((m, r) => Math.max(m, r.value), 0) || 1;
+        return rows.map((row) => ({
+            ...row,
+            pct: Math.max(6, Math.round((row.value / maxValue) * 100)),
+        }));
+    }
+
     async _loadBundle() {
         this.state.loading = true;
         this.state.error = "";
@@ -128,6 +169,27 @@ export class ExecutivePocketDashboard extends Component {
     _formatFxRate(value) {
         const num = Number(value || 0);
         return num.toFixed(6);
+    }
+
+    _shorten(text, maxLen = 26) {
+        const input = String(text || "");
+        return input.length > maxLen ? `${input.slice(0, maxLen - 1)}…` : input;
+    }
+
+    _sparklineBarHeight(points, idx) {
+        const list = Array.isArray(points) ? points : [];
+        if (!list.length) {
+            return 8;
+        }
+        const numeric = list.map((v) => Number(v || 0));
+        const min = Math.min(...numeric);
+        const max = Math.max(...numeric);
+        const val = Number(numeric[idx] || 0);
+        if (max <= min) {
+            return 10;
+        }
+        const normalized = (val - min) / (max - min);
+        return Math.max(4, Math.round(normalized * 24));
     }
 
     _formatCell(column, value) {
@@ -197,8 +259,13 @@ export class ExecutivePocketDashboard extends Component {
             type: "ir.actions.act_window",
             name: target.name,
             res_model: target.model,
-            view_mode: "list,form,pivot,graph",
+            views: [
+                [false, "list"],
+                [false, "form"],
+            ],
+            view_mode: "list,form",
             domain: target.domain,
+            context: {},
             target: "current",
         });
     }
