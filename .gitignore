@@ -29,3 +29,6 @@ streamlit_executive_dashboard/.venv/
 *.csv.bak
 valaution inspection/
 node_executive_dashboard/
+
+# Local notes not to be committed
+tradeline_executive_pocket_dashboard/README.md

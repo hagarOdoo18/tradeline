@@ -90,6 +90,51 @@
                     </t>
                 </div>
 
+                <div class="tl-metric-guide">
+                    <div class="tl-guide-head">
+                        <h2>Metric Definitions &amp; Data Sources</h2>
+                        <span t-att-class="'tl-guide-badge ' + marginStatusClass"><t t-esc="marginStatusLabel"/></span>
+                    </div>
+                    <div class="tl-guide-sub">
+                        COGS coverage: <strong><t t-esc="marginCoveragePct"/>%</strong> (<t t-esc="marginStatus.costed_lines || 0"/> / <t t-esc="marginStatus.product_lines || 0"/> lines)
+                    </div>
+                    <div class="tl-guide-sub"><t t-esc="marginStatusReasonText"/></div>
+                    <div class="tl-guide-grid">
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Net Revenue</div>
+                            <div class="tl-guide-body">Posted customer invoices/receipts minus posted refunds from <code>account.move</code> in selected scope.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Collections</div>
+                            <div class="tl-guide-body">Posted inbound customer payments from <code>account.payment</code> in selected date range.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Overdue AR</div>
+                            <div class="tl-guide-body">Positive residual balances on posted customer invoices with due date before selected end date.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Net Margin</div>
+                            <div class="tl-guide-body">Strict real COGS only: line-level <code>price_subtotal - total_cost</code> from <code>account.move.line</code>. Hidden if coverage is incomplete.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Inventory Value</div>
+                            <div class="tl-guide-body">Allocated using <code>stock.quant</code> on-hand quantities and <code>stock.valuation.layer</code> value/quantity.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Pipeline</div>
+                            <div class="tl-guide-body">Active opportunities from <code>crm.lead</code>, with open and probability-weighted expected revenue.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">FX Watch</div>
+                            <div class="tl-guide-body">Yahoo Finance source with stale-safe fallback to last good cached value; never blocks dashboard loading.</div>
+                        </div>
+                        <div class="tl-guide-item">
+                            <div class="tl-guide-title">Daily Sales Snapshot</div>
+                            <div class="tl-guide-body">7-day posted sales trend from <code>account.move</code> (`out_invoice`, `out_receipt`, `out_refund`).</div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="tl-kpi-grid">
                     <t t-foreach="cards" t-as="card" t-key="card.key">
                         <div class="tl-kpi-card">

@@ -204,6 +204,79 @@
     color: #166534;
 }
 
+.tl-metric-guide {
+    background: #ffffff;
+    border: 1px solid #dbe3f0;
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.tl-guide-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.tl-guide-head h2 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.tl-guide-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+
+.tl-guide-badge.is-good {
+    color: #065f46;
+    background: #ecfdf5;
+    border-color: #10b981;
+}
+
+.tl-guide-badge.is-warn {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: #f59e0b;
+}
+
+.tl-guide-sub {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #4b5563;
+}
+
+.tl-guide-grid {
+    margin-top: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.tl-guide-item {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 8px;
+    background: #f8fafc;
+}
+
+.tl-guide-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #111827;
+}
+
+.tl-guide-body {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #475569;
+    line-height: 1.35;
+}
+
 .tl-kpi-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -581,6 +654,10 @@
     }
 
     .tl-chart-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tl-guide-grid {
         grid-template-columns: 1fr;
     }
 

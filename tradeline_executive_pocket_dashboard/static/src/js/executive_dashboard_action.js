@@ -64,6 +64,43 @@ export class ExecutivePocketDashboard extends Component {
         return this.state.bundle?.coverage || {};
     }
 
+    get marginStatus() {
+        return this.state.bundle?.meta?.margin_status || {};
+    }
+
+    get marginCoveragePct() {
+        const raw = Number(this.marginStatus.coverage_pct || 0);
+        return Number.isFinite(raw) ? raw.toFixed(1) : "0.0";
+    }
+
+    get marginStatusClass() {
+        return this.marginStatus.available ? "is-good" : "is-warn";
+    }
+
+    get marginStatusLabel() {
+        if (this.marginStatus.available) {
+            return "Real COGS margin active";
+        }
+        return "Margin hidden";
+    }
+
+    get marginStatusReasonText() {
+        const reason = this.marginStatus.reason || "";
+        if (reason === "missing_schema") {
+            return "Required COGS fields are missing in this database schema.";
+        }
+        if (reason === "no_product_lines") {
+            return "No product invoice lines found for the selected filters.";
+        }
+        if (reason === "incomplete_cost_coverage") {
+            return "Some scoped lines do not have `total_cost`; margin is hidden to avoid proxy values.";
+        }
+        if (reason === "ok") {
+            return "Margin is calculated from line-level `price_subtotal` and `total_cost`.";
+        }
+        return "Margin source check is unavailable.";
+    }
+
     get dailySnapshot() {
         return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} };
     }
