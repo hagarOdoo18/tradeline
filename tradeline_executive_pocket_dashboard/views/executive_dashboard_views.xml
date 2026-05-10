@@ -17,7 +17,7 @@
         id="menu_executive_pocket_root"
         name="Executive Pocket"
         sequence="5"
-        groups="base.group_user"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
         web_icon="tradeline_executive_pocket_dashboard,static/description/favicon.png"
     />
 
@@ -27,7 +27,7 @@
         parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
         action="tradeline_executive_pocket_dashboard.action_executive_pocket_dashboard"
         sequence="1"
-        groups="base.group_user"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
     />
 
     <menuitem
