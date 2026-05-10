@@ -111,12 +111,20 @@
                                 <div class="tl-fx-egp">EGP</div>
                                 <div class="tl-fx-meta">
                                     <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
-                                        <t t-esc="_formatPercent(fx.change_pct || 0)"/>
+                                        1D <t t-esc="_formatPercent(fx.change_pct)"/>
                                     </span>
                                     <span>
                                         <t t-if="fx.is_stale">Stale</t>
                                         <t t-else="">Fresh</t>
                                     </span>
+                                </div>
+                                <div class="tl-fx-periods">
+                                    <t t-foreach="_periodRows(fx.period_changes || {})" t-as="pc" t-key="pc.label">
+                                        <span class="tl-fx-chip">
+                                            <strong><t t-esc="pc.label"/></strong>
+                                            <span t-att-class="(pc.value || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(pc.value)"/></span>
+                                        </span>
+                                    </t>
                                 </div>
                                 <div class="tl-fx-time">Updated <t t-esc="fx.age_minutes"/> min ago</div>
                             </div>

@@ -287,6 +287,24 @@
     color: #6b7280;
 }
 
+.tl-fx-periods {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.tl-fx-chip {
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 10px;
+    padding: 3px 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: #fff;
+}
+
 .tl-drill-filters {
     display: flex;
     gap: 8px;
@@ -352,6 +370,10 @@
 
     .tl-bar-value {
         text-align: left;
+    }
+
+    .tl-fx-periods {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 

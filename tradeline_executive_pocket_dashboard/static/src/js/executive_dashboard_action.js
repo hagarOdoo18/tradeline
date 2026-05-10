@@ -162,8 +162,18 @@ export class ExecutivePocketDashboard extends Component {
     }
 
     _formatPercent(value) {
+        if (value === null || value === undefined) {
+            return "N/A";
+        }
         const num = Number(value || 0);
         return `${num.toFixed(2)}%`;
+    }
+
+    _periodRows(periodChanges = {}) {
+        return ["1D", "1M", "3M", "6M", "1Y"].map((label) => ({
+            label,
+            value: periodChanges?.[label],
+        }));
     }
 
     _formatFxRate(value) {
