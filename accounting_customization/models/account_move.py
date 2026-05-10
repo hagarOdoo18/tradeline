@@ -32,7 +32,6 @@ class AccountMove(models.Model):
     quotation_number = fields.Char(
         string='Quotation Number',
         compute='_compute_quotation_number',
-        store=True,
         readonly=True,
     )
 
