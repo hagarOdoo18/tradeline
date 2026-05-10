@@ -5,12 +5,14 @@ import csv
 import io
 import re
 import time
+from datetime import timedelta
 import requests
 
 import xlsxwriter
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.osv import expression
 
 
 class AICopilotService(models.AbstractModel):
@@ -49,10 +51,17 @@ class AICopilotService(models.AbstractModel):
     BUSINESS_HINT_KEYWORDS = {
         "sales",
         "sale",
+        "sold",
+        "sell",
+        "units",
+        "qty",
+        "quantity",
         "customer",
         "invoice",
         "payment",
         "purchase",
+        "buy",
+        "bought",
         "supplier",
         "inventory",
         "stock",
@@ -71,10 +80,62 @@ class AICopilotService(models.AbstractModel):
         "show",
         "list",
         "trend",
+        "how many",
+        "number of",
         "kpi",
         "orders",
         "bills",
         "receivables",
+    }
+    SALES_ACTION_KEYWORDS = {
+        "sell",
+        "sold",
+        "sales",
+        "revenue",
+        "order",
+        "orders",
+        "gmv",
+        "aov",
+    }
+    PURCHASE_ACTION_KEYWORDS = {
+        "buy",
+        "bought",
+        "purchase",
+        "purchases",
+        "procurement",
+        "vendor",
+        "supplier",
+    }
+    INVENTORY_ACTION_KEYWORDS = {
+        "stock",
+        "inventory",
+        "warehouse",
+        "on hand",
+        "onhand",
+        "availability",
+        "available",
+        "slow moving",
+        "movement",
+    }
+    ACCOUNTING_ACTION_KEYWORDS = {
+        "invoice",
+        "invoices",
+        "bill",
+        "bills",
+        "receivable",
+        "payable",
+        "aging",
+        "due",
+        "overdue",
+    }
+    PAYMENT_ACTION_KEYWORDS = {
+        "payment",
+        "payments",
+        "collection",
+        "collected",
+        "cash",
+        "bank",
+        "paid",
     }
     MODULE_ROUTES = {
         "sales": {
@@ -253,10 +314,110 @@ class AICopilotService(models.AbstractModel):
             return context_payload["model"]
         return "sale.order"
 
+    def _extract_product_hint(self, prompt):
+        text = (prompt or "").strip()
+        if not text:
+            return False
+
+        quoted = re.search(r"['\"]([^'\"]{2,80})['\"]", text)
+        if quoted:
+            return quoted.group(1).strip()
+
+        patterns = [
+            r"how many\s+(.+?)\s+did\s+we\s+sell",
+            r"units?\s+of\s+(.+?)(?:\s+(?:sold|sell|this|last|in)\b|[?.!]|$)",
+            r"sales?\s+of\s+(.+?)(?:\s+(?:this|last|in)\b|[?.!]|$)",
+            r"for\s+product\s+(.+?)(?:\s+(?:this|last|in)\b|[?.!]|$)",
+        ]
+        lowered = text.lower()
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if match:
+                phrase = match.group(1)
+                phrase = re.sub(r"\b(the|a|an|our)\b", "", phrase).strip()
+                phrase = re.sub(r"\s+", " ", phrase)
+                if len(phrase) >= 2:
+                    return phrase
+        return False
+
+    def _resolve_date_range(self, prompt):
+        text = (prompt or "").lower()
+        today = fields.Date.context_today(self)
+        if "today" in text:
+            return today, today
+        if "yesterday" in text:
+            yday = today - timedelta(days=1)
+            return yday, yday
+        if "last month" in text:
+            this_start = today.replace(day=1)
+            last_end = this_start - timedelta(days=1)
+            last_start = last_end.replace(day=1)
+            return last_start, last_end
+        if "this quarter" in text:
+            quarter_month = ((today.month - 1) // 3) * 3 + 1
+            start = today.replace(month=quarter_month, day=1)
+            return start, today
+        if "last quarter" in text:
+            quarter_month = ((today.month - 1) // 3) * 3 + 1
+            this_q_start = today.replace(month=quarter_month, day=1)
+            prev_q_end = this_q_start - timedelta(days=1)
+            prev_q_month = ((prev_q_end.month - 1) // 3) * 3 + 1
+            prev_q_start = prev_q_end.replace(month=prev_q_month, day=1)
+            return prev_q_start, prev_q_end
+        if "this year" in text:
+            return today.replace(month=1, day=1), today
+        if "last year" in text:
+            start = today.replace(year=today.year - 1, month=1, day=1)
+            end = today.replace(year=today.year - 1, month=12, day=31)
+            return start, end
+        if "this week" in text:
+            start = today - timedelta(days=today.weekday())
+            return start, today
+        if "last week" in text:
+            this_week_start = today - timedelta(days=today.weekday())
+            end = this_week_start - timedelta(days=1)
+            start = end - timedelta(days=6)
+            return start, end
+        return today.replace(day=1), today
+
+    def _date_field_for_model(self, model_name, model):
+        mapped = {
+            "sale.order": "date_order",
+            "sale.order.line": "order_id.date_order",
+            "purchase.order": "date_order",
+            "purchase.order.line": "order_id.date_order",
+            "account.move": "invoice_date",
+            "account.payment": "date",
+            "stock.quant": "in_date",
+        }
+        if model_name in mapped:
+            return mapped[model_name]
+        return self._guess_date_field(model)
+
+    def _detect_query_kind(self, prompt):
+        text = (prompt or "").lower()
+        aggregate_signals = {
+            "how many",
+            "total",
+            "sum",
+            "count",
+            "top",
+            "most",
+            "least",
+            "average",
+            "avg",
+            "compare",
+        }
+        if any(signal in text for signal in aggregate_signals):
+            return "aggregate"
+        return "list"
+
     def _route_prompt(self, prompt, context_payload=None):
         text = (prompt or "").strip().lower()
         context_payload = context_payload or {}
         context_model = context_payload.get("model")
+        product_hint = self._extract_product_hint(text)
+        query_kind = self._detect_query_kind(text)
         explicit_context_ref = any(token in text for token in ["this ", "current ", "selected "])
         if explicit_context_ref and context_model:
             return {
@@ -264,6 +425,8 @@ class AICopilotService(models.AbstractModel):
                 "module": "context",
                 "model_name": context_model,
                 "context_model": context_model,
+                "query_kind": query_kind,
+                "product_hint": product_hint,
             }
 
         words = set(re.findall(r"[a-z0-9_\\-]+", text))
@@ -276,59 +439,117 @@ class AICopilotService(models.AbstractModel):
             if score:
                 scores[module_name] = score
 
+        action_score_map = {
+            "sales": sum(1 for kw in self.SALES_ACTION_KEYWORDS if kw in text),
+            "purchases": sum(1 for kw in self.PURCHASE_ACTION_KEYWORDS if kw in text),
+            "inventory": sum(1 for kw in self.INVENTORY_ACTION_KEYWORDS if kw in text),
+            "accounting": sum(1 for kw in self.ACCOUNTING_ACTION_KEYWORDS if kw in text),
+            "payments": sum(1 for kw in self.PAYMENT_ACTION_KEYWORDS if kw in text),
+        }
+        for module_name, score in action_score_map.items():
+            if score:
+                scores[module_name] = scores.get(module_name, 0) + score
+
         if not scores:
-            if context_model:
+            if product_hint or any(token in text for token in ["sell", "sold", "revenue", "orders", "customers"]):
+                scores["sales"] = 1
+            elif any(token in text for token in ["vendor", "supplier", "procurement", "buy", "bought"]):
+                scores["purchases"] = 1
+            elif any(token in text for token in ["invoice", "receivable", "payable", "bill", "aging"]):
+                scores["accounting"] = 1
+            elif any(token in text for token in ["stock", "inventory", "warehouse", "sku"]):
+                scores["inventory"] = 1
+            elif context_model:
                 return {
                     "intent": "context_default",
                     "module": "context",
                     "model_name": context_model,
                     "context_model": context_model,
+                    "query_kind": query_kind,
+                    "product_hint": product_hint,
                 }
-            return {
-                "needs_clarification": True,
-                "intent": "clarification",
-                "content": (
-                    "I can analyze Sales, Purchases, Inventory, Accounting, and Payments. "
-                    "Please tell me which area you want, for example: "
-                    "'show sales this month' or 'show unpaid invoices'."
-                ),
-            }
+            else:
+                scores["sales"] = 1
 
         top_score = max(scores.values())
         winners = [name for name, score in scores.items() if score == top_score]
-        if len(winners) > 1 and len(words) < 6 and not context_model:
-            return {
-                "needs_clarification": True,
-                "intent": "clarification",
-                "content": (
-                    "Your request could map to multiple modules. "
-                    "Please specify one of: Sales, Purchases, Inventory, Accounting, or Payments."
-                ),
-            }
-
-        module_name = winners[0]
+        preference_order = ["sales", "purchases", "inventory", "accounting", "payments"]
+        module_name = next((module for module in preference_order if module in winners), winners[0])
         model_name = self.MODULE_ROUTES[module_name]["model"]
-        if module_name == "accounting" and any(token in text for token in ["payment", "payments", "collection", "collected"]):
+        if module_name == "accounting" and any(token in text for token in ["payment", "payments", "collection", "collected", "paid"]):
             module_name = "payments"
             model_name = "account.payment"
+        if module_name == "sales" and query_kind == "aggregate" and (
+            product_hint or any(token in text for token in ["product", "sku", "item", "units", "quantity", "how many"])
+        ):
+            model_name = "sale.order.line"
+        if module_name == "purchases" and query_kind == "aggregate" and any(token in text for token in ["product", "sku", "item", "quantity"]):
+            model_name = "purchase.order.line"
         if any(token in text for token in ["customer list", "customers", "partners"]):
             model_name = "res.partner"
+        metric_field = False
+        group_field = False
+        aggregate_op = "sum"
+        if model_name == "sale.order.line":
+            metric_field = "product_uom_qty"
+            if any(token in text for token in ["top", "most", "best"]):
+                group_field = "product_id"
+        elif model_name == "purchase.order.line":
+            metric_field = "product_qty"
+            if any(token in text for token in ["top", "most", "best"]):
+                group_field = "product_id"
+        elif model_name == "sale.order":
+            metric_field = "amount_total" if any(token in text for token in ["revenue", "sales", "amount", "value"]) else False
+            if any(token in text for token in ["customer", "customers"]):
+                group_field = "partner_id"
+        elif model_name == "purchase.order":
+            metric_field = "amount_total"
+            if any(token in text for token in ["supplier", "vendor"]):
+                group_field = "partner_id"
+        elif model_name == "account.move":
+            metric_field = "amount_residual" if any(token in text for token in ["unpaid", "due", "overdue", "receivable"]) else "amount_total"
+            if any(token in text for token in ["customer", "customers", "partner"]):
+                group_field = "partner_id"
+        if any(token in text for token in ["how many orders", "number of orders", "count orders"]):
+            aggregate_op = "count"
+            metric_field = "id"
+
         return {
             "intent": "module_query",
             "module": module_name,
             "model_name": model_name,
             "context_model": context_model or False,
+            "query_kind": query_kind,
+            "metric_field": metric_field,
+            "aggregate_op": aggregate_op,
+            "group_field": group_field,
+            "product_hint": product_hint,
         }
 
     def _build_router_domain(self, model, route_info, prompt):
-        domain = self._default_domain(model)
+        domain = []
         text = (prompt or "").lower()
         model_name = route_info.get("model_name")
+        date_field = self._date_field_for_model(model_name, model)
+        date_start, date_end = self._resolve_date_range(text)
+        if date_field:
+            domain.append((date_field, ">=", date_start))
+            domain.append((date_field, "<=", date_end))
+        if "company_id" in model._fields and self.env.context.get("allowed_company_ids"):
+            domain.append(("company_id", "in", self.env.context["allowed_company_ids"]))
 
         if model_name == "sale.order" and "state" in model._fields:
             domain.append(("state", "in", ["sale", "done"]))
+        elif model_name == "sale.order.line":
+            domain.append(("order_id.state", "in", ["sale", "done"]))
+            if "display_type" in model._fields:
+                domain.append(("display_type", "=", False))
         elif model_name == "purchase.order" and "state" in model._fields:
             domain.append(("state", "in", ["purchase", "done"]))
+        elif model_name == "purchase.order.line":
+            domain.append(("order_id.state", "in", ["purchase", "done"]))
+            if "display_type" in model._fields:
+                domain.append(("display_type", "=", False))
         elif model_name == "account.move":
             if "state" in model._fields:
                 domain.append(("state", "=", "posted"))
@@ -350,12 +571,76 @@ class AICopilotService(models.AbstractModel):
         elif model_name == "stock.quant":
             if "quantity" in model._fields and any(token in text for token in ["low stock", "out of stock", "zero stock"]):
                 domain.append(("quantity", "<=", 0))
+        product_hint = route_info.get("product_hint")
+        if product_hint:
+            or_filters = []
+            if model_name in {"sale.order.line", "purchase.order.line"}:
+                or_filters = [
+                    [("name", "ilike", product_hint)],
+                    [("product_id.display_name", "ilike", product_hint)],
+                    [("product_id.default_code", "ilike", product_hint)],
+                ]
+            elif model_name == "product.product":
+                or_filters = [
+                    [("name", "ilike", product_hint)],
+                    [("default_code", "ilike", product_hint)],
+                ]
+            elif model_name in {"sale.order", "purchase.order"}:
+                or_filters = [[("order_line.name", "ilike", product_hint)]]
+            if or_filters:
+                domain = expression.AND([domain, expression.OR(or_filters)])
         return domain
 
     def _prioritized_fields(self, model_name, safe_fields):
         priority = [field for field in self.PRIORITY_FIELDS_BY_MODEL.get(model_name, []) if field in safe_fields]
         rest = [field for field in safe_fields if field not in priority]
         return priority + rest
+
+    def _run_aggregate_query(self, model_name, domain, route_info, limit):
+        model = self.env[model_name]
+        metric_field = route_info.get("metric_field")
+        group_field = route_info.get("group_field")
+        aggregate_op = route_info.get("aggregate_op") or "sum"
+        if metric_field and metric_field not in model._fields and metric_field != "id":
+            metric_field = False
+        if group_field and group_field not in model._fields:
+            group_field = False
+
+        if aggregate_op == "count":
+            field_specs = ["id:count"]
+            metric_key = "id_count"
+            metric_label = "Count"
+        else:
+            if not metric_field:
+                return False
+            field_specs = [f"{metric_field}:sum"]
+            metric_key = metric_field
+            metric_label = metric_field
+
+        group_by = [group_field] if group_field else []
+        grouped_rows = model.read_group(domain, field_specs, group_by, limit=limit, lazy=False)
+        rows = []
+        for item in grouped_rows:
+            entry = {}
+            if group_field:
+                label_value = item.get(group_field)
+                if isinstance(label_value, (list, tuple)):
+                    entry[group_field] = label_value[1]
+                else:
+                    entry[group_field] = label_value or "Undefined"
+            value = item.get(metric_key, 0)
+            entry[metric_label] = value
+            rows.append(entry)
+
+        if not group_field:
+            total_value = rows[0][metric_label] if rows else 0
+            rows = [{"Metric": metric_label, "Value": total_value}]
+            return {"rows": rows, "columns": ["Metric", "Value"], "metric_value": total_value}
+        return {
+            "rows": rows,
+            "columns": [group_field, metric_label],
+            "metric_value": sum(float(row.get(metric_label, 0) or 0) for row in rows),
+        }
 
     def _precheck_prompt(self, prompt):
         text = (prompt or "").strip().lower()
@@ -375,7 +660,8 @@ class AICopilotService(models.AbstractModel):
             }
 
         words = re.findall(r"[a-z0-9_]+", text)
-        if len(words) <= 2 and not any(keyword in text for keyword in self.BUSINESS_HINT_KEYWORDS):
+        has_numeric_entity = bool(re.search(r"\d", text))
+        if len(words) <= 2 and not has_numeric_entity and not any(keyword in text for keyword in self.BUSINESS_HINT_KEYWORDS):
             return {
                 "intent": "clarification",
                 "content": (
@@ -508,8 +794,10 @@ class AICopilotService(models.AbstractModel):
         system_prompt = (
             "You are Tradeline AI BI Copilot inside Odoo. "
             "You are strictly read-only. Never claim to create, update, delete, send, confirm, or post anything. "
-            "Summarize the provided deterministic Odoo query result in 3-6 concise sentences. "
-            "Mention filters/date limits and if sample/limit was used."
+            "Answer like a sharp business analyst: start with the direct answer in one sentence, then 2-4 short insights. "
+            "Mention filters/date limits and whether a row limit was applied. "
+            "If the question asked for quantity/count, explicitly state the numeric result. "
+            "If data may be incomplete due to permissions or limits, say it clearly."
         )
         user_input = {
             "question": prompt,
@@ -691,12 +979,20 @@ class AICopilotService(models.AbstractModel):
         limit = self._parse_top_limit(prompt, default_limit, hard_limit)
 
         domain = self._build_router_domain(model, route_info, prompt)
-        safe_fields = self._safe_fields_for_model(model_name)[:8]
-        safe_fields = self._prioritized_fields(model_name, safe_fields)
-        if "display_name" not in safe_fields and "name" in model._fields and "name" not in safe_fields:
-            safe_fields = ["name"] + safe_fields
-        safe_fields = safe_fields[:8]
-        rows = self._build_table_rows(model_name, domain, limit, safe_fields)
+        aggregate_meta = False
+        if route_info.get("query_kind") == "aggregate":
+            aggregate_meta = self._run_aggregate_query(model_name, domain, route_info, limit)
+
+        if aggregate_meta:
+            rows = aggregate_meta["rows"]
+            safe_fields = aggregate_meta["columns"]
+        else:
+            safe_fields = self._safe_fields_for_model(model_name)[:8]
+            safe_fields = self._prioritized_fields(model_name, safe_fields)
+            if "display_name" not in safe_fields and "name" in model._fields and "name" not in safe_fields:
+                safe_fields = ["name"] + safe_fields
+            safe_fields = safe_fields[:8]
+            rows = self._build_table_rows(model_name, domain, limit, safe_fields)
         return {
             "model_name": model_name,
             "fields": safe_fields,
@@ -705,6 +1001,9 @@ class AICopilotService(models.AbstractModel):
             "limit": limit,
             "route_intent": route_info.get("intent"),
             "route_module": route_info.get("module"),
+            "query_kind": route_info.get("query_kind"),
+            "metric_value": aggregate_meta.get("metric_value") if aggregate_meta else False,
+            "product_hint": route_info.get("product_hint"),
         }
 
     @api.model
@@ -759,6 +1058,9 @@ class AICopilotService(models.AbstractModel):
             domain = query["domain"]
             route_intent = query.get("route_intent") or "module_query"
             route_module = query.get("route_module") or "unknown"
+            query_kind = query.get("query_kind") or "list"
+            metric_value = query.get("metric_value")
+            product_hint = query.get("product_hint")
 
             summary_text = self._llm_summary(
                 provider,
@@ -769,6 +1071,9 @@ class AICopilotService(models.AbstractModel):
                     "row_count": len(rows),
                     "domain": domain,
                     "limit": limit,
+                    "query_kind": query_kind,
+                    "metric_value": metric_value,
+                    "product_hint": product_hint,
                 },
                 rows,
             )
@@ -786,6 +1091,8 @@ class AICopilotService(models.AbstractModel):
                     {"label": "Limit", "value": limit},
                 ],
             }
+            if metric_value not in (False, None):
+                kpi_block["items"].insert(0, {"label": "Result", "value": metric_value})
             table_block = {"type": "table", "columns": columns, "rows": rows}
             blocks = [text_block, kpi_block, table_block]
 
