@@ -4,6 +4,22 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState } from "@odoo/owl";
 
+const MODEL_OPTIONS = {
+    openai: [
+        { value: "", label: "Use default" },
+        { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+        { value: "gpt-4.1", label: "GPT-4.1" },
+        { value: "gpt-4o-mini", label: "GPT-4o Mini" },
+        { value: "gpt-4o", label: "GPT-4o" },
+    ],
+    claude: [
+        { value: "", label: "Use default" },
+        { value: "claude-3-5-haiku-latest", label: "Claude Haiku" },
+        { value: "claude-3-5-sonnet-latest", label: "Claude Sonnet" },
+        { value: "claude-3-opus-latest", label: "Claude Opus" },
+    ],
+};
+
 class CopilotBase extends Component {
     setup() {
         this.orm = useService("orm");
@@ -17,7 +33,6 @@ class CopilotBase extends Component {
             mode: this.props.embedded ? "fullscreen" : "compact",
             provider: "openai",
             model: "",
-            queryMeta: null,
         });
     }
 
@@ -26,6 +41,10 @@ class CopilotBase extends Component {
             return "tl-ai-copilot tl-ai-copilot--embedded";
         }
         return `tl-ai-copilot tl-ai-copilot--${this.state.mode}`;
+    }
+
+    get modelOptions() {
+        return MODEL_OPTIONS[this.state.provider] || MODEL_OPTIONS.openai;
     }
 
     toggleOpen() {
@@ -37,6 +56,18 @@ class CopilotBase extends Component {
         this.state.open = true;
     }
 
+    onProviderChange(ev) {
+        this.state.provider = ev.target.value || "openai";
+        const values = this.modelOptions.map((item) => item.value);
+        if (!values.includes(this.state.model)) {
+            this.state.model = "";
+        }
+    }
+
+    onModelChange(ev) {
+        this.state.model = ev.target.value || "";
+    }
+
     onInput(ev) {
         this.state.input = ev.target.value;
     }
@@ -44,6 +75,16 @@ class CopilotBase extends Component {
     _buildContext() {
         return {
             page: window.location.hash || "",
+        };
+    }
+
+    _assistantMessageFromResponse(response) {
+        const blocks = response.blocks || [];
+        const downloads = blocks.filter((item) => item.type === "download");
+        return {
+            role: "assistant",
+            blocks,
+            downloads,
         };
     }
 
@@ -68,37 +109,9 @@ class CopilotBase extends Component {
                 },
             ]);
             this.state.conversationId = response.conversation_id;
-            this.state.queryMeta = response.query_meta || null;
-            this.state.messages.push({
-                role: "assistant",
-                blocks: response.blocks || [],
-            });
+            this.state.messages.push(this._assistantMessageFromResponse(response));
         } catch (error) {
             this.notification.add(error?.message || "Failed to send message", { type: "danger" });
-        } finally {
-            this.state.loading = false;
-        }
-    }
-
-    async exportAgain(fileType) {
-        if (!this.state.queryMeta) {
-            this.notification.add("No query metadata available for export.", { type: "warning" });
-            return;
-        }
-        this.state.loading = true;
-        try {
-            const result = await this.orm.call("ai.copilot.ui", "export_file", [
-                {
-                    file_type: fileType,
-                    query_meta: this.state.queryMeta,
-                    conversation_id: this.state.conversationId,
-                },
-            ]);
-            if (result?.url) {
-                window.open(result.url, "_blank");
-            }
-        } catch (error) {
-            this.notification.add(error?.message || "Export failed", { type: "danger" });
         } finally {
             this.state.loading = false;
         }

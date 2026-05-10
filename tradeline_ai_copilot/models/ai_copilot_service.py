@@ -151,6 +151,23 @@ class AICopilotService(models.AbstractModel):
                 return default_limit
         return default_limit
 
+    def _parse_export_intent(self, prompt):
+        text = (prompt or "").lower()
+        wants_csv = bool(re.search(r"\bcsv\b", text)) or any(
+            token in text for token in ["comma separated", "comma-separated"]
+        )
+        wants_xlsx = any(
+            token in text
+            for token in ["excel", "xlsx", "spreadsheet", "workbook"]
+        )
+        wants_generic_export = any(
+            token in text
+            for token in ["export", "download", "file", "report"]
+        )
+        if wants_generic_export and not (wants_csv or wants_xlsx):
+            wants_xlsx = True
+        return wants_csv, wants_xlsx
+
     def _guess_date_field(self, model):
         for candidate in ("date_order", "invoice_date", "date", "create_date", "scheduled_date", "write_date"):
             if candidate in model._fields:
@@ -499,8 +516,10 @@ class AICopilotService(models.AbstractModel):
                 if chart_block:
                     blocks.append(chart_block)
 
+            wants_csv, wants_xlsx = self._parse_export_intent(prompt)
             file_entries = []
-            if settings.enable_csv:
+
+            if wants_csv and settings.enable_csv:
                 csv_file = self._export_csv(rows, columns, conversation, model_name)
                 blocks.append(
                     {
@@ -511,7 +530,15 @@ class AICopilotService(models.AbstractModel):
                     }
                 )
                 file_entries.append(csv_file.id)
-            if settings.enable_xlsx:
+            elif wants_csv and not settings.enable_csv:
+                blocks.append(
+                    {
+                        "type": "warning",
+                        "content": "CSV export is disabled by administrator settings.",
+                    }
+                )
+
+            if wants_xlsx and settings.enable_xlsx:
                 xlsx_file = self._export_xlsx(rows, columns, conversation, model_name, prompt, provider, llm_model)
                 blocks.append(
                     {
@@ -522,6 +549,13 @@ class AICopilotService(models.AbstractModel):
                     }
                 )
                 file_entries.append(xlsx_file.id)
+            elif wants_xlsx and not settings.enable_xlsx:
+                blocks.append(
+                    {
+                        "type": "warning",
+                        "content": "Excel export is disabled by administrator settings.",
+                    }
+                )
 
             duration_ms = int((time.time() - start_time) * 1000)
             audit_payload.update(
