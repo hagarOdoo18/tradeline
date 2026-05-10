@@ -1,0 +1,245 @@
+.tl-exec-pocket {
+    padding: 16px;
+    background: #f5f7fb;
+    min-height: 100%;
+    color: #111827;
+}
+
+.tl-exec-header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.tl-exec-title-block h1 {
+    margin: 0;
+    font-size: 24px;
+    line-height: 1.2;
+}
+
+.tl-exec-title-block p {
+    margin: 4px 0 0;
+    color: #6b7280;
+}
+
+.tl-exec-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tl-exec-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.tl-exec-controls input,
+.tl-exec-controls select,
+.tl-drill-filters select {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px 10px;
+    min-width: 140px;
+}
+
+.tl-alert-ribbon {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.tl-alert-pill {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.tl-alert-pill.high {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.tl-alert-pill.medium {
+    background: #ffedd5;
+    color: #9a3412;
+}
+
+.tl-alert-pill.low {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.tl-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.tl-kpi-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.tl-kpi-label {
+    font-size: 11px;
+    color: #6b7280;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.tl-kpi-value {
+    margin-top: 6px;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.tl-fx-panel,
+.tl-drill-panel {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.tl-fx-head,
+.tl-drill-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.tl-fx-head h2,
+.tl-drill-head h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.tl-fx-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.tl-fx-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 10px;
+    background: #fafafa;
+}
+
+.tl-fx-card.is-stale {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+.tl-fx-card.is-fresh {
+    border-color: #10b981;
+    background: #ecfdf5;
+}
+
+.tl-fx-pair {
+    font-size: 12px;
+    font-weight: 700;
+    color: #374151;
+}
+
+.tl-fx-rate {
+    margin-top: 6px;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.tl-fx-meta {
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+}
+
+.tl-fx-meta .up {
+    color: #047857;
+    font-weight: 700;
+}
+
+.tl-fx-meta .down {
+    color: #b91c1c;
+    font-weight: 700;
+}
+
+.tl-fx-time {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #6b7280;
+}
+
+.tl-drill-filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.tl-drill-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.tl-table-wrap {
+    overflow-x: auto;
+}
+
+.tl-exec-loading,
+.tl-exec-error {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+@media (max-width: 1200px) {
+    .tl-kpi-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .tl-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .tl-fx-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .tl-exec-pocket {
+        padding: 10px;
+    }
+
+    .tl-exec-title-block h1 {
+        font-size: 20px;
+    }
+}
+

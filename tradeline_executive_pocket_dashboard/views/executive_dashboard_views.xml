@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_executive_pocket_dashboard" model="ir.actions.client">
+        <field name="name">Executive Pocket Dashboard</field>
+        <field name="tag">tradeline_executive_pocket_dashboard.main</field>
+        <field name="target">current</field>
+    </record>
+
+    <record id="action_manual_refresh_fx_rates" model="ir.actions.server">
+        <field name="name">Refresh FX Rates Now</field>
+        <field name="model_id" ref="model_tradeline_executive_dashboard_service"/>
+        <field name="state">code</field>
+        <field name="code">model.refresh_fx_rates()</field>
+    </record>
+
+    <menuitem
+        id="menu_executive_pocket_root"
+        name="Executive Pocket"
+        sequence="5"
+        groups="tradeline_executive_pocket_dashboard.group_exec_viewer"
+    />
+
+    <menuitem
+        id="menu_executive_pocket_dashboard"
+        name="Dashboard"
+        parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
+        action="tradeline_executive_pocket_dashboard.action_executive_pocket_dashboard"
+        sequence="1"
+        groups="tradeline_executive_pocket_dashboard.group_exec_viewer"
+    />
+
+    <menuitem
+        id="menu_executive_pocket_operations"
+        name="Operations"
+        parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
+        sequence="80"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
+    />
+
+    <menuitem
+        id="menu_executive_manual_fx_refresh"
+        name="Refresh FX Rates"
+        parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_operations"
+        action="tradeline_executive_pocket_dashboard.action_manual_refresh_fx_rates"
+        sequence="1"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
+    />
+</odoo>
+

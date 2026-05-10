@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="tradeline_executive_pocket_dashboard.MainDashboard">
+        <div class="tl-exec-pocket">
+            <div class="tl-exec-header">
+                <div class="tl-exec-title-block">
+                    <h1>Executive Pocket Dashboard</h1>
+                    <p>General to granular executive analytics with live FX watch.</p>
+                </div>
+                <div class="tl-exec-controls">
+                    <label>
+                        <span>Start</span>
+                        <input type="date" t-model="state.filters.start_date" t-on-change="onDateChange"/>
+                    </label>
+                    <label>
+                        <span>End</span>
+                        <input type="date" t-model="state.filters.end_date" t-on-change="onDateChange"/>
+                    </label>
+                    <label>
+                        <span>Lens</span>
+                        <select t-model="state.lens" t-on-change="onLensChange">
+                            <option value="overview">Overview</option>
+                            <option value="performance">Performance</option>
+                            <option value="risk">Risk</option>
+                            <option value="cash">Cash</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <t t-if="state.loading">
+                <div class="tl-exec-loading">Loading executive dashboard...</div>
+            </t>
+            <t t-elif="state.error">
+                <div class="tl-exec-error"><t t-esc="state.error"/></div>
+            </t>
+            <t t-else="">
+                <div class="tl-alert-ribbon">
+                    <t t-foreach="alerts" t-as="alert" t-key="alert.label">
+                        <span t-att-class="'tl-alert-pill ' + alert.severity">
+                            <strong><t t-esc="alert.label"/>:</strong>
+                            <t t-esc="alert.detail"/>
+                        </span>
+                    </t>
+                </div>
+
+                <div class="tl-kpi-grid">
+                    <t t-foreach="cards" t-as="card" t-key="card.key">
+                        <div class="tl-kpi-card">
+                            <div class="tl-kpi-label"><t t-esc="card.label"/></div>
+                            <div class="tl-kpi-value">
+                                <t t-if="card.unit === 'EGP'">
+                                    <t t-esc="_formatCurrency(card.value)"/>
+                                </t>
+                                <t t-else="">
+                                    <t t-esc="_formatNumber(card.value)"/>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="tl-fx-panel">
+                    <div class="tl-fx-head">
+                        <h2>Currencies To Watch</h2>
+                        <button class="btn btn-primary" t-on-click="onRefreshFx" t-att-disabled="state.refreshingFx">
+                            <t t-if="state.refreshingFx">Refreshing...</t>
+                            <t t-else="">Refresh FX</t>
+                        </button>
+                    </div>
+                    <div class="tl-fx-grid">
+                        <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
+                            <div class="tl-fx-card" t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'">
+                                <div class="tl-fx-pair"><t t-esc="fx.pair"/></div>
+                                <div class="tl-fx-rate"><t t-esc="Number(fx.rate || 0).toFixed(6)"/></div>
+                                <div class="tl-fx-meta">
+                                    <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
+                                        <t t-esc="_formatPercent(fx.change_pct || 0)"/>
+                                    </span>
+                                    <span>
+                                        <t t-if="fx.is_stale">Stale</t>
+                                        <t t-else="">Fresh</t>
+                                    </span>
+                                </div>
+                                <div class="tl-fx-time">Updated <t t-esc="fx.age_minutes"/> min ago</div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <div class="tl-drill-panel">
+                    <div class="tl-drill-head">
+                        <h2>Granular Drilldown</h2>
+                        <div class="tl-drill-actions">
+                            <button class="btn btn-secondary" t-on-click="() => openNativeView(state.selectedDomain)">Open Native View</button>
+                        </div>
+                    </div>
+                    <div class="tl-drill-filters">
+                        <label>
+                            <span>Domain</span>
+                            <select t-model="state.selectedDomain" t-on-change="onDomainChange">
+                                <option value="finance">Finance</option>
+                                <option value="sales">Sales</option>
+                                <option value="inventory">Inventory</option>
+                                <option value="pipeline">Pipeline</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Group By</span>
+                            <select t-model="state.selectedGroupBy" t-on-change="onGroupChange">
+                                <t t-foreach="availableGroups" t-as="grp" t-key="grp">
+                                    <option t-att-value="grp"><t t-esc="grp"/></option>
+                                </t>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="tl-table-wrap">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <t t-foreach="drillColumns" t-as="column" t-key="column">
+                                        <th><t t-esc="column"/></th>
+                                    </t>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="drillRows" t-as="row" t-key="row_index" t-foreach-index="row_index">
+                                    <tr>
+                                        <t t-foreach="drillColumns" t-as="column" t-key="column">
+                                            <td><t t-esc="_formatCell(column, row[column])"/></td>
+                                        </t>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

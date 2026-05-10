@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <record id="ir_cron_refresh_executive_fx_rates" model="ir.cron">
+        <field name="name">Executive Dashboard FX Refresh</field>
+        <field name="model_id" ref="model_tradeline_executive_dashboard_service"/>
+        <field name="state">code</field>
+        <field name="code">model.refresh_fx_rates_cron()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="numbercall">-1</field>
+        <field name="active">True</field>
+    </record>
+</odoo>
+
