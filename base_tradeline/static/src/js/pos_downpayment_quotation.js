@@ -33,11 +33,12 @@ function getSourceTypeLabel(source) {
 
 function buildSourceLabel(source) {
     const sourceType = getSourceTypeLabel(source);
+    const sourceNumber = source.name || _t("N/A");
     const reference = source.reference_number ? ` [${source.reference_number}]` : "";
     const partnerName = source.partner_name || _t("Walk-in Customer");
     const amountLabel = source.amount_total_label || "";
     const validityLabel = source.validity_label || _t("No Expiration");
-    return `${sourceType}${reference} ${source.name} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
+    return `${sourceType} ${_t("No")}: ${sourceNumber}${reference} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
 }
 
 function getSelectionId(selection) {
