@@ -101,20 +101,38 @@ class AccountMove(models.Model):
         'invoice_origin',
         'reference_number',
         'invoice_line_ids.sale_line_ids.order_id.name',
+        'invoice_line_ids.sale_line_ids.order_id.reference_number',
     )
     def _compute_quotation_number(self):
+        origin_values = {
+            (move.invoice_origin or '').strip()
+            for move in self
+            if move.invoice_origin
+        }
+        pos_origin_names = set()
+        if origin_values and 'pos.order' in self.env:
+            pos_origin_names = set(
+                self.env['pos.order'].sudo().search(
+                    [('name', 'in', list(origin_values))]
+                ).mapped('name')
+            )
+
         for move in self:
-            quotation_names = move.invoice_line_ids.mapped('sale_line_ids.order_id.name')
-            if not quotation_names and move.invoice_origin:
-                quotation_names = [
-                    part.strip()
-                    for part in (move.invoice_origin or '').split(',')
-                    if part and part.strip()
-                ]
+            sale_orders = move.invoice_line_ids.mapped('sale_line_ids.order_id')
+            quotation_names = []
+            for sale_order in sale_orders:
+                if "reference_number" in sale_order._fields and sale_order.reference_number:
+                    quotation_names.append(sale_order.reference_number)
+                elif sale_order.name:
+                    quotation_names.append(sale_order.name)
 
             normalized_names = [name for name in quotation_names if name]
             if not normalized_names and move.reference_number:
                 normalized_names = [move.reference_number]
+            if not normalized_names and move.invoice_origin:
+                clean_origin = (move.invoice_origin or '').strip()
+                if clean_origin and clean_origin not in pos_origin_names:
+                    normalized_names = [clean_origin]
 
             move.quotation_number = ', '.join(dict.fromkeys(normalized_names)) if normalized_names else False
 
