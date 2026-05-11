@@ -989,7 +989,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_category category ON category.id = template.categ_id
             """
         elif group_by == "product":
-            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', COALESCE(line.product_id, 0)::text))"
+            dim_sql = "COALESCE(line.product_id, 0)"
             joins = """
                 JOIN account_move_line line
                   ON line.move_id = move.id
@@ -1065,6 +1065,35 @@ class ExecutiveDashboardService(models.AbstractModel):
             columns = ["dimension", "invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"]
             if metric in {"net_margin", "margin_pct"}:
                 rows = sorted(rows, key=lambda r: float(r.get(metric) or 0.0), reverse=True)
+
+        if group_by == "product":
+            product_ids = []
+            for row in rows:
+                try:
+                    row["_dimension_product_id"] = int(row.get("dimension") or 0)
+                except Exception:
+                    row["_dimension_product_id"] = 0
+                if row["_dimension_product_id"] > 0:
+                    product_ids.append(row["_dimension_product_id"])
+
+            name_map = {}
+            if product_ids:
+                products = (
+                    self.env["product.product"]
+                    .sudo()
+                    .with_context(lang=self.env.user.lang or "en_US")
+                    .browse(sorted(set(product_ids)))
+                    .exists()
+                )
+                for product in products:
+                    name_map[product.id] = product.display_name or product.name or f"Product #{product.id}"
+
+            for row in rows:
+                product_id = row.pop("_dimension_product_id", 0)
+                if product_id > 0:
+                    row["dimension"] = name_map.get(product_id, f"Product #{product_id}")
+                else:
+                    row["dimension"] = "Unspecified Product"
 
         return {
             "domain": "sales",
