@@ -102,6 +102,17 @@ export class ExecutivePocketDashboard extends Component {
         return this.state.bundle?.drilldown?.columns || [];
     }
 
+    get drillHasCompanyColumn() {
+        return this.drillColumns.includes("company");
+    }
+
+    get companySplitNotice() {
+        if (!this.drillHasCompanyColumn) {
+            return "";
+        }
+        return "Company split active (multiple companies selected).";
+    }
+
     get coverage() {
         return this.state.bundle?.coverage || {};
     }

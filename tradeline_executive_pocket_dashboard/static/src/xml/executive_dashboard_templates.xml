@@ -252,6 +252,9 @@
                     <div class="tl-drill-coverage">
                         <span class="tl-drill-badge">Underlying records in selected domain: <strong><t t-esc="_formatNumber(selectedDomainCoverage)"/></strong></span>
                         <span class="tl-drill-badge is-muted">Grouped rows available: <strong><t t-esc="_formatNumber(drillTotalCount)"/></strong></span>
+                        <t t-if="companySplitNotice">
+                            <span class="tl-drill-badge is-company"><t t-esc="companySplitNotice"/></span>
+                        </t>
                         <t t-if="selectedDomainDescription">
                             <span class="tl-drill-desc"><t t-esc="selectedDomainDescription"/></span>
                         </t>

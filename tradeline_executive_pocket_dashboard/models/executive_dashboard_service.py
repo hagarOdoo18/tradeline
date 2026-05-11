@@ -32,7 +32,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         "finance": {
             "label": "Finance",
             "description": "Revenue, collections, receivables, and margin quality.",
-            "groups": {"branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
+            "groups": {"company": "Company", "branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
             "metrics": {
                 "net_revenue": "Net Revenue",
                 "net_margin": "Net Margin",
@@ -47,6 +47,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "label": "Sales",
             "description": "Performance, mix, and margin breakdown.",
             "groups": {
+                "company": "Company",
                 "branch": "Branch",
                 "salesperson": "Salesperson",
                 "customer": "Customer",
@@ -78,7 +79,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         "pipeline": {
             "label": "Pipeline",
             "description": "Open and weighted opportunity pipeline.",
-            "groups": {"stage": "Stage", "owner": "Owner", "branch": "Branch"},
+            "groups": {"company": "Company", "stage": "Stage", "owner": "Owner", "branch": "Branch"},
             "metrics": {
                 "weighted_pipeline": "Weighted Pipeline",
                 "open_pipeline": "Open Pipeline",
@@ -922,6 +923,8 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _finance_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
         if has_branch:
             dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
@@ -929,18 +932,25 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "customer":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
         elif group_by == "payment_state":
             dim_sql = "COALESCE(move.payment_state, 'unknown')"
             joins = ""
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"invoice_count", "net_revenue", "credit_note_value"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) AS invoice_count,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
@@ -950,7 +960,7 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -962,27 +972,29 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"""
             SELECT COUNT(*) AS total_count
             FROM (
-                SELECT {dim_sql} AS dimension
+                SELECT {dim_sql} AS dimension{company_select}
                 FROM account_move move
                 {joins}
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
             ) grouped
             """,
             count_params,
         )
         total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "net_revenue", "credit_note_value"]
+        if include_company_split:
+            columns.insert(0, "company")
 
         if margin_status.get("available"):
             margin_params = list(params[:-2])  # remove limit/offset
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension,
+                    {dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                             WHEN move.move_type = 'out_refund'
@@ -1007,18 +1019,28 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND line.total_cost IS NOT NULL
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
                 """,
                 margin_params,
             )
-            margin_map = {row["dimension"]: row for row in self._dictfetchall()}
+            margin_map = {}
+            for margin_row in self._dictfetchall():
+                key = margin_row.get("dimension")
+                if include_company_split:
+                    key = (margin_row.get("company"), margin_row.get("dimension"))
+                margin_map[key] = margin_row
             for row in rows:
-                margin_row = margin_map.get(row.get("dimension")) or {}
+                margin_key = row.get("dimension")
+                if include_company_split:
+                    margin_key = (row.get("company"), row.get("dimension"))
+                margin_row = margin_map.get(margin_key) or {}
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "net_revenue", "net_margin", "margin_pct", "credit_note_value"]
+            if include_company_split:
+                columns.insert(0, "company")
             if metric in {"net_margin", "margin_pct"}:
                 rows = sorted(rows, key=lambda r: float(r.get(metric) or 0.0), reverse=True)
 
@@ -1036,6 +1058,8 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _sales_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
         if has_branch:
             dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
@@ -1043,7 +1067,10 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "salesperson":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "salesperson":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
                 joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
@@ -1072,11 +1099,15 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_product product ON product.id = line.product_id
                 LEFT JOIN product_template template ON template.id = product.product_tmpl_id
             """
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
         order_metric = metric if metric in {"invoice_count", "average_basket", "net_revenue"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
                 COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
@@ -1086,7 +1117,7 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -1098,20 +1129,22 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"""
             SELECT COUNT(*) AS total_count
             FROM (
-                SELECT {dim_sql} AS dimension
+                SELECT {dim_sql} AS dimension{company_select}
                 FROM account_move move
                 {joins}
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
             ) grouped
             """,
             count_params,
         )
         total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "average_basket", "net_revenue"]
+        if include_company_split:
+            columns.insert(0, "company")
 
         if margin_status.get("available"):
             margin_joins = joins
@@ -1124,7 +1157,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension,
+                    {dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                             WHEN move.move_type = 'out_refund'
@@ -1144,18 +1177,28 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
                 """,
                 margin_params,
             )
-            margin_map = {row["dimension"]: row for row in self._dictfetchall()}
+            margin_map = {}
+            for margin_row in self._dictfetchall():
+                key = margin_row.get("dimension")
+                if include_company_split:
+                    key = (margin_row.get("company"), margin_row.get("dimension"))
+                margin_map[key] = margin_row
             for row in rows:
-                margin_row = margin_map.get(row.get("dimension")) or {}
+                margin_key = row.get("dimension")
+                if include_company_split:
+                    margin_key = (row.get("company"), row.get("dimension"))
+                margin_row = margin_map.get(margin_key) or {}
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"]
+            if include_company_split:
+                columns.insert(0, "company")
             if metric in {"net_margin", "margin_pct"}:
                 rows = sorted(rows, key=lambda r: float(r.get(metric) or 0.0), reverse=True)
 
@@ -1203,6 +1246,8 @@ class ExecutiveDashboardService(models.AbstractModel):
         quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
         svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
         params = quant_params + svl_params + [limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = inv.company_id"
 
         if group_by == "company":
             dim_sql = "COALESCE(company.name, 'Unknown Company')"
@@ -1217,6 +1262,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_template template ON template.id = product.product_tmpl_id
                 LEFT JOIN product_category category ON category.id = template.categ_id
             """
+        if include_company_split and "res_company company" not in dim_join:
+            dim_join = f"{dim_join}\n{company_join_sql}" if dim_join else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"allocated_value", "on_hand_qty", "unit_cost"} else "allocated_value"
         self.env.cr.execute(
@@ -1251,7 +1300,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                  AND s.company_id = q.company_id
             )
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COALESCE(SUM(inv.on_hand_qty), 0) AS on_hand_qty,
                 COALESCE(SUM(inv.allocated_value), 0) AS allocated_value,
                 CASE
@@ -1260,7 +1309,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 END AS unit_cost
             FROM inv
             {dim_join}
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -1301,10 +1350,10 @@ class ExecutiveDashboardService(models.AbstractModel):
             )
             SELECT COUNT(*) AS total_count
             FROM (
-                SELECT {dim_sql} AS dimension
+                SELECT {dim_sql} AS dimension{company_select}
                 FROM inv
                 {dim_join}
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
             ) grouped
             """,
             count_params,
@@ -1344,7 +1393,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "domain": "inventory",
             "group_by": group_by,
             "metric": metric,
-            "columns": ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
+            "columns": (["company"] if include_company_split else []) + ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
             "rows": rows,
             "total_count": total_count,
             "limit": limit,
@@ -1354,10 +1403,15 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _pipeline_drilldown(self, scope, group_by, metric, limit, offset):
         where_sql, params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=scope, include_sales_rep=True)
         params += [limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = lead.company_id"
 
         dim_sql = "COALESCE(stage.name, CONCAT('Stage #', COALESCE(lead.stage_id, 0)::text))"
         joins = "LEFT JOIN crm_stage stage ON stage.id = lead.stage_id"
-        if group_by == "owner":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "owner":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(user_partner.name, sales_rep.name, CONCAT('Owner #', COALESCE(lead.user_id, 0)::text))"
                 joins = """
@@ -1378,19 +1432,23 @@ class ExecutiveDashboardService(models.AbstractModel):
             else:
                 dim_sql = "CONCAT('Branch #', COALESCE(lead.branch_id, 0)::text)"
                 joins = ""
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"open_opportunities", "open_pipeline", "weighted_pipeline"} else "weighted_pipeline"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) FILTER (WHERE lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100) AS open_opportunities,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) ELSE 0 END), 0) AS open_pipeline,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) * COALESCE(lead.probability, 0) / 100.0 ELSE 0 END), 0) AS weighted_pipeline
             FROM crm_lead lead
             {joins}
             WHERE {where_sql}
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -1402,11 +1460,11 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"""
             SELECT COUNT(*) AS total_count
             FROM (
-                SELECT {dim_sql} AS dimension
+                SELECT {dim_sql} AS dimension{company_select}
                 FROM crm_lead lead
                 {joins}
                 WHERE {where_sql}
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
             ) grouped
             """,
             count_params,
@@ -1416,7 +1474,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "domain": "pipeline",
             "group_by": group_by,
             "metric": metric,
-            "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
+            "columns": (["company"] if include_company_split else []) + ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
             "rows": rows,
             "total_count": total_count,
             "limit": limit,
