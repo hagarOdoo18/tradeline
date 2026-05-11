@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date, datetime, timedelta
@@ -136,6 +137,42 @@ class ExecutiveDashboardService(models.AbstractModel):
             return fields.Date.to_date(value)
         except Exception:
             return fallback
+
+    def _pick_translated_value(self, mapping: dict) -> str:
+        if not mapping:
+            return ""
+        user_lang = self.env.user.lang or "en_US"
+        probes = [user_lang]
+        if "_" in user_lang:
+            probes.append(user_lang.split("_")[0])
+        probes.extend(["en_US", "en", "ar_001", "ar"])
+        for key in probes:
+            value = mapping.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in mapping.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    def _clean_dimension_label(self, value):
+        if value is None:
+            return "Unspecified"
+        if isinstance(value, dict):
+            cleaned = self._pick_translated_value(value)
+            return cleaned or "Unspecified"
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                try:
+                    parsed = json.loads(stripped)
+                except Exception:
+                    return value
+                if isinstance(parsed, dict):
+                    cleaned = self._pick_translated_value(parsed)
+                    return cleaned or value
+            return value
+        return value
 
     def _resolve_filter_scope(self, filters: dict | None) -> dict:
         filters = filters or {}
@@ -856,14 +893,31 @@ class ExecutiveDashboardService(models.AbstractModel):
             metric = "net_revenue"
 
         if domain == "finance":
-            return self._finance_drilldown(scope, group_by, metric, limit, offset, margin_status)
-        if domain == "sales":
-            return self._sales_drilldown(scope, group_by, metric, limit, offset, margin_status)
-        if domain == "inventory":
-            return self._inventory_drilldown(scope, group_by, metric, limit, offset)
-        if domain == "pipeline":
-            return self._pipeline_drilldown(scope, group_by, metric, limit, offset)
-        return {"domain": domain, "group_by": group_by, "metric": metric, "rows": [], "columns": []}
+            result = self._finance_drilldown(scope, group_by, metric, limit, offset, margin_status)
+        elif domain == "sales":
+            result = self._sales_drilldown(scope, group_by, metric, limit, offset, margin_status)
+        elif domain == "inventory":
+            result = self._inventory_drilldown(scope, group_by, metric, limit, offset)
+        elif domain == "pipeline":
+            result = self._pipeline_drilldown(scope, group_by, metric, limit, offset)
+        else:
+            result = {
+                "domain": domain,
+                "group_by": group_by,
+                "metric": metric,
+                "rows": [],
+                "columns": [],
+                "total_count": 0,
+                "limit": limit,
+                "offset": offset,
+            }
+
+        for row in result.get("rows", []):
+            row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+        result.setdefault("total_count", len(result.get("rows", [])))
+        result.setdefault("limit", limit)
+        result.setdefault("offset", offset)
+        return result
 
     def _finance_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
@@ -903,6 +957,24 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension
+                FROM account_move move
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "net_revenue", "credit_note_value"]
 
         if margin_status.get("available"):
@@ -956,6 +1028,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metric": metric,
             "columns": columns,
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _sales_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
@@ -1018,6 +1093,24 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension
+                FROM account_move move
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "average_basket", "net_revenue"]
 
         if margin_status.get("available"):
@@ -1101,6 +1194,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metric": metric,
             "columns": columns,
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _inventory_drilldown(self, scope, group_by, metric, limit, offset):
@@ -1112,11 +1208,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             dim_sql = "COALESCE(company.name, 'Unknown Company')"
             dim_join = "LEFT JOIN res_company company ON company.id = inv.company_id"
         elif group_by == "product":
-            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', inv.product_id::text))"
-            dim_join = """
-                LEFT JOIN product_product product ON product.id = inv.product_id
-                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
-            """
+            dim_sql = "COALESCE(inv.product_id, 0)"
+            dim_join = ""
         else:
             dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
             dim_join = """
@@ -1174,12 +1267,88 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         rows = self._dictfetchall()
+        count_params = quant_params + svl_params
+        self.env.cr.execute(
+            f"""
+            WITH quant_agg AS (
+                SELECT quant.product_id, quant.company_id, SUM(COALESCE(quant.quantity, 0)) AS on_hand_qty
+                FROM stock_quant quant
+                JOIN stock_location location ON location.id = quant.location_id
+                WHERE {quant_where}
+                  AND location.usage = 'internal'
+                GROUP BY quant.product_id, quant.company_id
+            ),
+            svl_agg AS (
+                SELECT svl.product_id, svl.company_id, SUM(COALESCE(svl.quantity, 0)) AS svl_qty, SUM(COALESCE(svl.value, 0)) AS svl_value
+                FROM stock_valuation_layer svl
+                WHERE {svl_where}
+                GROUP BY svl.product_id, svl.company_id
+            ),
+            inv AS (
+                SELECT
+                    COALESCE(q.product_id, s.product_id) AS product_id,
+                    COALESCE(q.company_id, s.company_id) AS company_id,
+                    COALESCE(q.on_hand_qty, 0) AS on_hand_qty,
+                    COALESCE(s.svl_qty, 0) AS svl_qty,
+                    COALESCE(s.svl_value, 0) AS svl_value,
+                    CASE WHEN COALESCE(s.svl_qty, 0) = 0 THEN 0
+                         ELSE COALESCE(q.on_hand_qty, 0) * (COALESCE(s.svl_value, 0) / NULLIF(s.svl_qty, 0))
+                    END AS allocated_value
+                FROM quant_agg q
+                FULL OUTER JOIN svl_agg s
+                  ON s.product_id = q.product_id
+                 AND s.company_id = q.company_id
+            )
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension
+                FROM inv
+                {dim_join}
+                GROUP BY dimension
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+
+        if group_by == "product":
+            product_ids = []
+            for row in rows:
+                try:
+                    row["_dimension_product_id"] = int(row.get("dimension") or 0)
+                except Exception:
+                    row["_dimension_product_id"] = 0
+                if row["_dimension_product_id"] > 0:
+                    product_ids.append(row["_dimension_product_id"])
+
+            name_map = {}
+            if product_ids:
+                products = (
+                    self.env["product.product"]
+                    .sudo()
+                    .with_context(lang=self.env.user.lang or "en_US")
+                    .browse(sorted(set(product_ids)))
+                    .exists()
+                )
+                for product in products:
+                    name_map[product.id] = product.display_name or product.name or f"Product #{product.id}"
+
+            for row in rows:
+                product_id = row.pop("_dimension_product_id", 0)
+                if product_id > 0:
+                    row["dimension"] = name_map.get(product_id, f"Product #{product_id}")
+                else:
+                    row["dimension"] = "Unspecified Product"
+
         return {
             "domain": "inventory",
             "group_by": group_by,
             "metric": metric,
             "columns": ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _pipeline_drilldown(self, scope, group_by, metric, limit, offset):
@@ -1228,12 +1397,30 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension
+                FROM crm_lead lead
+                {joins}
+                WHERE {where_sql}
+                GROUP BY dimension
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         return {
             "domain": "pipeline",
             "group_by": group_by,
             "metric": metric,
             "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     @api.model

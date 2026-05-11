@@ -23,6 +23,10 @@ export class ExecutivePocketDashboard extends Component {
                 column: "",
                 direction: "",
             },
+            pagination: {
+                limit: 30,
+                offset: 0,
+            },
             companyPicker: {
                 open: false,
                 search: "",
@@ -100,6 +104,62 @@ export class ExecutivePocketDashboard extends Component {
 
     get coverage() {
         return this.state.bundle?.coverage || {};
+    }
+
+    get drillTotalCount() {
+        return Number(this.state.bundle?.drilldown?.total_count || 0);
+    }
+
+    get drillLimit() {
+        return Number(this.state.pagination.limit || 30);
+    }
+
+    get drillOffset() {
+        return Number(this.state.pagination.offset || 0);
+    }
+
+    get drillPageStart() {
+        if (!this.drillTotalCount) {
+            return 0;
+        }
+        return this.drillOffset + 1;
+    }
+
+    get drillPageEnd() {
+        if (!this.drillTotalCount) {
+            return 0;
+        }
+        return Math.min(this.drillOffset + this.drillLimit, this.drillTotalCount);
+    }
+
+    get drillTotalPages() {
+        if (!this.drillTotalCount) {
+            return 1;
+        }
+        return Math.max(1, Math.ceil(this.drillTotalCount / this.drillLimit));
+    }
+
+    get drillCurrentPage() {
+        return Math.floor(this.drillOffset / this.drillLimit) + 1;
+    }
+
+    get hasPrevPage() {
+        return this.drillOffset > 0;
+    }
+
+    get hasNextPage() {
+        return this.drillOffset + this.drillLimit < this.drillTotalCount;
+    }
+
+    get pageSizeOptions() {
+        return [25, 50, 100, 200];
+    }
+
+    get drillPageSummary() {
+        if (!this.drillTotalCount) {
+            return "No grouped rows found";
+        }
+        return `Showing ${this._formatNumber(this.drillPageStart)}-${this._formatNumber(this.drillPageEnd)} of ${this._formatNumber(this.drillTotalCount)} grouped rows`;
     }
 
     get marginStatus() {
@@ -284,7 +344,7 @@ export class ExecutivePocketDashboard extends Component {
             return "Server default order";
         }
         const direction = this.state.sort.direction === "asc" ? "ascending" : "descending";
-        return `Sorted by ${this.state.sort.column} (${direction})`;
+        return `Sorted by ${this.columnLabel(this.state.sort.column)} (${direction})`;
     }
 
     _syncSelectionFromBundle() {
@@ -335,14 +395,27 @@ export class ExecutivePocketDashboard extends Component {
 
     async _reloadDrilldown() {
         try {
+            const requestedLimit = this.drillLimit;
+            const requestedOffset = this.drillOffset;
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, 30, 0]
+                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, requestedLimit, requestedOffset]
             );
+            const totalCount = Number(drilldown?.total_count || 0);
+            if (totalCount > 0 && requestedOffset >= totalCount) {
+                const lastOffset = Math.max(0, Math.floor((totalCount - 1) / requestedLimit) * requestedLimit);
+                if (lastOffset !== requestedOffset) {
+                    this.state.pagination.offset = lastOffset;
+                    await this._reloadDrilldown();
+                    return;
+                }
+            }
             if (this.state.bundle) {
                 this.state.bundle.drilldown = drilldown;
             }
+            this.state.pagination.limit = Number(drilldown?.limit || requestedLimit);
+            this.state.pagination.offset = Number(drilldown?.offset || 0);
             if (this.state.sort.column && !(drilldown?.columns || []).includes(this.state.sort.column)) {
                 this.state.sort.column = "";
                 this.state.sort.direction = "";
@@ -412,6 +485,19 @@ export class ExecutivePocketDashboard extends Component {
         return input.length > maxLen ? `${input.slice(0, maxLen - 1)}...` : input;
     }
 
+    columnLabel(column) {
+        const text = String(column || "").trim();
+        if (!text) {
+            return "";
+        }
+        return text
+            .replace(/_/g, " ")
+            .split(" ")
+            .filter(Boolean)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+    }
+
     _formatDayLabel(value) {
         const dt = new Date(`${value}T00:00:00`);
         if (Number.isNaN(dt.getTime())) {
@@ -449,22 +535,52 @@ export class ExecutivePocketDashboard extends Component {
 
     async onLensChange(ev) {
         this.state.lens = ev.target.value;
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 
     async onDomainChange(ev) {
         this.state.selectedDomain = ev.target.value;
+        this.state.pagination.offset = 0;
         this._syncSelectionFromBundle();
         await this._reloadDrilldown();
     }
 
     async onGroupChange(ev) {
         this.state.selectedGroupBy = ev.target.value;
+        this.state.pagination.offset = 0;
         await this._reloadDrilldown();
     }
 
     async onMetricChange(ev) {
         this.state.selectedMetric = ev.target.value;
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
+    }
+
+    async onPageSizeChange(ev) {
+        const nextLimit = Number(ev.target.value || 30);
+        if (!Number.isFinite(nextLimit) || nextLimit <= 0 || nextLimit === this.drillLimit) {
+            return;
+        }
+        this.state.pagination.limit = nextLimit;
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
+    }
+
+    async onPrevPage() {
+        if (!this.hasPrevPage) {
+            return;
+        }
+        this.state.pagination.offset = Math.max(0, this.drillOffset - this.drillLimit);
+        await this._reloadDrilldown();
+    }
+
+    async onNextPage() {
+        if (!this.hasNextPage) {
+            return;
+        }
+        this.state.pagination.offset = this.drillOffset + this.drillLimit;
         await this._reloadDrilldown();
     }
 
@@ -542,10 +658,12 @@ export class ExecutivePocketDashboard extends Component {
     async onApplyCompanySelection() {
         this.state.filters.company_ids = [...(this.state.companyPicker.draft_ids || [])];
         this.state.companyPicker.open = false;
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 
     async onDateChange() {
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 
