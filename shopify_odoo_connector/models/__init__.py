@@ -32,4 +32,5 @@ from . import sale_order_line
 from . import shopify_collection
 from . import shopify_configuration
 from . import shopify_payment
+from . import shopify_location
 from . import shopify_sync

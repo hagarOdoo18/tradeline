@@ -7,17 +7,35 @@
         <field name="arch" type="xml">
             <form string="Sync Inventory">
                 <group>
-                    <field name="import_inventory" invisible="1"/>
-                </group>
-                <div>
-                    <h5>Sync Inventory only available from shopify to odoo</h5>
-                </div>
-                <group>
                     <field name="shopify_instance_id"/>
+                    <field name="import_inventory"
+                           widget="radio"
+                           options="{'horizontal': true}"/>
+                    <field name="warehouse_ids"
+                           widget="many2many_tags"
+                           string="Warehouses to Push / Pull"/>
                 </group>
+                <div class="alert alert-info" role="alert"
+                     invisible="import_inventory != 'shopify'">
+                    Selected warehouses' on-hand quantities will be pushed
+                    to all active Shopify locations.
+                </div>
+                <div class="alert alert-info" role="alert"
+                     invisible="import_inventory != 'odoo'">
+                    Shopify inventory quantities will be applied to all
+                    selected warehouses in Odoo.
+                </div>
                 <footer>
-                    <button name="sync_inventory" string="Sync Inventory"
-                            class="btn-primary" type="object"/>
+                    <button name="sync_inventory"
+                            string="Push to Shopify"
+                            class="btn-primary"
+                            type="object"
+                            invisible="import_inventory != 'shopify'"/>
+                    <button name="sync_inventory"
+                            string="Pull from Shopify"
+                            class="btn-primary"
+                            type="object"
+                            invisible="import_inventory != 'odoo'"/>
                     <button string="Cancel" class="btn-secondary"
                             special="cancel"/>
                 </footer>

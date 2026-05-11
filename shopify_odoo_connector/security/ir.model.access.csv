@@ -9,3 +9,5 @@ access_log_message_user,access.log.message.user,model_log_message,base.group_use
 access_shopify_collection_user,access.shopify.collection.user,model_shopify_collection,base.group_user,1,1,1,1
 access_shopify_sync_user,access.shopify.sync.user,model_shopify_sync,base.group_user,1,1,1,1
 access_job_cron_user,access.job.cron.user,model_job_cron,base.group_user,1,1,1,1
+access_shopify_location_user,access.shopify.location.user,model_shopify_location,base.group_user,1,1,1,1
+access_sync_location_user,access.sync.location.user,model_sync_location,base.group_user,1,1,1,1
