@@ -19,6 +19,10 @@ export class ExecutivePocketDashboard extends Component {
             selectedDomain: "finance",
             selectedGroupBy: "branch",
             selectedMetric: "net_revenue",
+            sort: {
+                column: "",
+                direction: "",
+            },
             companyPicker: {
                 open: false,
                 search: "",
@@ -53,7 +57,41 @@ export class ExecutivePocketDashboard extends Component {
     }
 
     get drillRows() {
-        return this.state.bundle?.drilldown?.rows || [];
+        const rows = this.state.bundle?.drilldown?.rows || [];
+        const sortCol = this.state.sort.column;
+        const sortDir = this.state.sort.direction;
+        if (!sortCol || !sortDir) {
+            return rows;
+        }
+        const sorted = [...rows];
+        const direction = sortDir === "asc" ? 1 : -1;
+        const comparable = sorted
+            .map((row) => row?.[sortCol])
+            .filter((value) => value !== null && value !== undefined && value !== "");
+        if (!comparable.length) {
+            return sorted;
+        }
+        const numeric = comparable.every((value) => typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))));
+        sorted.sort((a, b) => {
+            const left = a?.[sortCol];
+            const right = b?.[sortCol];
+            const leftMissing = left === null || left === undefined || left === "";
+            const rightMissing = right === null || right === undefined || right === "";
+            if (leftMissing && rightMissing) {
+                return 0;
+            }
+            if (leftMissing) {
+                return 1;
+            }
+            if (rightMissing) {
+                return -1;
+            }
+            if (numeric) {
+                return (Number(left) - Number(right)) * direction;
+            }
+            return String(left).localeCompare(String(right), undefined, { sensitivity: "base" }) * direction;
+        });
+        return sorted;
     }
 
     get drillColumns() {
@@ -237,6 +275,18 @@ export class ExecutivePocketDashboard extends Component {
         return (this.drillRows || []).length > 0;
     }
 
+    get hasSort() {
+        return Boolean(this.state.sort.column && this.state.sort.direction);
+    }
+
+    get sortSummary() {
+        if (!this.hasSort) {
+            return "Server default order";
+        }
+        const direction = this.state.sort.direction === "asc" ? "ascending" : "descending";
+        return `Sorted by ${this.state.sort.column} (${direction})`;
+    }
+
     _syncSelectionFromBundle() {
         const domainCfg = this.selectedDomainCatalog;
         if (!domainCfg) {
@@ -292,6 +342,10 @@ export class ExecutivePocketDashboard extends Component {
             );
             if (this.state.bundle) {
                 this.state.bundle.drilldown = drilldown;
+            }
+            if (this.state.sort.column && !(drilldown?.columns || []).includes(this.state.sort.column)) {
+                this.state.sort.column = "";
+                this.state.sort.direction = "";
             }
         } catch (_error) {
             this.notification.add("Failed to load drilldown data", { type: "warning" });
@@ -412,6 +466,44 @@ export class ExecutivePocketDashboard extends Component {
     async onMetricChange(ev) {
         this.state.selectedMetric = ev.target.value;
         await this._reloadDrilldown();
+    }
+
+    onSortColumn(column) {
+        if (!column) {
+            return;
+        }
+        if (this.state.sort.column !== column) {
+            this.state.sort.column = column;
+            this.state.sort.direction = "asc";
+            return;
+        }
+        if (this.state.sort.direction === "asc") {
+            this.state.sort.direction = "desc";
+            return;
+        }
+        if (this.state.sort.direction === "desc") {
+            this.state.sort.column = "";
+            this.state.sort.direction = "";
+            return;
+        }
+        this.state.sort.direction = "asc";
+    }
+
+    onSortColumnClick(ev) {
+        const column = ev?.currentTarget?.dataset?.column || "";
+        this.onSortColumn(column);
+    }
+
+    clearSort() {
+        this.state.sort.column = "";
+        this.state.sort.direction = "";
+    }
+
+    sortIcon(column) {
+        if (this.state.sort.column !== column) {
+            return "-";
+        }
+        return this.state.sort.direction === "asc" ? "^" : "v";
     }
 
     onToggleCompanyPicker() {

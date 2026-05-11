@@ -244,6 +244,7 @@
                     <div class="tl-drill-head">
                         <h2>Granular Drilldown</h2>
                         <div class="tl-drill-actions">
+                            <button class="btn btn-light" t-if="hasSort" t-on-click="clearSort">Clear Sort</button>
                             <button class="btn btn-secondary" t-on-click="onOpenNativeView">Open Native View</button>
                         </div>
                     </div>
@@ -254,6 +255,7 @@
                             <span class="tl-drill-desc"><t t-esc="selectedDomainDescription"/></span>
                         </t>
                     </div>
+                    <div class="tl-drill-sort-note"><t t-esc="sortSummary"/></div>
 
                     <div class="tl-drill-filters">
                         <label>
@@ -293,7 +295,18 @@
                             <thead>
                                 <tr>
                                     <t t-foreach="drillColumns" t-as="column" t-key="column">
-                                        <th><t t-esc="column"/></th>
+                                        <th>
+                                            <button
+                                                type="button"
+                                                class="tl-table-sort-btn"
+                                                t-att-class="state.sort.column === column ? 'is-active' : ''"
+                                                t-att-data-column="column"
+                                                t-on-click="onSortColumnClick"
+                                            >
+                                                <span><t t-esc="column"/></span>
+                                                <span class="tl-sort-caret"><t t-esc="sortIcon(column)"/></span>
+                                            </button>
+                                        </th>
                                     </t>
                                 </tr>
                             </thead>
