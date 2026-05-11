@@ -113,12 +113,12 @@ class AccountMove(models.Model):
             if move.invoice_origin
         }
         pos_origin_names = set()
+        pos_orders_by_name = {}
         if origin_values and 'pos.order' in self.env:
-            pos_origin_names = set(
-                self.env['pos.order'].sudo().search(
-                    [('name', 'in', list(origin_values))]
-                ).mapped('name')
-            )
+            pos_orders = self.env['pos.order'].sudo().search([('name', 'in', list(origin_values))])
+            pos_origin_names = set(pos_orders.mapped('name'))
+            for pos_order in pos_orders:
+                pos_orders_by_name.setdefault(pos_order.name, pos_order)
 
         for move in self:
             sale_orders = move.invoice_line_ids.mapped('sale_line_ids.order_id')
@@ -132,6 +132,29 @@ class AccountMove(models.Model):
             normalized_names = [name for name in quotation_names if name]
             if not normalized_names and move.reference_number:
                 normalized_names = [move.reference_number]
+            if not normalized_names and move.invoice_origin:
+                clean_origin = (move.invoice_origin or '').strip()
+                pos_order = pos_orders_by_name.get(clean_origin)
+                if pos_order:
+                    if (
+                        "downpayment_source_quotation_id" in pos_order._fields
+                        and pos_order.downpayment_source_quotation_id
+                    ):
+                        source = pos_order.downpayment_source_quotation_id
+                        if "reference_number" in source._fields and source.reference_number:
+                            normalized_names = [source.reference_number]
+                        elif source.name:
+                            normalized_names = [source.name]
+                    elif (
+                        "downpayment_source_reference_number" in pos_order._fields
+                        and pos_order.downpayment_source_reference_number
+                    ):
+                        normalized_names = [pos_order.downpayment_source_reference_number]
+                    elif (
+                        "downpayment_source_quotation_name" in pos_order._fields
+                        and pos_order.downpayment_source_quotation_name
+                    ):
+                        normalized_names = [pos_order.downpayment_source_quotation_name]
             if not normalized_names and 'pos_order_ids' in move._fields and move.pos_order_ids:
                 pos_based_names = []
                 for pos_order in move.pos_order_ids:
