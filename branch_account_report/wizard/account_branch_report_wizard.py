@@ -146,7 +146,7 @@ class AccountBranchReportWizard(models.TransientModel):
             'type':      'ir.actions.act_window',
             'name':      'Payment Report',
             'res_model': 'payment.report',
-            'view_mode': 'list',
+            'view_mode': 'list,pivot',
             'domain':    [('wizard_id', '=', self.id)],
             'target':    'current',
         }
