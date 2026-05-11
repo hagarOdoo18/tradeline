@@ -265,7 +265,7 @@
                         <div class="tl-drill-page-controls">
                             <label class="tl-page-size">
                                 <span>Rows / page</span>
-                                <select t-att-value="String(drillLimit)" t-on-change="onPageSizeChange">
+                                <select t-att-value="drillLimit" t-on-change="onPageSizeChange">
                                     <t t-foreach="pageSizeOptions" t-as="size" t-key="size">
                                         <option t-att-value="size"><t t-esc="size"/></option>
                                     </t>
