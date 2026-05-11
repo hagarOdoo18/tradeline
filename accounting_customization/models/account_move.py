@@ -96,78 +96,6 @@ class AccountMove(models.Model):
     company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
                                     )
 
-    @api.model
-    def _has_downpayment_signal(self, sale_order):
-        for line in sale_order.order_line:
-            line_text = " ".join(
-                value for value in [
-                    line.name or "",
-                    line.product_id.display_name if line.product_id else "",
-                ] if value
-            ).lower()
-            if "down payment" in line_text or "downpayment" in line_text:
-                return True
-        return False
-
-    def _guess_quotation_from_pos_order(self, move, pos_order):
-        if not move.partner_id or 'sale.order' not in self.env:
-            return False
-
-        sale_order_model = self.env['sale.order'].sudo()
-        domain = [('partner_id', '=', move.partner_id.id)]
-        if "inv_type" in sale_order_model._fields:
-            domain.append(("inv_type", "=", "quotation"))
-        if "invoice_status" in sale_order_model._fields:
-            domain.append(("invoice_status", "=", "no"))
-        if "state" in sale_order_model._fields:
-            domain.append(("state", "in", ["draft", "sent", "sale"]))
-        if "company_id" in sale_order_model._fields and move.company_id:
-            domain.append(("company_id", "=", move.company_id.id))
-        if (
-            "branch_id" in sale_order_model._fields
-            and "branch_id" in move._fields
-            and move.branch_id
-        ):
-            domain.append(("branch_id", "=", move.branch_id.id))
-
-        candidates = sale_order_model.search(domain, order="write_date desc, id desc", limit=60)
-        if not candidates:
-            return False
-
-        move_product_ids = set(move.invoice_line_ids.filtered(lambda l: l.product_id).mapped("product_id").ids)
-        move_amount = abs(float(move.amount_total or 0.0))
-        move_rounding = move.currency_id.rounding if move.currency_id else 0.01
-        pos_date = pos_order.date_order if pos_order and "date_order" in pos_order._fields else False
-
-        best_candidate = False
-        best_score = -1
-        for candidate in candidates:
-            score = 0
-            candidate_amount = abs(float(candidate.amount_total or 0.0))
-            if abs(candidate_amount - move_amount) <= max(move_rounding, 0.01):
-                score += 40
-
-            candidate_product_ids = set(candidate.order_line.filtered(lambda l: l.product_id).mapped("product_id").ids)
-            overlap = len(move_product_ids.intersection(candidate_product_ids))
-            if overlap:
-                score += min(30, overlap * 10)
-
-            if self._has_downpayment_signal(candidate):
-                score += 20
-
-            if pos_date and candidate.create_date and candidate.create_date <= pos_date:
-                score += 10
-
-            if score > best_score:
-                best_score = score
-                best_candidate = candidate
-
-        if best_candidate and best_score >= 30:
-            if "reference_number" in best_candidate._fields and best_candidate.reference_number:
-                return best_candidate.reference_number
-            return best_candidate.name
-        return False
-
     @api.depends(
         'invoice_origin',
         'reference_number',
@@ -254,22 +182,6 @@ class AccountMove(models.Model):
                 clean_origin = (move.invoice_origin or '').strip()
                 if clean_origin and clean_origin not in pos_origin_names:
                     normalized_names = [clean_origin]
-            if not normalized_names:
-                inferred_source = False
-                origin_name = (move.invoice_origin or '').strip()
-                if origin_name:
-                    inferred_source = pos_orders_by_name.get(origin_name)
-                if (
-                    not inferred_source
-                    and 'pos_order_ids' in move._fields
-                    and move.pos_order_ids
-                ):
-                    inferred_source = move.pos_order_ids[0]
-
-                if inferred_source:
-                    inferred_reference = self._guess_quotation_from_pos_order(move, inferred_source)
-                    if inferred_reference:
-                        normalized_names = [inferred_reference]
 
             move.quotation_number = ', '.join(dict.fromkeys(normalized_names)) if normalized_names else False
 
