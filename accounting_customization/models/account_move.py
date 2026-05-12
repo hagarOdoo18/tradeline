@@ -130,8 +130,6 @@ class AccountMove(models.Model):
                     quotation_names.append(sale_order.reference_number)
 
             normalized_names = [name for name in quotation_names if name]
-            if not normalized_names and move.reference_number:
-                normalized_names = [move.reference_number]
             if not normalized_names and move.invoice_origin:
                 clean_origin = (move.invoice_origin or '').strip()
                 pos_order = pos_orders_by_name.get(clean_origin)
@@ -178,6 +176,8 @@ class AccountMove(models.Model):
                     ):
                         pos_based_names.append(pos_order.downpayment_source_reference_number)
                 normalized_names = [name for name in pos_based_names if name]
+            if not normalized_names and move.reference_number:
+                normalized_names = [move.reference_number]
             if not normalized_names and move.invoice_origin:
                 clean_origin = (move.invoice_origin or '').strip()
                 if clean_origin and clean_origin not in pos_origin_names:
