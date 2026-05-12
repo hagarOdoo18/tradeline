@@ -192,9 +192,6 @@ patch(PosOrder.prototype, {
         const sourceName = this.downpayment_quotation_name || "";
         const sourceReference = this.downpayment_reference_number || "";
 
-        serialized.downpayment_quotation_id = sourceId;
-        serialized.downpayment_quotation_name = sourceName;
-        serialized.downpayment_reference_number = sourceReference;
         serialized.downpayment_source_quotation_id = sourceId;
         serialized.downpayment_source_quotation_name = sourceName;
         serialized.downpayment_source_reference_number = sourceReference;
