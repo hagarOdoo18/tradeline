@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 import requests
 
 from odoo import api, fields, models
+from odoo.exceptions import AccessError
 
 _logger = logging.getLogger(__name__)
 
@@ -174,6 +175,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                     return cleaned or value
             return value
         return value
+
+    def _ensure_exec_admin(self):
+        if not self.env.user.has_group("tradeline_executive_pocket_dashboard.group_exec_admin"):
+            raise AccessError("Executive Pocket Dashboard is restricted to Administrator.")
 
     def _resolve_filter_scope(self, filters: dict | None) -> dict:
         filters = filters or {}
@@ -804,6 +809,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         margin_status = self._real_margin_availability(scope)
         finance = self._finance_summary(scope, margin_status=margin_status)
@@ -874,6 +880,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_alerts(self, filters=None):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         finance = self._finance_summary(scope)
         sales = self._sales_summary(scope)
@@ -884,6 +891,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_drilldown(self, domain="finance", metric="value", group_by="branch", filters=None, limit=25, offset=0):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         limit = max(1, min(int(limit or 25), 200))
         offset = max(0, int(offset or 0))
@@ -1483,6 +1491,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_fx_watch(self):
+        self._ensure_exec_admin()
         pairs = list(self.FX_TARGETS.keys())
         records = []
         model = self.env["tradeline.executive.fx.rate"].sudo()
@@ -1801,6 +1810,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def refresh_fx_rates(self):
+        self._ensure_exec_admin()
         return self.sudo()._refresh_fx_rates_impl(manual=True)
 
     @api.model

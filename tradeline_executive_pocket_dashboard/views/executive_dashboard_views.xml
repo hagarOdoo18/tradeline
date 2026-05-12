@@ -17,7 +17,7 @@
         id="menu_executive_pocket_root"
         name="Executive Pocket"
         sequence="5"
-        groups="base.group_system"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
         web_icon="tradeline_executive_pocket_dashboard,static/description/favicon.png"
     />
 
@@ -27,7 +27,7 @@
         parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
         action="tradeline_executive_pocket_dashboard.action_executive_pocket_dashboard"
         sequence="1"
-        groups="base.group_system"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
     />
 
     <menuitem
@@ -35,7 +35,7 @@
         name="Operations"
         parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_root"
         sequence="80"
-        groups="base.group_system"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
     />
 
     <menuitem
@@ -44,21 +44,21 @@
         parent="tradeline_executive_pocket_dashboard.menu_executive_pocket_operations"
         action="tradeline_executive_pocket_dashboard.action_manual_refresh_fx_rates"
         sequence="1"
-        groups="base.group_system"
+        groups="tradeline_executive_pocket_dashboard.group_exec_admin"
     />
 
     <!-- Force replacement of legacy menu groups on module upgrade. -->
     <record id="menu_executive_pocket_root" model="ir.ui.menu">
-        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_executive_pocket_dashboard.group_exec_admin')])]"/>
     </record>
     <record id="menu_executive_pocket_dashboard" model="ir.ui.menu">
-        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_executive_pocket_dashboard.group_exec_admin')])]"/>
     </record>
     <record id="menu_executive_pocket_operations" model="ir.ui.menu">
-        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_executive_pocket_dashboard.group_exec_admin')])]"/>
     </record>
     <record id="menu_executive_manual_fx_refresh" model="ir.ui.menu">
-        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_executive_pocket_dashboard.group_exec_admin')])]"/>
     </record>
 </odoo>
 
