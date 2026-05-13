@@ -7,10 +7,9 @@ import json
 import logging
 from odoo.tools import float_is_zero, float_compare
 from odoo.tools.misc import formatLang
+from collections import defaultdict, deque
 
 _logger = logging.getLogger(__name__)
-
-from collections import defaultdict, deque
 
 class AccountMove(models.Model):
     _inherit = 'account.move'
@@ -328,6 +327,34 @@ class AccountMove(models.Model):
         printed_total = sum(price_lines.mapped('price_total'))
         printed_tax = printed_total - printed_untaxed
 
+        printed_tax_groups = []
+        tax_group_amounts = defaultdict(float)
+        is_refund = self.move_type in ('out_refund', 'in_refund')
+        for line in price_lines:
+            taxes_res = line.tax_ids.compute_all(
+                line.price_unit * (1 - (line.discount or 0.0) / 100.0),
+                currency=currency,
+                quantity=line.quantity,
+                product=line.product_id,
+                partner=self.partner_id,
+                is_refund=is_refund,
+            )
+            for tax_line in taxes_res.get('taxes', []):
+                tax = self.env['account.tax'].browse(tax_line.get('id'))
+                if not tax:
+                    continue
+                label = tax.invoice_label or tax.name or _('Tax')
+                tax_group_amounts[label] += float(tax_line.get('amount') or 0.0)
+
+        for name in sorted(tax_group_amounts.keys()):
+            amount = tax_group_amounts[name]
+            if currency:
+                amount = currency.round(amount)
+            printed_tax_groups.append({
+                'name': name,
+                'amount': amount,
+            })
+
         if currency:
             printed_untaxed = currency.round(printed_untaxed)
             printed_tax = currency.round(printed_tax)
@@ -349,11 +376,21 @@ class AccountMove(models.Model):
             printed_total_company = company_currency.round(
                 currency._convert(printed_total, company_currency, company, convert_date)
             )
+            printed_tax_groups_company = [
+                {
+                    'name': group['name'],
+                    'amount': company_currency.round(
+                        currency._convert(group['amount'], company_currency, company, convert_date)
+                    ),
+                }
+                for group in printed_tax_groups
+            ]
             show_company_currency = True
         else:
             printed_untaxed_company = printed_untaxed
             printed_tax_company = printed_tax
             printed_total_company = printed_total
+            printed_tax_groups_company = printed_tax_groups
             show_company_currency = False
 
         printed_amount_words_ar = ''
@@ -368,6 +405,7 @@ class AccountMove(models.Model):
             'printed_lines': printable_lines,
             'printed_untaxed': printed_untaxed,
             'printed_tax': printed_tax,
+            'printed_tax_groups': printed_tax_groups,
             'printed_total': printed_total,
             'printed_paid': printed_paid,
             'printed_due': printed_due,
@@ -376,6 +414,7 @@ class AccountMove(models.Model):
             'show_company_currency': show_company_currency,
             'printed_untaxed_company': printed_untaxed_company,
             'printed_tax_company': printed_tax_company,
+            'printed_tax_groups_company': printed_tax_groups_company,
             'printed_total_company': printed_total_company,
         }
 

@@ -192,12 +192,24 @@
                                     <span t-out="print_summary['printed_untaxed']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
                                 </td>
                             </tr>
-                            <tr class="o_taxes">
-                                <td>VAT</td>
-                                <td class="text-end o_price_total">
-                                    <span t-out="print_summary['printed_tax']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
-                                </td>
-                            </tr>
+                            <t t-if="print_summary.get('printed_tax_groups')">
+                                <tr class="o_taxes" t-foreach="print_summary.get('printed_tax_groups')" t-as="tax_group">
+                                    <td>
+                                        <span t-esc="tax_group.get('name')"/>
+                                    </td>
+                                    <td class="text-end o_price_total">
+                                        <span t-out="tax_group.get('amount')" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
+                                    </td>
+                                </tr>
+                            </t>
+                            <t t-else="">
+                                <tr class="o_taxes">
+                                    <td>Tax</td>
+                                    <td class="text-end o_price_total">
+                                        <span t-out="print_summary['printed_tax']" t-options='{"widget": "monetary", "display_currency": o.currency_id}'>0.00</span>
+                                    </td>
+                                </tr>
+                            </t>
                             <tr class="o_total">
                                 <td><strong>Total</strong></td>
                                 <td class="text-end">
@@ -253,12 +265,24 @@
                                     <span t-out="print_summary['printed_untaxed_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
                                 </td>
                             </tr>
-                            <tr class="o_taxes">
-                                <td>VAT</td>
-                                <td class="text-end o_price_total">
-                                    <span t-out="print_summary['printed_tax_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
-                                </td>
-                            </tr>
+                            <t t-if="print_summary.get('printed_tax_groups_company')">
+                                <tr class="o_taxes" t-foreach="print_summary.get('printed_tax_groups_company')" t-as="tax_group_company">
+                                    <td>
+                                        <span t-esc="tax_group_company.get('name')"/>
+                                    </td>
+                                    <td class="text-end o_price_total">
+                                        <span t-out="tax_group_company.get('amount')" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
+                                    </td>
+                                </tr>
+                            </t>
+                            <t t-else="">
+                                <tr class="o_taxes">
+                                    <td>Tax</td>
+                                    <td class="text-end o_price_total">
+                                        <span t-out="print_summary['printed_tax_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
+                                    </td>
+                                </tr>
+                            </t>
                             <tr class="o_total">
                                 <td><strong>Total</strong></td>
                                 <td class="text-end">
