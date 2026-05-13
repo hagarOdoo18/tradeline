@@ -28,6 +28,13 @@ class AccountMove(models.Model):
         string='Reference Number',
         required=False)
 
+    # Compatibility field for views that still reference quotation_number.
+    quotation_number = fields.Char(
+        string='Quotation Number',
+        compute='_compute_quotation_number',
+        readonly=True,
+    )
+
     opportunity_id = fields.Many2one(
         comodel_name='crm.lead',
         string='Opportunity',
@@ -74,6 +81,12 @@ class AccountMove(models.Model):
 
     company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
                                     )
+
+    @api.depends('reference_number', 'invoice_origin', 'ref')
+    def _compute_quotation_number(self):
+        for move in self:
+            move.quotation_number = move.reference_number or move.invoice_origin or move.ref or False
+
     def get_product_notes(self):
         for rec in self.invoice_line_ids:
             if rec.product_id.product_notes:
