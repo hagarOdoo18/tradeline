@@ -246,17 +246,14 @@ class AccountMove(models.Model):
     def _get_printable_invoice_lines(self):
         self.ensure_one()
 
-        def _is_positive_qty(line):
-            precision = line.product_uom_id.rounding if line.product_uom_id and line.product_uom_id.rounding else 0.00001
-            return float_compare(line.quantity, 0.0, precision_rounding=precision) > 0
-
         return self.invoice_line_ids.filtered(
-            lambda line: line.display_type == 'product' and line.select_for_report and _is_positive_qty(line)
+            lambda line: line.select_for_report
+            and line.display_type in ('product', 'line_section', 'line_note')
         )
 
-    def _get_report_paid_amount(self):
+    def _get_report_payment_lines(self):
         self.ensure_one()
-        paid_amount = 0.0
+        payment_lines = []
         payments_widget = self.sudo().invoice_payments_widget or {}
 
         if isinstance(payments_widget, str):
@@ -269,13 +266,48 @@ class AccountMove(models.Model):
             for payment_vals in payments_widget.get('content') or []:
                 if payment_vals.get('is_exchange'):
                     continue
-                paid_amount += abs(float(payment_vals.get('amount') or 0.0))
+                payment_lines.append({
+                    'date': payment_vals.get('date'),
+                    'method': (
+                        payment_vals.get('pos_payment_name')
+                        or payment_vals.get('journal_name')
+                        or payment_vals.get('name')
+                        or ''
+                    ),
+                    'amount': abs(float(payment_vals.get('amount') or 0.0)),
+                })
 
-        if not paid_amount:
+        if not payment_lines:
             try:
-                paid_amount = sum(abs(float(payment.amount)) for payment in self._get_reconciled_payments())
+                payments = self._get_reconciled_payments()
             except Exception:
-                paid_amount = 0.0
+                payments = self.env['account.payment']
+
+            payment_lines = [
+                {
+                    'date': payment.date,
+                    'method': payment.journal_id.name or '',
+                    'amount': abs(float(payment.amount or 0.0)),
+                }
+                for payment in payments
+            ]
+
+        if not payment_lines and 'pos_order_ids' in self._fields:
+            pos_payments = self.pos_order_ids.payment_ids
+            payment_lines = [
+                {
+                    'date': payment.payment_date,
+                    'method': payment.payment_method_id.name or '',
+                    'amount': abs(float(payment.amount or 0.0)),
+                }
+                for payment in pos_payments
+            ]
+
+        return payment_lines
+
+    def _get_report_paid_amount(self):
+        self.ensure_one()
+        paid_amount = sum(line['amount'] for line in self._get_report_payment_lines())
 
         return paid_amount
 
@@ -291,8 +323,9 @@ class AccountMove(models.Model):
             reverse=True,
         )
 
-        printed_untaxed = sum(printable_lines.mapped('price_subtotal'))
-        printed_total = sum(printable_lines.mapped('price_total'))
+        price_lines = printable_lines.filtered(lambda line: line.display_type == 'product')
+        printed_untaxed = sum(price_lines.mapped('price_subtotal'))
+        printed_total = sum(price_lines.mapped('price_total'))
         printed_tax = printed_total - printed_untaxed
 
         if currency:
