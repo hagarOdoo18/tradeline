@@ -556,6 +556,10 @@
 
 .tl-drill-coverage {
     margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
 }
 
 .tl-drill-badge {
@@ -568,10 +572,76 @@
     gap: 6px;
 }
 
+.tl-drill-badge.is-muted {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #dbe4ef;
+}
+
+.tl-drill-badge.is-company {
+    background: #ecfeff;
+    color: #0f766e;
+    border: 1px solid #99f6e4;
+}
+
 .tl-drill-desc {
-    margin-left: 8px;
     font-size: 12px;
     color: #64748b;
+}
+
+.tl-drill-sort-note {
+    margin: 2px 0 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.tl-drill-pagebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+
+.tl-drill-page-summary {
+    font-size: 12px;
+    color: #334155;
+    font-weight: 600;
+}
+
+.tl-drill-page-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tl-page-size {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #64748b;
+}
+
+.tl-page-size select {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    border-radius: 8px;
+    padding: 4px 8px;
+    min-width: 86px;
+    font-size: 12px;
+    color: #111827;
+}
+
+.tl-page-indicator {
+    font-size: 12px;
+    color: #475569;
+    font-weight: 700;
+    padding: 0 4px;
 }
 
 .tl-drill-filters {
@@ -603,6 +673,29 @@
 
 .tl-table-wrap {
     overflow-x: auto;
+}
+
+.tl-table-sort-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: #111827;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.tl-table-sort-btn .tl-sort-caret {
+    color: #94a3b8;
+    font-size: 11px;
+    min-width: 10px;
+}
+
+.tl-table-sort-btn.is-active .tl-sort-caret {
+    color: #2563eb;
 }
 
 .tl-exec-loading,
@@ -686,5 +779,18 @@
 
     .tl-fx-periods {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .tl-drill-pagebar {
+        align-items: flex-start;
+    }
+
+    .tl-drill-page-controls {
+        width: 100%;
+    }
+
+    .tl-page-size {
+        width: 100%;
+        justify-content: space-between;
     }
 }

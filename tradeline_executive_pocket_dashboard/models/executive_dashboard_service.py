@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import date, datetime, timedelta
@@ -7,6 +8,7 @@ from datetime import date, datetime, timedelta
 import requests
 
 from odoo import api, fields, models
+from odoo.exceptions import AccessError
 
 _logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         "finance": {
             "label": "Finance",
             "description": "Revenue, collections, receivables, and margin quality.",
-            "groups": {"branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
+            "groups": {"company": "Company", "branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
             "metrics": {
                 "net_revenue": "Net Revenue",
                 "net_margin": "Net Margin",
@@ -46,6 +48,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "label": "Sales",
             "description": "Performance, mix, and margin breakdown.",
             "groups": {
+                "company": "Company",
                 "branch": "Branch",
                 "salesperson": "Salesperson",
                 "customer": "Customer",
@@ -77,7 +80,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         "pipeline": {
             "label": "Pipeline",
             "description": "Open and weighted opportunity pipeline.",
-            "groups": {"stage": "Stage", "owner": "Owner", "branch": "Branch"},
+            "groups": {"company": "Company", "stage": "Stage", "owner": "Owner", "branch": "Branch"},
             "metrics": {
                 "weighted_pipeline": "Weighted Pipeline",
                 "open_pipeline": "Open Pipeline",
@@ -136,6 +139,46 @@ class ExecutiveDashboardService(models.AbstractModel):
             return fields.Date.to_date(value)
         except Exception:
             return fallback
+
+    def _pick_translated_value(self, mapping: dict) -> str:
+        if not mapping:
+            return ""
+        user_lang = self.env.user.lang or "en_US"
+        probes = [user_lang]
+        if "_" in user_lang:
+            probes.append(user_lang.split("_")[0])
+        probes.extend(["en_US", "en", "ar_001", "ar"])
+        for key in probes:
+            value = mapping.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for value in mapping.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    def _clean_dimension_label(self, value):
+        if value is None:
+            return "Unspecified"
+        if isinstance(value, dict):
+            cleaned = self._pick_translated_value(value)
+            return cleaned or "Unspecified"
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                try:
+                    parsed = json.loads(stripped)
+                except Exception:
+                    return value
+                if isinstance(parsed, dict):
+                    cleaned = self._pick_translated_value(parsed)
+                    return cleaned or value
+            return value
+        return value
+
+    def _ensure_exec_admin(self):
+        if not self.env.user.has_group("tradeline_executive_pocket_dashboard.group_exec_admin"):
+            raise AccessError("Executive Pocket Dashboard is restricted to Administrator.")
 
     def _resolve_filter_scope(self, filters: dict | None) -> dict:
         filters = filters or {}
@@ -766,6 +809,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         margin_status = self._real_margin_availability(scope)
         finance = self._finance_summary(scope, margin_status=margin_status)
@@ -836,6 +880,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_alerts(self, filters=None):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         finance = self._finance_summary(scope)
         sales = self._sales_summary(scope)
@@ -846,6 +891,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def get_drilldown(self, domain="finance", metric="value", group_by="branch", filters=None, limit=25, offset=0):
+        self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         limit = max(1, min(int(limit or 25), 200))
         offset = max(0, int(offset or 0))
@@ -856,18 +902,37 @@ class ExecutiveDashboardService(models.AbstractModel):
             metric = "net_revenue"
 
         if domain == "finance":
-            return self._finance_drilldown(scope, group_by, metric, limit, offset, margin_status)
-        if domain == "sales":
-            return self._sales_drilldown(scope, group_by, metric, limit, offset, margin_status)
-        if domain == "inventory":
-            return self._inventory_drilldown(scope, group_by, metric, limit, offset)
-        if domain == "pipeline":
-            return self._pipeline_drilldown(scope, group_by, metric, limit, offset)
-        return {"domain": domain, "group_by": group_by, "metric": metric, "rows": [], "columns": []}
+            result = self._finance_drilldown(scope, group_by, metric, limit, offset, margin_status)
+        elif domain == "sales":
+            result = self._sales_drilldown(scope, group_by, metric, limit, offset, margin_status)
+        elif domain == "inventory":
+            result = self._inventory_drilldown(scope, group_by, metric, limit, offset)
+        elif domain == "pipeline":
+            result = self._pipeline_drilldown(scope, group_by, metric, limit, offset)
+        else:
+            result = {
+                "domain": domain,
+                "group_by": group_by,
+                "metric": metric,
+                "rows": [],
+                "columns": [],
+                "total_count": 0,
+                "limit": limit,
+                "offset": offset,
+            }
+
+        for row in result.get("rows", []):
+            row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+        result.setdefault("total_count", len(result.get("rows", [])))
+        result.setdefault("limit", limit)
+        result.setdefault("offset", offset)
+        return result
 
     def _finance_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
         if has_branch:
             dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
@@ -875,18 +940,25 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "customer":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
         elif group_by == "payment_state":
             dim_sql = "COALESCE(move.payment_state, 'unknown')"
             joins = ""
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"invoice_count", "net_revenue", "credit_note_value"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) AS invoice_count,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
@@ -896,21 +968,41 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension{company_select}
+                FROM account_move move
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension{company_group_by}
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "net_revenue", "credit_note_value"]
+        if include_company_split:
+            columns.insert(0, "company")
 
         if margin_status.get("available"):
             margin_params = list(params[:-2])  # remove limit/offset
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension,
+                    {dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                             WHEN move.move_type = 'out_refund'
@@ -935,18 +1027,28 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND line.total_cost IS NOT NULL
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
                 """,
                 margin_params,
             )
-            margin_map = {row["dimension"]: row for row in self._dictfetchall()}
+            margin_map = {}
+            for margin_row in self._dictfetchall():
+                key = margin_row.get("dimension")
+                if include_company_split:
+                    key = (margin_row.get("company"), margin_row.get("dimension"))
+                margin_map[key] = margin_row
             for row in rows:
-                margin_row = margin_map.get(row.get("dimension")) or {}
+                margin_key = row.get("dimension")
+                if include_company_split:
+                    margin_key = (row.get("company"), row.get("dimension"))
+                margin_row = margin_map.get(margin_key) or {}
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "net_revenue", "net_margin", "margin_pct", "credit_note_value"]
+            if include_company_split:
+                columns.insert(0, "company")
             if metric in {"net_margin", "margin_pct"}:
                 rows = sorted(rows, key=lambda r: float(r.get(metric) or 0.0), reverse=True)
 
@@ -956,11 +1058,16 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metric": metric,
             "columns": columns,
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _sales_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
         if has_branch:
             dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
@@ -968,7 +1075,10 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "salesperson":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "salesperson":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
                 joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
@@ -989,7 +1099,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_category category ON category.id = template.categ_id
             """
         elif group_by == "product":
-            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', COALESCE(line.product_id, 0)::text))"
+            dim_sql = "COALESCE(line.product_id, 0)"
             joins = """
                 JOIN account_move_line line
                   ON line.move_id = move.id
@@ -997,11 +1107,15 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_product product ON product.id = line.product_id
                 LEFT JOIN product_template template ON template.id = product.product_tmpl_id
             """
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
         order_metric = metric if metric in {"invoice_count", "average_basket", "net_revenue"} else "net_revenue"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
                 COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
@@ -1011,14 +1125,34 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension{company_select}
+                FROM account_move move
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension{company_group_by}
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "average_basket", "net_revenue"]
+        if include_company_split:
+            columns.insert(0, "company")
 
         if margin_status.get("available"):
             margin_joins = joins
@@ -1031,7 +1165,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension,
+                    {dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                             WHEN move.move_type = 'out_refund'
@@ -1051,20 +1185,59 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension
+                GROUP BY dimension{company_group_by}
                 """,
                 margin_params,
             )
-            margin_map = {row["dimension"]: row for row in self._dictfetchall()}
+            margin_map = {}
+            for margin_row in self._dictfetchall():
+                key = margin_row.get("dimension")
+                if include_company_split:
+                    key = (margin_row.get("company"), margin_row.get("dimension"))
+                margin_map[key] = margin_row
             for row in rows:
-                margin_row = margin_map.get(row.get("dimension")) or {}
+                margin_key = row.get("dimension")
+                if include_company_split:
+                    margin_key = (row.get("company"), row.get("dimension"))
+                margin_row = margin_map.get(margin_key) or {}
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"]
+            if include_company_split:
+                columns.insert(0, "company")
             if metric in {"net_margin", "margin_pct"}:
                 rows = sorted(rows, key=lambda r: float(r.get(metric) or 0.0), reverse=True)
+
+        if group_by == "product":
+            product_ids = []
+            for row in rows:
+                try:
+                    row["_dimension_product_id"] = int(row.get("dimension") or 0)
+                except Exception:
+                    row["_dimension_product_id"] = 0
+                if row["_dimension_product_id"] > 0:
+                    product_ids.append(row["_dimension_product_id"])
+
+            name_map = {}
+            if product_ids:
+                products = (
+                    self.env["product.product"]
+                    .sudo()
+                    .with_context(lang=self.env.user.lang or "en_US")
+                    .browse(sorted(set(product_ids)))
+                    .exists()
+                )
+                for product in products:
+                    name_map[product.id] = product.display_name or product.name or f"Product #{product.id}"
+
+            for row in rows:
+                product_id = row.pop("_dimension_product_id", 0)
+                if product_id > 0:
+                    row["dimension"] = name_map.get(product_id, f"Product #{product_id}")
+                else:
+                    row["dimension"] = "Unspecified Product"
 
         return {
             "domain": "sales",
@@ -1072,22 +1245,24 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metric": metric,
             "columns": columns,
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _inventory_drilldown(self, scope, group_by, metric, limit, offset):
         quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
         svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
         params = quant_params + svl_params + [limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = inv.company_id"
 
         if group_by == "company":
             dim_sql = "COALESCE(company.name, 'Unknown Company')"
             dim_join = "LEFT JOIN res_company company ON company.id = inv.company_id"
         elif group_by == "product":
-            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', inv.product_id::text))"
-            dim_join = """
-                LEFT JOIN product_product product ON product.id = inv.product_id
-                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
-            """
+            dim_sql = "COALESCE(inv.product_id, 0)"
+            dim_join = ""
         else:
             dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
             dim_join = """
@@ -1095,6 +1270,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_template template ON template.id = product.product_tmpl_id
                 LEFT JOIN product_category category ON category.id = template.categ_id
             """
+        if include_company_split and "res_company company" not in dim_join:
+            dim_join = f"{dim_join}\n{company_join_sql}" if dim_join else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"allocated_value", "on_hand_qty", "unit_cost"} else "allocated_value"
         self.env.cr.execute(
@@ -1129,7 +1308,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                  AND s.company_id = q.company_id
             )
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COALESCE(SUM(inv.on_hand_qty), 0) AS on_hand_qty,
                 COALESCE(SUM(inv.allocated_value), 0) AS allocated_value,
                 CASE
@@ -1138,28 +1317,109 @@ class ExecutiveDashboardService(models.AbstractModel):
                 END AS unit_cost
             FROM inv
             {dim_join}
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
+        count_params = quant_params + svl_params
+        self.env.cr.execute(
+            f"""
+            WITH quant_agg AS (
+                SELECT quant.product_id, quant.company_id, SUM(COALESCE(quant.quantity, 0)) AS on_hand_qty
+                FROM stock_quant quant
+                JOIN stock_location location ON location.id = quant.location_id
+                WHERE {quant_where}
+                  AND location.usage = 'internal'
+                GROUP BY quant.product_id, quant.company_id
+            ),
+            svl_agg AS (
+                SELECT svl.product_id, svl.company_id, SUM(COALESCE(svl.quantity, 0)) AS svl_qty, SUM(COALESCE(svl.value, 0)) AS svl_value
+                FROM stock_valuation_layer svl
+                WHERE {svl_where}
+                GROUP BY svl.product_id, svl.company_id
+            ),
+            inv AS (
+                SELECT
+                    COALESCE(q.product_id, s.product_id) AS product_id,
+                    COALESCE(q.company_id, s.company_id) AS company_id,
+                    COALESCE(q.on_hand_qty, 0) AS on_hand_qty,
+                    COALESCE(s.svl_qty, 0) AS svl_qty,
+                    COALESCE(s.svl_value, 0) AS svl_value,
+                    CASE WHEN COALESCE(s.svl_qty, 0) = 0 THEN 0
+                         ELSE COALESCE(q.on_hand_qty, 0) * (COALESCE(s.svl_value, 0) / NULLIF(s.svl_qty, 0))
+                    END AS allocated_value
+                FROM quant_agg q
+                FULL OUTER JOIN svl_agg s
+                  ON s.product_id = q.product_id
+                 AND s.company_id = q.company_id
+            )
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension{company_select}
+                FROM inv
+                {dim_join}
+                GROUP BY dimension{company_group_by}
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+
+        if group_by == "product":
+            product_ids = []
+            for row in rows:
+                try:
+                    row["_dimension_product_id"] = int(row.get("dimension") or 0)
+                except Exception:
+                    row["_dimension_product_id"] = 0
+                if row["_dimension_product_id"] > 0:
+                    product_ids.append(row["_dimension_product_id"])
+
+            name_map = {}
+            if product_ids:
+                products = (
+                    self.env["product.product"]
+                    .sudo()
+                    .with_context(lang=self.env.user.lang or "en_US")
+                    .browse(sorted(set(product_ids)))
+                    .exists()
+                )
+                for product in products:
+                    name_map[product.id] = product.display_name or product.name or f"Product #{product.id}"
+
+            for row in rows:
+                product_id = row.pop("_dimension_product_id", 0)
+                if product_id > 0:
+                    row["dimension"] = name_map.get(product_id, f"Product #{product_id}")
+                else:
+                    row["dimension"] = "Unspecified Product"
+
         return {
             "domain": "inventory",
             "group_by": group_by,
             "metric": metric,
-            "columns": ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
+            "columns": (["company"] if include_company_split else []) + ["dimension", "on_hand_qty", "allocated_value", "unit_cost"],
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     def _pipeline_drilldown(self, scope, group_by, metric, limit, offset):
         where_sql, params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=scope, include_sales_rep=True)
         params += [limit, offset]
+        include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
+        company_join_sql = "LEFT JOIN res_company company ON company.id = lead.company_id"
 
         dim_sql = "COALESCE(stage.name, CONCAT('Stage #', COALESCE(lead.stage_id, 0)::text))"
         joins = "LEFT JOIN crm_stage stage ON stage.id = lead.stage_id"
-        if group_by == "owner":
+        if group_by == "company":
+            dim_sql = "COALESCE(company.name, 'Unknown Company')"
+            joins = company_join_sql
+        elif group_by == "owner":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(user_partner.name, sales_rep.name, CONCAT('Owner #', COALESCE(lead.user_id, 0)::text))"
                 joins = """
@@ -1180,35 +1440,58 @@ class ExecutiveDashboardService(models.AbstractModel):
             else:
                 dim_sql = "CONCAT('Branch #', COALESCE(lead.branch_id, 0)::text)"
                 joins = ""
+        if include_company_split and "res_company company" not in joins:
+            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+        company_group_by = ", company" if include_company_split else ""
 
         order_metric = metric if metric in {"open_opportunities", "open_pipeline", "weighted_pipeline"} else "weighted_pipeline"
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
+                {dim_sql} AS dimension{company_select},
                 COUNT(*) FILTER (WHERE lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100) AS open_opportunities,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) ELSE 0 END), 0) AS open_pipeline,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) * COALESCE(lead.probability, 0) / 100.0 ELSE 0 END), 0) AS weighted_pipeline
             FROM crm_lead lead
             {joins}
             WHERE {where_sql}
-            GROUP BY dimension
+            GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
+        count_params = list(params[:-2])
+        self.env.cr.execute(
+            f"""
+            SELECT COUNT(*) AS total_count
+            FROM (
+                SELECT {dim_sql} AS dimension{company_select}
+                FROM crm_lead lead
+                {joins}
+                WHERE {where_sql}
+                GROUP BY dimension{company_group_by}
+            ) grouped
+            """,
+            count_params,
+        )
+        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         return {
             "domain": "pipeline",
             "group_by": group_by,
             "metric": metric,
-            "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
+            "columns": (["company"] if include_company_split else []) + ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"],
             "rows": rows,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
         }
 
     @api.model
     def get_fx_watch(self):
+        self._ensure_exec_admin()
         pairs = list(self.FX_TARGETS.keys())
         records = []
         model = self.env["tradeline.executive.fx.rate"].sudo()
@@ -1527,6 +1810,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     @api.model
     def refresh_fx_rates(self):
+        self._ensure_exec_admin()
         return self.sudo()._refresh_fx_rates_impl(manual=True)
 
     @api.model

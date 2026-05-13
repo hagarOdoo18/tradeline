@@ -167,27 +167,35 @@ function setLineValuesCompat(line, quantity, priceUnit, discount) {
 }
 
 patch(PosOrder.prototype, {
-    setup(defaultObj, options) {
+    setup(vals) {
         super.setup(...arguments);
-        if (this.downpayment_quotation_id === undefined) {
-            this.downpayment_quotation_id = false;
-        }
-        if (this.downpayment_quotation_name === undefined) {
-            this.downpayment_quotation_name = "";
-        }
+        this.downpayment_quotation_id =
+            this.downpayment_quotation_id ||
+            vals?.downpayment_quotation_id ||
+            vals?.downpayment_source_quotation_id ||
+            false;
+        this.downpayment_quotation_name =
+            this.downpayment_quotation_name ||
+            vals?.downpayment_quotation_name ||
+            vals?.downpayment_source_quotation_name ||
+            "";
+        this.downpayment_reference_number =
+            this.downpayment_reference_number ||
+            vals?.downpayment_reference_number ||
+            vals?.downpayment_source_reference_number ||
+            "";
     },
 
-    export_as_JSON() {
-        const json = super.export_as_JSON(...arguments);
-        json.downpayment_quotation_id = this.downpayment_quotation_id || false;
-        json.downpayment_quotation_name = this.downpayment_quotation_name || "";
-        return json;
-    },
+    serialize() {
+        const serialized = super.serialize(...arguments);
+        const sourceId = this.downpayment_quotation_id || false;
+        const sourceName = this.downpayment_quotation_name || "";
+        const sourceReference = this.downpayment_reference_number || "";
 
-    init_from_JSON(json) {
-        super.init_from_JSON(...arguments);
-        this.downpayment_quotation_id = json?.downpayment_quotation_id || false;
-        this.downpayment_quotation_name = json?.downpayment_quotation_name || "";
+        serialized.downpayment_source_quotation_id = sourceId;
+        serialized.downpayment_source_quotation_name = sourceName;
+        serialized.downpayment_source_reference_number = sourceReference;
+        return serialized;
     },
 });
 
@@ -237,6 +245,7 @@ patch(ControlButtons.prototype, {
         const orderToUpdate = workingOrder || order;
         orderToUpdate.downpayment_quotation_id = details.source_id || details.quotation_id || false;
         orderToUpdate.downpayment_quotation_name = details.source_name || details.quotation_name || "";
+        orderToUpdate.downpayment_reference_number = details.reference_number || "";
 
         if (!Array.isArray(details.lines) || !details.lines.length) {
             this.dialog.add(AlertDialog, {
@@ -267,6 +276,7 @@ patch(ControlButtons.prototype, {
         }
         order.downpayment_quotation_id = false;
         order.downpayment_quotation_name = `${_t("Manual Ref")}: ${manualReference}`;
+        order.downpayment_reference_number = manualReference;
         this.dialog.add(AlertDialog, {
             title: _t("Manual Mode"),
             body: _t("Reference saved. Please enter customer and other fields manually."),

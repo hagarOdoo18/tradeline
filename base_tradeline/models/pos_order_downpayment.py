@@ -37,9 +37,21 @@ class PosOrder(models.Model):
 
     @api.model
     def _order_fields(self, ui_order):
+        payload = ui_order.get("data") if isinstance(ui_order.get("data"), dict) else ui_order
         order_fields = super()._order_fields(ui_order)
-        source_id = self._extract_int_id(ui_order.get("downpayment_quotation_id"))
-        source_name = (ui_order.get("downpayment_quotation_name") or "").strip()
+        source_id = self._extract_int_id(
+            payload.get("downpayment_quotation_id") or payload.get("downpayment_source_quotation_id")
+        )
+        source_name = (
+            payload.get("downpayment_quotation_name")
+            or payload.get("downpayment_source_quotation_name")
+            or ""
+        ).strip()
+        source_reference = (
+            payload.get("downpayment_reference_number")
+            or payload.get("downpayment_source_reference_number")
+            or ""
+        ).strip()
 
         if source_id and "sale.order" in self.env:
             source = self.env["sale.order"].sudo().browse(source_id)
@@ -57,6 +69,10 @@ class PosOrder(models.Model):
             if source_name.lower().startswith("manual ref"):
                 manual_ref = source_name.split(":", 1)[1].strip() if ":" in source_name else ""
                 order_fields["downpayment_source_reference_number"] = manual_ref or source_name
+            elif source_reference:
+                order_fields["downpayment_source_reference_number"] = source_reference
+        elif source_reference:
+            order_fields["downpayment_source_reference_number"] = source_reference
 
         return order_fields
 

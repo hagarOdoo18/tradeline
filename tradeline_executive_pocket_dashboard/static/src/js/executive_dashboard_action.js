@@ -19,6 +19,14 @@ export class ExecutivePocketDashboard extends Component {
             selectedDomain: "finance",
             selectedGroupBy: "branch",
             selectedMetric: "net_revenue",
+            sort: {
+                column: "",
+                direction: "",
+            },
+            pagination: {
+                limit: 30,
+                offset: 0,
+            },
             companyPicker: {
                 open: false,
                 search: "",
@@ -53,15 +61,116 @@ export class ExecutivePocketDashboard extends Component {
     }
 
     get drillRows() {
-        return this.state.bundle?.drilldown?.rows || [];
+        const rows = this.state.bundle?.drilldown?.rows || [];
+        const sortCol = this.state.sort.column;
+        const sortDir = this.state.sort.direction;
+        if (!sortCol || !sortDir) {
+            return rows;
+        }
+        const sorted = [...rows];
+        const direction = sortDir === "asc" ? 1 : -1;
+        const comparable = sorted
+            .map((row) => row?.[sortCol])
+            .filter((value) => value !== null && value !== undefined && value !== "");
+        if (!comparable.length) {
+            return sorted;
+        }
+        const numeric = comparable.every((value) => typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))));
+        sorted.sort((a, b) => {
+            const left = a?.[sortCol];
+            const right = b?.[sortCol];
+            const leftMissing = left === null || left === undefined || left === "";
+            const rightMissing = right === null || right === undefined || right === "";
+            if (leftMissing && rightMissing) {
+                return 0;
+            }
+            if (leftMissing) {
+                return 1;
+            }
+            if (rightMissing) {
+                return -1;
+            }
+            if (numeric) {
+                return (Number(left) - Number(right)) * direction;
+            }
+            return String(left).localeCompare(String(right), undefined, { sensitivity: "base" }) * direction;
+        });
+        return sorted;
     }
 
     get drillColumns() {
         return this.state.bundle?.drilldown?.columns || [];
     }
 
+    get drillHasCompanyColumn() {
+        return this.drillColumns.includes("company");
+    }
+
+    get companySplitNotice() {
+        if (!this.drillHasCompanyColumn) {
+            return "";
+        }
+        return "Company split active (multiple companies selected).";
+    }
+
     get coverage() {
         return this.state.bundle?.coverage || {};
+    }
+
+    get drillTotalCount() {
+        return Number(this.state.bundle?.drilldown?.total_count || 0);
+    }
+
+    get drillLimit() {
+        return Number(this.state.pagination.limit || 30);
+    }
+
+    get drillOffset() {
+        return Number(this.state.pagination.offset || 0);
+    }
+
+    get drillPageStart() {
+        if (!this.drillTotalCount) {
+            return 0;
+        }
+        return this.drillOffset + 1;
+    }
+
+    get drillPageEnd() {
+        if (!this.drillTotalCount) {
+            return 0;
+        }
+        return Math.min(this.drillOffset + this.drillLimit, this.drillTotalCount);
+    }
+
+    get drillTotalPages() {
+        if (!this.drillTotalCount) {
+            return 1;
+        }
+        return Math.max(1, Math.ceil(this.drillTotalCount / this.drillLimit));
+    }
+
+    get drillCurrentPage() {
+        return Math.floor(this.drillOffset / this.drillLimit) + 1;
+    }
+
+    get hasPrevPage() {
+        return this.drillOffset > 0;
+    }
+
+    get hasNextPage() {
+        return this.drillOffset + this.drillLimit < this.drillTotalCount;
+    }
+
+    get pageSizeOptions() {
+        return [25, 50, 100, 200];
+    }
+
+    get drillPageSummary() {
+        if (!this.drillTotalCount) {
+            return "No grouped rows found";
+        }
+        return `Showing ${this._formatNumber(this.drillPageStart)}-${this._formatNumber(this.drillPageEnd)} of ${this._formatNumber(this.drillTotalCount)} grouped rows`;
     }
 
     get marginStatus() {
@@ -237,6 +346,18 @@ export class ExecutivePocketDashboard extends Component {
         return (this.drillRows || []).length > 0;
     }
 
+    get hasSort() {
+        return Boolean(this.state.sort.column && this.state.sort.direction);
+    }
+
+    get sortSummary() {
+        if (!this.hasSort) {
+            return "Server default order";
+        }
+        const direction = this.state.sort.direction === "asc" ? "ascending" : "descending";
+        return `Sorted by ${this.columnLabel(this.state.sort.column)} (${direction})`;
+    }
+
     _syncSelectionFromBundle() {
         const domainCfg = this.selectedDomainCatalog;
         if (!domainCfg) {
@@ -285,13 +406,30 @@ export class ExecutivePocketDashboard extends Component {
 
     async _reloadDrilldown() {
         try {
+            const requestedLimit = this.drillLimit;
+            const requestedOffset = this.drillOffset;
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, 30, 0]
+                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, requestedLimit, requestedOffset]
             );
+            const totalCount = Number(drilldown?.total_count || 0);
+            if (totalCount > 0 && requestedOffset >= totalCount) {
+                const lastOffset = Math.max(0, Math.floor((totalCount - 1) / requestedLimit) * requestedLimit);
+                if (lastOffset !== requestedOffset) {
+                    this.state.pagination.offset = lastOffset;
+                    await this._reloadDrilldown();
+                    return;
+                }
+            }
             if (this.state.bundle) {
                 this.state.bundle.drilldown = drilldown;
+            }
+            this.state.pagination.limit = Number(drilldown?.limit || requestedLimit);
+            this.state.pagination.offset = Number(drilldown?.offset || 0);
+            if (this.state.sort.column && !(drilldown?.columns || []).includes(this.state.sort.column)) {
+                this.state.sort.column = "";
+                this.state.sort.direction = "";
             }
         } catch (_error) {
             this.notification.add("Failed to load drilldown data", { type: "warning" });
@@ -358,6 +496,19 @@ export class ExecutivePocketDashboard extends Component {
         return input.length > maxLen ? `${input.slice(0, maxLen - 1)}...` : input;
     }
 
+    columnLabel(column) {
+        const text = String(column || "").trim();
+        if (!text) {
+            return "";
+        }
+        return text
+            .replace(/_/g, " ")
+            .split(" ")
+            .filter(Boolean)
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+    }
+
     _formatDayLabel(value) {
         const dt = new Date(`${value}T00:00:00`);
         if (Number.isNaN(dt.getTime())) {
@@ -395,23 +546,91 @@ export class ExecutivePocketDashboard extends Component {
 
     async onLensChange(ev) {
         this.state.lens = ev.target.value;
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 
     async onDomainChange(ev) {
         this.state.selectedDomain = ev.target.value;
+        this.state.pagination.offset = 0;
         this._syncSelectionFromBundle();
         await this._reloadDrilldown();
     }
 
     async onGroupChange(ev) {
         this.state.selectedGroupBy = ev.target.value;
+        this.state.pagination.offset = 0;
         await this._reloadDrilldown();
     }
 
     async onMetricChange(ev) {
         this.state.selectedMetric = ev.target.value;
+        this.state.pagination.offset = 0;
         await this._reloadDrilldown();
+    }
+
+    async onPageSizeChange(ev) {
+        const nextLimit = Number(ev.target.value || 30);
+        if (!Number.isFinite(nextLimit) || nextLimit <= 0 || nextLimit === this.drillLimit) {
+            return;
+        }
+        this.state.pagination.limit = nextLimit;
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
+    }
+
+    async onPrevPage() {
+        if (!this.hasPrevPage) {
+            return;
+        }
+        this.state.pagination.offset = Math.max(0, this.drillOffset - this.drillLimit);
+        await this._reloadDrilldown();
+    }
+
+    async onNextPage() {
+        if (!this.hasNextPage) {
+            return;
+        }
+        this.state.pagination.offset = this.drillOffset + this.drillLimit;
+        await this._reloadDrilldown();
+    }
+
+    onSortColumn(column) {
+        if (!column) {
+            return;
+        }
+        if (this.state.sort.column !== column) {
+            this.state.sort.column = column;
+            this.state.sort.direction = "asc";
+            return;
+        }
+        if (this.state.sort.direction === "asc") {
+            this.state.sort.direction = "desc";
+            return;
+        }
+        if (this.state.sort.direction === "desc") {
+            this.state.sort.column = "";
+            this.state.sort.direction = "";
+            return;
+        }
+        this.state.sort.direction = "asc";
+    }
+
+    onSortColumnClick(ev) {
+        const column = ev?.currentTarget?.dataset?.column || "";
+        this.onSortColumn(column);
+    }
+
+    clearSort() {
+        this.state.sort.column = "";
+        this.state.sort.direction = "";
+    }
+
+    sortIcon(column) {
+        if (this.state.sort.column !== column) {
+            return "-";
+        }
+        return this.state.sort.direction === "asc" ? "^" : "v";
     }
 
     onToggleCompanyPicker() {
@@ -450,10 +669,12 @@ export class ExecutivePocketDashboard extends Component {
     async onApplyCompanySelection() {
         this.state.filters.company_ids = [...(this.state.companyPicker.draft_ids || [])];
         this.state.companyPicker.open = false;
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 
     async onDateChange() {
+        this.state.pagination.offset = 0;
         await this._loadBundle();
     }
 

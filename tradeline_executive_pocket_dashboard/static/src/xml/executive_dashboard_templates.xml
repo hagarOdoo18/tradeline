@@ -244,15 +244,37 @@
                     <div class="tl-drill-head">
                         <h2>Granular Drilldown</h2>
                         <div class="tl-drill-actions">
+                            <button class="btn btn-light" t-if="hasSort" t-on-click="clearSort">Clear Sort</button>
                             <button class="btn btn-secondary" t-on-click="onOpenNativeView">Open Native View</button>
                         </div>
                     </div>
 
                     <div class="tl-drill-coverage">
-                        <span class="tl-drill-badge">Records in selected domain: <strong><t t-esc="_formatNumber(selectedDomainCoverage)"/></strong></span>
+                        <span class="tl-drill-badge">Underlying records in selected domain: <strong><t t-esc="_formatNumber(selectedDomainCoverage)"/></strong></span>
+                        <span class="tl-drill-badge is-muted">Grouped rows available: <strong><t t-esc="_formatNumber(drillTotalCount)"/></strong></span>
+                        <t t-if="companySplitNotice">
+                            <span class="tl-drill-badge is-company"><t t-esc="companySplitNotice"/></span>
+                        </t>
                         <t t-if="selectedDomainDescription">
                             <span class="tl-drill-desc"><t t-esc="selectedDomainDescription"/></span>
                         </t>
+                    </div>
+                    <div class="tl-drill-sort-note"><t t-esc="sortSummary"/></div>
+                    <div class="tl-drill-pagebar">
+                        <span class="tl-drill-page-summary"><t t-esc="drillPageSummary"/></span>
+                        <div class="tl-drill-page-controls">
+                            <label class="tl-page-size">
+                                <span>Rows / page</span>
+                                <select t-att-value="drillLimit" t-on-change="onPageSizeChange">
+                                    <t t-foreach="pageSizeOptions" t-as="size" t-key="size">
+                                        <option t-att-value="size"><t t-esc="size"/></option>
+                                    </t>
+                                </select>
+                            </label>
+                            <button class="btn btn-light btn-sm" t-on-click="onPrevPage" t-att-disabled="hasPrevPage ? null : true">Prev</button>
+                            <span class="tl-page-indicator">Page <t t-esc="_formatNumber(drillCurrentPage)"/> / <t t-esc="_formatNumber(drillTotalPages)"/></span>
+                            <button class="btn btn-light btn-sm" t-on-click="onNextPage" t-att-disabled="hasNextPage ? null : true">Next</button>
+                        </div>
                     </div>
 
                     <div class="tl-drill-filters">
@@ -293,7 +315,18 @@
                             <thead>
                                 <tr>
                                     <t t-foreach="drillColumns" t-as="column" t-key="column">
-                                        <th><t t-esc="column"/></th>
+                                        <th>
+                                            <button
+                                                type="button"
+                                                class="tl-table-sort-btn"
+                                                t-att-class="state.sort.column === column ? 'is-active' : ''"
+                                                t-att-data-column="column"
+                                                t-on-click="onSortColumnClick"
+                                            >
+                                                <span><t t-esc="columnLabel(column)"/></span>
+                                                <span class="tl-sort-caret"><t t-esc="sortIcon(column)"/></span>
+                                            </button>
+                                        </th>
                                     </t>
                                 </tr>
                             </thead>
