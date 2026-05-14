@@ -3,10 +3,9 @@
     <data noupdate="1">
         <record id="group_sro_date_range" model="res.groups">
             <field name="name">SRO Date Range</field>
-            <field name="category_id" ref="base.module_category_sales_management"/>
+            <field name="category_id" ref="base.module_category_sales"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
             <field name="users" eval="[(4, ref('base.user_admin'))]"/>
         </record>
     </data>
 </odoo>
-
