@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_sale_order_sro_wizard_form" model="ir.ui.view">
+            <field name="name">sale.order.sro.wizard.form</field>
+            <field name="model">sale.order.sro.wizard</field>
+            <field name="arch" type="xml">
+                <form string="SRO Date Range">
+                    <group>
+                        <group>
+                            <field name="start_date"/>
+                        </group>
+                        <group>
+                            <field name="end_date"/>
+                        </group>
+                    </group>
+                    <footer>
+                        <button
+                            name="action_open_sro_orders_in_range"
+                            string="SRO In Range"
+                            type="object"
+                            class="btn-primary"
+                        />
+                        <button string="Cancel" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_sale_order_sro_wizard" model="ir.actions.act_window">
+            <field name="name">SRO Date Range</field>
+            <field name="res_model">sale.order.sro.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+        </record>
+
+        <menuitem
+            id="menu_sale_order_sro_wizard"
+            name="SRO Date Range"
+            parent="sale.sale_menu_root"
+            action="action_sale_order_sro_wizard"
+            sequence="111"
+        />
+    </data>
+</odoo>
+
