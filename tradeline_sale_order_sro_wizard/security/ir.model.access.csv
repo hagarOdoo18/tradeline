@@ -1,3 +1,2 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_sale_order_sro_wizard,sale.order.sro.wizard,model_sale_order_sro_wizard,,1,1,1,1
-
+access_sale_order_sro_wizard,sale.order.sro.wizard,model_sale_order_sro_wizard,tradeline_sale_order_sro_wizard.group_sro_date_range,1,1,1,1

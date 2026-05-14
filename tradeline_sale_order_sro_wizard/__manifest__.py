@@ -5,10 +5,10 @@
     "license": "LGPL-3",
     "depends": ["base", "sale_management", "accounting_customization"],
     "data": [
+        "security/security.xml",
         "security/ir.model.access.csv",
         "views/date_wizard.xml",
     ],
     "installable": True,
     "application": False,
 }
-

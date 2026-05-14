@@ -32,6 +32,7 @@
             <field name="res_model">sale.order.sro.wizard</field>
             <field name="view_mode">form</field>
             <field name="target">new</field>
+            <field name="groups_id" eval="[(4, ref('tradeline_sale_order_sro_wizard.group_sro_date_range'))]"/>
         </record>
 
         <menuitem
@@ -40,7 +41,7 @@
             parent="sale.sale_menu_root"
             action="action_sale_order_sro_wizard"
             sequence="111"
+            groups="tradeline_sale_order_sro_wizard.group_sro_date_range"
         />
     </data>
 </odoo>
-
