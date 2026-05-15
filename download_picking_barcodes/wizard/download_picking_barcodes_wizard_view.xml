@@ -17,6 +17,7 @@
     </record>
 
 
+
         <record id="action_download_picking_barcodes_wizard" model="ir.actions.act_window">
             <field name="name">Download Picking Barcodes</field>
             <field name="type">ir.actions.act_window</field>
