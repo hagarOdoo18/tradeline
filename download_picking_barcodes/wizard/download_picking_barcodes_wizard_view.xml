@@ -16,10 +16,13 @@
         </field>
     </record>
 
-    <act_window id="action_download_picking_barcodes_wizard"
-                name="Download Picking Barcodes"
-                res_model="download.picking.barcodes.wizard"
-                view_mode="form"
-                target="new"/>
+
+        <record id="action_download_picking_barcodes_wizard" model="ir.actions.act_window">
+            <field name="name">Download Picking Barcodes</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">download.picking.barcodes.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+        </record>
     </data>
 </odoo>
