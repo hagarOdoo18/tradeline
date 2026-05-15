@@ -21,6 +21,10 @@
         "views/executive_fx_rate_views.xml",
     ],
     "assets": {
+        "web.chartjs_lib": [
+            "/web/static/lib/Chart/Chart.js",
+            "/web/static/lib/chartjs-adapter-luxon/chartjs-adapter-luxon.js",
+        ],
         "web.assets_backend": [
             "tradeline_executive_pocket_dashboard/static/src/js/executive_dashboard_action.js",
             "tradeline_executive_pocket_dashboard/static/src/xml/executive_dashboard_templates.xml",
