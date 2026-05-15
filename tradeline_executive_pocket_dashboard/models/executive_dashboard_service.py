@@ -134,9 +134,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         return " AND ".join(clauses), params
 
-    def _finance_summary(self, filters: dict) -> dict:
         if not self._has_table("account_move"):
-            return {"gross_sales": 0, "net_revenue": 0, "collections_total": 0, "overdue_receivables": 0, "credit_note_value": 0}
 
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
         params += [filters["start_date"], filters["end_date"]]
@@ -202,9 +200,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         result["return_rate"] = (result["credit_note_value"] / result["gross_sales"] * 100.0) if result["gross_sales"] else 0.0
         return result
 
-    def _sales_summary(self, filters: dict) -> dict:
         if not self._has_table("account_move"):
-            return {"invoice_count": 0, "average_basket": 0, "net_revenue": 0, "negative_margin_invoices": 0}
 
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
         params += [filters["start_date"], filters["end_date"]]
@@ -223,11 +219,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         row = self._dictfetchone()
-        return {
             "invoice_count": float(row.get("invoice_count") or 0),
             "average_basket": float(row.get("average_basket") or 0),
             "net_revenue": float(row.get("net_revenue") or 0),
-            "negative_margin_invoices": 0.0,
         }
 
     def _inventory_summary(self, filters: dict) -> dict:
@@ -363,8 +357,6 @@ class ExecutiveDashboardService(models.AbstractModel):
     @api.model
     def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None):
         scope = self._resolve_filter_scope(filters)
-        finance = self._finance_summary(scope)
-        sales = self._sales_summary(scope)
         inventory = self._inventory_summary(scope)
         pipeline = self._pipeline_summary(scope)
         fx_watch = self.get_fx_watch()
@@ -379,11 +371,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
         ]
 
-        default_domain = drill_path[0] if drill_path else "finance"
         drilldown = self.get_drilldown(
             default_domain,
-            metric="value",
-            group_by="branch",
             filters=filters,
             limit=25,
             offset=0,
@@ -410,7 +399,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "pipeline": pipeline,
             },
             "fx_watch": fx_watch,
-            "drill_path": drill_path or ["overview", default_domain, "branch", "details"],
             "drilldown": drilldown,
         }
 
@@ -429,20 +417,9 @@ class ExecutiveDashboardService(models.AbstractModel):
         scope = self._resolve_filter_scope(filters)
         limit = max(1, min(int(limit or 25), 200))
         offset = max(0, int(offset or 0))
-        domain = (domain or "finance").lower()
-        group_by = (group_by or "branch").lower()
 
         if domain == "finance":
-            return self._finance_drilldown(scope, group_by, limit, offset)
-        if domain == "sales":
-            return self._sales_drilldown(scope, group_by, limit, offset)
-        if domain == "inventory":
-            return self._inventory_drilldown(scope, group_by, limit, offset)
-        if domain == "pipeline":
-            return self._pipeline_drilldown(scope, group_by, limit, offset)
-        return {"domain": domain, "group_by": group_by, "rows": [], "columns": []}
 
-    def _finance_drilldown(self, scope, group_by, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
         has_branch = self._has_table("res_branch")
@@ -452,7 +429,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
         elif group_by == "payment_state":
@@ -462,7 +438,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
                 COUNT(*) AS invoice_count,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
@@ -472,16 +447,12 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
-            ORDER BY net_revenue DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "finance", "group_by": group_by, "columns": ["dimension", "invoice_count", "net_revenue", "credit_note_value"], "rows": rows}
 
-    def _sales_drilldown(self, scope, group_by, limit, offset):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         params += [scope["start_date"], scope["end_date"], limit, offset]
         has_branch = self._has_table("res_branch")
@@ -491,7 +462,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         else:
             dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
             joins = ""
-        if group_by == "salesperson":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
                 joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
@@ -501,11 +471,9 @@ class ExecutiveDashboardService(models.AbstractModel):
         elif group_by == "customer":
             dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
             joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
-
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
                 COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
@@ -515,16 +483,12 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension
-            ORDER BY net_revenue DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "sales", "group_by": group_by, "columns": ["dimension", "invoice_count", "average_basket", "net_revenue"], "rows": rows}
 
-    def _inventory_drilldown(self, scope, group_by, limit, offset):
         quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
         svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
         params = quant_params + svl_params + [limit, offset]
@@ -533,11 +497,6 @@ class ExecutiveDashboardService(models.AbstractModel):
             dim_sql = "COALESCE(company.name, 'Unknown Company')"
             dim_join = "LEFT JOIN res_company company ON company.id = inv.company_id"
         elif group_by == "product":
-            dim_sql = "COALESCE(template.name::text, product.default_code, CONCAT('Product #', inv.product_id::text))"
-            dim_join = """
-                LEFT JOIN product_product product ON product.id = inv.product_id
-                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
-            """
         else:
             dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
             dim_join = """
@@ -578,27 +537,20 @@ class ExecutiveDashboardService(models.AbstractModel):
                  AND s.company_id = q.company_id
             )
             SELECT
-                {dim_sql} AS dimension,
                 COALESCE(SUM(inv.on_hand_qty), 0) AS on_hand_qty,
-                COALESCE(SUM(inv.allocated_value), 0) AS allocated_value
             FROM inv
             {dim_join}
-            GROUP BY dimension
-            ORDER BY allocated_value DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "inventory", "group_by": group_by, "columns": ["dimension", "on_hand_qty", "allocated_value"], "rows": rows}
 
-    def _pipeline_drilldown(self, scope, group_by, limit, offset):
         where_sql, params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=scope, include_sales_rep=True)
         params += [limit, offset]
 
         dim_sql = "COALESCE(stage.name, CONCAT('Stage #', COALESCE(lead.stage_id, 0)::text))"
         joins = "LEFT JOIN crm_stage stage ON stage.id = lead.stage_id"
-        if group_by == "owner":
             if self._has_table("sales_rep"):
                 dim_sql = "COALESCE(user_partner.name, sales_rep.name, CONCAT('Owner #', COALESCE(lead.user_id, 0)::text))"
                 joins = """
@@ -623,21 +575,17 @@ class ExecutiveDashboardService(models.AbstractModel):
         self.env.cr.execute(
             f"""
             SELECT
-                {dim_sql} AS dimension,
                 COUNT(*) FILTER (WHERE lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100) AS open_opportunities,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) ELSE 0 END), 0) AS open_pipeline,
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) * COALESCE(lead.probability, 0) / 100.0 ELSE 0 END), 0) AS weighted_pipeline
             FROM crm_lead lead
             {joins}
             WHERE {where_sql}
-            GROUP BY dimension
-            ORDER BY weighted_pipeline DESC
             LIMIT %s OFFSET %s
             """,
             params,
         )
         rows = self._dictfetchall()
-        return {"domain": "pipeline", "group_by": group_by, "columns": ["dimension", "open_opportunities", "open_pipeline", "weighted_pipeline"], "rows": rows}
 
     @api.model
     def get_fx_watch(self):
@@ -703,7 +651,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "message": rec.message or "",
                     "age_minutes": age_minutes,
                     "sparkline": sparkline,
-                    "display_label": f"1 {rec.pair.split('/')[0]} = ? {rec.pair.split('/')[1]}",
                 }
             )
 
@@ -715,10 +662,6 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _fetch_yahoo_quotes(self, symbols: list[str]) -> dict:
         quote_url = "https://query1.finance.yahoo.com/v7/finance/quote"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            "Accept": "application/json",
-        }
         params = {"symbols": ",".join(symbols)}
 
         last_error = None
@@ -786,15 +729,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         return ((current_rate - baseline_rate) / baseline_rate) * 100.0
 
     def _compute_period_changes(self, model, pair: str, current_rate: float, now_dt):
-        periods = {
-            "1D": 1,
-            "1M": 30,
-            "3M": 90,
-            "6M": 180,
-            "1Y": 365,
-        }
         output = {}
-        for label, days in periods.items():
             cutoff = now_dt - timedelta(days=days)
             baseline = model.search(
                 [("pair", "=", pair), ("status", "=", "ok"), ("fetched_at", "<=", cutoff)],

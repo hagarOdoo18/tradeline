@@ -1,6 +1,7 @@
 /** @odoo-module */
 
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
@@ -33,11 +34,12 @@ function getSourceTypeLabel(source) {
 
 function buildSourceLabel(source) {
     const sourceType = getSourceTypeLabel(source);
+    const sourceNumber = source.name || _t("N/A");
     const reference = source.reference_number ? ` [${source.reference_number}]` : "";
     const partnerName = source.partner_name || _t("Walk-in Customer");
     const amountLabel = source.amount_total_label || "";
     const validityLabel = source.validity_label || _t("No Expiration");
-    return `${sourceType}${reference} ${source.name} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
+    return `${sourceType} ${_t("No")}: ${sourceNumber}${reference} - ${partnerName} - ${amountLabel} - ${_t("Exp")}: ${validityLabel}`;
 }
 
 function getSelectionId(selection) {
@@ -164,6 +166,39 @@ function setLineValuesCompat(line, quantity, priceUnit, discount) {
     }
 }
 
+patch(PosOrder.prototype, {
+    setup(vals) {
+        super.setup(...arguments);
+        this.downpayment_quotation_id =
+            this.downpayment_quotation_id ||
+            vals?.downpayment_quotation_id ||
+            vals?.downpayment_source_quotation_id ||
+            false;
+        this.downpayment_quotation_name =
+            this.downpayment_quotation_name ||
+            vals?.downpayment_quotation_name ||
+            vals?.downpayment_source_quotation_name ||
+            "";
+        this.downpayment_reference_number =
+            this.downpayment_reference_number ||
+            vals?.downpayment_reference_number ||
+            vals?.downpayment_source_reference_number ||
+            "";
+    },
+
+    serialize() {
+        const serialized = super.serialize(...arguments);
+        const sourceId = this.downpayment_quotation_id || false;
+        const sourceName = this.downpayment_quotation_name || "";
+        const sourceReference = this.downpayment_reference_number || "";
+
+        serialized.downpayment_source_quotation_id = sourceId;
+        serialized.downpayment_source_quotation_name = sourceName;
+        serialized.downpayment_source_reference_number = sourceReference;
+        return serialized;
+    },
+});
+
 patch(ControlButtons.prototype, {
     async _loadDownpaymentSourceIntoOrder(order, details) {
         if (!details) {
@@ -210,6 +245,7 @@ patch(ControlButtons.prototype, {
         const orderToUpdate = workingOrder || order;
         orderToUpdate.downpayment_quotation_id = details.source_id || details.quotation_id || false;
         orderToUpdate.downpayment_quotation_name = details.source_name || details.quotation_name || "";
+        orderToUpdate.downpayment_reference_number = details.reference_number || "";
 
         if (!Array.isArray(details.lines) || !details.lines.length) {
             this.dialog.add(AlertDialog, {
@@ -240,6 +276,7 @@ patch(ControlButtons.prototype, {
         }
         order.downpayment_quotation_id = false;
         order.downpayment_quotation_name = `${_t("Manual Ref")}: ${manualReference}`;
+        order.downpayment_reference_number = manualReference;
         this.dialog.add(AlertDialog, {
             title: _t("Manual Mode"),
             body: _t("Reference saved. Please enter customer and other fields manually."),

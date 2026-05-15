@@ -4,13 +4,6 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, onWillStart, useState } from "@odoo/owl";
 
-const DRILL_GROUPS = {
-    finance: ["branch", "customer", "payment_state"],
-    sales: ["branch", "salesperson", "customer"],
-    inventory: ["category", "company", "product"],
-    pipeline: ["stage", "owner", "branch"],
-};
-
 export class ExecutivePocketDashboard extends Component {
     setup() {
         this.orm = useService("orm");
@@ -26,7 +19,6 @@ export class ExecutivePocketDashboard extends Component {
             selectedDomain: "finance",
             selectedGroupBy: "branch",
             filters: {
-                date_preset: "MTD",
                 start_date: this._formatDate(start),
                 end_date: this._formatDate(today),
                 company_ids: [],
@@ -55,7 +47,6 @@ export class ExecutivePocketDashboard extends Component {
     }
 
     get drillRows() {
-        return this.state.bundle?.drilldown?.rows || [];
     }
 
     get drillColumns() {
@@ -63,7 +54,6 @@ export class ExecutivePocketDashboard extends Component {
     }
 
     get availableGroups() {
-        return DRILL_GROUPS[this.state.selectedDomain] || ["branch"];
     }
 
     get chartMetricColumn() {
@@ -100,10 +90,8 @@ export class ExecutivePocketDashboard extends Component {
             }))
             .sort((a, b) => b.value - a.value)
             .slice(0, 8);
-        const maxValue = rows.reduce((m, r) => Math.max(m, r.value), 0) || 1;
         return rows.map((row) => ({
             ...row,
-            pct: Math.max(6, Math.round((row.value / maxValue) * 100)),
         }));
     }
 
@@ -130,12 +118,10 @@ export class ExecutivePocketDashboard extends Component {
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, "value", this.state.selectedGroupBy, this.state.filters, 30, 0]
             );
             if (this.state.bundle) {
                 this.state.bundle.drilldown = drilldown;
             }
-        } catch (error) {
             this.notification.add("Failed to load drilldown data", { type: "warning" });
         }
     }
@@ -183,23 +169,10 @@ export class ExecutivePocketDashboard extends Component {
 
     _shorten(text, maxLen = 26) {
         const input = String(text || "");
-        return input.length > maxLen ? `${input.slice(0, maxLen - 1)}…` : input;
     }
 
-    _sparklineBarHeight(points, idx) {
-        const list = Array.isArray(points) ? points : [];
-        if (!list.length) {
-            return 8;
         }
-        const numeric = list.map((v) => Number(v || 0));
-        const min = Math.min(...numeric);
-        const max = Math.max(...numeric);
-        const val = Number(numeric[idx] || 0);
-        if (max <= min) {
-            return 10;
         }
-        const normalized = (val - min) / (max - min);
-        return Math.max(4, Math.round(normalized * 24));
     }
 
     _formatCell(column, value) {
@@ -207,10 +180,8 @@ export class ExecutivePocketDashboard extends Component {
             return "-";
         }
         const text = String(column || "");
-        if (text.includes("revenue") || text.includes("value") || text.includes("pipeline")) {
             return this._formatCurrency(value);
         }
-        if (text.includes("rate")) {
             return Number(value).toFixed(6);
         }
         if (text.includes("pct") || text.includes("percent")) {
@@ -229,8 +200,6 @@ export class ExecutivePocketDashboard extends Component {
 
     async onDomainChange(ev) {
         this.state.selectedDomain = ev.target.value;
-        const groups = this.availableGroups;
-        this.state.selectedGroupBy = groups[0];
         await this._reloadDrilldown();
     }
 
@@ -249,7 +218,6 @@ export class ExecutivePocketDashboard extends Component {
             await this.orm.call("tradeline.executive.dashboard.service", "refresh_fx_rates", []);
             await this._loadBundle();
             this.notification.add("FX rates refreshed", { type: "success" });
-        } catch (error) {
             this.notification.add("FX refresh failed, showing last good rates", { type: "warning" });
             await this._loadBundle();
         } finally {
@@ -260,7 +228,6 @@ export class ExecutivePocketDashboard extends Component {
     async openNativeView(domain) {
         const map = {
             finance: { name: "Invoices", model: "account.move", domain: [["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]]] },
-            sales: { name: "Sales Orders", model: "sale.order", domain: [] },
             inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
             pipeline: { name: "Opportunities", model: "crm.lead", domain: [["type", "=", "opportunity"]] },
         };
@@ -269,10 +236,6 @@ export class ExecutivePocketDashboard extends Component {
             type: "ir.actions.act_window",
             name: target.name,
             res_model: target.model,
-            views: [
-                [false, "list"],
-                [false, "form"],
-            ],
             view_mode: "list,form",
             domain: target.domain,
             context: {},

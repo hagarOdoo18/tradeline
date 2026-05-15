@@ -8,15 +8,12 @@
                     <p>General to granular executive analytics with live FX watch.</p>
                 </div>
                 <div class="tl-exec-controls">
-                    <label>
                         <span>Start</span>
                         <input type="date" t-model="state.filters.start_date" t-on-change="onDateChange"/>
                     </label>
-                    <label>
                         <span>End</span>
                         <input type="date" t-model="state.filters.end_date" t-on-change="onDateChange"/>
                     </label>
-                    <label>
                         <span>Lens</span>
                         <select t-model="state.lens" t-on-change="onLensChange">
                             <option value="overview">Overview</option>
@@ -62,7 +59,6 @@
 
                 <div class="tl-chart-grid">
                     <div class="tl-chart-card">
-                        <h3>Top Drivers (<t t-esc="state.selectedDomain"/>)</h3>
                         <div class="tl-bar-chart">
                             <t t-foreach="topChartRows" t-as="item" t-key="item.dimension">
                                 <div class="tl-bar-row">
@@ -76,18 +72,7 @@
                         </div>
                     </div>
                     <div class="tl-chart-card">
-                        <h3>FX Mini Trends (last updates)</h3>
-                        <div class="tl-mini-trends">
-                            <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
-                                <div class="tl-mini-trend">
-                                    <div class="tl-mini-head">
-                                        <span><t t-esc="fx.pair"/></span>
-                                        <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(fx.change_pct || 0)"/></span>
                                     </div>
-                                    <div class="tl-mini-bars">
-                                        <t t-foreach="fx.sparkline || []" t-as="point" t-key="point_index" t-foreach-index="point_index">
-                                            <span class="tl-mini-bar" t-att-style="'height:' + _sparklineBarHeight(fx.sparkline, point_index) + 'px'"/>
-                                        </t>
                                     </div>
                                 </div>
                             </t>
@@ -110,8 +95,6 @@
                                 <div class="tl-fx-rate"><t t-esc="_formatFxRate(fx.rate)"/></div>
                                 <div class="tl-fx-egp">EGP</div>
                                 <div class="tl-fx-meta">
-                                    <span t-att-class="(fx.change_pct || 0) >= 0 ? 'up' : 'down'">
-                                        1D <t t-esc="_formatPercent(fx.change_pct)"/>
                                     </span>
                                     <span>
                                         <t t-if="fx.is_stale">Stale</t>
@@ -122,7 +105,6 @@
                                     <t t-foreach="_periodRows(fx.period_changes || {})" t-as="pc" t-key="pc.label">
                                         <span class="tl-fx-chip">
                                             <strong><t t-esc="pc.label"/></strong>
-                                            <span t-att-class="(pc.value || 0) >= 0 ? 'up' : 'down'"><t t-esc="_formatPercent(pc.value)"/></span>
                                         </span>
                                     </t>
                                 </div>
@@ -143,17 +125,11 @@
                         <label>
                             <span>Domain</span>
                             <select t-model="state.selectedDomain" t-on-change="onDomainChange">
-                                <option value="finance">Finance</option>
-                                <option value="sales">Sales</option>
-                                <option value="inventory">Inventory</option>
-                                <option value="pipeline">Pipeline</option>
                             </select>
                         </label>
                         <label>
                             <span>Group By</span>
                             <select t-model="state.selectedGroupBy" t-on-change="onGroupChange">
-                                <t t-foreach="availableGroups" t-as="grp" t-key="grp">
-                                    <option t-att-value="grp"><t t-esc="grp"/></option>
                                 </t>
                             </select>
                         </label>
@@ -164,7 +140,6 @@
                             <thead>
                                 <tr>
                                     <t t-foreach="drillColumns" t-as="column" t-key="column">
-                                        <th><t t-esc="column"/></th>
                                     </t>
                                 </tr>
                             </thead>

@@ -106,7 +106,9 @@ class ResPartners(models.Model):
                     partner = requests.request('GET', address_url,
                                                headers=headers)
                     line_vals = {'id': rec.shopify_customer_ref}
-                    address = {'id': partner.json()['addresses'][0]['id']}
+
+                    addresses = partner.json().get('addresses', [])
+                    address = {'id': addresses[0]['id']} if addresses else {}
                     if 'name' in vals.keys():
                         line_vals['first_name'] = vals['name']
                         address['first_name'] = vals['name']

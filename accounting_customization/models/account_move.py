@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-
+from mpmath.calculus.extrapolation import limit
 from odoo import models, fields, api,_
 from odoo.osv import expression
 
+import json
 import logging
 from odoo.tools import float_is_zero, float_compare
 from odoo.tools.misc import formatLang
@@ -48,6 +49,20 @@ class AccountMove(models.Model):
         string='Sales Rep',
         required=False)
 
+    payment_journal_names = fields.Char(
+        string='Payment Journal(s)',
+        compute='_compute_payment_snapshot',
+        store=True,
+        readonly=True,
+    )
+    payment_amount_total = fields.Monetary(
+        string='Payment Amount',
+        compute='_compute_payment_snapshot',
+        store=True,
+        readonly=True,
+        currency_field='currency_id',
+    )
+
     inv_type = fields.Selection(
         string='Invoice Type', default='invoice',
         selection=[('sro', 'SRO'), ('quotation', 'Quotation'),('payment','Payment'),
@@ -74,10 +89,50 @@ class AccountMove(models.Model):
 
     company_type = fields.Selection(string='Customer Type',related="partner_id.company_type",store=True,
                                     )
+
+    @api.depends(
+        'invoice_payments_widget',
+        'payment_state',
+        'amount_total',
+        'amount_residual',
+    )
+    def _compute_payment_snapshot(self):
+        for move in self:
+            move.payment_journal_names = ''
+            move.payment_amount_total = 0.0
+
+            if move.move_type not in ('out_invoice', 'out_refund'):
+                continue
+
+            names = []
+            amount = 0.0
+            try:
+                payments = move._get_reconciled_payments()
+            except Exception:
+                payments = self.env['account.payment']
+
+            if payments:
+                names = list(dict.fromkeys(payments.mapped('journal_id.name')))
+                amount = sum(abs(float(payment.amount or 0.0)) for payment in payments)
+            else:
+                if 'pos_order_ids' in move._fields:
+                    pos_payments = move.pos_order_ids.payment_ids
+                    if pos_payments:
+                        names = list(dict.fromkeys(pos_payments.mapped('payment_method_id.name')))
+                        amount = sum(abs(float(payment.amount or 0.0)) for payment in pos_payments)
+
+            if not amount:
+                amount = max(abs(float(move.amount_total or 0.0)) - abs(float(move.amount_residual or 0.0)), 0.0)
+
+            move.payment_journal_names = ', '.join(names)
+            move.payment_amount_total = amount
+
     def get_product_notes(self):
         for rec in self.invoice_line_ids:
             if rec.product_id.product_notes:
                 return rec.product_id.product_notes
+            else:
+                return ''
     en_comment = fields.Html(
         string="En_comment",default= lambda self: self.env.company.sale_note_en,
         required=False)
@@ -87,11 +142,115 @@ class AccountMove(models.Model):
 
     def get_gift_invoice(self):
         for rec in self:
-            pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin)])
+            pos_order = self.env['pos.order'].search([('name','=',rec.invoice_origin),('state','=','invoiced')],limit=1)
             if pos_order:
                 return pos_order.as_gift
             else:
                 return False
+
+    def _get_printable_invoice_lines(self):
+        self.ensure_one()
+
+        def _is_positive_qty(line):
+            precision = line.product_uom_id.rounding if line.product_uom_id and line.product_uom_id.rounding else 0.00001
+            return float_compare(line.quantity, 0.0, precision_rounding=precision) > 0
+
+        return self.invoice_line_ids.filtered(
+            lambda line: line.display_type == 'product' and line.select_for_report and _is_positive_qty(line)
+        )
+
+    def _get_report_paid_amount(self):
+        self.ensure_one()
+        paid_amount = 0.0
+        payments_widget = self.sudo().invoice_payments_widget or {}
+
+        if isinstance(payments_widget, str):
+            try:
+                payments_widget = json.loads(payments_widget)
+            except Exception:
+                payments_widget = {}
+
+        if isinstance(payments_widget, dict):
+            for payment_vals in payments_widget.get('content') or []:
+                if payment_vals.get('is_exchange'):
+                    continue
+                paid_amount += abs(float(payment_vals.get('amount') or 0.0))
+
+        if not paid_amount:
+            try:
+                paid_amount = sum(abs(float(payment.amount)) for payment in self._get_reconciled_payments())
+            except Exception:
+                paid_amount = 0.0
+
+        return paid_amount
+
+    def get_print_lines_summary(self):
+        self.ensure_one()
+        currency = self.currency_id or self.company_currency_id
+        company_currency = self.company_currency_id or currency
+        company = self.company_id
+        convert_date = self.invoice_date or fields.Date.context_today(self)
+
+        printable_lines = self._get_printable_invoice_lines().sorted(
+            key=lambda line: (-line.sequence, line.date, line.move_name, -line.id),
+            reverse=True,
+        )
+
+        printed_untaxed = sum(printable_lines.mapped('price_subtotal'))
+        printed_total = sum(printable_lines.mapped('price_total'))
+        printed_tax = printed_total - printed_untaxed
+
+        if currency:
+            printed_untaxed = currency.round(printed_untaxed)
+            printed_tax = currency.round(printed_tax)
+            printed_total = currency.round(printed_total)
+
+        printed_paid = min(self._get_report_paid_amount(), printed_total)
+        printed_due = max(printed_total - printed_paid, 0.0)
+        if currency:
+            printed_paid = currency.round(printed_paid)
+            printed_due = currency.round(printed_due)
+
+        if currency and company_currency and currency != company_currency:
+            printed_untaxed_company = company_currency.round(
+                currency._convert(printed_untaxed, company_currency, company, convert_date)
+            )
+            printed_tax_company = company_currency.round(
+                currency._convert(printed_tax, company_currency, company, convert_date)
+            )
+            printed_total_company = company_currency.round(
+                currency._convert(printed_total, company_currency, company, convert_date)
+            )
+            show_company_currency = True
+        else:
+            printed_untaxed_company = printed_untaxed
+            printed_tax_company = printed_tax
+            printed_total_company = printed_total
+            show_company_currency = False
+
+        printed_amount_words_ar = ''
+        printed_amount_words_en = ''
+        if currency and hasattr(currency, 'amount_to_text'):
+            printed_amount_words_ar = currency.amount_to_text(printed_total)
+            printed_amount_words_en = currency.amount_to_text(printed_total)
+        if currency and hasattr(currency, 'en_amount_to_text'):
+            printed_amount_words_en = currency.en_amount_to_text(printed_total)
+
+        return {
+            'printed_lines': printable_lines,
+            'printed_untaxed': printed_untaxed,
+            'printed_tax': printed_tax,
+            'printed_total': printed_total,
+            'printed_paid': printed_paid,
+            'printed_due': printed_due,
+            'printed_amount_words_ar': printed_amount_words_ar,
+            'printed_amount_words_en': printed_amount_words_en,
+            'show_company_currency': show_company_currency,
+            'printed_untaxed_company': printed_untaxed_company,
+            'printed_tax_company': printed_tax_company,
+            'printed_total_company': printed_total_company,
+        }
+
     def _get_invoiced_lot_values(self):
         """ Get and prepare data to show a table of invoiced lot on the invoice's report. """
         self.ensure_one()
@@ -266,13 +425,19 @@ class AccountMove(models.Model):
             rec.tax_t2_t = tax_t2_t
             rec.total = sum_v14 + rec.amount_untaxed
 
+
+
+
     def action_post(self):
 
         res = super(AccountMove, self).action_post()
         for rec in self:
             if rec.move_type in ('out_invoice', 'out_refund'):
-                if rec.partner_id.company_type == 'company':
+                # if rec.partner_id.company_type == 'company':
+                try:
                     rec.action_send_electronic_invoice()
+                except:
+                    pass
 
         return res
 
@@ -303,6 +468,13 @@ class AccountMoveLine(models.Model):
         comodel_name='product.category',
         string='Category',
         required=False)
+    sub_categ_id = fields.Many2one(
+        comodel_name='sub.category',
+        string='Sub Category',
+        related='product_id.product_tmpl_id.sub_categ_id',
+        store=True,
+        readonly=True,
+    )
 
     product_point = fields.Float(
         string='Product point',
@@ -387,8 +559,8 @@ class AccountMoveLine(models.Model):
                 moves_to_redirect |= new_moves
 
             self.new_move_ids = moves_to_redirect
-            for move in self.new_move_ids:
-                move.action_post()
+            # for move in self.new_move_ids:
+            #     move.action_post()
             # Create action.
             action = {
                 'name': _('Reverse Moves'),

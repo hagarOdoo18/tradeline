@@ -203,9 +203,12 @@ class SyncCustomer(models.TransientModel):
         """
         shopify_instance = instance
         for customer in shopify_customers:
+            phone = customer['phone'] or ''
             exist_customers = self.env['res.partner'].search(
-                [('shopify_customer_ref', '=', customer['id']),
-                 ('shopify_instance_id', '=', shopify_instance.id)])
+                [('mobile', '=', phone)])
+            if not exist_customers and phone.startswith('+2'):
+                exist_customers = self.env['res.partner'].search(
+                    [('mobile', '=', phone[2:])])
             if not exist_customers:
                 vals = {}
                 if customer['addresses']:
@@ -235,7 +238,7 @@ class SyncCustomer(models.TransientModel):
                         not customer['last_name'] and customer['email']):
                     vals['name'] = customer['email']
                 vals['email'] = customer['email']
-                vals['phone'] = customer['phone']
+                vals['mobile'] = customer['phone']
                 vals['shopify_customer_ref'] = customer['id']
                 vals['shopify_instance_id'] = shopify_instance.id
                 vals['synced_customer'] = True
@@ -281,7 +284,7 @@ class SyncCustomer(models.TransientModel):
                         not customer['last_name'] and customer['email']):
                     vals['name'] = customer['email']
                 vals['email'] = customer['email']
-                vals['phone'] = customer['phone']
+                vals['mobile'] = customer['phone']
                 vals['shopify_customer_ref'] = customer['id']
                 vals['shopify_instance_id'] = shopify_instance.id
                 vals['synced_customer'] = True

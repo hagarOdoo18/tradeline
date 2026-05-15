@@ -51,6 +51,7 @@
         'wizard/sync_customer_views.xml',
         'wizard/sale_order_sync_views.xml',
         'wizard/sync_inventory_views.xml',
+        'wizard/sync_location_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

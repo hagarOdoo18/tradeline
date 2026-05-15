@@ -1,0 +1,579 @@
+# -*- coding: utf-8 -*-
+from odoo import fields, models
+import xlsxwriter
+from io import BytesIO
+import base64
+from datetime import datetime
+from itertools import groupby as igrp
+
+
+class AccountInvoiceAccountingWizard(models.TransientModel):
+    _name        = 'account.invoice.accounting.wizard'
+    _description = 'Accounting Excel Report Wizard'
+
+    excel_file = fields.Binary(string='Download Report Excel', readonly=True)
+    file_name  = fields.Char(string='Excel File', size=64)
+    date_from  = fields.Date(string='Date From', required=True)
+    date_to    = fields.Date(string='Date To',   required=True)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _s(self, val):
+        """Return a plain string from val.
+        Odoo 18 stores translatable Char fields as JSONB, so psycopg2 may
+        return a dict like {'en_US': 'Cash', 'ar_001': 'نقدا'}.
+        This helper unwraps dicts and falls back gracefully.
+        """
+        if isinstance(val, dict):
+            # prefer current user language, then first available value
+            lang = self.env.lang or 'en_US'
+            return str(val.get(lang) or next(iter(val.values()), '') or '')
+        return str(val or '')
+
+    # ------------------------------------------------------------------
+    # SQL helpers  (Odoo 18 table / column names)
+    # ------------------------------------------------------------------
+
+    def _get_sql_open_invoice(self, date_from, date_to):
+        return """
+            SELECT am.name, rb.name, rp.name, am.amount_total_signed, am.invoice_date
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            LEFT JOIN res_partner rp ON rp.id = am.partner_id
+            WHERE am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.state = 'posted'
+              AND am.move_type = 'out_invoice'
+              AND am.amount_residual_signed > 1
+            ORDER BY am.invoice_date
+        """.format(df=date_from, dt=date_to)
+
+    def _get_sql_open_credit(self, date_from, date_to):
+        return """
+            SELECT am.name, rb.name, rp.name, am.amount_total_signed, am.invoice_date
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            LEFT JOIN res_partner rp ON rp.id = am.partner_id
+            WHERE am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.state = 'posted'
+              AND am.move_type = 'out_refund'
+              AND am.amount_residual_signed < -1
+            ORDER BY am.invoice_date
+        """.format(df=date_from, dt=date_to)
+
+    def _get_sql_total_paid_invoice(self, date_from, date_to):
+        return """
+            SELECT rb.name, SUM(am.amount_total_signed)
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            WHERE am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.state = 'posted'
+              AND am.move_type = 'out_invoice'
+              AND am.amount_residual_signed <= 1
+            GROUP BY rb.name
+        """.format(df=date_from, dt=date_to)
+
+    def _get_sql_total_paid_credit(self, date_from, date_to):
+        return """
+            SELECT rb.name, SUM(am.amount_total_signed)
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            WHERE am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.state = 'posted'
+              AND am.move_type = 'out_refund'
+              AND am.amount_residual_signed >= -1
+            GROUP BY rb.name
+        """.format(df=date_from, dt=date_to)
+
+    def _get_sql_total_sro(self, date_from, date_to):
+        return """
+            SELECT rb.name, SUM(so.amount_total)
+            FROM sale_order so
+            LEFT JOIN res_branch rb ON rb.id = so.branch_id
+            WHERE so.create_date >= '{df}'
+              AND so.create_date <= '{dt}'
+              AND so.state = 'sale'
+              AND so.inv_type = 'sro'
+            GROUP BY rb.name
+        """.format(df=date_from, dt=date_to)
+
+    def _get_sql_total_payment(self, date_from, date_to):
+        reconciled_subq = """
+            SELECT DISTINCT aml_r.move_id
+            FROM account_move_line aml_r
+            JOIN account_account aa_r
+                ON aa_r.id = aml_r.account_id AND aa_r.reconcile = TRUE
+            JOIN account_partial_reconcile apr_r
+                ON apr_r.credit_move_id = aml_r.id
+                OR apr_r.debit_move_id  = aml_r.id
+            JOIN account_move_line aml_r2
+                ON aml_r2.id = CASE
+                    WHEN apr_r.credit_move_id = aml_r.id THEN apr_r.debit_move_id
+                    ELSE apr_r.credit_move_id END
+            JOIN account_payment ap_r ON ap_r.move_id = aml_r2.move_id
+        """
+        return """
+            -- 1. Invoices reconciled with account.payment
+            SELECT
+                aj.name                  AS journal_name,
+                rb.name                  AS branch_name,
+                SUM(ap.amount)           AS amount,
+                'invoice'::text          AS source_type
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            JOIN account_move_line aml ON aml.move_id = am.id
+            JOIN account_account aa
+                ON aa.id = aml.account_id AND aa.reconcile = TRUE
+            JOIN account_partial_reconcile apr
+                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
+            JOIN account_move_line aml2
+                ON aml2.id = CASE
+                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
+                    ELSE apr.credit_move_id END
+            JOIN account_payment ap ON ap.move_id = aml2.move_id
+            JOIN account_journal aj ON aj.id = ap.journal_id
+            WHERE am.move_type = 'out_invoice'
+              AND am.state = 'posted'
+              AND am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+            GROUP BY aj.name, rb.name
+
+            UNION ALL
+
+            -- 2. Invoices paid via POS (no reconciled account.payment)
+            SELECT
+                ppm.name                 AS journal_name,
+                rb.name                  AS branch_name,
+                SUM(pp.amount)           AS amount,
+                'invoice_pos'::text      AS source_type
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            JOIN pos_order po ON po.account_move = am.id
+            JOIN pos_payment pp ON pp.pos_order_id = po.id
+            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
+            WHERE am.move_type = 'out_invoice'
+              AND am.state = 'posted'
+              AND am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.id NOT IN ({reconciled_subq})
+            GROUP BY ppm.name, rb.name
+
+            UNION ALL
+
+            -- 3. Credit notes reconciled with account.payment (negative)
+            SELECT
+                aj.name                  AS journal_name,
+                rb.name                  AS branch_name,
+                SUM(-ap.amount)          AS amount,
+                'credit'::text           AS source_type
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            JOIN account_move_line aml ON aml.move_id = am.id
+            JOIN account_account aa
+                ON aa.id = aml.account_id AND aa.reconcile = TRUE
+            JOIN account_partial_reconcile apr
+                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
+            JOIN account_move_line aml2
+                ON aml2.id = CASE
+                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
+                    ELSE apr.credit_move_id END
+            JOIN account_payment ap ON ap.move_id = aml2.move_id
+            JOIN account_journal aj ON aj.id = ap.journal_id
+            WHERE am.move_type = 'out_refund'
+              AND am.state = 'posted'
+              AND am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+            GROUP BY aj.name, rb.name
+
+            UNION ALL
+
+            -- 4. Credit notes paid via POS (no reconciled account.payment)
+            SELECT
+                ppm.name                 AS journal_name,
+                rb.name                  AS branch_name,
+                SUM(pp.amount)           AS amount,
+                'credit_pos'::text       AS source_type
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            JOIN pos_order po ON po.account_move = am.id
+            JOIN pos_payment pp ON pp.pos_order_id = po.id
+            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
+            WHERE am.move_type = 'out_refund'
+              AND am.state = 'posted'
+              AND am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.id NOT IN ({reconciled_subq})
+            GROUP BY ppm.name, rb.name
+
+            UNION ALL
+
+            -- 5. Sale-order payments (signed by payment_type)
+            SELECT
+                aj.name                  AS journal_name,
+                rb.name                  AS branch_name,
+                SUM(CASE WHEN ap.payment_type = 'outbound'
+                         THEN -ap.amount ELSE ap.amount END) AS amount,
+                'order_payment'::text    AS source_type
+            FROM account_payment ap
+            LEFT JOIN res_branch rb ON rb.id = ap.branch_id
+            JOIN account_journal aj ON aj.id = ap.journal_id
+            WHERE ap.sale_order_id IS NOT NULL
+              AND ap.state = 'paid'
+              AND ap.date >= '{df}'
+              AND ap.date <= '{dt}'
+            GROUP BY aj.name, rb.name
+        """.format(df=date_from, dt=date_to, reconciled_subq=reconciled_subq)
+
+    # ------------------------------------------------------------------
+    # Main action
+    # ------------------------------------------------------------------
+
+    def print_excel(self):
+        cr = self.env.cr
+        df, dt = self.date_from, self.date_to
+
+        cr.execute(self._get_sql_open_invoice(df, dt))
+        open_invoices = cr.fetchall()
+
+        cr.execute(self._get_sql_open_credit(df, dt))
+        open_credit = cr.fetchall()
+
+        workbook, output, filename = self._generate_excel_open(
+            open_invoices, open_credit)
+
+        cr.execute(self._get_sql_total_paid_invoice(df, dt))
+        paid_invoices = cr.fetchall()
+
+        cr.execute(self._get_sql_total_paid_credit(df, dt))
+        paid_credits = cr.fetchall()
+
+        workbook = self._generate_excel_paid(paid_invoices, paid_credits, workbook)
+
+        cr.execute(self._get_sql_total_sro(df, dt))
+        sro_orders = cr.fetchall()
+
+        workbook = self._generate_excel_sro(sro_orders, workbook)
+
+        cr.execute(self._get_sql_total_payment(df, dt))
+        payments = cr.fetchall()
+
+        workbook = self._generate_excel_payment(payments, workbook)
+        workbook = self._generate_excel_type_payment(payments, workbook)
+        workbook = self._generate_excel_all(
+            open_invoices, open_credit,
+            paid_invoices, paid_credits,
+            sro_orders, payments, workbook)
+
+        workbook.close()
+        output.seek(0)
+
+        self.file_name  = filename + datetime.today().strftime('%Y-%m-%d') + '.xlsx'
+        self.excel_file = base64.b64encode(output.read())
+
+        return {
+            'type':      'ir.actions.act_window',
+            'res_model': 'account.invoice.accounting.wizard',
+            'res_id':    self.id,
+            'view_mode': 'form',
+            'target':    'new',
+        }
+
+    # ------------------------------------------------------------------
+    # Excel sheet builders
+    # ------------------------------------------------------------------
+
+    def _fmt(self, wb):
+        """Return (bold_fmt, cell_fmt, header_fmt) for a workbook."""
+        bold = wb.add_format({
+            'bold': 1, 'border': 1, 'align': 'center',
+            'valign': 'vcenter', 'text_wrap': True, 'font_size': 11,
+        })
+        cell = wb.add_format({
+            'font_name': 'KacstBook', 'font_size': 10,
+            'align': 'center', 'valign': 'vcenter',
+            'text_wrap': True, 'border': 1,
+        })
+        header = wb.add_format({
+            'bold': 1, 'border': 1, 'bg_color': '#AAB7B8',
+            'font_size': 10, 'align': 'center',
+            'valign': 'vcenter', 'text_wrap': True,
+        })
+        return bold, cell, header
+
+    def _generate_excel_open(self, lines, credit):
+        filename = 'Accounting Report '
+        output   = BytesIO()
+        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        sheet    = workbook.add_worksheet('Open Invoices')
+        bold, cell, header = self._fmt(workbook)
+
+        sheet.set_column(0, 0, 10)
+        sheet.set_column(1, 3, 20)
+        for col, title in enumerate(['Number', 'Branch', 'Customer', 'Total']):
+            sheet.write(0, col, title, header)
+
+        row = 1
+        for line in list(lines) + list(credit):
+            sheet.write(row, 0, self._s(line[0]), cell)
+            sheet.write(row, 1, self._s(line[1]), cell)
+            sheet.write(row, 2, self._s(line[2]), cell)
+            sheet.write(row, 3, float(line[3] or 0), cell)
+            sheet.set_row(row, 40)
+            row += 1
+
+        return workbook, output, filename
+
+    def _generate_excel_paid(self, lines, credits, workbook):
+        sheet = workbook.add_worksheet('Paid Invoices')
+        bold, cell, header = self._fmt(workbook)
+
+        sheet.set_column(0, 0, 30)
+        sheet.write(0, 0, 'Branch', header)
+        sheet.write(1, 0, 'Total',  header)
+
+        store = {}
+        for line in lines:
+            store[self._s(line[0])] = float(line[1] or 0)
+        for line in credits:
+            key = self._s(line[0])
+            store[key] = store.get(key, 0) + float(line[1] or 0)
+
+        col = 1
+        total = 0
+        for key, value in store.items():
+            sheet.set_column(0, col, 30)
+            sheet.write(0, col, key, header)
+            sheet.write(1, col, value, cell)
+            total += value
+            col   += 1
+        sheet.set_row(0, 40)
+        sheet.set_row(1, 40)
+        sheet.write(1, col, total, header)
+        return workbook
+
+    def _generate_excel_sro(self, lines, workbook):
+        sheet = workbook.add_worksheet('SRO')
+        bold, cell, header = self._fmt(workbook)
+
+        sheet.set_column(0, 0, 30)
+        sheet.write(0, 0, 'Branch', header)
+        sheet.write(1, 0, 'Total',  header)
+
+        col = 1
+        total = 0
+        for line in lines:
+            sheet.set_column(0, col, 30)
+            sheet.write(0, col, self._s(line[0]), header)
+            sheet.write(1, col, float(line[1] or 0), cell)
+            total += float(line[1] or 0)
+            col   += 1
+        sheet.set_row(0, 40)
+        sheet.set_row(1, 40)
+        sheet.write(1, col, total, header)
+        return workbook
+
+    def _generate_excel_payment(self, lines, workbook):
+        sheet = workbook.add_worksheet('Branches Payments')
+        bold, cell, header = self._fmt(workbook)
+
+        # Normalise all values up front so grouping keys are plain strings
+        norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
+                for l in lines]
+
+        row = 1
+        payment_dic = {}
+        for _src, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
+                                key=lambda x: x[3]):
+            for journal, _grp2 in igrp(list(grp1), key=lambda x: x[0]):
+                sheet.set_column(row, 0, 30)
+                if journal not in payment_dic:
+                    payment_dic[journal] = row
+                    sheet.write(row, 0, journal, header)
+                    row += 1
+
+        col = 1
+        for branch, grp in igrp(sorted(norm, key=lambda x: x[1]),
+                                  key=lambda x: x[1]):
+            row = 0
+            sheet.set_column(0, col, 30)
+            if branch != 'None':
+                sheet.write(row, col, branch, header)
+                for line in grp:
+                    p_row = payment_dic.get(line[0])
+                    if p_row is not None:
+                        sheet.write(p_row, col, line[2], cell)
+                col += 1
+        return workbook
+
+    def _generate_excel_type_payment(self, lines, workbook):
+        sheet = workbook.add_worksheet('Payments Type')
+        bold, cell, header = self._fmt(workbook)
+
+        sheet.set_column(0, 1, 30)
+        sheet.write('A1', 'Type',    header)
+        sheet.write('B1', 'Total',   header)
+        sheet.set_column(4, 6, 30)
+        sheet.write('E1', 'Type',    header)
+        sheet.write('F1', 'Payment', header)
+        sheet.write('G1', 'Total',   header)
+
+        norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
+                for l in lines]
+
+        row       = 1
+        other_row = 1
+        other_col = 4
+        for src_type, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
+                                    key=lambda x: x[3]):
+            base_row  = row
+            grp1_list = list(grp1)
+            sheet.write(row,       0,         src_type, header)
+            sheet.write(other_row, other_col, src_type, header)
+            row       += 1
+            other_row += 1
+            total = 0
+            for journal, grp2 in igrp(sorted(grp1_list, key=lambda x: x[0]),
+                                       key=lambda x: x[0]):
+                total_payment = 0
+                sheet.write(other_row, other_col + 1, journal, header)
+                for line in grp2:
+                    if line[1] != 'None':
+                        total         += line[2]
+                        total_payment += line[2]
+                sheet.write(other_row, other_col + 2, total_payment, header)
+                other_row += 1
+            sheet.write(base_row, 1, total, header)
+        return workbook
+
+    def _generate_excel_all(self, open_invoices, open_credit,
+                            paid_invoices, paid_credits,
+                            sro_orders, payments, workbook):
+        """Summary sheet: tables placed side-by-side.
+
+        Layout:
+          TOP    left  cols 0-4: Open Invoices & Credits
+                 right cols 6-8: Paid Invoices & Credits, then SRO
+          BOTTOM left  cols 0-3: Payments by Journal & Branch
+                 right cols 5-6: Payment Type Summary (type + total)
+        """
+        sheet = workbook.add_worksheet('All')
+        bold, cell, header = self._fmt(workbook)
+
+        title_fmt = workbook.add_format({
+            'bold': 1, 'font_size': 13, 'align': 'center',
+            'valign': 'vcenter', 'bg_color': '#2E4057',
+            'font_color': '#FFFFFF', 'border': 1,
+        })
+        section_fmt = workbook.add_format({
+            'bold': 1, 'font_size': 11, 'align': 'left',
+            'valign': 'vcenter', 'bg_color': '#5B84B1',
+            'font_color': '#FFFFFF', 'border': 1,
+        })
+
+        for c in range(9):
+            sheet.set_column(c, c, 20)
+        sheet.set_column(2, 2, 26)
+
+        # Title
+        sheet.merge_range(0, 0, 0, 8, 'Accounting Report - Full Summary', title_fmt)
+        sheet.set_row(0, 28)
+
+        L = 2
+        R = 2
+
+        # Left: Open Invoices & Credits
+        sheet.merge_range(L, 0, L, 4, 'Open Invoices & Credits', section_fmt)
+        sheet.set_row(L, 22); L += 1
+        for c, lbl in enumerate(['Number', 'Branch', 'Customer', 'Total', 'Date']):
+            sheet.write(L, c, lbl, header)
+        sheet.set_row(L, 20); L += 1
+        for line in list(open_invoices) + list(open_credit):
+            sheet.write(L, 0, self._s(line[0]), cell)
+            sheet.write(L, 1, self._s(line[1]), cell)
+            sheet.write(L, 2, self._s(line[2]), cell)
+            sheet.write(L, 3, float(line[3] or 0), cell)
+            sheet.write(L, 4, self._s(line[4]), cell)
+            sheet.set_row(L, 18); L += 1
+
+        # Right: Paid Invoices & Credits
+        sheet.merge_range(R, 6, R, 8, 'Paid Invoices & Credits', section_fmt)
+        sheet.set_row(R, 22); R += 1
+        sheet.write(R, 6, 'Branch', header)
+        sheet.write(R, 7, 'Total',  header)
+        sheet.set_row(R, 20); R += 1
+        store = {}
+        for line in paid_invoices:
+            store[self._s(line[0])] = float(line[1] or 0)
+        for line in paid_credits:
+            k = self._s(line[0])
+            store[k] = store.get(k, 0) + float(line[1] or 0)
+        grand_paid = 0
+        for branch, tot in store.items():
+            sheet.write(R, 6, branch, cell)
+            sheet.write(R, 7, tot,    cell)
+            grand_paid += tot; R += 1
+        sheet.write(R, 6, 'Grand Total', header)
+        sheet.write(R, 7, grand_paid,    header); R += 1
+        R += 1
+
+        # Right: SRO Orders
+        sheet.merge_range(R, 6, R, 8, 'SRO Orders', section_fmt)
+        sheet.set_row(R, 22); R += 1
+        sheet.write(R, 6, 'Branch', header)
+        sheet.write(R, 7, 'Total',  header)
+        sheet.set_row(R, 20); R += 1
+        grand_sro = 0
+        for line in sro_orders:
+            sheet.write(R, 6, self._s(line[0]), cell)
+            sheet.write(R, 7, float(line[1] or 0), cell)
+            grand_sro += float(line[1] or 0); R += 1
+        sheet.write(R, 6, 'Grand Total', header)
+        sheet.write(R, 7, grand_sro,     header); R += 1
+
+        next_row = max(L, R) + 2
+
+        norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
+                for l in payments]
+
+        BL = next_row
+        BR = next_row
+
+        # Bottom-Left: Payments by Journal & Branch
+        sheet.merge_range(BL, 0, BL, 3, 'Payments by Journal & Branch', section_fmt)
+        sheet.set_row(BL, 22); BL += 1
+        for c, lbl in enumerate(['Journal', 'Branch', 'Amount', 'Type']):
+            sheet.write(BL, c, lbl, header)
+        sheet.set_row(BL, 20); BL += 1
+        grand_pay = 0
+        for line in norm:
+            sheet.write(BL, 0, line[0], cell)
+            sheet.write(BL, 1, line[1], cell)
+            sheet.write(BL, 2, line[2], cell)
+            sheet.write(BL, 3, line[3], cell)
+            grand_pay += line[2]; BL += 1
+        sheet.write(BL, 0, 'Grand Total', header)
+        sheet.write(BL, 2, grand_pay,     header); BL += 1
+
+        # Bottom-Right: Payment Type Summary (grouped by type)
+        sheet.merge_range(BR, 5, BR, 6, 'Payment Type Summary', section_fmt)
+        sheet.set_row(BR, 22); BR += 1
+        sheet.write(BR, 5, 'Type',  header)
+        sheet.write(BR, 6, 'Total', header)
+        sheet.set_row(BR, 20); BR += 1
+        grand_type = 0
+        for src_type, grp1 in igrp(sorted(norm, key=lambda x: x[3]),
+                                    key=lambda x: x[3]):
+            tot = sum(l[2] for l in grp1)
+            sheet.write(BR, 5, src_type, cell)
+            sheet.write(BR, 6, tot,      cell)
+            grand_type += tot
+            sheet.set_row(BR, 18); BR += 1
+        sheet.write(BR, 5, 'Grand Total', header)
+        sheet.write(BR, 6, grand_type,    header); BR += 1
+
+        return workbook
