@@ -12,8 +12,9 @@
         "account",
     ],
     "data": [
+        "security/security.xml",
         "views/sale_order_line_report_views.xml",
     ],
     "installable": True,
-    "application": False,
+    "application": True,
 }

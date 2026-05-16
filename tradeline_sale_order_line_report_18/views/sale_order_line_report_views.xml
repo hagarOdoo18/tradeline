@@ -43,6 +43,7 @@
         <field name="res_model">sale.order.line</field>
         <field name="view_mode">pivot,list</field>
         <field name="view_id" ref="view_tradeline_sale_order_line_report_list"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_sale_order_line_report_18.group_sale_order_line')])]"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">No sale order lines found.</p>
         </field>
@@ -53,5 +54,6 @@
         name="Sales Order Lines"
         parent="sale.sale_order_menu"
         action="action_tradeline_sale_order_line_report"
+        groups="tradeline_sale_order_line_report_18.group_sale_order_line"
         sequence="60"/>
 </odoo>
