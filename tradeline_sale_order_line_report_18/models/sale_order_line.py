@@ -40,13 +40,6 @@ class SaleOrderLine(models.Model):
         store=True,
         readonly=True,
     )
-    customer_rep_id = fields.Many2one(
-        comodel_name="sales.rep",
-        string="Customer Rep",
-        related="order_id.sales_rep_id",
-        store=True,
-        readonly=True,
-    )
     team_id = fields.Many2one(
         comodel_name="crm.team",
         string="Sales Team",
