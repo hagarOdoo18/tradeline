@@ -15,6 +15,7 @@
                 <field name="phone_customer" optional="hide"/>
                 <field name="sequence" optional="hide"/>
                 <field name="user_id"/>
+                <field name="customer_rep_id" optional="show"/>
                 <field name="team_id" optional="show"/>
                 <field name="salesman_id" optional="hide"/>
                 <field name="product_id"/>
