@@ -14,7 +14,8 @@
                 <field name="mobile_customer" optional="show"/>
                 <field name="phone_customer" optional="hide"/>
                 <field name="sequence" optional="hide"/>
-                <field name="user_id"/>
+                <field name="salesperson_id"/>
+                <field name="user_id" optional="hide"/>
                 <field name="team_id" optional="show"/>
                 <field name="salesman_id" optional="hide"/>
                 <field name="product_id"/>
