@@ -5,6 +5,7 @@
         <field name="model">sale.order.line</field>
         <field name="arch" type="xml">
             <list string="Sales Order Lines" create="false">
+                <field name="seq"/>
                 <field name="number_order"/>
                 <field name="order_date"/>
                 <field name="confirmation_date" optional="hide"/>
@@ -14,16 +15,20 @@
                 <field name="mobile_customer" optional="show"/>
                 <field name="phone_customer" optional="hide"/>
                 <field name="sequence" optional="hide"/>
-                <field name="salesperson_id"/>
-                <field name="user_id" optional="hide"/>
-                <field name="team_id" optional="show"/>
-                <field name="salesman_id" optional="hide"/>
+                <field name="store_name"/>
+                <field name="sales_rep_name"/>
                 <field name="product_id"/>
                 <field name="item_code_product" optional="show"/>
                 <field name="upc" optional="show"/>
                 <field name="categ_product" optional="show"/>
-                <field name="vendor_name_product" optional="hide"/>
-                <field name="product_uom"/>
+                <field name="family_name"/>
+                <field name="warranty_name"/>
+                <field name="vendor_name_product"/>
+                <field name="tax_id" widget="many2many_tags"/>
+                <field name="payment_journal"/>
+                <field name="payment_amount"/>
+                <field name="amount_due"/>
+                <field name="note" optional="hide"/>
                 <field name="quantity_product" sum="Quantity"/>
                 <field name="qty_delivered" sum="Delivered" optional="show"/>
                 <field name="qty_invoiced" sum="Invoiced" optional="show"/>
@@ -33,7 +38,6 @@
                 <field name="amount_total_line" sum="Total"/>
                 <field name="status_quotation"/>
                 <field name="status_sale"/>
-                <field name="company_id" groups="base.group_multi_company"/>
                 <field name="currency_id" column_invisible="1"/>
             </list>
         </field>
