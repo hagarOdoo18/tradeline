@@ -1004,6 +1004,10 @@ class saleadvancepaymentinv(models.TransientModel):
              "according to their invoicing policy (based on ordered or delivered quantity).")
 
     def _create_invoices(self,sale_orders):
+        sro_orders = sale_orders.filtered(lambda so: so.inv_type == 'sro')
+        if sro_orders:
+            raise UserError(_("You cannot create invoices when Invoice Type is SRO."))
+
         invoices = super(saleadvancepaymentinv, self)._create_invoices(sale_orders)
         for invoice in invoices:
             invoice.action_post()

@@ -61,7 +61,7 @@
                 <xpath expr="//button[@id='create_invoice_percentage']" position="replace">
                           <button id="create_invoice_percentage" name="%(sale.action_view_sale_advance_payment_inv)d" string="Create Invoice"
                     type="action" context="{'default_advance_payment_method': 'delivered'}" data-hotkey="q"
-                    invisible="invoice_status != 'no' or state != 'sale'"/>
+                    invisible="invoice_status != 'no' or state != 'sale' or inv_type == 'sro'"/>
                 </xpath>
 
                  <xpath expr="//page[@name='customer_signature']" position="attributes">
