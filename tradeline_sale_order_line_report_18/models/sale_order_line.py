@@ -6,11 +6,24 @@ from odoo import api, fields, models
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"
 
-    invoice_type = fields.Selection(
-        selection=[
+    @api.model
+    def _selection_invoice_type(self):
+        order_model = self.env["sale.order"]
+        inv_type_field = order_model._fields.get("inv_type")
+        if inv_type_field:
+            selection = inv_type_field.selection
+            return selection(order_model) if callable(selection) else selection
+        invoice_type_field = order_model._fields.get("invoice_type")
+        if invoice_type_field:
+            selection = invoice_type_field.selection
+            return selection(order_model) if callable(selection) else selection
+        return [
             ("quotation", "Quotation"),
             ("invoice", "Invoice"),
-        ],
+        ]
+
+    invoice_type = fields.Selection(
+        selection="_selection_invoice_type",
         string="Invoice Type",
         compute="_compute_invoice_type",
         store=True,
@@ -172,9 +185,20 @@ class SaleOrderLine(models.Model):
             number = re.sub(r"\D", "", order_ref)
             line.seq = "%s-%s" % (workflow_prefix, number or str(line.order_id.id or line.id or "0"))
 
-    @api.depends("state", "invoice_status")
+    @api.depends("state", "invoice_status", "order_id", "order_id.write_date")
     def _compute_invoice_type(self):
         for line in self:
+            order = line.order_id
+            order_type = False
+            if order and "inv_type" in order._fields:
+                order_type = order.inv_type
+            elif order and "invoice_type" in order._fields:
+                order_type = order.invoice_type
+
+            if order_type:
+                line.invoice_type = order_type
+                continue
+
             is_invoice_flow = line.state in ("sale", "done") or line.invoice_status in ("to invoice", "invoiced")
             line.invoice_type = "invoice" if is_invoice_flow else "quotation"
 
