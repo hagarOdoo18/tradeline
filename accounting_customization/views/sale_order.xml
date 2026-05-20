@@ -63,6 +63,9 @@
                     type="action" context="{'default_advance_payment_method': 'delivered'}" data-hotkey="q"
                     invisible="invoice_status != 'no' or state != 'sale' or inv_type == 'sro'"/>
                 </xpath>
+                <xpath expr="//button[@name='%(sale.action_view_sale_advance_payment_inv)d']" position="attributes">
+                    <attribute name="invisible">invoice_status != 'no' or state != 'sale' or inv_type == 'sro'</attribute>
+                </xpath>
 
                  <xpath expr="//page[@name='customer_signature']" position="attributes">
                     <!-- Add your fields or attributes here -->

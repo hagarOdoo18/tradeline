@@ -456,6 +456,11 @@ class SaleOrder(models.Model):
 
         return res
 
+    def action_view_sale_advance_payment_inv(self):
+        if self.filtered(lambda so: so.inv_type == 'sro'):
+            raise UserError(_("You cannot create invoices when Invoice Type is SRO."))
+        return super(SaleOrder, self).action_view_sale_advance_payment_inv()
+
     def _reason_uses_category_mode(self, reason):
         return bool(
             reason
