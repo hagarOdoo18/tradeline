@@ -338,36 +338,75 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         return workbook
 
     def _generate_excel_payment(self, lines, workbook):
+        """Matrix sheet: rows = payment journals, cols = branches, cells = SUM.
+
+        Aggregates every (journal, branch) pair so duplicates are added
+        together rather than overwriting. Adds a Total row (per branch) and
+        a Total column (per journal), plus a grand total in the corner.
+        """
         sheet = workbook.add_worksheet('Branches Payments')
         bold, cell, header = self._fmt(workbook)
 
-        # Normalise all values up front so grouping keys are plain strings
+        # Normalise to plain strings/floats
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in lines]
 
-        row = 1
-        payment_dic = {}
-        for _src, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
-                                key=lambda x: x[3]):
-            for journal, _grp2 in igrp(list(grp1), key=lambda x: x[0]):
-                sheet.set_column(row, 0, 30)
-                if journal not in payment_dic:
-                    payment_dic[journal] = row
-                    sheet.write(row, 0, journal, header)
-                    row += 1
+        # Build unique journal/branch axes and (journal, branch) -> sum map
+        matrix     = {}
+        journals   = []
+        branches   = []
+        j_seen     = set()
+        b_seen     = set()
+        for journal, branch, amount, _src in norm:
+            if not journal or not branch:
+                continue
+            if journal not in j_seen:
+                j_seen.add(journal)
+                journals.append(journal)
+            if branch not in b_seen:
+                b_seen.add(branch)
+                branches.append(branch)
+            key = (journal, branch)
+            matrix[key] = matrix.get(key, 0) + amount
 
-        col = 1
-        for branch, grp in igrp(sorted(norm, key=lambda x: x[1]),
-                                  key=lambda x: x[1]):
-            row = 0
-            sheet.set_column(0, col, 30)
-            if branch != 'None':
-                sheet.write(row, col, branch, header)
-                for line in grp:
-                    p_row = payment_dic.get(line[0])
-                    if p_row is not None:
-                        sheet.write(p_row, col, line[2], cell)
-                col += 1
+        # Stable sort for readability
+        journals.sort()
+        branches.sort()
+
+        # Header row: leave (0,0) blank, then branch names, then 'Total'
+        sheet.set_column(0, 0, 30)
+        sheet.write(0, 0, '', header)
+        for c, branch in enumerate(branches, start=1):
+            sheet.set_column(c, c, 22)
+            sheet.write(0, c, branch, header)
+        total_col = len(branches) + 1
+        sheet.set_column(total_col, total_col, 22)
+        sheet.write(0, total_col, 'Total', header)
+        sheet.set_row(0, 28)
+
+        # Body rows
+        branch_totals = [0.0] * len(branches)
+        grand_total   = 0.0
+        for r, journal in enumerate(journals, start=1):
+            sheet.write(r, 0, journal, header)
+            row_total = 0.0
+            for c, branch in enumerate(branches, start=1):
+                amount = matrix.get((journal, branch), 0)
+                sheet.write(r, c, amount, cell)
+                row_total            += amount
+                branch_totals[c - 1] += amount
+            sheet.write(r, total_col, row_total, header)
+            grand_total += row_total
+            sheet.set_row(r, 22)
+
+        # Footer Total row
+        footer_row = len(journals) + 1
+        sheet.write(footer_row, 0, 'Total', header)
+        for c, btot in enumerate(branch_totals, start=1):
+            sheet.write(footer_row, c, btot, header)
+        sheet.write(footer_row, total_col, grand_total, header)
+        sheet.set_row(footer_row, 24)
+
         return workbook
 
     def _generate_excel_type_payment(self, lines, workbook):
