@@ -95,139 +95,100 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             SELECT rb.name, SUM(so.amount_total)
             FROM sale_order so
             LEFT JOIN res_branch rb ON rb.id = so.branch_id
-            WHERE so.create_date >= '{df}'
-              AND so.create_date <= '{dt}'
+            WHERE so.date_order::date >= '{df}'
+              AND so.date_order::date <= '{dt}'
               AND so.state = 'sale'
               AND so.inv_type = 'sro'
             GROUP BY rb.name
         """.format(df=date_from, dt=date_to)
 
-    def _get_sql_total_payment(self, date_from, date_to):
-        reconciled_subq = """
-            SELECT DISTINCT aml_r.move_id
-            FROM account_move_line aml_r
-            JOIN account_account aa_r
-                ON aa_r.id = aml_r.account_id AND aa_r.reconcile = TRUE
-            JOIN account_partial_reconcile apr_r
-                ON apr_r.credit_move_id = aml_r.id
-                OR apr_r.debit_move_id  = aml_r.id
-            JOIN account_move_line aml_r2
-                ON aml_r2.id = CASE
-                    WHEN apr_r.credit_move_id = aml_r.id THEN apr_r.debit_move_id
-                    ELSE apr_r.credit_move_id END
-            JOIN account_payment ap_r ON ap_r.move_id = aml_r2.move_id
+    def _get_payment_lines(self, date_from, date_to):
+        """Return list of (journal_name, branch_name, amount, source_type) tuples.
+
+        ORM-based implementation that mirrors the logic of
+        ``action_view_payment_report`` in the branch_account_report wizard:
+          * invoices  -> reconciled account.payment, else POS payments
+          * credits   -> reconciled account.payment (negated), else POS payments
+          * sale-order payments (signed by payment_type)
         """
-        return """
-            -- 1. Invoices reconciled with account.payment
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(ap.amount)           AS amount,
-                'invoice'::text          AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN account_move_line aml ON aml.move_id = am.id
-            JOIN account_account aa
-                ON aa.id = aml.account_id AND aa.reconcile = TRUE
-            JOIN account_partial_reconcile apr
-                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
-            JOIN account_move_line aml2
-                ON aml2.id = CASE
-                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
-                    ELSE apr.credit_move_id END
-            JOIN account_payment ap ON ap.move_id = aml2.move_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE am.move_type = 'out_invoice'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-            GROUP BY aj.name, rb.name
+        ctx = {'allowed_company_ids': self.env.companies.ids}
+        AccountMove    = self.env['account.move'].with_context(**ctx)
+        AccountPayment = self.env['account.payment'].with_context(**ctx)
 
-            UNION ALL
+        invoices = AccountMove.search([
+            ('move_type',    '=',  'out_invoice'),
+            ('state',        '=',  'posted'),
+            ('invoice_date', '>=', date_from),
+            ('invoice_date', '<=', date_to),
+        ])
+        credits = AccountMove.search([
+            ('move_type',    '=',  'out_refund'),
+            ('state',        '=',  'posted'),
+            ('invoice_date', '>=', date_from),
+            ('invoice_date', '<=', date_to),
+        ])
+        order_payments = AccountPayment.search([
+            ('sale_order_id', '!=', False),
+            ('state',         '=',  'paid'),
+            ('date',          '>=', date_from),
+            ('date',          '<=', date_to),
+        ])
 
-            -- 2. Invoices paid via POS (no reconciled account.payment)
-            SELECT
-                ppm.name                 AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(pp.amount)           AS amount,
-                'invoice_pos'::text      AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN pos_order po ON po.account_move = am.id
-            JOIN pos_payment pp ON pp.pos_order_id = po.id
-            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
-            WHERE am.move_type = 'out_invoice'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-              AND am.id NOT IN ({reconciled_subq})
-            GROUP BY ppm.name, rb.name
+        lines = []
 
-            UNION ALL
+        # ---- invoices ------------------------------------------------
+        for inv in invoices:
+            branch_name = inv.branch_id.name or ''
+            payments    = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    lines.append((
+                        pmt.journal_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        'invoice',
+                    ))
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    lines.append((
+                        pmt.payment_method_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        'invoice_pos',
+                    ))
 
-            -- 3. Credit notes reconciled with account.payment (negative)
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(-ap.amount)          AS amount,
-                'credit'::text           AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN account_move_line aml ON aml.move_id = am.id
-            JOIN account_account aa
-                ON aa.id = aml.account_id AND aa.reconcile = TRUE
-            JOIN account_partial_reconcile apr
-                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
-            JOIN account_move_line aml2
-                ON aml2.id = CASE
-                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
-                    ELSE apr.credit_move_id END
-            JOIN account_payment ap ON ap.move_id = aml2.move_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE am.move_type = 'out_refund'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-            GROUP BY aj.name, rb.name
+        # ---- credit notes --------------------------------------------
+        for inv in credits:
+            branch_name = inv.branch_id.name or ''
+            payments    = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    lines.append((
+                        pmt.journal_id.name or '',
+                        branch_name,
+                        -pmt.amount,
+                        'credit',
+                    ))
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    lines.append((
+                        pmt.payment_method_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        'credit_pos',
+                    ))
 
-            UNION ALL
+        # ---- sale-order payments -------------------------------------
+        for pmt in order_payments:
+            signed = -pmt.amount if pmt.payment_type == 'outbound' else pmt.amount
+            lines.append((
+                pmt.journal_id.name or '',
+                pmt.branch_id.name or '',
+                signed,
+                'order_payment',
+            ))
 
-            -- 4. Credit notes paid via POS (no reconciled account.payment)
-            SELECT
-                ppm.name                 AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(pp.amount)           AS amount,
-                'credit_pos'::text       AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN pos_order po ON po.account_move = am.id
-            JOIN pos_payment pp ON pp.pos_order_id = po.id
-            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
-            WHERE am.move_type = 'out_refund'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-              AND am.id NOT IN ({reconciled_subq})
-            GROUP BY ppm.name, rb.name
-
-            UNION ALL
-
-            -- 5. Sale-order payments (signed by payment_type)
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(CASE WHEN ap.payment_type = 'outbound'
-                         THEN -ap.amount ELSE ap.amount END) AS amount,
-                'order_payment'::text    AS source_type
-            FROM account_payment ap
-            LEFT JOIN res_branch rb ON rb.id = ap.branch_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE ap.sale_order_id IS NOT NULL
-              AND ap.state = 'paid'
-              AND ap.date >= '{df}'
-              AND ap.date <= '{dt}'
-            GROUP BY aj.name, rb.name
-        """.format(df=date_from, dt=date_to, reconciled_subq=reconciled_subq)
+        return lines
 
     # ------------------------------------------------------------------
     # Main action
@@ -259,8 +220,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
         workbook = self._generate_excel_sro(sro_orders, workbook)
 
-        cr.execute(self._get_sql_total_payment(df, dt))
-        payments = cr.fetchall()
+        payments = self._get_payment_lines(df, dt)
 
         workbook = self._generate_excel_payment(payments, workbook)
         workbook = self._generate_excel_type_payment(payments, workbook)
