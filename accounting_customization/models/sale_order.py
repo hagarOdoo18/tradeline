@@ -767,6 +767,20 @@ class SaleOrder(models.Model):
                 )
 
     @api.constrains('discount_id', 'order_line', 'order_line.discount', 'order_line.product_id')
+    def _check_discount_reason_required_for_discount(self):
+        for order in self:
+            if order.discount_id:
+                continue
+
+            discounted_lines = order.order_line.filtered(
+                lambda line: line.product_id and float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1
+            )
+            if discounted_lines:
+                raise ValidationError(
+                    _("Discount Reason is mandatory when any sales order line has a discount.")
+                )
+
+    @api.constrains('discount_id', 'order_line', 'order_line.discount', 'order_line.product_id')
     def _check_discount_reason_lines(self):
         self._validate_discount_reason_lines(require_positive_standard=False)
 
