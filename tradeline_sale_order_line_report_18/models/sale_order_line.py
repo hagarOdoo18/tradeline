@@ -6,6 +6,16 @@ from odoo import api, fields, models
 class SaleOrderLine(models.Model):
     _inherit = "sale.order.line"
 
+    invoice_type = fields.Selection(
+        selection=[
+            ("quotation", "Quotation"),
+            ("invoice", "Invoice"),
+        ],
+        string="Invoice Type",
+        compute="_compute_invoice_type",
+        store=True,
+        readonly=True,
+    )
     seq = fields.Char(
         string="Seq",
         compute="_compute_seq",
@@ -161,6 +171,12 @@ class SaleOrderLine(models.Model):
             order_ref = line.order_id.name or line.number_order or ""
             number = re.sub(r"\D", "", order_ref)
             line.seq = "%s-%s" % (workflow_prefix, number or str(line.order_id.id or line.id or "0"))
+
+    @api.depends("state", "invoice_status")
+    def _compute_invoice_type(self):
+        for line in self:
+            is_invoice_flow = line.state in ("sale", "done") or line.invoice_status in ("to invoice", "invoiced")
+            line.invoice_type = "invoice" if is_invoice_flow else "quotation"
 
     def _compute_store_name(self):
         for line in self:

@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list string="Sales Order Lines" create="false">
                 <field name="seq"/>
+                <field name="invoice_type"/>
                 <field name="number_order"/>
                 <field name="order_date"/>
                 <field name="confirmation_date" optional="hide"/>
