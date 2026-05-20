@@ -1,4 +1,4 @@
-from odoo import fields,models,api
+from odoo import fields,models,api, _
 from odoo.exceptions import ValidationError
 from odoo.osv import expression
 
@@ -35,6 +35,19 @@ class ResPartnerInherit(models.Model):
     company_device = fields.Integer(
         string='Devices',
         required=False)
+
+    @api.constrains('company_type', 'vat', 'company_size', 'company_device')
+    def _check_company_required_fields(self):
+        for partner in self:
+            if partner.company_type != 'company':
+                continue
+
+            if not partner.vat:
+                raise ValidationError(_("Tax ID is mandatory for company contacts."))
+            if not partner.company_size:
+                raise ValidationError(_("Employees is mandatory for company contacts."))
+            if not partner.company_device or partner.company_device <= 0:
+                raise ValidationError(_("Devices must be greater than 0 for company contacts."))
         
     @api.constrains('mobile')
     def unique_mobile_id(self):
