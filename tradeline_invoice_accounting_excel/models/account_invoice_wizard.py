@@ -151,7 +151,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             else:
                 for pmt in inv.pos_order_ids.payment_ids:
                     lines.append((
-                        pmt.payment_method_id.name or '',
+                        pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
                         'invoice_pos',
@@ -172,7 +172,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             else:
                 for pmt in inv.pos_order_ids.payment_ids:
                     lines.append((
-                        pmt.payment_method_id.name or '',
+                        pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
                         'credit_pos',
