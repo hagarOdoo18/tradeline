@@ -146,7 +146,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.journal_id.name or '',
                         branch_name,
                         pmt.amount,
-                        'invoice',
+                        pmt.journal_id.payment_type,
                     ))
             else:
                 for pmt in inv.pos_order_ids.payment_ids:
@@ -154,7 +154,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
-                        'invoice_pos',
+                        pmt.journal_id.payment_type,
                     ))
 
         # ---- credit notes --------------------------------------------
@@ -167,7 +167,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.journal_id.name or '',
                         branch_name,
                         -pmt.amount,
-                        'credit',
+                        pmt.journal_id.payment_type,
                     ))
             else:
                 for pmt in inv.pos_order_ids.payment_ids:
@@ -175,7 +175,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
-                        'credit_pos',
+                        pmt.journal_id.payment_type,
                     ))
 
         # ---- sale-order payments -------------------------------------
@@ -185,7 +185,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                 pmt.journal_id.name or '',
                 pmt.branch_id.name or '',
                 signed,
-                'order_payment',
+                pmt.journal_id.payment_type,
             ))
 
         return lines
