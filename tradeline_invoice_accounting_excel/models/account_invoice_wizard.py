@@ -154,7 +154,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
-                        pmt.journal_id.payment_type,
+                        pmt.payment_method_id.journal_id.payment_type,
                     ))
 
         # ---- credit notes --------------------------------------------
@@ -175,7 +175,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         pmt.payment_method_id.journal_id.name or '',
                         branch_name,
                         pmt.amount,
-                        pmt.journal_id.payment_type,
+                        pmt.payment_method_id.journal_id.payment_type,
                     ))
 
         # ---- sale-order payments -------------------------------------
