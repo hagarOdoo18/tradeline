@@ -474,12 +474,14 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             'font_color': '#FFFFFF', 'border': 1,
         })
 
-        for c in range(9):
+        # Pre-set default column widths (expanded to 20 cols; the payment matrix
+        # may add more — those are sized individually when the matrix is built)
+        for c in range(20):
             sheet.set_column(c, c, 20)
-        sheet.set_column(2, 2, 26)
+        sheet.set_column(0, 0, 30)   # Journal column
+        sheet.set_column(2, 2, 26)   # Customer column
 
-        # Title
-        sheet.merge_range(0, 0, 0, 8, 'Accounting Report - Full Summary', title_fmt)
+        # Title (will be widened after we know total_pay_col; write it last)
         sheet.set_row(0, 28)
 
         L = 2
@@ -542,37 +544,92 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         BL = next_row
         BR = next_row
 
-        # Bottom-Left: Payments by Journal & Branch
-        sheet.merge_range(BL, 0, BL, 3, 'Payments by Journal & Branch', section_fmt)
+        # --- pre-compute payment matrix axes so we know total width for title ---
+        # Bottom-Left: Payments by Journal & Branch  (matrix layout like Branches Payments sheet)
+        # Build unique journal/branch axes and (journal, branch) -> sum map
+        pay_matrix   = {}
+        pay_journals = []
+        pay_branches = []
+        j_seen2      = set()
+        b_seen2      = set()
+        for journal, branch, amount, _src in norm:
+            if not journal or not branch:
+                continue
+            if journal not in j_seen2:
+                j_seen2.add(journal)
+                pay_journals.append(journal)
+            if branch not in b_seen2:
+                b_seen2.add(branch)
+                pay_branches.append(branch)
+            pay_matrix[(journal, branch)] = pay_matrix.get((journal, branch), 0) + amount
+        pay_journals.sort()
+        pay_branches.sort()
+
+        total_pay_col = len(pay_branches) + 1          # column index of the "Total" column
+        merge_end_col = total_pay_col                  # last column of this table
+
+        # Now write the sheet title spanning the full width
+        title_end = max(8, total_pay_col + 3)
+        sheet.merge_range(0, 0, 0, title_end, 'Accounting Report - Full Summary', title_fmt)
+
+        # Section title spanning all columns of the matrix
+        if merge_end_col > 0:
+            sheet.merge_range(BL, 0, BL, merge_end_col,
+                              'Payments by Journal & Branch', section_fmt)
+        else:
+            sheet.write(BL, 0, 'Payments by Journal & Branch', section_fmt)
         sheet.set_row(BL, 22); BL += 1
-        for c, lbl in enumerate(['Journal', 'Branch', 'Amount', 'Type']):
-            sheet.write(BL, c, lbl, header)
-        sheet.set_row(BL, 20); BL += 1
-        grand_pay = 0
-        for line in norm:
-            sheet.write(BL, 0, line[0], cell)
-            sheet.write(BL, 1, line[1], cell)
-            sheet.write(BL, 2, line[2], cell)
-            sheet.write(BL, 3, line[3], cell)
-            grand_pay += line[2]; BL += 1
-        sheet.write(BL, 0, 'Grand Total', header)
-        sheet.write(BL, 2, grand_pay,     header); BL += 1
+
+        # Header row: blank corner, branch names, "Total"
+        sheet.write(BL, 0, '', header)
+        for c, branch in enumerate(pay_branches, start=1):
+            # expand column width to fit if needed
+            sheet.set_column(c, c, max(20, len(branch) + 4))
+            sheet.write(BL, c, branch, header)
+        sheet.write(BL, total_pay_col, 'Total', header)
+        sheet.set_row(BL, 24); BL += 1
+
+        # Body rows
+        branch_pay_totals = [0.0] * len(pay_branches)
+        grand_pay         = 0.0
+        for journal in pay_journals:
+            sheet.write(BL, 0, journal, header)
+            row_total = 0.0
+            for c, branch in enumerate(pay_branches, start=1):
+                amount = pay_matrix.get((journal, branch), 0)
+                sheet.write(BL, c, amount, cell)
+                row_total                += amount
+                branch_pay_totals[c - 1] += amount
+            sheet.write(BL, total_pay_col, row_total, header)
+            grand_pay += row_total
+            sheet.set_row(BL, 20); BL += 1
+
+        # Footer Total row
+        sheet.write(BL, 0, 'Total', header)
+        for c, btot in enumerate(branch_pay_totals, start=1):
+            sheet.write(BL, c, btot, header)
+        sheet.write(BL, total_pay_col, grand_pay, header)
+        sheet.set_row(BL, 22); BL += 1
 
         # Bottom-Right: Payment Type Summary (grouped by type)
-        sheet.merge_range(BR, 5, BR, 6, 'Payment Type Summary', section_fmt)
+        # Place it two columns after the end of the payment matrix
+        type_col = total_pay_col + 2
+        sheet.set_column(type_col,     type_col,     20)
+        sheet.set_column(type_col + 1, type_col + 1, 20)
+        sheet.merge_range(BR, type_col, BR, type_col + 1, 'Payment Type Summary', section_fmt)
         sheet.set_row(BR, 22); BR += 1
-        sheet.write(BR, 5, 'Type',  header)
-        sheet.write(BR, 6, 'Total', header)
+        sheet.write(BR, type_col,     'Type',  header)
+        sheet.write(BR, type_col + 1, 'Total', header)
         sheet.set_row(BR, 20); BR += 1
         grand_type = 0
         for src_type, grp1 in igrp(sorted(norm, key=lambda x: x[3]),
                                     key=lambda x: x[3]):
             tot = sum(l[2] for l in grp1)
-            sheet.write(BR, 5, src_type, cell)
-            sheet.write(BR, 6, tot,      cell)
+            sheet.write(BR, type_col,     src_type, cell)
+            sheet.write(BR, type_col + 1, tot,      cell)
             grand_type += tot
             sheet.set_row(BR, 18); BR += 1
-        sheet.write(BR, 5, 'Grand Total', header)
-        sheet.write(BR, 6, grand_type,    header); BR += 1
+        sheet.write(BR, type_col,     'Grand Total', header)
+        sheet.write(BR, type_col + 1, grand_type,    header); BR += 1
 
         return workbook
