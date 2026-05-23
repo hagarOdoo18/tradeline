@@ -103,6 +103,9 @@
 
 
             </xpath>
+                <xpath expr="//field[@name='order_line']/list/field[@name='discount']" position="after">
+                    <field name="discount_reason_id" optional="show"/>
+                </xpath>
             </field>
         </record>
 

@@ -1,6 +1,6 @@
 # models/pos_order.py
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
 
 
@@ -64,14 +64,6 @@ class PosOrder(models.Model):
         if isinstance(line_command, dict):
             return line_command
         return {}
-
-    @staticmethod
-    def _has_positive_line_discount(line_vals):
-        try:
-            discount = float(line_vals.get("discount") or 0.0)
-        except (TypeError, ValueError):
-            discount = 0.0
-        return float_compare(discount, 0.0, precision_digits=2) == 1
 
     def _get_category_chain_ids(self, category):
         chain = []
@@ -155,16 +147,7 @@ class PosOrder(models.Model):
         if not isinstance(order_vals, dict):
             return
 
-        has_discount = False
-        for line_cmd in order_vals.get("lines", []):
-            line_vals = self._extract_line_vals(line_cmd)
-            if self._has_positive_line_discount(line_vals):
-                has_discount = True
-                break
-
         reason_id = self._extract_m2o_id(order_vals.get('discount_reason_id'))
-        if has_discount and not reason_id:
-            raise UserError(_("Discount Reason is mandatory when applying any line discount."))
         if not reason_id:
             return
 
@@ -336,20 +319,6 @@ class PosOrder(models.Model):
     def _process_order(self, order, *args):
         self._validate_locked_category_discounts(order)
         return super()._process_order(order, *args)
-
-    @api.constrains('discount_reason_id', 'lines', 'lines.discount', 'lines.product_id')
-    def _check_discount_reason_required_for_discount(self):
-        for order in self:
-            if order.discount_reason_id:
-                continue
-
-            discounted_lines = order.lines.filtered(
-                lambda line: line.product_id and float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1
-            )
-            if discounted_lines:
-                raise ValidationError(
-                    _("Discount Reason is mandatory when applying any line discount.")
-                )
 
     def _prepare_order_line(self, line):
         """Prepare order line data"""

@@ -633,11 +633,13 @@ class SaleOrder(models.Model):
             if order._reason_is_fixed_amount_mode(reason):
                 fixed_percentages = order._compute_fixed_reason_line_discounts(reason, lines)
                 for line in lines:
+                    line.discount_reason_id = reason
                     line.discount = fixed_percentages.get(line.id, 0.0)
                 continue
 
             if not order._reason_uses_category_mode(reason):
                 for line in lines:
+                    line.discount_reason_id = reason
                     line.discount = reason.discount_percentage or 0.0
                 continue
 
@@ -651,8 +653,10 @@ class SaleOrder(models.Model):
             for line in lines:
                 category_cap = order._get_reason_category_cap_for_product(reason, line.product_id)
                 if category_cap is None:
+                    line.discount_reason_id = reason
                     line.discount = 0.0
                     continue
+                line.discount_reason_id = reason
                 line.discount = category_cap
                 eligible_lines += 1
 
@@ -772,17 +776,16 @@ class SaleOrder(models.Model):
                 )
 
     @api.constrains('discount_id', 'order_line', 'order_line.discount', 'order_line.product_id')
-    def _check_discount_reason_required_for_discount(self):
+    def _check_discount_reason_required_line_level(self):
         for order in self:
-            if order.discount_id:
-                continue
-
-            discounted_lines = order.order_line.filtered(
-                lambda line: line.product_id and float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1
+            discounted_lines_without_reason = order.order_line.filtered(
+                lambda line: line.product_id
+                and float_compare(line.discount or 0.0, 0.0, precision_digits=2) == 1
+                and not (line.discount_reason_id or order.discount_id)
             )
-            if discounted_lines:
+            if discounted_lines_without_reason:
                 raise ValidationError(
-                    _("Discount Reason is mandatory when any sales order line has a discount.")
+                    _("Discount Reason is mandatory on each discounted line.")
                 )
 
     @api.constrains('discount_id', 'order_line', 'order_line.discount', 'order_line.product_id')
@@ -859,6 +862,12 @@ class SaleOrderLine(models.Model):
         comodel_name='product.family',
         string='Family',
         required=False)
+    discount_reason_id = fields.Many2one(
+        comodel_name='discount.reason',
+        string='Discount Reason',
+        required=False,
+        help='Reason for this specific line discount.',
+    )
 
     location_id = fields.Many2one(
         'stock.location',
@@ -895,6 +904,7 @@ class SaleOrderLine(models.Model):
             self.warranty_id =  warranty.id
         if self.order_id and self.order_id.discount_id and self.product_id:
             reason = self.order_id.discount_id
+            self.discount_reason_id = reason
             if self.order_id._reason_is_fixed_amount_mode(reason):
                 self.order_id._apply_discount_reason_to_lines()
             elif self.order_id._reason_uses_category_mode(reason):
@@ -929,12 +939,13 @@ class SaleOrderLine(models.Model):
     def _onchange_discount(self):
         for line in self:
             if line.product_id:
-                if line.discount != 0 and not line.order_id.discount_id:
-                    raise UserError("Select Discount Reason To Apply Discount")
-                if not line.order_id.discount_id:
+                if float_compare(line.discount or 0.0, 0.0, precision_digits=2) <= 0:
                     continue
 
-                reason = line.order_id.discount_id
+                reason = line.discount_reason_id or line.order_id.discount_id
+                if not reason:
+                    raise UserError("Select Discount Reason on this line or at order level to apply discount")
+
                 if line.order_id._reason_is_fixed_amount_mode(reason):
                     if line.order_id._reason_has_category_scope(reason):
                         rules = line.order_id._get_reason_category_rules(reason)
@@ -945,12 +956,20 @@ class SaleOrderLine(models.Model):
                             raise UserError("Product Not Eligible For Selected Discount Reason")
                     if float_compare(line.discount or 0.0, 100.0, precision_digits=2) == 1:
                         raise UserError("Discount Not Matched with Discount Reason")
-                    lines = line.order_id.order_line.filtered("product_id")
-                    fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
-                    precision_rounding = line.order_id.currency_id.rounding if line.order_id.currency_id else 0.01
-                    discounted_total = line.order_id._get_order_lines_discount_amount_total(lines)
-                    if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
-                        raise UserError("Discount Not Matched with Discount Reason")
+                    if line.order_id.discount_id and reason.id == line.order_id.discount_id.id:
+                        lines = line.order_id.order_line.filtered("product_id")
+                        fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+                        precision_rounding = line.order_id.currency_id.rounding if line.order_id.currency_id else 0.01
+                        discounted_total = line.order_id._get_order_lines_discount_amount_total(lines)
+                        if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
+                            raise UserError("Discount Not Matched with Discount Reason")
+                    else:
+                        base_amount = line.order_id._get_discount_reason_line_base_amount(line)
+                        if float_compare(base_amount, 0.0, precision_rounding=0.01) <= 0:
+                            raise UserError("Cannot apply fixed discount on zero-value line")
+                        max_pct = min(max((max(reason.fixed_discount_amount or 0.0, 0.0) / base_amount) * 100.0, 0.0), 100.0)
+                        if float_compare(line.discount or 0.0, max_pct, precision_digits=2) == 1:
+                            raise UserError("Discount Not Matched with Discount Reason")
                 elif line.order_id._reason_uses_category_mode(reason):
                     rules = line.order_id._get_reason_category_rules(reason)
                     if not rules:
@@ -964,8 +983,51 @@ class SaleOrderLine(models.Model):
 
                     if float_compare(line.discount or 0.0, category_cap, precision_digits=2) == 1:
                         raise UserError("Discount Not Matched with Discount Reason")
-                elif line.discount > line.order_id.discount_id.discount_percentage:
+                elif line.discount > reason.discount_percentage:
                     raise UserError("Discount Not Matched with Discount Reason")
+
+    @api.constrains('discount', 'discount_reason_id', 'product_id')
+    def _check_line_discount_reason_required(self):
+        for line in self:
+            if not line.product_id:
+                continue
+            if float_compare(line.discount or 0.0, 0.0, precision_digits=2) <= 0:
+                continue
+            reason = line.discount_reason_id or line.order_id.discount_id
+            if not reason:
+                raise ValidationError(
+                    _("Discount Reason is mandatory on discounted lines.")
+                )
+
+            # If the line relies on order-level reason, order-level validators handle reason caps.
+            if line.order_id.discount_id and reason.id == line.order_id.discount_id.id:
+                continue
+
+            if line.order_id._reason_is_fixed_amount_mode(reason):
+                base_amount = line.order_id._get_discount_reason_line_base_amount(line)
+                if float_compare(base_amount, 0.0, precision_rounding=0.01) <= 0:
+                    raise ValidationError(_("Cannot apply fixed discount on zero-value line."))
+                max_pct = min(
+                    max((max(reason.fixed_discount_amount or 0.0, 0.0) / base_amount) * 100.0, 0.0),
+                    100.0,
+                )
+                if float_compare(line.discount or 0.0, max_pct, precision_digits=2) == 1:
+                    raise ValidationError(_("Discount Not Matched with Discount Reason"))
+                continue
+
+            if line.order_id._reason_uses_category_mode(reason):
+                rules = line.order_id._get_reason_category_rules(reason)
+                if not rules:
+                    raise ValidationError(_("This discount reason requires category rules but none are configured."))
+                category_cap = line.order_id._get_reason_category_cap_for_product(reason, line.product_id)
+                if category_cap is None:
+                    raise ValidationError(_("Product Not Eligible For Selected Discount Reason"))
+                if float_compare(line.discount or 0.0, category_cap, precision_digits=2) == 1:
+                    raise ValidationError(_("Discount Not Matched with Discount Reason"))
+                continue
+
+            if float_compare(line.discount or 0.0, reason.discount_percentage or 0.0, precision_digits=2) == 1:
+                raise ValidationError(_("Discount Not Matched with Discount Reason"))
 
     @api.onchange('product_id')
     def _onchange_product_id (self):
