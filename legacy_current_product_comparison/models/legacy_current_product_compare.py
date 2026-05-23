@@ -8,7 +8,7 @@ MATCH_STATUS_SELECTION = [
 ]
 
 MATCH_METHOD_SELECTION = [
-    ("auto_barcode", "Auto (Barcode)"),
+    ("auto_barcode", "Auto (Item Code / Barcode)"),
     ("auto_code", "Auto (Item Code)"),
     ("manual", "Manual"),
     ("none", "None"),
@@ -96,6 +96,12 @@ class LegacyCurrentProductCompareMonth(models.Model):
     match_method = fields.Selection(selection=MATCH_METHOD_SELECTION, readonly=True)
     confidence = fields.Float(readonly=True)
     manual_override = fields.Boolean(readonly=True)
+    source_match_identifier = fields.Char(readonly=True)
+    target_match_identifier = fields.Char(readonly=True)
+    source_match_identifier_type = fields.Char(readonly=True)
+    target_match_identifier_type = fields.Char(readonly=True)
+    match_strategy = fields.Char(readonly=True)
+    candidate_count = fields.Integer(readonly=True)
 
     legacy_sales_qty = fields.Float(readonly=True)
     legacy_sales_amount = fields.Float(readonly=True)
@@ -321,7 +327,13 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     lpm.match_status,
                     lpm.match_method,
                     COALESCE(lpm.confidence, 0.0) AS confidence,
-                    COALESCE(lpm.manual_override, FALSE) AS manual_override
+                    COALESCE(lpm.manual_override, FALSE) AS manual_override,
+                    lpm.source_match_identifier,
+                    lpm.target_match_identifier,
+                    lpm.source_match_identifier_type,
+                    lpm.target_match_identifier_type,
+                    lpm.match_strategy,
+                    COALESCE(lpm.candidate_count, 0) AS candidate_count
                 FROM legacy_product_map lpm
             ),
             legacy_facts AS (
@@ -491,6 +503,12 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     mp.match_method,
                     COALESCE(mp.confidence, 0.0) AS confidence,
                     COALESCE(mp.manual_override, FALSE) AS manual_override,
+                    mp.source_match_identifier,
+                    mp.target_match_identifier,
+                    mp.source_match_identifier_type,
+                    mp.target_match_identifier_type,
+                    mp.match_strategy,
+                    COALESCE(mp.candidate_count, 0) AS candidate_count,
                     COALESCE(lf.legacy_sales_qty, 0.0) AS legacy_sales_qty,
                     COALESCE(lf.legacy_sales_amount, 0.0) AS legacy_sales_amount,
                     COALESCE(lf.legacy_return_qty, 0.0) AS legacy_return_qty,
@@ -595,6 +613,12 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 match_method,
                 confidence,
                 manual_override,
+                source_match_identifier,
+                target_match_identifier,
+                source_match_identifier_type,
+                target_match_identifier_type,
+                match_strategy,
+                candidate_count,
                 legacy_sales_qty,
                 legacy_sales_amount,
                 legacy_return_qty,
@@ -672,6 +696,12 @@ class LegacyCurrentProductCompareBaseline(models.Model):
     match_method = fields.Selection(selection=MATCH_METHOD_SELECTION, readonly=True)
     confidence = fields.Float(readonly=True)
     manual_override = fields.Boolean(readonly=True)
+    source_match_identifier = fields.Char(readonly=True)
+    target_match_identifier = fields.Char(readonly=True)
+    source_match_identifier_type = fields.Char(readonly=True)
+    target_match_identifier_type = fields.Char(readonly=True)
+    match_strategy = fields.Char(readonly=True)
+    candidate_count = fields.Integer(readonly=True)
 
     baseline_mode = fields.Selection(selection=BASELINE_MODE_SELECTION, readonly=True)
     current_period_month = fields.Date(readonly=True)
@@ -772,7 +802,13 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     lpm.match_status,
                     lpm.match_method,
                     COALESCE(lpm.confidence, 0.0) AS confidence,
-                    COALESCE(lpm.manual_override, FALSE) AS manual_override
+                    COALESCE(lpm.manual_override, FALSE) AS manual_override,
+                    lpm.source_match_identifier,
+                    lpm.target_match_identifier,
+                    lpm.source_match_identifier_type,
+                    lpm.target_match_identifier_type,
+                    lpm.match_strategy,
+                    COALESCE(lpm.candidate_count, 0) AS candidate_count
                 FROM legacy_product_map lpm
                 WHERE lpm.target_product_id IS NOT NULL
             ),
@@ -878,6 +914,12 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     mp.match_method,
                     mp.confidence,
                     mp.manual_override,
+                    mp.source_match_identifier,
+                    mp.target_match_identifier,
+                    mp.source_match_identifier_type,
+                    mp.target_match_identifier_type,
+                    mp.match_strategy,
+                    COALESCE(mp.candidate_count, 0) AS candidate_count,
                     m.period_month AS current_period_month
                 FROM mapped_products mp
                 JOIN months_current m ON TRUE
@@ -986,6 +1028,12 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     ar.match_method,
                     ar.confidence,
                     ar.manual_override,
+                    ar.source_match_identifier,
+                    ar.target_match_identifier,
+                    ar.source_match_identifier_type,
+                    ar.target_match_identifier_type,
+                    ar.match_strategy,
+                    ar.candidate_count,
                     ar.baseline_mode,
                     ar.current_period_month,
                     ar.baseline_period_month,
@@ -1051,6 +1099,12 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 match_method,
                 confidence,
                 manual_override,
+                source_match_identifier,
+                target_match_identifier,
+                source_match_identifier_type,
+                target_match_identifier_type,
+                match_strategy,
+                candidate_count,
                 baseline_mode,
                 current_period_month,
                 baseline_period_month,

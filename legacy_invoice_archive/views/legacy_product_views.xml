@@ -79,6 +79,7 @@
         <field name="arch" type="xml">
             <list string="Legacy Product Mapping" create="false" edit="false" delete="false" export_xlsx="1">
                 <field name="source_default_code"/>
+                <field name="source_barcode" optional="show"/>
                 <field name="source_name"/>
                 <field name="source_category_name" optional="show"/>
                 <field name="source_brand_name" optional="show"/>
@@ -87,6 +88,12 @@
                 <field name="match_method"/>
                 <field name="confidence" optional="show"/>
                 <field name="manual_override" optional="show"/>
+                <field name="source_match_identifier" optional="show"/>
+                <field name="target_match_identifier" optional="show"/>
+                <field name="source_match_identifier_type" optional="hide"/>
+                <field name="target_match_identifier_type" optional="hide"/>
+                <field name="match_strategy" optional="show"/>
+                <field name="candidate_count" optional="show"/>
             </list>
         </field>
     </record>
@@ -104,6 +111,12 @@
                 <field name="target_product_id"/>
                 <field name="match_status"/>
                 <field name="match_method"/>
+                <field name="source_match_identifier"/>
+                <field name="target_match_identifier"/>
+                <field name="source_match_identifier_type"/>
+                <field name="target_match_identifier_type"/>
+                <field name="match_strategy"/>
+                <field name="candidate_count"/>
                 <filter name="legacy_map_matched" string="Matched" domain="[('match_status', '=', 'matched')]"/>
                 <filter name="legacy_map_review" string="Needs Review" domain="[('match_status', '=', 'review')]"/>
                 <filter name="legacy_map_unmatched" string="Unmatched" domain="[('match_status', '=', 'unmatched')]"/>
@@ -111,6 +124,7 @@
                 <group expand="0" string="Group By">
                     <filter name="legacy_map_group_status" string="Match Status" context="{'group_by': 'match_status'}"/>
                     <filter name="legacy_map_group_method" string="Match Method" context="{'group_by': 'match_method'}"/>
+                    <filter name="legacy_map_group_strategy" string="Match Strategy" context="{'group_by': 'match_strategy'}"/>
                     <filter name="legacy_map_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
                     <filter name="legacy_map_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
                 </group>
@@ -150,6 +164,12 @@
                             <field name="match_method"/>
                             <field name="confidence"/>
                             <field name="manual_override"/>
+                            <field name="source_match_identifier"/>
+                            <field name="target_match_identifier"/>
+                            <field name="source_match_identifier_type"/>
+                            <field name="target_match_identifier_type"/>
+                            <field name="match_strategy"/>
+                            <field name="candidate_count"/>
                         </group>
                     </group>
                     <group>

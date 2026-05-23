@@ -13,6 +13,12 @@
                 <button name="action_open_mapping" type="object" string="Open Mapping"/>
                 <field name="match_status"/>
                 <field name="match_method" optional="show"/>
+                <field name="source_match_identifier" string="Source Match Key" optional="show"/>
+                <field name="target_match_identifier" string="Target Match Key" optional="show"/>
+                <field name="source_match_identifier_type" string="Source Match Type" optional="hide"/>
+                <field name="target_match_identifier_type" string="Target Match Type" optional="hide"/>
+                <field name="match_strategy" optional="show"/>
+                <field name="candidate_count" optional="show"/>
                 <field name="source_category_name" optional="show"/>
                 <field name="source_brand_name" optional="show"/>
                 <field name="legacy_sales_qty" sum="Legacy Sales Qty"/>
@@ -78,6 +84,12 @@
                 <field name="source_brand_name"/>
                 <field name="match_status"/>
                 <field name="match_method"/>
+                <field name="source_match_identifier"/>
+                <field name="target_match_identifier"/>
+                <field name="source_match_identifier_type"/>
+                <field name="target_match_identifier_type"/>
+                <field name="match_strategy"/>
+                <field name="candidate_count"/>
                 <field name="period_month"/>
                 <field name="warehouse_key"/>
                 <field name="source_db"/>
@@ -85,12 +97,18 @@
                 <filter name="compare_matched_only"
                         string="Matched Only"
                         domain="[('match_status', '=', 'matched'), ('target_product_id', '!=', False)]"/>
+                <filter name="compare_confidence_1"
+                        string="Confidence 1.0"
+                        domain="[('confidence', '=', 1.0)]"/>
                 <filter name="compare_unmatched"
                         string="Unmatched"
                         domain="[('target_product_id', '=', False)]"/>
                 <filter name="compare_review"
                         string="Needs Review"
                         domain="[('match_status', '=', 'review')]"/>
+                <filter name="compare_review_unmatched"
+                        string="Review + Unmatched"
+                        domain="['|', ('match_status', '=', 'review'), ('match_status', '=', 'unmatched')]"/>
                 <filter name="compare_value_missing"
                         string="Missing Valuation"
                         domain="[('value_available', '=', False)]"/>
@@ -114,6 +132,7 @@
                     <filter name="compare_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
                     <filter name="compare_group_legacy_product" string="Legacy Product" context="{'group_by': 'source_name'}"/>
                     <filter name="compare_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
+                    <filter name="compare_group_state" string="State" context="{'group_by': 'match_status'}"/>
                     <filter name="compare_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
                     <filter name="compare_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
                     <filter name="compare_group_match_status" string="Match Status" context="{'group_by': 'match_status'}"/>
@@ -192,7 +211,7 @@
         <field name="res_model">legacy.current.product.compare.month</field>
         <field name="view_mode">graph,pivot,list</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_month_search"/>
-        <field name="context">{'search_default_compare_matched_only': 1, 'search_default_compare_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_compare_matched_only': 1, 'search_default_compare_confidence_1': 1, 'search_default_compare_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_month"
@@ -200,6 +219,21 @@
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_compare_month"
               sequence="90"
+              groups="account.group_account_readonly"/>
+
+    <record id="action_legacy_current_product_compare_month_exceptions" model="ir.actions.act_window">
+        <field name="name">Legacy Match Exceptions</field>
+        <field name="res_model">legacy.current.product.compare.month</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_legacy_current_product_compare_month_search"/>
+        <field name="context">{'search_default_compare_review_unmatched': 1, 'search_default_compare_group_state': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_current_product_compare_month_exceptions"
+              name="Legacy Match Exceptions"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_compare_month_exceptions"
+              sequence="91"
               groups="account.group_account_readonly"/>
 
     <record id="view_legacy_current_product_compare_baseline_list" model="ir.ui.view">
@@ -220,6 +254,12 @@
                 <field name="match_status"/>
                 <field name="match_method" optional="show"/>
                 <field name="confidence" optional="show"/>
+                <field name="source_match_identifier" string="Source Match Key" optional="show"/>
+                <field name="target_match_identifier" string="Target Match Key" optional="show"/>
+                <field name="source_match_identifier_type" string="Source Match Type" optional="hide"/>
+                <field name="target_match_identifier_type" string="Target Match Type" optional="hide"/>
+                <field name="match_strategy" optional="show"/>
+                <field name="candidate_count" optional="show"/>
                 <field name="current_sales_qty" sum="Current Sales Qty"/>
                 <field name="baseline_legacy_sales_qty" sum="Legacy Baseline Qty"/>
                 <field name="delta_sales_qty" sum="Sales Qty Delta"/>
@@ -281,6 +321,12 @@
                 <field name="source_brand_name"/>
                 <field name="match_status"/>
                 <field name="match_method"/>
+                <field name="source_match_identifier"/>
+                <field name="target_match_identifier"/>
+                <field name="source_match_identifier_type"/>
+                <field name="target_match_identifier_type"/>
+                <field name="match_strategy"/>
+                <field name="candidate_count"/>
                 <field name="baseline_mode"/>
                 <field name="current_period_month"/>
                 <field name="baseline_period_month"/>
@@ -318,6 +364,7 @@
                     <filter name="baseline_group_current_month" string="Current Month" context="{'group_by': 'current_period_month:month'}"/>
                     <filter name="baseline_group_legacy_month" string="Legacy Baseline Month" context="{'group_by': 'baseline_period_month:month'}"/>
                     <filter name="baseline_group_mode" string="Baseline Mode" context="{'group_by': 'baseline_mode'}"/>
+                    <filter name="baseline_group_state" string="State" context="{'group_by': 'match_status'}"/>
                     <filter name="baseline_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
                     <filter name="baseline_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
                     <filter name="baseline_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
@@ -396,6 +443,6 @@
               name="Legacy to Current Baseline Comparison"
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_compare_baseline"
-              sequence="91"
+              sequence="92"
               groups="account.group_account_readonly"/>
 </odoo>
