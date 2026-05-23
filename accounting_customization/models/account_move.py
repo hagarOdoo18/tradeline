@@ -253,28 +253,34 @@ class AccountMove(models.Model):
     def _get_report_payment_lines(self):
         self.ensure_one()
         payment_lines = []
-        payments_widget = self.sudo().invoice_payments_widget or {}
 
-        if isinstance(payments_widget, str):
-            try:
-                payments_widget = json.loads(payments_widget)
-            except Exception:
-                payments_widget = {}
+        def _extract_widget_payment_lines(move, sign=1):
+            extracted_lines = []
+            payments_widget = move.sudo().invoice_payments_widget or {}
 
-        if isinstance(payments_widget, dict):
-            for payment_vals in payments_widget.get('content') or []:
-                if payment_vals.get('is_exchange'):
-                    continue
-                payment_lines.append({
-                    'date': payment_vals.get('date'),
-                    'method': (
-                        payment_vals.get('pos_payment_name')
-                        or payment_vals.get('journal_name')
-                        or payment_vals.get('name')
-                        or ''
-                    ),
-                    'amount': abs(float(payment_vals.get('amount') or 0.0)),
-                })
+            if isinstance(payments_widget, str):
+                try:
+                    payments_widget = json.loads(payments_widget)
+                except Exception:
+                    payments_widget = {}
+
+            if isinstance(payments_widget, dict):
+                for payment_vals in payments_widget.get('content') or []:
+                    if payment_vals.get('is_exchange'):
+                        continue
+                    extracted_lines.append({
+                        'date': payment_vals.get('date'),
+                        'method': (
+                            payment_vals.get('pos_payment_name')
+                            or payment_vals.get('journal_name')
+                            or payment_vals.get('name')
+                            or ''
+                        ),
+                        'amount': sign * abs(float(payment_vals.get('amount') or 0.0)),
+                    })
+            return extracted_lines
+
+        payment_lines.extend(_extract_widget_payment_lines(self, sign=1))
 
         if not payment_lines:
             try:
@@ -302,6 +308,27 @@ class AccountMove(models.Model):
                 for payment in pos_payments
             ]
 
+        if self.move_type == 'out_invoice':
+            refund_moves = self.reversal_move_ids.filtered(
+                lambda move: move.state == 'posted' and move.move_type == 'out_refund'
+            )
+            for refund_move in refund_moves:
+                refund_payment_lines = _extract_widget_payment_lines(refund_move, sign=-1)
+                if not refund_payment_lines:
+                    try:
+                        refund_payments = refund_move._get_reconciled_payments()
+                    except Exception:
+                        refund_payments = self.env['account.payment']
+                    refund_payment_lines = [
+                        {
+                            'date': payment.date,
+                            'method': payment.journal_id.name or '',
+                            'amount': -abs(float(payment.amount or 0.0)),
+                        }
+                        for payment in refund_payments
+                    ]
+                payment_lines.extend(refund_payment_lines)
+
         return payment_lines
 
     def _get_report_paid_amount(self):
@@ -317,34 +344,68 @@ class AccountMove(models.Model):
         company = self.company_id
         convert_date = self.invoice_date or fields.Date.context_today(self)
 
-        printable_lines = self._get_printable_invoice_lines().sorted(
+        base_printable_lines = self._get_printable_invoice_lines()
+        printable_lines = base_printable_lines
+        refund_info_line_ids = set()
+        refund_affecting_total_line_ids = set()
+
+        if self.move_type == 'out_invoice':
+            refund_moves = self.reversal_move_ids.filtered(
+                lambda move: move.state == 'posted' and move.move_type == 'out_refund'
+            )
+            refund_lines = refund_moves.mapped('invoice_line_ids').filtered(
+                lambda line: line.select_for_report
+                and line.display_type in ('product', 'line_section', 'line_note')
+            )
+            selected_product_ids = set(
+                base_printable_lines.filtered(lambda line: line.display_type == 'product').mapped('product_id').ids
+            )
+            for refund_line in refund_lines:
+                if (
+                    refund_line.display_type == 'product'
+                    and refund_line.product_id
+                    and refund_line.product_id.id in selected_product_ids
+                ):
+                    refund_affecting_total_line_ids.add(refund_line.id)
+                else:
+                    refund_info_line_ids.add(refund_line.id)
+            printable_lines |= refund_lines
+
+        printable_lines = printable_lines.sorted(
             key=lambda line: (-line.sequence, line.date, line.move_name, -line.id),
             reverse=True,
         )
 
+        def _line_sign(line):
+            if line.id in refund_info_line_ids:
+                return 0
+            if line.id in refund_affecting_total_line_ids:
+                return -1
+            return 1
+
         price_lines = printable_lines.filtered(lambda line: line.display_type == 'product')
-        printed_untaxed = sum(price_lines.mapped('price_subtotal'))
-        printed_total = sum(price_lines.mapped('price_total'))
+        printed_untaxed = sum(_line_sign(line) * line.price_subtotal for line in price_lines)
+        printed_total = sum(_line_sign(line) * line.price_total for line in price_lines)
         printed_tax = printed_total - printed_untaxed
 
         printed_tax_groups = []
         tax_group_amounts = defaultdict(float)
-        is_refund = self.move_type in ('out_refund', 'in_refund')
         for line in price_lines:
+            sign = _line_sign(line)
             taxes_res = line.tax_ids.compute_all(
                 line.price_unit * (1 - (line.discount or 0.0) / 100.0),
                 currency=currency,
-                quantity=line.quantity,
+                quantity=abs(line.quantity),
                 product=line.product_id,
                 partner=self.partner_id,
-                is_refund=is_refund,
+                is_refund=False,
             )
             for tax_line in taxes_res.get('taxes', []):
                 tax = self.env['account.tax'].browse(tax_line.get('id'))
                 if not tax:
                     continue
                 label = tax.invoice_label or tax.name or _('Tax')
-                tax_group_amounts[label] += float(tax_line.get('amount') or 0.0)
+                tax_group_amounts[label] += sign * float(tax_line.get('amount') or 0.0)
 
         for name in sorted(tax_group_amounts.keys()):
             amount = tax_group_amounts[name]
@@ -360,7 +421,7 @@ class AccountMove(models.Model):
             printed_tax = currency.round(printed_tax)
             printed_total = currency.round(printed_total)
 
-        printed_paid = min(self._get_report_paid_amount(), printed_total)
+        printed_paid = min(max(self._get_report_paid_amount(), 0.0), printed_total)
         printed_due = max(printed_total - printed_paid, 0.0)
         if currency:
             printed_paid = currency.round(printed_paid)
@@ -507,8 +568,11 @@ class AccountMove(models.Model):
                 'lot_id': lot.id,
             })
 
+        visible_product_ids = set(current_invoice_amls.mapped('product_id').ids)
         for order in self.sudo().pos_order_ids:
             for line in order.lines:
+                if line.product_id.id not in visible_product_ids:
+                    continue
                 lots = line.pack_lot_ids or False
                 if lots:
                     for lot in lots:
