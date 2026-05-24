@@ -116,7 +116,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             WHERE am.invoice_date >= '{df}'
               AND am.invoice_date <= '{dt}'
               AND am.state = 'posted'
-              AND am.move_type = 'out_invoice'
+              AND am.move_type in ( 'out_invoice','out_refund')
             GROUP BY rb.name
             ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
