@@ -105,6 +105,22 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
+    def _get_sql_total_invoices(self, date_from, date_to):
+        return """
+            SELECT rb.name,
+                   SUM(am.amount_total_signed)                                                     AS total,
+                   SUM(CASE WHEN am.amount_residual_signed >  1 THEN am.amount_total_signed ELSE 0 END) AS not_paid,
+                   SUM(CASE WHEN am.amount_residual_signed <= 1 THEN am.amount_total_signed ELSE 0 END) AS paid
+            FROM account_move am
+            LEFT JOIN res_branch rb ON rb.id = am.branch_id
+            WHERE am.invoice_date >= '{df}'
+              AND am.invoice_date <= '{dt}'
+              AND am.state = 'posted'
+              AND am.move_type = 'out_invoice'
+            GROUP BY rb.name
+            ORDER BY rb.name
+        """.format(df=date_from, dt=date_to)
+
     def _get_payment_lines(self, date_from, date_to):
         """Return list of (journal_name, branch_name, amount, source_type) tuples.
 
@@ -228,10 +244,15 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
         workbook = self._generate_excel_payment(payments, workbook)
         workbook = self._generate_excel_type_payment(payments, workbook)
+
+        cr.execute(self._get_sql_total_invoices(df, dt))
+        total_invoices = cr.fetchall()
+
+        workbook = self._generate_excel_total_invoices(total_invoices, workbook)
         workbook = self._generate_excel_all(
             open_invoices, open_credit,
             paid_invoices, paid_credits,
-            sro_orders, payments, workbook)
+            sro_orders, payments, total_invoices, workbook)
 
         workbook.close()
         output.seek(0)
@@ -339,6 +360,72 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet.set_row(0, 40)
         sheet.set_row(1, 40)
         sheet.write(1, col, total, header)
+        return workbook
+
+    def _generate_excel_total_invoices(self, lines, workbook, start_row=0, sheet=None):
+        """Matrix: rows = Total / Not Paid / Paid, cols = branches A-Z.
+
+        Creates a new 'Total Invoices' sheet when sheet is None.
+        Can also embed the table starting at start_row in an existing sheet.
+        Returns (workbook, rows_used).
+        """
+        own_sheet = sheet is None
+        if own_sheet:
+            sheet = workbook.add_worksheet('Total Invoices')
+        bold, cell, header = self._fmt(workbook)
+
+        # Normalise
+        norm = [(self._s(l[0]), float(l[1] or 0), float(l[2] or 0), float(l[3] or 0))
+                for l in lines]
+
+        branches = sorted({r[0] for r in norm if r[0]})
+        data = {r[0]: (r[1], r[2], r[3]) for r in norm if r[0]}
+
+        total_col = len(branches) + 1
+
+        # Column widths
+        sheet.set_column(start_row, 0, 18)          # label col
+        for c in range(1, total_col + 1):
+            sheet.set_column(c, c, 22)
+
+        r = start_row
+        # Header row
+        sheet.write(r, 0, '', header)
+        for c, branch in enumerate(branches, start=1):
+            sheet.write(r, c, branch, header)
+        sheet.write(r, total_col, 'Grand Total', header)
+        sheet.set_row(r, 28); r += 1
+
+        # Row: Total
+        sheet.write(r, 0, 'Total', header)
+        grand_total = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[0]
+            sheet.write(r, c, val, cell)
+            grand_total += val
+        sheet.write(r, total_col, grand_total, header)
+        sheet.set_row(r, 22); r += 1
+
+        # Row: Not Paid
+        sheet.write(r, 0, 'Not Paid', header)
+        grand_not_paid = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[1]
+            sheet.write(r, c, val, cell)
+            grand_not_paid += val
+        sheet.write(r, total_col, grand_not_paid, header)
+        sheet.set_row(r, 22); r += 1
+
+        # Row: Paid
+        sheet.write(r, 0, 'Paid', header)
+        grand_paid = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[2]
+            sheet.write(r, c, val, cell)
+            grand_paid += val
+        sheet.write(r, total_col, grand_paid, header)
+        sheet.set_row(r, 22); r += 1
+
         return workbook
 
     def _generate_excel_payment(self, lines, workbook):
@@ -455,14 +542,14 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
     def _generate_excel_all(self, open_invoices, open_credit,
                             paid_invoices, paid_credits,
-                            sro_orders, payments, workbook):
+                            sro_orders, payments, total_invoices, workbook):
         """Summary sheet: tables placed side-by-side.
 
         Layout:
           TOP    left  cols 0-4: Open Invoices & Credits
                  right cols 6-8: Paid Invoices & Credits, then SRO
-          BOTTOM rows first: Payment Type Summary
-                 rows below: Payments by Journal & Branch (matrix)
+          MID    Total Invoices matrix (full width)
+          BOTTOM Payment Type Summary, then Payments by Journal & Branch
         """
         sheet = workbook.add_worksheet('All')
         bold, cell, header = self._fmt(workbook)
@@ -541,6 +628,34 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet.write(R, 7, grand_sro,     header); R += 1
 
         next_row = max(L, R) + 2
+
+        # ── Total Invoices summary (full-width matrix) ────────────────────
+        if total_invoices:
+            ti_norm = [(self._s(l[0]), float(l[1] or 0), float(l[2] or 0), float(l[3] or 0))
+                       for l in total_invoices]
+            ti_branches = sorted({r[0] for r in ti_norm if r[0]})
+            ti_data     = {r[0]: (r[1], r[2], r[3]) for r in ti_norm if r[0]}
+            ti_total_col = len(ti_branches) + 1
+            sheet.merge_range(next_row, 0, next_row, ti_total_col,
+                              'Total Invoices', section_fmt)
+            sheet.set_row(next_row, 22); next_row += 1
+            # header
+            sheet.write(next_row, 0, '', header)
+            for c, branch in enumerate(ti_branches, start=1):
+                sheet.set_column(c, c, max(20, len(branch) + 4))
+                sheet.write(next_row, c, branch, header)
+            sheet.write(next_row, ti_total_col, 'Grand Total', header)
+            sheet.set_row(next_row, 26); next_row += 1
+            for label, idx in [('Total', 0), ('Not Paid', 1), ('Paid', 2)]:
+                sheet.write(next_row, 0, label, header)
+                grand = 0.0
+                for c, branch in enumerate(ti_branches, start=1):
+                    val = ti_data.get(branch, (0, 0, 0))[idx]
+                    sheet.write(next_row, c, val, cell)
+                    grand += val
+                sheet.write(next_row, ti_total_col, grand, header)
+                sheet.set_row(next_row, 22); next_row += 1
+            next_row += 2
 
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in payments]
