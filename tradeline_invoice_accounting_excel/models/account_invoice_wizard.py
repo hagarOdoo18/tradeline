@@ -309,7 +309,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
         col = 1
         total = 0
-        for key, value in store.items():
+        for key, value in sorted(store.items(), key=lambda x: x[0].casefold()):
             sheet.set_column(0, col, 30)
             sheet.write(0, col, key, header)
             sheet.write(1, col, value, cell)
