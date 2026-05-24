@@ -47,7 +47,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.state = 'posted'
               AND am.move_type = 'out_invoice'
               AND am.amount_residual_signed > 1
-            ORDER BY am.invoice_date
+            ORDER BY rb.name, am.invoice_date
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_open_credit(self, date_from, date_to):
@@ -61,7 +61,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.state = 'posted'
               AND am.move_type = 'out_refund'
               AND am.amount_residual_signed < -1
-            ORDER BY am.invoice_date
+            ORDER BY rb.name, am.invoice_date
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_paid_invoice(self, date_from, date_to):
@@ -75,6 +75,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.move_type = 'out_invoice'
               AND am.amount_residual_signed <= 1
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_paid_credit(self, date_from, date_to):
@@ -88,6 +89,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.move_type = 'out_refund'
               AND am.amount_residual_signed >= -1
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_sro(self, date_from, date_to):
@@ -100,6 +102,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND so.state = 'sale'
               AND so.inv_type = 'sro'
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
     def _get_payment_lines(self, date_from, date_to):
@@ -188,6 +191,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                 pmt.journal_id.payment_type,
             ))
 
+        lines.sort(key=lambda l: (str(l[3] or '').casefold(), str(l[1] or '').casefold()))
         return lines
 
     # ------------------------------------------------------------------
