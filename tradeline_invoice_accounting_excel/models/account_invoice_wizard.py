@@ -461,8 +461,8 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         Layout:
           TOP    left  cols 0-4: Open Invoices & Credits
                  right cols 6-8: Paid Invoices & Credits, then SRO
-          BOTTOM left  cols 0-3: Payments by Journal & Branch
-                 right cols 5-6: Payment Type Summary (type + total)
+          BOTTOM rows first: Payment Type Summary
+                 rows below: Payments by Journal & Branch (matrix)
         """
         sheet = workbook.add_worksheet('All')
         bold, cell, header = self._fmt(workbook)
@@ -545,12 +545,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in payments]
 
-        BL = next_row
-        BR = next_row
-
         # --- pre-compute payment matrix axes so we know total width for title ---
-        # Bottom-Left: Payments by Journal & Branch  (matrix layout like Branches Payments sheet)
-        # Build unique journal/branch axes and (journal, branch) -> sum map
         pay_matrix   = {}
         pay_journals = []
         pay_branches = []
@@ -570,11 +565,34 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         pay_branches.sort()
 
         total_pay_col = len(pay_branches) + 1          # column index of the "Total" column
-        merge_end_col = total_pay_col                  # last column of this table
+        merge_end_col = total_pay_col
 
-        # Now write the sheet title spanning the full width
+        # Write the sheet title spanning the full width
         title_end = max(8, total_pay_col + 3)
         sheet.merge_range(0, 0, 0, title_end, 'Accounting Report - Full Summary', title_fmt)
+
+        # ── Payment Type Summary (ABOVE Payments by Journal & Branch) ─────────
+        PT = next_row
+        sheet.set_column(0, 0, 20)
+        sheet.set_column(1, 1, 20)
+        sheet.merge_range(PT, 0, PT, 1, 'Payment Type Summary', section_fmt)
+        sheet.set_row(PT, 22); PT += 1
+        sheet.write(PT, 0, 'Type',  header)
+        sheet.write(PT, 1, 'Total', header)
+        sheet.set_row(PT, 20); PT += 1
+        grand_type = 0
+        for src_type, grp1 in igrp(sorted(norm, key=lambda x: x[3]),
+                                    key=lambda x: x[3]):
+            tot = sum(l[2] for l in grp1)
+            sheet.write(PT, 0, src_type, cell)
+            sheet.write(PT, 1, tot,      cell)
+            grand_type += tot
+            sheet.set_row(PT, 18); PT += 1
+        sheet.write(PT, 0, 'Grand Total', header)
+        sheet.write(PT, 1, grand_type,    header); PT += 1
+
+        # ── Payments by Journal & Branch (BELOW Payment Type Summary) ─────────
+        BL = PT + 2
 
         # Section title spanning all columns of the matrix
         if merge_end_col > 0:
@@ -587,7 +605,6 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         # Header row: blank corner, branch names, "Total"
         sheet.write(BL, 0, '', header)
         for c, branch in enumerate(pay_branches, start=1):
-            # expand column width to fit if needed
             sheet.set_column(c, c, max(20, len(branch) + 4))
             sheet.write(BL, c, branch, header)
         sheet.write(BL, total_pay_col, 'Total', header)
@@ -614,26 +631,5 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             sheet.write(BL, c, btot, header)
         sheet.write(BL, total_pay_col, grand_pay, header)
         sheet.set_row(BL, 22); BL += 1
-
-        # Bottom-Right: Payment Type Summary (grouped by type)
-        # Place it two columns after the end of the payment matrix
-        type_col = total_pay_col + 2
-        sheet.set_column(type_col,     type_col,     20)
-        sheet.set_column(type_col + 1, type_col + 1, 20)
-        sheet.merge_range(BR, type_col, BR, type_col + 1, 'Payment Type Summary', section_fmt)
-        sheet.set_row(BR, 22); BR += 1
-        sheet.write(BR, type_col,     'Type',  header)
-        sheet.write(BR, type_col + 1, 'Total', header)
-        sheet.set_row(BR, 20); BR += 1
-        grand_type = 0
-        for src_type, grp1 in igrp(sorted(norm, key=lambda x: x[3]),
-                                    key=lambda x: x[3]):
-            tot = sum(l[2] for l in grp1)
-            sheet.write(BR, type_col,     src_type, cell)
-            sheet.write(BR, type_col + 1, tot,      cell)
-            grand_type += tot
-            sheet.set_row(BR, 18); BR += 1
-        sheet.write(BR, type_col,     'Grand Total', header)
-        sheet.write(BR, type_col + 1, grand_type,    header); BR += 1
 
         return workbook
