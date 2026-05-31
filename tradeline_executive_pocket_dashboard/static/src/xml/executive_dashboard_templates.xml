@@ -696,14 +696,14 @@
             <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
-                  <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0"/>
                 </linearGradient>
               </defs>
               <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
-              <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"/>
               <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
-                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#00713b"/>
               </t>
             </svg>
             <div class="tl-print-line-x-axis">
@@ -800,14 +800,14 @@
             <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
               <defs>
                 <linearGradient id="tlPrintGradPeriod" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
-                  <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0"/>
                 </linearGradient>
               </defs>
               <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGradPeriod)" stroke="none"/>
-              <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"/>
               <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
-                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#00713b"/>
               </t>
             </svg>
             <div class="tl-print-line-x-axis">

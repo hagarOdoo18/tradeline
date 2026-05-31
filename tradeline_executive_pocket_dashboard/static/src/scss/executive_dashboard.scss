@@ -4,14 +4,14 @@
 
 /* ── Design Tokens ─────────────────────────────────────────── */
 :root {
-  --tl-navy:      #0f172a;
-  --tl-blue:      #1d4ed8;
-  --tl-blue-lt:   #3b82f6;
-  --tl-blue-xlt:  #dbeafe;
+  --tl-navy:      #0c1b12;
+  --tl-blue:      #00713b;
+  --tl-blue-lt:   #00944e;
+  --tl-blue-xlt:  #e6f4ed;
   --tl-teal:      #0d9488;
   --tl-teal-lt:   #ccfbf1;
-  --tl-green:     #059669;
-  --tl-green-lt:  #d1fae5;
+  --tl-green:     #00713b;
+  --tl-green-lt:  #e6f4ed;
   --tl-amber:     #d97706;
   --tl-amber-lt:  #fef3c7;
   --tl-red:       #dc2626;
@@ -21,13 +21,13 @@
   --tl-indigo:    #4338ca;
   --tl-indigo-lt: #e0e7ff;
 
-  --tl-bg:        #f0f4f8;
+  --tl-bg:        #f4f7f5;
   --tl-card:      #ffffff;
-  --tl-border:    #e2e8f0;
-  --tl-border-md: #cbd5e1;
+  --tl-border:    #e0e7e2;
+  --tl-border-md: #c2cfc6;
 
-  --tl-text-1:    #0f172a;
-  --tl-text-2:    #334155;
+  --tl-text-1:    #0c1b12;
+  --tl-text-2:    #283a2f;
   --tl-text-3:    #64748b;
   --tl-text-4:    #94a3b8;
 
@@ -237,7 +237,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  background: linear-gradient(135deg, #00713b, #00944e);
   color: white;
   border: none;
   border-radius: var(--tl-radius-sm);
@@ -247,11 +247,11 @@
   cursor: pointer;
   white-space: nowrap;
   transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 2px 8px rgba(29,78,216,0.35);
+  box-shadow: 0 2px 8px rgba(0,113,59,0.35);
 }
 .tl-btn-export:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(29,78,216,0.4);
+  box-shadow: 0 4px 16px rgba(0,113,59,0.4);
 }
 .tl-btn-icon { font-size: 14px; }
 
@@ -410,7 +410,7 @@
 .tl-kpi-card:hover { transform: translateY(-2px); box-shadow: var(--tl-shadow-hover); }
 
 .tl-kpi-hero {
-  background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+  background: linear-gradient(135deg, #0c1b12 0%, #00713b 100%);
   border-color: transparent;
   color: white;
 }
@@ -691,7 +691,7 @@
   border-radius: 999px;
   transition: width 0.5s cubic-bezier(0.22,1,0.36,1);
 }
-.tl-fill-blue   { background: linear-gradient(90deg, #1d4ed8, #3b82f6); }
+.tl-fill-blue   { background: linear-gradient(90deg, #00713b, #00944e); }
 .tl-fill-teal   { background: linear-gradient(90deg, #0d9488, #2dd4bf); }
 .tl-fill-amber  { background: linear-gradient(90deg, #d97706, #fbbf24); }
 .tl-fill-indigo { background: linear-gradient(90deg, #4338ca, #818cf8); }
@@ -875,7 +875,7 @@
 }
 .tl-snap-day { font-size: 12px; font-weight: 600; color: var(--tl-text-2); }
 .tl-snap-track { height: 8px; background: #e9eef6; border-radius: 999px; overflow: hidden; }
-.tl-snap-fill { height: 100%; background: linear-gradient(90deg, #0ea5e9, #1d4ed8); border-radius: 999px; }
+.tl-snap-fill { height: 100%; background: linear-gradient(90deg, #00944e, #00713b); border-radius: 999px; }
 .tl-snap-val { font-size: 12px; font-weight: 700; color: var(--tl-text-1); text-align: right; }
 .tl-snap-count { font-size: 11px; color: var(--tl-text-3); text-align: right; font-weight: 600; }
 
@@ -995,19 +995,19 @@
     align-items: flex-start;
     padding-bottom: 6mm;
     margin-bottom: 6mm;
-    border-bottom: 3px solid #4d7c0f;
+    border-bottom: 3px solid #00713b;
   }
   .tl-print-company {
     font-size: 32pt;
     font-weight: 900;
-    color: #4d7c0f;
+    color: #00713b;
     line-height: 1;
     letter-spacing: -1px;
   }
   .tl-print-report-tag {
     font-size: 11pt;
     font-weight: 700;
-    color: #4d7c0f;
+    color: #00713b;
     text-transform: uppercase;
     letter-spacing: 2px;
     margin-top: 3px;
@@ -1033,7 +1033,7 @@
   }
   .tl-print-kpi {
     border: 1px solid #ccc;
-    border-top: 4px solid #4d7c0f;
+    border-top: 4px solid #00713b;
     padding: 4mm;
     text-align: center;
     break-inside: avoid;
@@ -1083,7 +1083,7 @@
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    background: #4d7c0f;
+    background: #00713b;
     color: white;
     margin: 0 -3mm 3mm;
     padding: 2mm 3mm;
@@ -1100,7 +1100,7 @@
   }
   .tl-print-bar-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tl-print-bar-track { height: 7px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
-  .tl-print-bar-fill { height: 100%; background: #4d7c0f; border-radius: 999px; }
+  .tl-print-bar-fill { height: 100%; background: #00713b; border-radius: 999px; }
   .tl-print-bar-val { text-align: right; font-weight: 700; }
 
   /* Donut + legend */
