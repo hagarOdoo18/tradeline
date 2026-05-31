@@ -208,7 +208,7 @@ export class ExecutivePocketDashboard extends Component {
         }));
         const lineD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
         const areaD = `${lineD} L ${points[n-1].x.toFixed(1)} ${(pT+cH).toFixed(1)} L ${pL} ${(pT+cH).toFixed(1)} Z`;
-        return { lineD, areaD, points, maxV: maxVal, W, H };
+        return { lineD, areaD, points, maxV: maxVal, minV: minVal, W, H };
     }
 
     _barRowsFor(data, metricKey) {

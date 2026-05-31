@@ -720,19 +720,32 @@
       <div class="tl-print-chart-full">
         <div class="tl-print-chart-title">Sales Over Period</div>
         <t t-if="salesOverMonth.length">
-          <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
-                <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
-              </linearGradient>
-            </defs>
-            <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
-            <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
-            <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
-              <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
-            </t>
-          </svg>
+          <div class="tl-print-line-wrapper">
+            <div class="tl-print-line-y-axis">
+              <span><t t-esc="_formatCompact(lineChartData.maxV)"/></span>
+              <span><t t-esc="_formatCompact(lineChartData.minV)"/></span>
+            </div>
+            
+            <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
+              <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
+              </t>
+            </svg>
+            
+            <div class="tl-print-line-x-axis">
+              <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
+              <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
+              <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
+            </div>
+          </div>
         </t>
       </div>
     </div>

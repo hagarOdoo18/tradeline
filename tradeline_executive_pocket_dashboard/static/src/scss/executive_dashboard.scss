@@ -1118,5 +1118,40 @@
   .tl-print-legend-pct { text-align: right; font-weight: 700; }
 
   /* Line chart */
-  .tl-print-line-svg { width: 100%; height: 80px; display: block; }
+  .tl-print-line-wrapper {
+    position: relative;
+    padding-left: 38px;
+    padding-bottom: 4px;
+    margin-top: 6px;
+  }
+  .tl-print-line-y-axis {
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 4px;
+    width: 32px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: 7pt;
+    font-weight: 700;
+    color: #444;
+    padding-right: 6px;
+    border-right: 1px solid #ccc;
+  }
+  .tl-print-line-svg {
+    width: 100%;
+    height: 80px;
+    display: block;
+  }
+  .tl-print-line-x-axis {
+    display: flex;
+    justify-content: space-between;
+    font-size: 7pt;
+    font-weight: 700;
+    color: #444;
+    padding-top: 4px;
+    border-top: 1px solid #ccc;
+  }
 }
