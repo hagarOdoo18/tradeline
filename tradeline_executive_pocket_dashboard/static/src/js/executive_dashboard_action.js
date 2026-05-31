@@ -12,26 +12,13 @@ export class ExecutivePocketDashboard extends Component {
 
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
+
         this.state = useState({
             loading: true,
             refreshingFx: false,
-            lens: "overview",
-            selectedDomain: "finance",
-            selectedGroupBy: "branch",
-            selectedMetric: "net_revenue",
-            sort: {
-                column: "",
-                direction: "",
-            },
-            pagination: {
-                limit: 30,
-                offset: 0,
-            },
-            companyPicker: {
-                open: false,
-                search: "",
-                draft_ids: [],
-            },
+            topN: 10,
+            drilldownOpen: false,
+            companyPicker: { open: false, search: "", draft_ids: [] },
             filters: {
                 start_date: this._formatDate(start),
                 end_date: this._formatDate(today),
@@ -39,348 +26,265 @@ export class ExecutivePocketDashboard extends Component {
                 branch_ids: [],
                 salesperson_ids: [],
             },
+            selectedDomain: "finance",
+            selectedGroupBy: "branch",
+            selectedMetric: "net_revenue",
+            sort: { column: "", direction: "" },
+            pagination: { limit: 25, offset: 0 },
+            lens: "overview",
             bundle: null,
             error: "",
         });
 
-        onWillStart(async () => {
-            await this._loadBundle();
-        });
+        onWillStart(async () => { await this._loadBundle(); });
     }
 
-    get cards() {
-        return this.state.bundle?.cards || [];
-    }
+    // ─── Top-section data getters ─────────────────────────────────────────────
+    get topSections() { return this.state.bundle?.top_sections || {}; }
+    get topSalesByBranch() { return this.topSections.sales_by_branch || []; }
+    get topSalesBySalesperson() { return this.topSections.sales_by_salesperson || []; }
+    get topSalesByCategory() { return this.topSections.sales_by_category || []; }
+    get topSalesByCustomer() { return this.topSections.sales_by_customer || []; }
+    get topInventoryByCategory() { return this.topSections.inventory_by_category || []; }
+    get salesOverMonth() { return this.topSections.sales_over_month || []; }
+    get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
+    get totalInvoices() { return Number(this.topSections.total_invoices || 0); }
+    get accSales() { return Number(this.topSections.acc_sales || 0); }
+    get accSalesPrevDay() { return Number(this.topSections.acc_sales_prev_day || 0); }
+    get todaySales() { return Number(this.topSections.today_sales || 0); }
+    get yesterdaySales() { return Number(this.topSections.yesterday_sales || 0); }
+    get marginAvailableTop() { return Boolean(this.topSections.margin_available); }
+    get companyNamesForReport() { return this.topSections.company_names || []; }
 
-    get alerts() {
-        return this.state.bundle?.alerts || [];
-    }
+    // ─── KPI / meta getters ───────────────────────────────────────────────────
+    get cards() { return this.state.bundle?.cards || []; }
+    get alerts() { return this.state.bundle?.alerts || []; }
+    get fxCards() { return this.state.bundle?.fx_watch?.cards || []; }
+    get marginStatus() { return this.state.bundle?.meta?.margin_status || {}; }
+    get marginCoveragePct() { return Number(this.marginStatus.coverage_pct || 0).toFixed(1); }
+    get marginStatusClass() { return this.marginStatus.available ? "is-good" : "is-warn"; }
+    get marginStatusLabel() { return this.marginStatus.available ? "✓ Real COGS margin" : "⚠ Margin approx."; }
 
-    get fxCards() {
-        return this.state.bundle?.fx_watch?.cards || [];
-    }
-
-    get drillRows() {
-        const rows = this.state.bundle?.drilldown?.rows || [];
-        const sortCol = this.state.sort.column;
-        const sortDir = this.state.sort.direction;
-        if (!sortCol || !sortDir) {
-            return rows;
-        }
-        const sorted = [...rows];
-        const direction = sortDir === "asc" ? 1 : -1;
-        const comparable = sorted
-            .map((row) => row?.[sortCol])
-            .filter((value) => value !== null && value !== undefined && value !== "");
-        if (!comparable.length) {
-            return sorted;
-        }
-        const numeric = comparable.every((value) => typeof value === "number" || (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))));
-        sorted.sort((a, b) => {
-            const left = a?.[sortCol];
-            const right = b?.[sortCol];
-            const leftMissing = left === null || left === undefined || left === "";
-            const rightMissing = right === null || right === undefined || right === "";
-            if (leftMissing && rightMissing) {
-                return 0;
-            }
-            if (leftMissing) {
-                return 1;
-            }
-            if (rightMissing) {
-                return -1;
-            }
-            if (numeric) {
-                return (Number(left) - Number(right)) * direction;
-            }
-            return String(left).localeCompare(String(right), undefined, { sensitivity: "base" }) * direction;
-        });
-        return sorted;
-    }
-
-    get drillColumns() {
-        return this.state.bundle?.drilldown?.columns || [];
-    }
-
-    get drillHasCompanyColumn() {
-        return this.drillColumns.includes("company");
-    }
-
-    get companySplitNotice() {
-        if (!this.drillHasCompanyColumn) {
-            return "";
-        }
-        return "Company split active (multiple companies selected).";
-    }
-
-    get coverage() {
-        return this.state.bundle?.coverage || {};
-    }
-
-    get drillTotalCount() {
-        return Number(this.state.bundle?.drilldown?.total_count || 0);
-    }
-
-    get drillLimit() {
-        return Number(this.state.pagination.limit || 30);
-    }
-
-    get drillOffset() {
-        return Number(this.state.pagination.offset || 0);
-    }
-
-    get drillPageStart() {
-        if (!this.drillTotalCount) {
-            return 0;
-        }
-        return this.drillOffset + 1;
-    }
-
-    get drillPageEnd() {
-        if (!this.drillTotalCount) {
-            return 0;
-        }
-        return Math.min(this.drillOffset + this.drillLimit, this.drillTotalCount);
-    }
-
-    get drillTotalPages() {
-        if (!this.drillTotalCount) {
-            return 1;
-        }
-        return Math.max(1, Math.ceil(this.drillTotalCount / this.drillLimit));
-    }
-
-    get drillCurrentPage() {
-        return Math.floor(this.drillOffset / this.drillLimit) + 1;
-    }
-
-    get hasPrevPage() {
-        return this.drillOffset > 0;
-    }
-
-    get hasNextPage() {
-        return this.drillOffset + this.drillLimit < this.drillTotalCount;
-    }
-
-    get pageSizeOptions() {
-        return [25, 50, 100, 200];
-    }
-
-    get drillPageSummary() {
-        if (!this.drillTotalCount) {
-            return "No grouped rows found";
-        }
-        return `Showing ${this._formatNumber(this.drillPageStart)}-${this._formatNumber(this.drillPageEnd)} of ${this._formatNumber(this.drillTotalCount)} grouped rows`;
-    }
-
-    get marginStatus() {
-        return this.state.bundle?.meta?.margin_status || {};
-    }
-
-    get marginCoveragePct() {
-        const raw = Number(this.marginStatus.coverage_pct || 0);
-        return Number.isFinite(raw) ? raw.toFixed(1) : "0.0";
-    }
-
-    get marginStatusClass() {
-        return this.marginStatus.available ? "is-good" : "is-warn";
-    }
-
-    get marginStatusLabel() {
-        if (this.marginStatus.available) {
-            return "Real COGS margin active";
-        }
-        return "Margin hidden";
-    }
-
-    get marginStatusReasonText() {
-        const reason = this.marginStatus.reason || "";
-        if (reason === "missing_schema") {
-            return "Required COGS fields are missing in this database schema.";
-        }
-        if (reason === "no_product_lines") {
-            return "No product invoice lines found for the selected filters.";
-        }
-        if (reason === "incomplete_cost_coverage") {
-            return "Some scoped lines do not have `total_cost`; margin is hidden to avoid proxy values.";
-        }
-        if (reason === "ok") {
-            return "Margin is calculated from line-level `price_subtotal` and `total_cost`.";
-        }
-        return "Margin source check is unavailable.";
-    }
-
-    get dailySnapshot() {
-        return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} };
-    }
-
-    get dailySnapshotRows() {
-        return this.dailySnapshot.rows || [];
-    }
-
-    get dailySnapshotStats() {
-        return this.dailySnapshot.stats || {};
-    }
-
+    // ─── Daily snapshot ───────────────────────────────────────────────────────
+    get dailySnapshot() { return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} }; }
+    get dailySnapshotRows() { return this.dailySnapshot.rows || []; }
+    get dailySnapshotStats() { return this.dailySnapshot.stats || {}; }
     get dailySnapshotBars() {
         const rows = this.dailySnapshotRows;
-        if (!rows.length) {
-            return [];
-        }
-        const maxValue = rows.reduce((max, row) => Math.max(max, Math.abs(Number(row.net_revenue || 0))), 0) || 1;
-        return rows.map((row) => {
-            const value = Number(row.net_revenue || 0);
-            return {
-                ...row,
-                value,
-                pct: Math.max(6, Math.round((Math.abs(value) / maxValue) * 100)),
-            };
-        });
-    }
-
-    get companyOptions() {
-        return this.state.bundle?.filter_options?.companies || [];
-    }
-
-    get selectedCompanyLabels() {
-        const optionMap = new Map(this.companyOptions.map((c) => [c.id, c.name]));
-        return (this.state.filters.company_ids || []).map((id) => optionMap.get(id)).filter(Boolean);
-    }
-
-    get companySelectionSummary() {
-        const selected = this.selectedCompanyLabels;
-        if (!selected.length) {
-            return "All accessible companies";
-        }
-        if (selected.length === 1) {
-            return selected[0];
-        }
-        return `${selected.length} companies selected`;
-    }
-
-    get filteredCompanyOptions() {
-        const q = String(this.state.companyPicker.search || "").trim().toLowerCase();
-        if (!q) {
-            return this.companyOptions;
-        }
-        return this.companyOptions.filter((c) => String(c.name || "").toLowerCase().includes(q));
-    }
-
-    get domainCatalog() {
-        return this.state.bundle?.drill_catalog || [];
-    }
-
-    get selectedDomainCatalog() {
-        return this.domainCatalog.find((d) => d.key === this.state.selectedDomain) || this.domainCatalog[0] || null;
-    }
-
-    get availableDomains() {
-        return this.domainCatalog;
-    }
-
-    get availableGroups() {
-        return this.selectedDomainCatalog?.groups || [];
-    }
-
-    get availableMetrics() {
-        return this.selectedDomainCatalog?.metrics || [];
-    }
-
-    get selectedDomainCoverage() {
-        return Number(this.coverage[this.state.selectedDomain] || 0);
-    }
-
-    get selectedDomainDescription() {
-        return this.selectedDomainCatalog?.description || "";
-    }
-
-    get chartMetricColumn() {
-        const columns = this.drillColumns || [];
-        const preference = [
-            this.state.selectedMetric,
-            "net_revenue",
-            "net_margin",
-            "allocated_value",
-            "weighted_pipeline",
-            "open_pipeline",
-            "average_basket",
-            "on_hand_qty",
-            "invoice_count",
-            "open_opportunities",
-        ];
-        for (const key of preference) {
-            if (columns.includes(key)) {
-                return key;
-            }
-        }
-        return columns.find((c) => c !== "dimension") || null;
-    }
-
-    get topChartRows() {
-        const metric = this.chartMetricColumn;
-        if (!metric) {
-            return [];
-        }
-        const rows = [...(this.drillRows || [])]
-            .filter((row) => row && row.dimension !== undefined && row[metric] !== undefined)
-            .map((row) => ({
-                dimension: row.dimension,
-                metric,
-                value: Number(row[metric] || 0),
-            }))
-            .sort((a, b) => b.value - a.value)
-            .slice(0, 8);
-        const maxValue = rows.reduce((m, r) => Math.max(m, Math.abs(r.value)), 0) || 1;
-        return rows.map((row) => ({
+        if (!rows.length) return [];
+        const max = rows.reduce((m, r) => Math.max(m, Math.abs(Number(r.net_revenue || 0))), 0) || 1;
+        return rows.map(row => ({
             ...row,
-            pct: Math.max(6, Math.round((Math.abs(row.value) / maxValue) * 100)),
+            value: Number(row.net_revenue || 0),
+            pct: Math.max(5, Math.round((Math.abs(Number(row.net_revenue || 0)) / max) * 100)),
         }));
     }
 
-    get selectedMetricLabel() {
-        const metric = this.availableMetrics.find((m) => m.key === this.state.selectedMetric);
-        return metric?.label || this.state.selectedMetric;
+    // ─── Company picker ───────────────────────────────────────────────────────
+    get companyOptions() { return this.state.bundle?.filter_options?.companies || []; }
+    get selectedCompanyLabels() {
+        const map = new Map(this.companyOptions.map(c => [c.id, c.name]));
+        return (this.state.filters.company_ids || []).map(id => map.get(id)).filter(Boolean);
+    }
+    get companySelectionSummary() {
+        const s = this.selectedCompanyLabels;
+        if (!s.length) return "All accessible companies";
+        if (s.length === 1) return s[0];
+        return `${s.length} companies`;
+    }
+    get filteredCompanyOptions() {
+        const q = String(this.state.companyPicker.search || "").trim().toLowerCase();
+        return q ? this.companyOptions.filter(c => String(c.name || "").toLowerCase().includes(q)) : this.companyOptions;
     }
 
-    get hasRows() {
-        return (this.drillRows || []).length > 0;
+    // ─── Drilldown getters ────────────────────────────────────────────────────
+    get drillRows() {
+        const rows = this.state.bundle?.drilldown?.rows || [];
+        const { column, direction } = this.state.sort;
+        if (!column || !direction) return rows;
+        const dir = direction === "asc" ? 1 : -1;
+        return [...rows].sort((a, b) => {
+            const lv = a?.[column], rv = b?.[column];
+            if (lv == null) return 1; if (rv == null) return -1;
+            return (typeof lv === "number" && typeof rv === "number") ? (lv - rv) * dir : String(lv).localeCompare(String(rv)) * dir;
+        });
+    }
+    get drillColumns() { return this.state.bundle?.drilldown?.columns || []; }
+    get drillTotalCount() { return Number(this.state.bundle?.drilldown?.total_count || 0); }
+    get drillLimit() { return Number(this.state.pagination.limit || 25); }
+    get drillOffset() { return Number(this.state.pagination.offset || 0); }
+    get drillTotalPages() { return Math.max(1, Math.ceil(this.drillTotalCount / this.drillLimit)); }
+    get drillCurrentPage() { return Math.floor(this.drillOffset / this.drillLimit) + 1; }
+    get hasPrevPage() { return this.drillOffset > 0; }
+    get hasNextPage() { return this.drillOffset + this.drillLimit < this.drillTotalCount; }
+    get drillPageSummary() {
+        if (!this.drillTotalCount) return "No rows found";
+        const from = this.drillOffset + 1;
+        const to = Math.min(this.drillOffset + this.drillLimit, this.drillTotalCount);
+        return `Showing ${this._formatNumber(from)}–${this._formatNumber(to)} of ${this._formatNumber(this.drillTotalCount)} rows`;
+    }
+    get hasRows() { return (this.drillRows || []).length > 0; }
+    get pageSizeOptions() { return [25, 50, 100]; }
+    get domainCatalog() { return this.state.bundle?.drill_catalog || []; }
+    get selectedDomainCatalog() { return this.domainCatalog.find(d => d.key === this.state.selectedDomain) || this.domainCatalog[0] || null; }
+    get availableDomains() { return this.domainCatalog; }
+    get availableGroups() { return this.selectedDomainCatalog?.groups || []; }
+    get availableMetrics() { return this.selectedDomainCatalog?.metrics || []; }
+    get hasSort() { return Boolean(this.state.sort.column && this.state.sort.direction); }
+    get selectedDomainCoverage() { return Number((this.state.bundle?.coverage || {})[this.state.selectedDomain] || 0); }
+
+    // ─── Computed chart data (cached as getters) ──────────────────────────────
+    get donutCategorySegments() { return this._buildDonutSegments(this.topSalesByCategory, "net_revenue"); }
+    get donutCategoryTotal() {
+        return this.topSalesByCategory.reduce((s, d) => s + Math.max(0, Number(d.net_revenue || 0)), 0);
+    }
+    get lineChartData() { return this._buildLineChart(this.salesOverMonth, "net_revenue"); }
+    get branchBarRows() { return this._barRowsFor(this.topSalesByBranch, "net_revenue"); }
+    get salespersonBarRows() { return this._barRowsFor(this.topSalesBySalesperson, "net_revenue"); }
+    get inventoryBarRows() { return this._barRowsFor(this.topInventoryByCategory, "allocated_value"); }
+    get customerBarRows() { return this._barRowsFor(this.topSalesByCustomer, "net_revenue"); }
+    get salesOverMonthFirstDate() { return this.salesOverMonth[0]?.date || ""; }
+    get salesOverMonthMidDate() {
+        const d = this.salesOverMonth; return d.length > 2 ? d[Math.floor(d.length / 2)]?.date || "" : "";
+    }
+    get salesOverMonthLastDate() {
+        const d = this.salesOverMonth; return d.length > 1 ? d[d.length - 1]?.date || "" : "";
+    }
+    get todayVsYesterdayPct() { return this._percentChange(this.todaySales, this.yesterdaySales); }
+    get accSalesVsPrevPct() { return this._percentChange(this.accSales, this.accSalesPrevDay); }
+    get reportCompanyName() {
+        const n = this.companyNamesForReport;
+        return n.length ? n.join(" / ") : "Company";
     }
 
-    get hasSort() {
-        return Boolean(this.state.sort.column && this.state.sort.direction);
+    // ─── Chart builders ───────────────────────────────────────────────────────
+    _buildDonutSegments(data, valueKey) {
+        const COLORS = ["#1d4ed8","#0ea5e9","#059669","#d97706","#dc2626","#7c3aed","#0891b2","#ea580c","#be185d","#166534","#0f766e","#b45309"];
+        const total = data.reduce((s, d) => s + Math.max(0, Number(d[valueKey] || 0)), 0);
+        if (!total) return [];
+        let cum = 0;
+        const R = 58, cx = 75, cy = 75;
+        return data.map((item, i) => {
+            const val = Math.max(0, Number(item[valueKey] || 0));
+            const pct = val / total;
+            const startDeg = cum * 360;
+            const endDeg = (cum + pct) * 360;
+            cum += pct;
+            const toRad = d => (d - 90) * Math.PI / 180;
+            const x1 = cx + R * Math.cos(toRad(startDeg));
+            const y1 = cy + R * Math.sin(toRad(startDeg));
+            const x2 = cx + R * Math.cos(toRad(endDeg));
+            const y2 = cy + R * Math.sin(toRad(endDeg));
+            const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+            const path = pct >= 0.9999
+                ? `M ${cx} ${cy - R} A ${R} ${R} 0 1 1 ${(cx - 0.01).toFixed(2)} ${cy - R} Z`
+                : `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${R} ${R} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+            return { path, color: COLORS[i % COLORS.length], label: String(item.dimension || ""), value: val, pctLabel: (pct * 100).toFixed(1) };
+        });
     }
 
-    get sortSummary() {
-        if (!this.hasSort) {
-            return "Server default order";
-        }
-        const direction = this.state.sort.direction === "asc" ? "ascending" : "descending";
-        return `Sorted by ${this.columnLabel(this.state.sort.column)} (${direction})`;
+    _buildLineChart(data, valueKey) {
+        const W = 600, H = 140, pL = 8, pR = 8, pT = 16, pB = 10;
+        const cW = W - pL - pR, cH = H - pT - pB;
+        const values = data.map(d => Number(d[valueKey] || 0));
+        const maxV = Math.max(...values, 1);
+        const n = data.length;
+        if (!n) return { lineD: "", areaD: "", points: [], maxV: 0, W, H };
+        const points = data.map((d, i) => ({
+            x: pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW),
+            y: pT + (1 - Number(d[valueKey] || 0) / maxV) * cH,
+            ...d,
+        }));
+        const lineD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+        const areaD = `${lineD} L ${points[n-1].x.toFixed(1)} ${(pT+cH).toFixed(1)} L ${pL} ${(pT+cH).toFixed(1)} Z`;
+        return { lineD, areaD, points, maxV, W, H };
     }
 
-    _syncSelectionFromBundle() {
-        const domainCfg = this.selectedDomainCatalog;
-        if (!domainCfg) {
-            return;
-        }
-
-        const groupExists = (domainCfg.groups || []).some((g) => g.key === this.state.selectedGroupBy);
-        if (!groupExists) {
-            this.state.selectedGroupBy = domainCfg.default_group;
-        }
-
-        const metricExists = (domainCfg.metrics || []).some((m) => m.key === this.state.selectedMetric);
-        if (!metricExists) {
-            this.state.selectedMetric = domainCfg.default_metric;
-        }
+    _barRowsFor(data, metricKey) {
+        if (!data.length) return [];
+        const max = Math.max(...data.map(d => Math.abs(Number(d[metricKey] || 0))), 1);
+        return data.map((item, i) => ({
+            ...item,
+            _rank: i + 1,
+            _val: Number(item[metricKey] || 0),
+            pct: Math.max(4, Math.round((Math.abs(Number(item[metricKey] || 0)) / max) * 100)),
+        }));
     }
 
-    _syncCompanyDraft() {
-        const validIds = new Set(this.companyOptions.map((c) => c.id));
-        const current = Array.isArray(this.state.filters.company_ids) ? this.state.filters.company_ids : [];
-        this.state.companyPicker.draft_ids = current.filter((id) => validIds.has(id));
+    // ─── Formatters ───────────────────────────────────────────────────────────
+    _formatDate(d) {
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    _formatCurrency(value) {
+        return new Intl.NumberFormat("en-EG", { style: "currency", currency: "EGP", maximumFractionDigits: 0 }).format(Number(value || 0));
+    }
+    _formatNumber(value) {
+        return new Intl.NumberFormat("en-EG", { maximumFractionDigits: 2 }).format(Number(value || 0));
+    }
+    _formatPercent(value) {
+        return `${Number(value || 0).toFixed(1)}%`;
+    }
+    _formatPercentOrDash(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) return "--";
+        return `${Number(value).toFixed(1)}%`;
+    }
+    _formatCompact(value) {
+        const num = Number(value || 0);
+        const abs = Math.abs(num);
+        const sign = num < 0 ? "-" : "";
+        if (abs >= 1e9) return `${sign}${(abs/1e9).toFixed(1)}B`;
+        if (abs >= 1e6) return `${sign}${(abs/1e6).toFixed(1)}M`;
+        if (abs >= 1e3) return `${sign}${(abs/1e3).toFixed(0)}K`;
+        return `${sign}${abs.toFixed(0)}`;
+    }
+    _formatCompactEGP(value) { return `EGP ${this._formatCompact(value)}`; }
+    _formatFxRate(value) { return Number(value || 0).toFixed(4); }
+    _trendClass(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) return "neutral";
+        return Number(value) >= 0 ? "up" : "down";
+    }
+    _trendIcon(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) return "●";
+        return Number(value) >= 0 ? "▲" : "▼";
+    }
+    _shorten(text, maxLen) {
+        const s = String(text || "");
+        return s.length > maxLen ? `${s.slice(0, maxLen - 1)}…` : s;
+    }
+    columnLabel(col) {
+        return String(col || "").replace(/_/g, " ").split(" ").filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    }
+    _formatDayLabel(value) {
+        const dt = new Date(`${value}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) return value;
+        return dt.toLocaleDateString("en-EG", { weekday: "short", month: "short", day: "numeric" });
+    }
+    _formatShortDate(value) {
+        const dt = new Date(`${value}T00:00:00`);
+        if (Number.isNaN(dt.getTime())) return value;
+        return dt.toLocaleDateString("en-EG", { month: "short", day: "numeric" });
+    }
+    _formatCell(column, value) {
+        if (value === null || value === undefined) return "-";
+        const t = String(column || "");
+        if ((t.includes("revenue") || t.includes("value") || t.includes("margin") || t.includes("basket")) && !t.includes("pct")) return this._formatCurrency(value);
+        if (t.includes("pct") || t.includes("percent") || t.includes("rate")) return this._formatPercent(value);
+        if (typeof value === "number") return this._formatNumber(value);
+        return value;
+    }
+    _periodRows(periodChanges) {
+        return ["1D", "1M", "3M", "6M", "1Y"].map(label => ({ label, value: (periodChanges || {})[label] }));
+    }
+    _percentChange(current, previous) {
+        if (!previous) return null;
+        return ((current - previous) / previous) * 100;
+    }
+    sortIcon(col) {
+        if (this.state.sort.column !== col) return "⇅";
+        return this.state.sort.direction === "asc" ? "↑" : "↓";
     }
 
+    // ─── Data loading ─────────────────────────────────────────────────────────
     async _loadBundle() {
         this.state.loading = true;
         this.state.error = "";
@@ -388,7 +292,7 @@ export class ExecutivePocketDashboard extends Component {
             const bundle = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_dashboard_bundle",
-                [this.state.filters, this.state.lens, ["overview", this.state.selectedDomain, this.state.selectedGroupBy, "details"]]
+                [this.state.filters, this.state.lens, null, this.state.topN]
             );
             this.state.bundle = bundle;
             if (!this.state.filters.company_ids.length && bundle?.meta?.scope?.company_ids?.length) {
@@ -398,322 +302,114 @@ export class ExecutivePocketDashboard extends Component {
             this._syncSelectionFromBundle();
             await this._reloadDrilldown();
         } catch (error) {
-            this.state.error = error?.message || "Failed to load dashboard";
+            this.state.error = error?.message || "Failed to load dashboard data.";
         } finally {
             this.state.loading = false;
         }
     }
 
+    async _loadTopSections() {
+        try {
+            const topSections = await this.orm.call(
+                "tradeline.executive.dashboard.service",
+                "get_top_sections",
+                [this.state.filters, this.state.topN]
+            );
+            if (this.state.bundle) this.state.bundle.top_sections = topSections;
+        } catch {
+            this.notification.add("Failed to refresh top sections", { type: "warning" });
+        }
+    }
+
     async _reloadDrilldown() {
         try {
-            const requestedLimit = this.drillLimit;
-            const requestedOffset = this.drillOffset;
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, requestedLimit, requestedOffset]
+                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, this.drillLimit, this.drillOffset]
             );
-            const totalCount = Number(drilldown?.total_count || 0);
-            if (totalCount > 0 && requestedOffset >= totalCount) {
-                const lastOffset = Math.max(0, Math.floor((totalCount - 1) / requestedLimit) * requestedLimit);
-                if (lastOffset !== requestedOffset) {
-                    this.state.pagination.offset = lastOffset;
-                    await this._reloadDrilldown();
-                    return;
-                }
-            }
-            if (this.state.bundle) {
-                this.state.bundle.drilldown = drilldown;
-            }
-            this.state.pagination.limit = Number(drilldown?.limit || requestedLimit);
+            if (this.state.bundle) this.state.bundle.drilldown = drilldown;
+            this.state.pagination.limit = Number(drilldown?.limit || this.drillLimit);
             this.state.pagination.offset = Number(drilldown?.offset || 0);
-            if (this.state.sort.column && !(drilldown?.columns || []).includes(this.state.sort.column)) {
-                this.state.sort.column = "";
-                this.state.sort.direction = "";
-            }
-        } catch (_error) {
+        } catch {
             this.notification.add("Failed to load drilldown data", { type: "warning" });
         }
     }
 
-    _formatDate(value) {
-        const yyyy = value.getFullYear();
-        const mm = String(value.getMonth() + 1).padStart(2, "0");
-        const dd = String(value.getDate()).padStart(2, "0");
-        return `${yyyy}-${mm}-${dd}`;
+    _syncSelectionFromBundle() {
+        const cfg = this.selectedDomainCatalog;
+        if (!cfg) return;
+        if (!(cfg.groups || []).some(g => g.key === this.state.selectedGroupBy)) this.state.selectedGroupBy = cfg.default_group;
+        if (!(cfg.metrics || []).some(m => m.key === this.state.selectedMetric)) this.state.selectedMetric = cfg.default_metric;
+    }
+    _syncCompanyDraft() {
+        const valid = new Set(this.companyOptions.map(c => c.id));
+        this.state.companyPicker.draft_ids = (this.state.filters.company_ids || []).filter(id => valid.has(id));
     }
 
-    _formatCurrency(value) {
-        const num = Number(value || 0);
-        return new Intl.NumberFormat("en-EG", {
-            style: "currency",
-            currency: "EGP",
-            maximumFractionDigits: 0,
-        }).format(num);
+    // ─── Event handlers ───────────────────────────────────────────────────────
+    async onTopNChange(ev) {
+        this.state.topN = Number(ev.target.value || 10);
+        await this._loadTopSections();
     }
-
-    _formatNumber(value) {
-        const num = Number(value || 0);
-        return new Intl.NumberFormat("en-EG", { maximumFractionDigits: 2 }).format(num);
-    }
-
-    _formatPercent(value) {
-        if (value === null || value === undefined) {
-            return "N/A";
-        }
-        const num = Number(value || 0);
-        return `${num.toFixed(2)}%`;
-    }
-
-    _formatPercentOrDash(value) {
-        if (value === null || value === undefined || Number.isNaN(Number(value))) {
-            return "--";
-        }
-        return this._formatPercent(value);
-    }
-
-    _trendClass(value) {
-        if (value === null || value === undefined || Number.isNaN(Number(value))) {
-            return "neutral";
-        }
-        return Number(value) >= 0 ? "up" : "down";
-    }
-
-    _periodRows(periodChanges = {}) {
-        return ["1D", "1M", "3M", "6M", "1Y"].map((label) => ({
-            label,
-            value: periodChanges?.[label],
-        }));
-    }
-
-    _formatFxRate(value) {
-        const num = Number(value || 0);
-        return num.toFixed(6);
-    }
-
-    _shorten(text, maxLen = 26) {
-        const input = String(text || "");
-        return input.length > maxLen ? `${input.slice(0, maxLen - 1)}...` : input;
-    }
-
-    columnLabel(column) {
-        const text = String(column || "").trim();
-        if (!text) {
-            return "";
-        }
-        return text
-            .replace(/_/g, " ")
-            .split(" ")
-            .filter(Boolean)
-            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(" ");
-    }
-
-    _formatDayLabel(value) {
-        const dt = new Date(`${value}T00:00:00`);
-        if (Number.isNaN(dt.getTime())) {
-            return value;
-        }
-        return dt.toLocaleDateString("en-EG", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-        });
-    }
-
-    _formatCell(column, value) {
-        if (value === null || value === undefined) {
-            return "-";
-        }
-        const text = String(column || "");
-        if (text.includes("revenue") || text.includes("value") || text.includes("pipeline") || text.includes("margin")) {
-            if (text.includes("pct")) {
-                return this._formatPercent(value);
-            }
-            return this._formatCurrency(value);
-        }
-        if (text.includes("rate") || text.includes("cost")) {
-            return Number(value).toFixed(6);
-        }
-        if (text.includes("pct") || text.includes("percent")) {
-            return this._formatPercent(value);
-        }
-        if (typeof value === "number") {
-            return this._formatNumber(value);
-        }
-        return value;
-    }
-
-    async onLensChange(ev) {
-        this.state.lens = ev.target.value;
-        this.state.pagination.offset = 0;
-        await this._loadBundle();
-    }
-
-    async onDomainChange(ev) {
-        this.state.selectedDomain = ev.target.value;
-        this.state.pagination.offset = 0;
-        this._syncSelectionFromBundle();
-        await this._reloadDrilldown();
-    }
-
-    async onGroupChange(ev) {
-        this.state.selectedGroupBy = ev.target.value;
-        this.state.pagination.offset = 0;
-        await this._reloadDrilldown();
-    }
-
-    async onMetricChange(ev) {
-        this.state.selectedMetric = ev.target.value;
-        this.state.pagination.offset = 0;
-        await this._reloadDrilldown();
-    }
-
-    async onPageSizeChange(ev) {
-        const nextLimit = Number(ev.target.value || 30);
-        if (!Number.isFinite(nextLimit) || nextLimit <= 0 || nextLimit === this.drillLimit) {
-            return;
-        }
-        this.state.pagination.limit = nextLimit;
-        this.state.pagination.offset = 0;
-        await this._reloadDrilldown();
-    }
-
-    async onPrevPage() {
-        if (!this.hasPrevPage) {
-            return;
-        }
-        this.state.pagination.offset = Math.max(0, this.drillOffset - this.drillLimit);
-        await this._reloadDrilldown();
-    }
-
-    async onNextPage() {
-        if (!this.hasNextPage) {
-            return;
-        }
-        this.state.pagination.offset = this.drillOffset + this.drillLimit;
-        await this._reloadDrilldown();
-    }
-
-    onSortColumn(column) {
-        if (!column) {
-            return;
-        }
-        if (this.state.sort.column !== column) {
-            this.state.sort.column = column;
-            this.state.sort.direction = "asc";
-            return;
-        }
-        if (this.state.sort.direction === "asc") {
-            this.state.sort.direction = "desc";
-            return;
-        }
-        if (this.state.sort.direction === "desc") {
-            this.state.sort.column = "";
-            this.state.sort.direction = "";
-            return;
-        }
-        this.state.sort.direction = "asc";
-    }
-
-    onSortColumnClick(ev) {
-        const column = ev?.currentTarget?.dataset?.column || "";
-        this.onSortColumn(column);
-    }
-
-    clearSort() {
-        this.state.sort.column = "";
-        this.state.sort.direction = "";
-    }
-
-    sortIcon(column) {
-        if (this.state.sort.column !== column) {
-            return "-";
-        }
-        return this.state.sort.direction === "asc" ? "^" : "v";
-    }
-
-    onToggleCompanyPicker() {
-        this.state.companyPicker.open = !this.state.companyPicker.open;
-        if (this.state.companyPicker.open) {
-            this._syncCompanyDraft();
-        }
-    }
-
-    onCompanySearchInput(ev) {
-        this.state.companyPicker.search = ev.target.value || "";
-    }
-
-    onDraftCompanyToggle(ev) {
-        const id = Number(ev.target.value);
-        if (!Number.isFinite(id)) {
-            return;
-        }
-        const selected = new Set(this.state.companyPicker.draft_ids || []);
-        if (ev.target.checked) {
-            selected.add(id);
-        } else {
-            selected.delete(id);
-        }
-        this.state.companyPicker.draft_ids = [...selected];
-    }
-
-    onSelectAllCompanies() {
-        this.state.companyPicker.draft_ids = this.companyOptions.map((c) => c.id);
-    }
-
-    onClearCompanySelection() {
-        this.state.companyPicker.draft_ids = [];
-    }
-
-    async onApplyCompanySelection() {
-        this.state.filters.company_ids = [...(this.state.companyPicker.draft_ids || [])];
-        this.state.companyPicker.open = false;
-        this.state.pagination.offset = 0;
-        await this._loadBundle();
-    }
-
-    async onDateChange() {
-        this.state.pagination.offset = 0;
-        await this._loadBundle();
-    }
-
+    async onDateChange() { this.state.pagination.offset = 0; await this._loadBundle(); }
     async onRefreshFx() {
         this.state.refreshingFx = true;
         try {
             await this.orm.call("tradeline.executive.dashboard.service", "refresh_fx_rates", []);
             await this._loadBundle();
             this.notification.add("FX rates refreshed", { type: "success" });
-        } catch (_error) {
-            this.notification.add("FX refresh failed, showing last good rates", { type: "warning" });
-            await this._loadBundle();
-        } finally {
-            this.state.refreshingFx = false;
-        }
+        } catch { this.notification.add("FX refresh failed", { type: "warning" }); await this._loadBundle(); }
+        finally { this.state.refreshingFx = false; }
     }
-
-    async openNativeView(domain) {
-        const map = {
-            finance: { name: "Invoices", model: "account.move", domain: [["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]]] },
-            sales: { name: "Invoices", model: "account.move", domain: [["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]]] },
-            inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
-            pipeline: { name: "Opportunities", model: "crm.lead", domain: [["type", "=", "opportunity"]] },
-        };
-        const target = map[domain] || map.finance;
-        await this.action.doAction({
-            type: "ir.actions.act_window",
-            name: target.name,
-            res_model: target.model,
-            views: [[false, "list"], [false, "form"]],
-            view_mode: "list,form",
-            domain: target.domain,
-            context: {},
-            target: "current",
-        });
+    onExportDailyReport() { window.print(); }
+    onToggleCompanyPicker() {
+        this.state.companyPicker.open = !this.state.companyPicker.open;
+        if (this.state.companyPicker.open) this._syncCompanyDraft();
     }
-
+    onCompanySearchInput(ev) { this.state.companyPicker.search = ev.target.value || ""; }
+    onDraftCompanyToggle(ev) {
+        const id = Number(ev.target.value);
+        if (!Number.isFinite(id)) return;
+        const s = new Set(this.state.companyPicker.draft_ids || []);
+        ev.target.checked ? s.add(id) : s.delete(id);
+        this.state.companyPicker.draft_ids = [...s];
+    }
+    onSelectAllCompanies() { this.state.companyPicker.draft_ids = this.companyOptions.map(c => c.id); }
+    onClearCompanySelection() { this.state.companyPicker.draft_ids = []; }
+    async onApplyCompanySelection() {
+        this.state.filters.company_ids = [...(this.state.companyPicker.draft_ids || [])];
+        this.state.companyPicker.open = false;
+        this.state.pagination.offset = 0;
+        await this._loadBundle();
+    }
+    onToggleDrilldown() { this.state.drilldownOpen = !this.state.drilldownOpen; }
+    async onDomainChange(ev) { this.state.selectedDomain = ev.target.value; this.state.pagination.offset = 0; this._syncSelectionFromBundle(); await this._reloadDrilldown(); }
+    async onGroupChange(ev) { this.state.selectedGroupBy = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
+    async onMetricChange(ev) { this.state.selectedMetric = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
+    async onPageSizeChange(ev) {
+        const next = Number(ev.target.value || 25);
+        if (!Number.isFinite(next) || next <= 0 || next === this.drillLimit) return;
+        this.state.pagination.limit = next; this.state.pagination.offset = 0; await this._reloadDrilldown();
+    }
+    async onPrevPage() { if (!this.hasPrevPage) return; this.state.pagination.offset = Math.max(0, this.drillOffset - this.drillLimit); await this._reloadDrilldown(); }
+    async onNextPage() { if (!this.hasNextPage) return; this.state.pagination.offset = this.drillOffset + this.drillLimit; await this._reloadDrilldown(); }
+    onSortColumnClick(ev) {
+        const col = ev?.currentTarget?.dataset?.column || "";
+        if (!col) return;
+        if (this.state.sort.column !== col) { this.state.sort.column = col; this.state.sort.direction = "asc"; return; }
+        if (this.state.sort.direction === "asc") { this.state.sort.direction = "desc"; return; }
+        this.state.sort.column = ""; this.state.sort.direction = "";
+    }
+    clearSort() { this.state.sort.column = ""; this.state.sort.direction = ""; }
     async onOpenNativeView() {
-        await this.openNativeView(this.state.selectedDomain);
+        const map = {
+            finance: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            sales: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
+        };
+        const t = map[this.state.selectedDomain] || map.finance;
+        await this.action.doAction({ type: "ir.actions.act_window", name: t.name, res_model: t.model, views: [[false,"list"],[false,"form"]], view_mode: "list,form", domain: t.domain, context: {}, target: "current" });
     }
 }
 
