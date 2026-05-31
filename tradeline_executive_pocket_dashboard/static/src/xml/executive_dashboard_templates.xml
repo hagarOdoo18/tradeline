@@ -461,21 +461,34 @@
           <span class="tl-badge tl-badge-green">Daily Trend</span>
         </div>
         <t t-if="salesOverMonth.length">
-          <div class="tl-line-wrapper">
+          <div class="tl-line-wrapper" style="position: relative;">
             <div class="tl-line-y-label"><t t-esc="_formatCompact(lineChartData.maxV)"/></div>
-            <svg class="tl-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+            <svg class="tl-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none"
+                 style="cursor: crosshair;"
+                 t-on-mousemove="onChartMouseMove"
+                 t-on-mouseleave="onChartMouseLeave"
+                 t-on-click="onChartClick">
               <defs>
                 <linearGradient id="tlLineGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.22"/>
-                  <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.01"/>
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.22"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0.01"/>
                 </linearGradient>
               </defs>
               <path t-att-d="lineChartData.areaD" fill="url(#tlLineGrad)" stroke="none"/>
-              <path t-att-d="lineChartData.lineD" fill="none" stroke="#1d4ed8" stroke-width="2.5"
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"
                 stroke-linejoin="round" stroke-linecap="round"/>
+              
+              <!-- Snapping vertical guideline -->
+              <t t-if="state.activePoint">
+                <line t-att-x1="state.activePoint.x" y1="12" t-att-x2="state.activePoint.x" y2="132"
+                      stroke="#00713b" stroke-width="1.2" stroke-dasharray="3,3"/>
+              </t>
+
               <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
-                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3.5" fill="#1d4ed8" stroke="white" stroke-width="1.5">
-                  <title><t t-esc="pt.date"/> — <t t-esc="_formatCurrency(pt.net_revenue)"/></title>
+                <circle t-att-cx="pt.x" t-att-cy="pt.y"
+                        t-att-r="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? 5.5 : 3.5"
+                        t-att-fill="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? '#0c1b12' : '#00713b'"
+                        stroke="white" t-att-stroke-width="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? 2 : 1.5">
                 </circle>
               </t>
             </svg>
@@ -484,6 +497,22 @@
               <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
               <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
             </div>
+
+            <!-- Beautiful interactive tooltip overlay -->
+            <t t-if="state.activePoint">
+              <div class="tl-chart-tooltip">
+                <div class="tl-tooltip-date"><t t-esc="_formatDayLabel(state.activePoint.date)"/></div>
+                <div class="tl-tooltip-row">
+                  <span class="tl-tooltip-label">Revenue:</span>
+                  <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
+                </div>
+                <div class="tl-tooltip-row">
+                  <span class="tl-tooltip-label">Invoices:</span>
+                  <span class="tl-tooltip-val"><t t-esc="state.activePoint.invoice_count"/></span>
+                </div>
+                <div class="tl-tooltip-hint">Click point to inspect day</div>
+              </div>
+            </t>
           </div>
         </t>
         <t t-else=""><div class="tl-empty-mini">No trend data for selected period.</div></t>

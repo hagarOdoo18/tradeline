@@ -27,6 +27,7 @@ export class ExecutivePocketDashboard extends Component {
                 branch_ids: [],
                 salesperson_ids: [],
             },
+            activePoint: null,
             selectedDomain: "finance",
             selectedGroupBy: "branch",
             selectedMetric: "net_revenue",
@@ -406,6 +407,41 @@ export class ExecutivePocketDashboard extends Component {
         document.body.classList.add('tl-print-mode-period');
         document.body.classList.remove('tl-print-mode-daily');
         window.print();
+    }
+    onChartMouseMove(ev) {
+        const svg = ev.currentTarget;
+        const rect = svg.getBoundingClientRect();
+        const mouseX = ev.clientX - rect.left;
+        const xInViewBox = (mouseX / rect.width) * 600;
+        
+        const points = this.lineChartData.points || [];
+        if (!points.length) return;
+        
+        let closest = points[0];
+        let minDist = Math.abs(points[0].x - xInViewBox);
+        for (let i = 1; i < points.length; i++) {
+            const dist = Math.abs(points[i].x - xInViewBox);
+            if (dist < minDist) {
+                minDist = dist;
+                closest = points[i];
+            }
+        }
+        
+        if (minDist < 35) {
+            this.state.activePoint = closest;
+        } else {
+            this.state.activePoint = null;
+        }
+    }
+    onChartMouseLeave() {
+        this.state.activePoint = null;
+    }
+    async onChartClick() {
+        if (this.state.activePoint) {
+            this.state.filters.report_date = this.state.activePoint.date;
+            this.notification.add(`Daily Report Day set to ${this.state.activePoint.date}`, { type: "info" });
+            await this._loadBundle();
+        }
     }
     onToggleCompanyPicker() {
         this.state.companyPicker.open = !this.state.companyPicker.open;
