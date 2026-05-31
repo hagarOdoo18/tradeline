@@ -170,41 +170,6 @@
       </t>
     </div>
 
-    <!-- ══════════ FX WATCH ══════════ -->
-    <div class="tl-fx-panel">
-      <div class="tl-panel-head">
-        <h2>Currency Watch</h2>
-        <button class="tl-btn-sm tl-btn-outline" t-on-click="onRefreshFx" t-att-disabled="state.refreshingFx">
-          <t t-if="state.refreshingFx">⟳ Refreshing…</t>
-          <t t-else="">⟳ Refresh</t>
-        </button>
-      </div>
-      <div class="tl-fx-grid">
-        <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
-          <div class="tl-fx-card" t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'">
-            <div class="tl-fx-pair"><t t-esc="fx.display_label || fx.pair"/></div>
-            <div class="tl-fx-rate"><t t-esc="_formatFxRate(fx.rate)"/></div>
-            <div class="tl-fx-row">
-              <span t-att-class="'tl-trend-chip ' + _trendClass(fx.change_pct)">
-                <t t-esc="_trendIcon(fx.change_pct)"/> <t t-esc="_formatPercentOrDash(fx.change_pct)"/>
-              </span>
-              <span class="tl-fx-fresh" t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'">
-                <t t-if="fx.is_stale">⚠ Stale</t><t t-else="">✓ Live</t>
-              </span>
-            </div>
-            <div class="tl-fx-periods">
-              <t t-foreach="_periodRows(fx.period_changes)" t-as="pc" t-key="pc.label">
-                <div class="tl-fx-chip">
-                  <span class="tl-fx-chip-label"><t t-esc="pc.label"/></span>
-                  <span t-att-class="'tl-fx-chip-val ' + _trendClass(pc.value)"><t t-esc="_formatPercentOrDash(pc.value)"/></span>
-                </div>
-              </t>
-            </div>
-            <div class="tl-fx-age">Updated <t t-esc="fx.age_minutes"/> min ago</div>
-          </div>
-        </t>
-      </div>
-    </div>
 
     <!-- ══════════ SECTION: SALES PERFORMANCE ══════════ -->
     <div class="tl-section">
