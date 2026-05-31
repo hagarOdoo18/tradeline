@@ -821,6 +821,12 @@ class ExecutiveDashboardService(models.AbstractModel):
         daily_snapshot = self._daily_sales_snapshot(scope)
         top_limit = max(1, min(int(limit or 10), 100))
         top_sections = self._build_top_sections(scope, top_limit, margin_status)
+        
+        # Build top sections for the single Daily Report Day
+        report_date = scope.get("report_date") or scope["end_date"]
+        daily_scope = dict(scope, start_date=report_date, end_date=report_date)
+        daily_top_sections = self._build_top_sections(daily_scope, top_limit, margin_status)
+
         fx_watch = self.get_fx_watch()
         alerts = self._build_alerts(finance, sales, inventory, pipeline, fx_watch)
         coverage = self._data_coverage(scope)
@@ -859,6 +865,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "scope": {
                     "start_date": str(scope["start_date"]),
                     "end_date": str(scope["end_date"]),
+                    "report_date": str(scope["report_date"]),
                     "company_ids": scope["company_ids"],
                     "branch_ids": scope["branch_ids"],
                     "salesperson_ids": scope["salesperson_ids"],
@@ -881,6 +888,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "drill_path": drill_path or ["overview", default_domain, default_group, "details"],
             "drilldown": drilldown,
             "top_sections": top_sections,
+            "daily_top_sections": daily_top_sections,
         }
 
     @api.model

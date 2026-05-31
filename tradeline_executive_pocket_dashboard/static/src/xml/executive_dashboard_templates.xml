@@ -69,6 +69,9 @@
       <button class="tl-btn-export" t-on-click="onExportDailyReport">
         <span class="tl-btn-icon">📄</span> Export Daily Report
       </button>
+      <button class="tl-btn-export" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
+        <span class="tl-btn-icon">📊</span> Export Period Report
+      </button>
     </div>
 
     <!-- Scope chips + margin badge -->
@@ -605,8 +608,8 @@
       </t>
     </div>
 
-    <!-- ══════════ PRINT LAYOUT (hidden screen, visible on print) ══════════ -->
-    <div class="tl-print-layout">
+    <!-- ══════════ DAILY PRINT LAYOUT ══════════ -->
+    <div class="tl-print-layout tl-print-daily-view">
       <div class="tl-print-header">
         <div class="tl-print-brand">
           <div class="tl-print-company"><t t-esc="reportCompanyName"/></div>
@@ -621,20 +624,124 @@
       <div class="tl-print-kpi-row">
         <div class="tl-print-kpi">
           <div class="tl-print-kpi-label">Total Sales</div>
-          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(todaySales)"/></div>
-          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(todayVsYesterdayPct)">
-            <t t-esc="_trendIcon(todayVsYesterdayPct)"/>
-            <t t-esc="_formatPercentOrDash(todayVsYesterdayPct)"/> vs day before
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(dailyTodaySales)"/></div>
+          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(dailyTodayVsYesterdayPct)">
+            <t t-esc="_trendIcon(dailyTodayVsYesterdayPct)"/>
+            <t t-esc="_formatPercentOrDash(dailyTodayVsYesterdayPct)"/> vs day before
           </div>
         </div>
         <div class="tl-print-kpi">
           <div class="tl-print-kpi-label">Acc. Sales (MTD)</div>
-          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(accSales)"/></div>
-          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(accSalesVsPrevPct)">
-            <t t-esc="_trendIcon(accSalesVsPrevPct)"/>
-            <t t-esc="_formatPercentOrDash(accSalesVsPrevPct)"/> vs day before
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(dailyAccSales)"/></div>
+          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(dailyAccSalesVsPrevPct)">
+            <t t-esc="_trendIcon(dailyAccSalesVsPrevPct)"/>
+            <t t-esc="_formatPercentOrDash(dailyAccSalesVsPrevPct)"/> vs day before
           </div>
         </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Attachment Rate</div>
+          <div class="tl-print-kpi-val"><t t-esc="dailyAttachmentRate.toFixed(1)"/>%</div>
+          <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
+        </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Invoices</div>
+          <div class="tl-print-kpi-val"><t t-esc="dailyTotalInvoices"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices</div>
+        </div>
+      </div>
+
+      <div class="tl-print-charts-row">
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Branch</div>
+          <t t-foreach="dailyBranchBarRows" t-as="item" t-key="item_index">
+            <div class="tl-print-bar-row">
+              <div class="tl-print-bar-label"><t t-esc="_shorten(item.dimension, 22)"/></div>
+              <div class="tl-print-bar-track">
+                <div class="tl-print-bar-fill" t-att-style="'width:' + item.pct + '%'"></div>
+              </div>
+              <div class="tl-print-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+            </div>
+          </t>
+        </div>
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Category</div>
+          <div class="tl-print-donut-row">
+            <svg viewBox="0 0 150 150" class="tl-print-donut-svg">
+              <t t-foreach="dailyDonutCategorySegments" t-as="seg" t-key="seg_index">
+                <path t-att-d="seg.path" t-att-fill="seg.color"/>
+              </t>
+              <circle cx="75" cy="75" r="34" fill="white"/>
+            </svg>
+            <div class="tl-print-legend">
+              <t t-foreach="dailyDonutCategorySegments" t-as="seg" t-key="seg_index">
+                <div class="tl-print-legend-row">
+                  <span class="tl-print-dot" t-att-style="'background:' + seg.color"></span>
+                  <span class="tl-print-legend-label"><t t-esc="_shorten(seg.label, 20)"/></span>
+                  <span class="tl-print-legend-pct"><t t-esc="seg.pctLabel"/>%</span>
+                </div>
+              </t>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tl-print-chart-full">
+        <div class="tl-print-chart-title">Sales Over Period</div>
+        <t t-if="salesOverMonth.length">
+          <div class="tl-print-line-wrapper">
+            <div class="tl-print-line-y-axis">
+              <span><t t-esc="_formatCompact(lineChartData.maxV)"/></span>
+              <span><t t-esc="_formatCompact(lineChartData.minV)"/></span>
+            </div>
+            <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
+              <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
+              </t>
+            </svg>
+            <div class="tl-print-line-x-axis">
+              <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
+              <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
+              <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
+            </div>
+          </div>
+        </t>
+      </div>
+    </div>
+
+    <!-- ══════════ PERIOD PRINT LAYOUT ══════════ -->
+    <div class="tl-print-layout tl-print-period-view">
+      <div class="tl-print-header">
+        <div class="tl-print-brand">
+          <div class="tl-print-company"><t t-esc="reportCompanyName"/></div>
+          <div class="tl-print-report-tag">Period Report</div>
+        </div>
+        <div class="tl-print-date-block">
+          <div class="tl-print-date"><t t-esc="state.filters.start_date"/> → <t t-esc="state.filters.end_date"/></div>
+          <div class="tl-print-period">Overall Selected Range</div>
+        </div>
+      </div>
+
+      <div class="tl-print-kpi-row">
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Sales (Period)</div>
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetRevenue)"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">net revenue in period</div>
+        </div>
+        <t t-if="marginAvailableTop">
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Net Margin (Period)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetMargin)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">net margin in period</div>
+          </div>
+        </t>
         <div class="tl-print-kpi">
           <div class="tl-print-kpi-label">Attachment Rate</div>
           <div class="tl-print-kpi-val"><t t-esc="attachmentRate.toFixed(1)"/>%</div>
@@ -643,7 +750,7 @@
         <div class="tl-print-kpi">
           <div class="tl-print-kpi-label">Total Invoices</div>
           <div class="tl-print-kpi-val"><t t-esc="totalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted invoices</div>
+          <div class="tl-print-kpi-vs tl-neutral">posted in period</div>
         </div>
       </div>
 
@@ -690,21 +797,19 @@
               <span><t t-esc="_formatCompact(lineChartData.maxV)"/></span>
               <span><t t-esc="_formatCompact(lineChartData.minV)"/></span>
             </div>
-            
             <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
               <defs>
-                <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id="tlPrintGradPeriod" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stop-color="#4d7c0f" stop-opacity="0.3"/>
                   <stop offset="100%" stop-color="#4d7c0f" stop-opacity="0"/>
                 </linearGradient>
               </defs>
-              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGradPeriod)" stroke="none"/>
               <path t-att-d="lineChartData.lineD" fill="none" stroke="#4d7c0f" stroke-width="2.5"/>
               <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
                 <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#4d7c0f"/>
               </t>
             </svg>
-            
             <div class="tl-print-line-x-axis">
               <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
               <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>

@@ -57,6 +57,21 @@ export class ExecutivePocketDashboard extends Component {
     get marginAvailableTop() { return Boolean(this.topSections.margin_available); }
     get companyNamesForReport() { return this.topSections.company_names || []; }
 
+    // ─── Daily top sections getters ──────────────────────────────────────────
+    get dailyTopSections() { return this.state.bundle?.daily_top_sections || {}; }
+    get dailyTodaySales() { return Number(this.dailyTopSections.today_sales || 0); }
+    get dailyYesterdaySales() { return Number(this.dailyTopSections.yesterday_sales || 0); }
+    get dailyTodayVsYesterdayPct() { return this._percentChange(this.dailyTodaySales, this.dailyYesterdaySales); }
+    get dailyAccSales() { return Number(this.dailyTopSections.acc_sales || 0); }
+    get dailyAccSalesPrevDay() { return Number(this.dailyTopSections.acc_sales_prev_day || 0); }
+    get dailyAccSalesVsPrevPct() { return this._percentChange(this.dailyAccSales, this.dailyAccSalesPrevDay); }
+    get dailyAttachmentRate() { return Number(this.dailyTopSections.attachment_rate || 0); }
+    get dailyTotalInvoices() { return Number(this.dailyTopSections.total_invoices || 0); }
+    get dailyBranchBarRows() { return this._barRowsFor(this.dailyTopSections.sales_by_branch || [], "net_revenue"); }
+    get dailyDonutCategorySegments() { return this._buildDonutSegments(this.dailyTopSections.sales_by_category || [], "net_revenue"); }
+    get periodNetRevenue() { return this.state.bundle?.cards?.find(c => c.key === 'net_revenue')?.value || 0; }
+    get periodNetMargin() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin')?.value || 0; }
+
     // ─── KPI / meta getters ───────────────────────────────────────────────────
     get cards() { return this.state.bundle?.cards || []; }
     get alerts() { return this.state.bundle?.alerts || []; }
@@ -382,7 +397,16 @@ export class ExecutivePocketDashboard extends Component {
         } catch { this.notification.add("FX refresh failed", { type: "warning" }); await this._loadBundle(); }
         finally { this.state.refreshingFx = false; }
     }
-    onExportDailyReport() { window.print(); }
+    onExportDailyReport() {
+        document.body.classList.add('tl-print-mode-daily');
+        document.body.classList.remove('tl-print-mode-period');
+        window.print();
+    }
+    onExportPeriodReport() {
+        document.body.classList.add('tl-print-mode-period');
+        document.body.classList.remove('tl-print-mode-daily');
+        window.print();
+    }
     onToggleCompanyPicker() {
         this.state.companyPicker.open = !this.state.companyPicker.open;
         if (this.state.companyPicker.open) this._syncCompanyDraft();
