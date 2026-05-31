@@ -50,7 +50,11 @@
       </label>
       <label class="tl-control">
         <span class="tl-control-label">To</span>
-        <input class="tl-date-input" type="date" t-model="state.filters.end_date" t-on-change="onDateChange"/>
+        <input class="tl-date-input" type="date" t-model="state.filters.end_date" t-on-change="onEndDateChange"/>
+      </label>
+      <label class="tl-control">
+        <span class="tl-control-label">Daily Report Day</span>
+        <input class="tl-date-input" type="date" t-model="state.filters.report_date" t-on-change="onReportDateChange"/>
       </label>
 
       <label class="tl-control">
@@ -644,7 +648,7 @@
           <div class="tl-print-report-tag">Daily Report</div>
         </div>
         <div class="tl-print-date-block">
-          <div class="tl-print-date"><t t-esc="state.filters.end_date"/></div>
+          <div class="tl-print-date"><t t-esc="state.filters.report_date"/></div>
           <div class="tl-print-period"><t t-esc="state.filters.start_date"/> → <t t-esc="state.filters.end_date"/></div>
         </div>
       </div>

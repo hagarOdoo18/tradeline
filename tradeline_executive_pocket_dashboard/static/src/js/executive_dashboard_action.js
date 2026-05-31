@@ -22,6 +22,7 @@ export class ExecutivePocketDashboard extends Component {
             filters: {
                 start_date: this._formatDate(start),
                 end_date: this._formatDate(today),
+                report_date: this._formatDate(today),
                 company_ids: [],
                 branch_ids: [],
                 salesperson_ids: [],
@@ -187,17 +188,27 @@ export class ExecutivePocketDashboard extends Component {
         const W = 600, H = 140, pL = 8, pR = 8, pT = 16, pB = 10;
         const cW = W - pL - pR, cH = H - pT - pB;
         const values = data.map(d => Number(d[valueKey] || 0));
-        const maxV = Math.max(...values, 1);
         const n = data.length;
         if (!n) return { lineD: "", areaD: "", points: [], maxV: 0, W, H };
+
+        const maxVal = Math.max(...values, 0);
+        let minVal = Math.min(...values, maxVal);
+        if (minVal === maxVal) {
+            minVal = maxVal * 0.9;
+        }
+        const range = maxVal - minVal;
+        const padMax = maxVal + (range * 0.05 || 1);
+        const padMin = Math.max(0, minVal - (range * 0.05 || 1));
+        const denom = padMax - padMin || 1;
+
         const points = data.map((d, i) => ({
             x: pL + (n <= 1 ? cW / 2 : (i / (n - 1)) * cW),
-            y: pT + (1 - Number(d[valueKey] || 0) / maxV) * cH,
+            y: pT + (1 - (Number(d[valueKey] || 0) - padMin) / denom) * cH,
             ...d,
         }));
         const lineD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
         const areaD = `${lineD} L ${points[n-1].x.toFixed(1)} ${(pT+cH).toFixed(1)} L ${pL} ${(pT+cH).toFixed(1)} Z`;
-        return { lineD, areaD, points, maxV, W, H };
+        return { lineD, areaD, points, maxV: maxVal, W, H };
     }
 
     _barRowsFor(data, metricKey) {
@@ -353,6 +364,15 @@ export class ExecutivePocketDashboard extends Component {
         await this._loadTopSections();
     }
     async onDateChange() { this.state.pagination.offset = 0; await this._loadBundle(); }
+    async onEndDateChange() {
+        this.state.filters.report_date = this.state.filters.end_date;
+        this.state.pagination.offset = 0;
+        await this._loadBundle();
+    }
+    async onReportDateChange() {
+        this.state.pagination.offset = 0;
+        await this._loadBundle();
+    }
     async onRefreshFx() {
         this.state.refreshingFx = true;
         try {

@@ -187,6 +187,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         start_date = self._parse_date(filters.get("start_date"), default_start)
         end_date = self._parse_date(filters.get("end_date"), today)
+        report_date = self._parse_date(filters.get("report_date"), today)
         if start_date > end_date:
             start_date, end_date = end_date, start_date
 
@@ -213,6 +214,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         return {
             "start_date": start_date,
             "end_date": end_date,
+            "report_date": report_date,
             "company_ids": company_ids,
             "branch_ids": branch_ids,
             "salesperson_ids": salesperson_ids,
@@ -1500,11 +1502,41 @@ class ExecutiveDashboardService(models.AbstractModel):
         margin_status = self._real_margin_availability(scope)
         return self._build_top_sections(scope, limit, margin_status)
 
+    def _single_day_sales(self, scope, target_date):
+        if not self._has_table("account_move"):
+            return 0.0
+        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope)
+        params.append(target_date)
+        self.env.cr.execute(f"""
+            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
+                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
+            FROM account_move move WHERE {where_sql} AND move.state='posted'
+              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+              AND move.invoice_date = %s
+        """, params)
+        return float((self._dictfetchone() or {}).get("total") or 0.0)
+
     def _build_top_sections(self, scope, limit, margin_status=None):
         margin_status = margin_status or self._real_margin_availability(scope)
-        attachment = self._attachment_rate(scope)
-        acc = self._acc_sales_mtd(scope)
-        daily = self._daily_sales_snapshot(scope)
+        report_date = scope.get("report_date") or scope["end_date"]
+        
+        # Scopes for daily report metrics
+        today_scope = dict(scope, start_date=report_date, end_date=report_date)
+        yesterday_date = report_date - timedelta(days=1)
+        yesterday_scope = dict(scope, start_date=yesterday_date, end_date=yesterday_date)
+        
+        mtd_start = report_date.replace(day=1)
+        mtd_scope = dict(scope, start_date=mtd_start, end_date=report_date)
+        
+        snapshot_start = max(scope["start_date"], report_date - timedelta(days=6))
+        snapshot_scope = dict(scope, start_date=snapshot_start, end_date=report_date)
+        
+        # Queries for report date
+        today_sales_val = self._single_day_sales(today_scope, report_date)
+        yesterday_sales_val = self._single_day_sales(yesterday_scope, yesterday_date)
+        acc = self._acc_sales_mtd(mtd_scope)
+        attachment = self._attachment_rate(today_scope)
+        
         company_ids = scope.get("company_ids") or []
         company_names = [c.name for c in self.env["res.company"].sudo().browse(company_ids) if c.name]
         return {
@@ -1518,8 +1550,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             "total_invoices": attachment["total_invoices"],
             "acc_sales": acc["acc_sales"],
             "acc_sales_prev_day": acc["acc_sales_prev_day"],
-            "today_sales": daily["stats"].get("today_revenue", 0),
-            "yesterday_sales": daily["stats"].get("yesterday_revenue", 0),
+            "today_sales": today_sales_val,
+            "yesterday_sales": yesterday_sales_val,
             "margin_available": bool(margin_status.get("available")),
             "company_names": company_names,
             "limit": limit,
