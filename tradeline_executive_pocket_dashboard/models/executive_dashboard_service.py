@@ -1552,6 +1552,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "sales_by_salesperson": self._top_sales_by_salesperson(scope, limit, margin_status),
             "sales_by_category": self._top_sales_by_category(scope, limit, margin_status),
             "sales_by_customer": self._top_sales_by_customer(scope, limit, margin_status),
+            "sales_by_product": self._top_sales_by_product(scope, limit, margin_status),
             "inventory_by_category": self._top_inventory_by_category(scope, limit),
             "sales_over_month": self._sales_over_month(scope),
             "attachment_rate": attachment["rate"],
@@ -1713,6 +1714,68 @@ class ExecutiveDashboardService(models.AbstractModel):
                 mb = float(m.get("margin_basis") or 0)
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
         for row in rows:
+            row["net_revenue"] = float(row.get("net_revenue") or 0)
+            row["invoice_count"] = int(row.get("invoice_count") or 0)
+        return rows
+
+    def _top_sales_by_product(self, scope, limit, margin_status=None):
+        if not self._has_table("account_move"):
+            return []
+        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
+        base_params = list(params) + [scope["start_date"], scope["end_date"]]
+        prod_joins = """
+            JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
+            LEFT JOIN product_product product ON product.id=line.product_id
+        """
+        self.env.cr.execute(f"""
+            SELECT
+                product.id AS product_id,
+                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
+                COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+            FROM account_move move {prod_joins}
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+              AND line.product_id IS NOT NULL
+            GROUP BY product.id ORDER BY net_revenue DESC LIMIT %s
+        """, base_params + [limit])
+        rows = self._dictfetchall()
+        if not rows:
+            return []
+        
+        product_ids = [r["product_id"] for r in rows if r.get("product_id")]
+        name_map = {}
+        if product_ids:
+            products = self.env["product.product"].sudo().browse(product_ids).exists()
+            for p in products:
+                name_map[p.id] = p.display_name or p.name or f"Product #{p.id}"
+                
+        if margin_status and margin_status.get("available"):
+            self.env.cr.execute(f"""
+                SELECT
+                    line.product_id AS product_id,
+                    COALESCE(SUM(CASE WHEN move.move_type='out_refund'
+                        THEN -(ABS(COALESCE(line.price_subtotal,0))-ABS(COALESCE(line.total_cost,0)))
+                        ELSE ABS(COALESCE(line.price_subtotal,0))-ABS(COALESCE(line.total_cost,0)) END),0) AS net_margin,
+                    COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
+                FROM account_move move
+                JOIN account_move_line line ON line.move_id=move.id
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                  AND line.product_id IS NOT NULL
+                GROUP BY line.product_id
+            """, base_params)
+            mmap = {r["product_id"]: r for r in self._dictfetchall()}
+            for row in rows:
+                p_id = row.get("product_id")
+                m = mmap.get(p_id) or {}
+                row["net_margin"] = float(m.get("net_margin") or 0)
+                mb = float(m.get("margin_basis") or 0)
+                row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
+                
+        for row in rows:
+            p_id = row.pop("product_id", None)
+            row["dimension"] = name_map.get(p_id, f"Product #{p_id}") if p_id else "Unclassified Product"
             row["net_revenue"] = float(row.get("net_revenue") or 0)
             row["invoice_count"] = int(row.get("invoice_count") or 0)
         return rows

@@ -47,6 +47,7 @@ export class ExecutivePocketDashboard extends Component {
     get topSalesBySalesperson() { return this.topSections.sales_by_salesperson || []; }
     get topSalesByCategory() { return this.topSections.sales_by_category || []; }
     get topSalesByCustomer() { return this.topSections.sales_by_customer || []; }
+    get topSalesByProduct() { return this.topSections.sales_by_product || []; }
     get topInventoryByCategory() { return this.topSections.inventory_by_category || []; }
     get salesOverMonth() { return this.topSections.sales_over_month || []; }
     get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
@@ -160,6 +161,7 @@ export class ExecutivePocketDashboard extends Component {
     get salespersonBarRows() { return this._barRowsFor(this.topSalesBySalesperson, "net_revenue"); }
     get inventoryBarRows() { return this._barRowsFor(this.topInventoryByCategory, "allocated_value"); }
     get customerBarRows() { return this._barRowsFor(this.topSalesByCustomer, "net_revenue"); }
+    get productBarRows() { return this._barRowsFor(this.topSalesByProduct, "net_revenue"); }
     get salesOverMonthFirstDate() { return this.salesOverMonth[0]?.date || ""; }
     get salesOverMonthMidDate() {
         const d = this.salesOverMonth; return d.length > 2 ? d[Math.floor(d.length / 2)]?.date || "" : "";

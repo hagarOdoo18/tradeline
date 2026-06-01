@@ -389,6 +389,57 @@
           </div>
         </div>
       </div>
+
+      <!-- Product Variant -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
+          <span class="tl-badge tl-badge-teal">Net Revenue</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!productBarRows.length"><div class="tl-empty-mini">No product variant data available</div></t>
+            <t t-foreach="productBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-teal" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Product Variant</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num">Margin</th>
+                  <th class="col-num">Margin%</th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesByProduct" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell" t-att-title="row.dimension"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ══════════ SECTION: INVENTORY ══════════ -->

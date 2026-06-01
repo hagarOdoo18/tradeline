@@ -799,6 +799,7 @@
 
 .col-rank { width: 32px; }
 .col-num  { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tl-top-table thead th.col-num { text-align: right; }
 .tl-rank-num { font-weight: 800; color: var(--tl-text-4); }
 .tl-dim-cell { font-weight: 600; color: var(--tl-text-1); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
