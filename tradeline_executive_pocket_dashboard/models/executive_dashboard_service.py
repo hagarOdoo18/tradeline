@@ -1592,6 +1592,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "sales_by_product": self._top_sales_by_product(scope, limit, margin_status),
             "inventory_by_category": self._top_inventory_by_category(scope, limit),
             "sales_over_month": self._sales_over_month(scope),
+            "attachment": attachment,
             "attachment_rate": attachment["rate"],
             "total_invoices": attachment["total_invoices"],
             "acc_sales": acc["acc_sales"],
