@@ -154,8 +154,8 @@
           <div class="tl-kpi-label">Care Cards Rate</div>
           <div class="tl-kpi-value tl-value-pct"><t t-esc="attachmentRate.toFixed(1)"/>%</div>
           <div class="tl-kpi-sub-text">
-            <span style="margin-right: 8px;"><t t-esc="dashboardData.attachment.one_card_invoices || 0"/> with 1 card</span>
-            <span><t t-esc="dashboardData.attachment.two_plus_card_invoices || 0"/> with 2+ cards</span>
+            <span style="margin-right: 8px;"><t t-esc="attachmentData.one_card_invoices || 0"/> with 1 card</span>
+            <span><t t-esc="attachmentData.two_plus_card_invoices || 0"/> with 2+ cards</span>
           </div>
           <div class="tl-kpi-explain">Percentage of invoices that include at least one Care Card. This helps track the success rate of attaching care plans to core product sales.</div>
         </div>

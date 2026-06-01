@@ -52,6 +52,7 @@ export class ExecutivePocketDashboard extends Component {
     get salesOverMonth() { return this.topSections.sales_over_month || []; }
     get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
     get totalInvoices() { return Number(this.topSections.total_invoices || 0); }
+    get attachmentData() { return this.state.dashboardData ? this.state.dashboardData.attachment || {} : {}; }
     get accSales() { return Number(this.topSections.acc_sales || 0); }
     get accSalesPrevDay() { return Number(this.topSections.acc_sales_prev_day || 0); }
     get accSalesLastMonthMtd() { return Number(this.topSections.acc_sales_last_month_mtd || 0); }
