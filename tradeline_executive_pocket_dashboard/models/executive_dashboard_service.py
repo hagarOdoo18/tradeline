@@ -77,18 +77,6 @@ class ExecutiveDashboardService(models.AbstractModel):
             "default_group": "category",
             "default_metric": "allocated_value",
         },
-        "pipeline": {
-            "label": "Pipeline",
-            "description": "Open and weighted opportunity pipeline.",
-            "groups": {"company": "Company", "stage": "Stage", "owner": "Owner", "branch": "Branch"},
-            "metrics": {
-                "weighted_pipeline": "Weighted Pipeline",
-                "open_pipeline": "Open Pipeline",
-                "open_opportunities": "Open Opportunities",
-            },
-            "default_group": "stage",
-            "default_metric": "weighted_pipeline",
-        },
     }
 
     def _dictfetchall(self):
@@ -600,44 +588,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "qty_gap_count": float(row.get("qty_gap_count") or 0),
         }
 
-    def _pipeline_summary(self, filters: dict) -> dict:
-        if not self._has_table("crm_lead"):
-            return {"open_opportunities": 0, "open_pipeline": 0, "weighted_pipeline": 0, "stalled_count": 0}
-
-        where_sql, params = self._build_scope_clause(alias="lead", table_name="crm_lead", filters=filters, include_sales_rep=True)
-        params += [filters["start_date"], filters["end_date"]]
-        self.env.cr.execute(
-            f"""
-            SELECT
-                COUNT(*) FILTER (WHERE lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100) AS open_opportunities,
-                COALESCE(SUM(
-                    CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100
-                    THEN COALESCE(lead.expected_revenue, 0) ELSE 0 END
-                ), 0) AS open_pipeline,
-                COALESCE(SUM(
-                    CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100
-                    THEN COALESCE(lead.expected_revenue, 0) * COALESCE(lead.probability, 0) / 100.0 ELSE 0 END
-                ), 0) AS weighted_pipeline,
-                COUNT(*) FILTER (
-                    WHERE lead.type = 'opportunity'
-                      AND lead.active IS TRUE
-                      AND COALESCE(lead.probability, 0) < 100
-                      AND COALESCE(lead.write_date::date, lead.create_date::date) <= CURRENT_DATE - INTERVAL '14 days'
-                ) AS stalled_count
-            FROM crm_lead lead
-            WHERE {where_sql}
-            """,
-            params[:-2],
-        )
-        row = self._dictfetchone()
-        return {
-            "open_opportunities": float(row.get("open_opportunities") or 0),
-            "open_pipeline": float(row.get("open_pipeline") or 0),
-            "weighted_pipeline": float(row.get("weighted_pipeline") or 0),
-            "stalled_count": float(row.get("stalled_count") or 0),
-        }
-
-    def _build_alerts(self, finance: dict, sales: dict, inventory: dict, pipeline: dict, fx_watch: dict) -> list:
+    def _build_alerts(self, finance: dict, sales: dict, inventory: dict, fx_watch: dict) -> list:
         alerts = []
 
         overdue_ratio = 0.0
@@ -655,8 +606,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         if inventory.get("qty_gap_count", 0) > 0:
             alerts.append({"severity": "medium", "label": "Quant vs SVL gap", "detail": f"{int(inventory['qty_gap_count'])} products show quantity divergence > 10 units."})
 
-        if pipeline.get("stalled_count", 0) > 0:
-            alerts.append({"severity": "low", "label": "Stalled pipeline", "detail": f"{int(pipeline['stalled_count'])} opportunities are idle for 14+ days."})
 
         stale_pairs = [c["pair"] for c in fx_watch.get("cards", []) if c.get("is_stale")]
         if stale_pairs:
@@ -715,7 +664,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         }
 
     def _data_coverage(self, scope: dict):
-        coverage = {"finance": 0, "sales": 0, "inventory": 0, "pipeline": 0}
+        coverage = {"finance": 0, "sales": 0, "inventory": 0, }
         if self._has_table("account_move"):
             where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
             params += [scope["start_date"], scope["end_date"]]
@@ -760,8 +709,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 """,
                 lead_params,
             )
-            coverage["pipeline"] = int((self._dictfetchone() or {}).get("count_rows") or 0)
-
         return coverage
 
     def _daily_sales_snapshot(self, scope: dict) -> dict:
@@ -849,7 +796,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         finance = self._finance_summary(scope, margin_status=margin_status)
         sales = self._sales_summary(scope, margin_status=margin_status)
         inventory = self._inventory_summary(scope)
-        pipeline = self._pipeline_summary(scope)
         daily_snapshot = self._daily_sales_snapshot(scope)
         top_limit = max(1, min(int(limit or 10), 100))
         top_sections = self._build_top_sections(scope, top_limit, margin_status)
@@ -860,7 +806,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         daily_top_sections = self._build_top_sections(daily_scope, top_limit, margin_status)
 
         fx_watch = self.get_fx_watch()
-        alerts = self._build_alerts(finance, sales, inventory, pipeline, fx_watch)
+        alerts = self._build_alerts(finance, sales, inventory, fx_watch)
         coverage = self._data_coverage(scope)
         filter_options = self._get_filter_options(scope)
 
@@ -868,7 +814,6 @@ class ExecutiveDashboardService(models.AbstractModel):
             {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral"},
             {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning"},
-            {"key": "open_pipeline", "label": "Open Pipeline", "value": pipeline["open_pipeline"], "unit": "EGP", "tone": "neutral"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral"},
             {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral"},
             {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
@@ -913,7 +858,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "finance": finance,
                 "sales": sales,
                 "inventory": inventory,
-                "pipeline": pipeline,
                 "daily_snapshot": daily_snapshot,
             },
             "fx_watch": fx_watch,
@@ -930,9 +874,8 @@ class ExecutiveDashboardService(models.AbstractModel):
         finance = self._finance_summary(scope)
         sales = self._sales_summary(scope)
         inventory = self._inventory_summary(scope)
-        pipeline = self._pipeline_summary(scope)
         fx_watch = self.get_fx_watch()
-        return self._build_alerts(finance, sales, inventory, pipeline, fx_watch)
+        return self._build_alerts(finance, sales, inventory, fx_watch)
 
     @api.model
     def get_drilldown(self, domain="finance", metric="value", group_by="branch", filters=None, limit=25, offset=0):
@@ -952,8 +895,6 @@ class ExecutiveDashboardService(models.AbstractModel):
             result = self._sales_drilldown(scope, group_by, metric, limit, offset, margin_status)
         elif domain == "inventory":
             result = self._inventory_drilldown(scope, group_by, metric, limit, offset)
-        elif domain == "pipeline":
-            result = self._pipeline_drilldown(scope, group_by, metric, limit, offset)
         else:
             result = {
                 "domain": domain,

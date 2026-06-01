@@ -479,15 +479,6 @@ export class ExecutivePocketDashboard extends Component {
                     ["invoice_date_due", "<", end]
                 ].concat(compDomain);
                 break;
-            case "open_pipeline":
-                model = "crm.lead";
-                name = "Open CRM Pipeline";
-                domain = [
-                    ["type", "=", "opportunity"],
-                    ["active", "=", true],
-                    ["probability", "<", 100]
-                ].concat(compDomain);
-                break;
             case "inventory_value":
             case "on_hand_qty":
                 model = "stock.quant";
