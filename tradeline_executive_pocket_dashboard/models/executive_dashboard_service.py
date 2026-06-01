@@ -2116,20 +2116,20 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _attachment_rate(self, scope):
         if not self._has_table("account_move"):
-            return {"rate": 0.0, "total_invoices": 0, "multi_item_invoices": 0}
+            return {"rate": 0.0, "total_invoices": 0, "multi_item_invoices": 0, "one_card_invoices": 0, "two_plus_card_invoices": 0}
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope)
         params += [scope["start_date"], scope["end_date"]]
         self.env.cr.execute(f"""
             WITH invoice_products AS (
                 SELECT move.id,
-                    COUNT(line.id) FILTER (
+                    COALESCE(SUM(line.quantity) FILTER (
                         WHERE (line.display_type='product' OR line.display_type IS NULL)
                           AND line.product_id IN (
                               SELECT pp.id FROM product_product pp 
                               JOIN product_template pt ON pt.id = pp.product_tmpl_id 
                               WHERE pt.categ_id = 50
                           )
-                    ) AS product_line_count
+                    ), 0) AS care_card_count
                 FROM account_move move
                 LEFT JOIN account_move_line line ON line.move_id=move.id
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt')
@@ -2138,13 +2138,23 @@ class ExecutiveDashboardService(models.AbstractModel):
             )
             SELECT
                 COUNT(*) AS total_invoices,
-                COUNT(*) FILTER (WHERE product_line_count > 0) AS multi_item_invoices
+                COUNT(*) FILTER (WHERE care_card_count > 0) AS any_card_invoices,
+                COUNT(*) FILTER (WHERE care_card_count = 1) AS one_card_invoices,
+                COUNT(*) FILTER (WHERE care_card_count >= 2) AS two_plus_card_invoices
             FROM invoice_products
         """, params)
         row = self._dictfetchone() or {}
         total = int(row.get("total_invoices") or 0)
-        multi = int(row.get("multi_item_invoices") or 0)
-        return {"rate": (multi / total * 100) if total else 0.0, "total_invoices": total, "multi_item_invoices": multi}
+        multi = int(row.get("any_card_invoices") or 0)
+        one_card = int(row.get("one_card_invoices") or 0)
+        two_plus = int(row.get("two_plus_card_invoices") or 0)
+        return {
+            "rate": (multi / total * 100) if total else 0.0,
+            "total_invoices": total,
+            "multi_item_invoices": multi,
+            "one_card_invoices": one_card,
+            "two_plus_card_invoices": two_plus
+        }
 
     def _acc_sales_mtd(self, scope):
         if not self._has_table("account_move"):
