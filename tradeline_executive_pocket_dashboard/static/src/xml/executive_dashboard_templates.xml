@@ -158,7 +158,7 @@
         <div class="tl-kpi-body">
           <div class="tl-kpi-label">Total Invoices</div>
           <div class="tl-kpi-value"><t t-esc="_formatNumber(totalInvoices)"/></div>
-          <div class="tl-kpi-sub-text">posted in period</div>
+          <div class="tl-kpi-sub-text">posted on report day</div>
         </div>
       </div>
 
