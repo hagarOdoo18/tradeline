@@ -504,6 +504,15 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet = workbook.add_worksheet('Payments Type')
         bold, cell, header = self._fmt(workbook)
 
+        subtotal_fmt = workbook.add_format({
+            'bold': 1, 'border': 1, 'bg_color': '#D5E8D4',
+            'font_size': 10, 'align': 'center', 'valign': 'vcenter',
+        })
+        grand_fmt = workbook.add_format({
+            'bold': 1, 'border': 1, 'bg_color': '#AAB7B8',
+            'font_size': 11, 'align': 'center', 'valign': 'vcenter',
+        })
+
         sheet.set_column(0, 1, 30)
         sheet.write('A1', 'Type',    header)
         sheet.write('B1', 'Total',   header)
@@ -515,21 +524,29 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in lines]
 
-        row       = 1
-        other_row = 1
-        other_col = 4
+        row         = 1
+        other_row   = 1
+        other_col   = 4
+        grand_total = 0.0
+
         for src_type, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
                                     key=lambda x: x[3]):
             base_row  = row
             grp1_list = list(grp1)
-            sheet.write(row,       0,         src_type, header)
-            sheet.write(other_row, other_col, src_type, header)
+
+            # Left table: type name
+            sheet.write(row, 0, src_type, header)
+            # Right table: type header row
+            sheet.write(other_row, other_col,     src_type, header)
+            sheet.write(other_row, other_col + 1, '',       header)
+            sheet.write(other_row, other_col + 2, '',       header)
             row       += 1
             other_row += 1
-            total = 0
+
+            total = 0.0
             for journal, grp2 in igrp(sorted(grp1_list, key=lambda x: x[0]),
                                        key=lambda x: x[0]):
-                total_payment = 0
+                total_payment = 0.0
                 sheet.write(other_row, other_col + 1, journal, header)
                 for line in grp2:
                     if line[1] != 'None':
@@ -537,7 +554,23 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         total_payment += line[2]
                 sheet.write(other_row, other_col + 2, total_payment, header)
                 other_row += 1
+
+            # Right table: subtotal row for this type
+            sheet.write(other_row, other_col,     'Total ' + src_type, subtotal_fmt)
+            sheet.write(other_row, other_col + 1, '',                  subtotal_fmt)
+            sheet.write(other_row, other_col + 2, total,               subtotal_fmt)
+            sheet.set_row(other_row, 22)
+            other_row += 2   # +1 blank separator between types
+
+            # Left table: total for this type
             sheet.write(base_row, 1, total, header)
+            grand_total += total
+
+        # Left table: grand total row
+        sheet.write(row, 0, 'Grand Total', grand_fmt)
+        sheet.write(row, 1, grand_total,   grand_fmt)
+        sheet.set_row(row, 24)
+
         return workbook
 
     def _generate_excel_all(self, open_invoices, open_credit,
