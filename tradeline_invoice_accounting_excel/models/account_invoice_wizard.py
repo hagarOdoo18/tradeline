@@ -317,10 +317,15 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet = workbook.add_worksheet('Paid Invoices')
         bold, cell, header = self._fmt(workbook)
 
-        sheet.set_column(0, 0, 30)
-        sheet.write(0, 0, 'Branch', header)
-        sheet.write(1, 0, 'Total',  header)
+        sheet.set_column(0, 0, 35)   # Branch column
+        sheet.set_column(1, 1, 22)   # Total column
 
+        # Header row
+        sheet.write(0, 0, 'Branch', header)
+        sheet.write(0, 1, 'Total',  header)
+        sheet.set_row(0, 28)
+
+        # Merge invoices + credits by branch
         store = {}
         for line in lines:
             store[self._s(line[0])] = float(line[1] or 0)
@@ -328,17 +333,21 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             key = self._s(line[0])
             store[key] = store.get(key, 0) + float(line[1] or 0)
 
-        col = 1
-        total = 0
-        for key, value in sorted(store.items(), key=lambda x: x[0].casefold()):
-            sheet.set_column(0, col, 30)
-            sheet.write(0, col, key, header)
-            sheet.write(1, col, value, cell)
+        # Write one row per branch, sorted A-Z
+        row   = 1
+        total = 0.0
+        for branch, value in sorted(store.items(), key=lambda x: x[0].casefold()):
+            sheet.write(row, 0, branch, cell)
+            sheet.write(row, 1, value,  cell)
+            sheet.set_row(row, 22)
             total += value
-            col   += 1
-        sheet.set_row(0, 40)
-        sheet.set_row(1, 40)
-        sheet.write(1, col, total, header)
+            row   += 1
+
+        # Grand Total row
+        sheet.write(row, 0, 'Grand Total', header)
+        sheet.write(row, 1, total,         header)
+        sheet.set_row(row, 24)
+
         return workbook
 
     def _generate_excel_sro(self, lines, workbook):
@@ -460,8 +469,8 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             key = (journal, branch)
             matrix[key] = matrix.get(key, 0) + amount
 
-        # Stable sort for readability
-        journals.sort()
+        # Stable sort: journals containing نقدا first, then A-Z; branches A-Z
+        journals.sort(key=lambda j: (0 if 'نقدا' in j else 1, j.casefold()))
         branches.sort()
 
         # Header row: leave (0,0) blank, then branch names, then 'Total'
