@@ -126,6 +126,7 @@
             <t t-esc="_formatPercentOrDash(todayVsYesterdayPct)"/>
             <span class="tl-kpi-sub-text">vs yesterday</span>
           </div>
+          <div class="tl-kpi-explain">Sales on selected Daily Report Day</div>
         </div>
       </div>
 
@@ -139,6 +140,7 @@
             <t t-esc="_formatPercentOrDash(accSalesVsPrevPct)"/>
             <span class="tl-kpi-sub-text">vs prev day MTD</span>
           </div>
+          <div class="tl-kpi-explain">Cumulative sales from Month Day 1 to Report Day</div>
         </div>
       </div>
 
