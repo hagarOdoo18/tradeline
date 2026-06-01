@@ -317,15 +317,10 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet = workbook.add_worksheet('Paid Invoices')
         bold, cell, header = self._fmt(workbook)
 
-        sheet.set_column(0, 0, 35)   # Branch column
-        sheet.set_column(1, 1, 22)   # Total column
-
-        # Header row
+        sheet.set_column(0, 0, 30)
         sheet.write(0, 0, 'Branch', header)
-        sheet.write(0, 1, 'Total',  header)
-        sheet.set_row(0, 28)
+        sheet.write(1, 0, 'Total',  header)
 
-        # Merge invoices + credits by branch
         store = {}
         for line in lines:
             store[self._s(line[0])] = float(line[1] or 0)
@@ -333,21 +328,17 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             key = self._s(line[0])
             store[key] = store.get(key, 0) + float(line[1] or 0)
 
-        # Write one row per branch, sorted A-Z
-        row   = 1
+        col = 1
         total = 0.0
-        for branch, value in sorted(store.items(), key=lambda x: x[0].casefold()):
-            sheet.write(row, 0, branch, cell)
-            sheet.write(row, 1, value,  cell)
-            sheet.set_row(row, 22)
+        for key, value in sorted(store.items(), key=lambda x: x[0].casefold()):
+            sheet.set_column(col, col, 30)
+            sheet.write(0, col, key,   header)
+            sheet.write(1, col, value, cell)
             total += value
-            row   += 1
-
-        # Grand Total row
-        sheet.write(row, 0, 'Grand Total', header)
-        sheet.write(row, 1, total,         header)
-        sheet.set_row(row, 24)
-
+            col   += 1
+        sheet.set_row(0, 40)
+        sheet.set_row(1, 40)
+        sheet.write(1, col, total, header)
         return workbook
 
     def _generate_excel_sro(self, lines, workbook):
@@ -634,26 +625,34 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             sheet.write(L, 4, self._s(line[4]), cell)
             sheet.set_row(L, 18); L += 1
 
-        # Right: Paid Invoices & Credits
-        sheet.merge_range(R, 6, R, 8, 'Paid Invoices & Credits', section_fmt)
-        sheet.set_row(R, 22); R += 1
-        sheet.write(R, 6, 'Branch', header)
-        sheet.write(R, 7, 'Total',  header)
-        sheet.set_row(R, 20); R += 1
+        # Right: Paid Invoices & Credits (horizontal — branches as columns)
         store = {}
         for line in paid_invoices:
             store[self._s(line[0])] = float(line[1] or 0)
         for line in paid_credits:
             k = self._s(line[0])
             store[k] = store.get(k, 0) + float(line[1] or 0)
-        grand_paid = 0
-        for branch, tot in store.items():
-            sheet.write(R, 6, branch, cell)
-            sheet.write(R, 7, tot,    cell)
-            grand_paid += tot; R += 1
-        sheet.write(R, 6, 'Grand Total', header)
-        sheet.write(R, 7, grand_paid,    header); R += 1
-        R += 1
+        paid_branches_sorted = sorted(store.keys(), key=lambda x: x.casefold())
+        paid_end_col = 6 + len(paid_branches_sorted)   # last data col (Grand Total)
+        sheet.merge_range(R, 6, R, max(paid_end_col, 8),
+                          'Paid Invoices & Credits', section_fmt)
+        sheet.set_row(R, 22); R += 1
+        # Header row: blank label col + branch cols + Grand Total
+        sheet.write(R, 6, '', header)
+        for c, branch in enumerate(paid_branches_sorted, start=7):
+            sheet.set_column(c, c, max(20, len(branch) + 4))
+            sheet.write(R, c, branch, header)
+        sheet.write(R, paid_end_col, 'Grand Total', header)
+        sheet.set_row(R, 24); R += 1
+        # Data row: "Total" label + values + grand total
+        sheet.write(R, 6, 'Total', header)
+        grand_paid = 0.0
+        for c, branch in enumerate(paid_branches_sorted, start=7):
+            tot = store.get(branch, 0)
+            sheet.write(R, c, tot, cell)
+            grand_paid += tot
+        sheet.write(R, paid_end_col, grand_paid, header)
+        sheet.set_row(R, 22); R += 2
 
         # Right: SRO Orders
         sheet.merge_range(R, 6, R, 8, 'SRO Orders', section_fmt)
@@ -718,7 +717,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                 b_seen2.add(branch)
                 pay_branches.append(branch)
             pay_matrix[(journal, branch)] = pay_matrix.get((journal, branch), 0) + amount
-        pay_journals.sort()
+        pay_journals.sort(key=lambda j: (0 if 'نقدا' in j else 1, j.casefold()))
         pay_branches.sort()
 
         total_pay_col = len(pay_branches) + 1          # column index of the "Total" column
