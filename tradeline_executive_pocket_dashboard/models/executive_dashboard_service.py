@@ -290,33 +290,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COUNT(*) FILTER (WHERE line.total_cost IS NOT NULL) AS costed_lines
             FROM account_move_line line
             JOIN account_move move ON move.id = line.move_id
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -376,13 +350,35 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END
                 ), 0) AS net_margin,
@@ -398,33 +394,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 ), 0) AS untaxed_revenue
             FROM account_move_line line
             JOIN account_move move ON move.id = line.move_id
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -464,33 +434,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
             FROM account_move move
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -501,20 +445,18 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         collections_total = 0.0
         if self._has_table("account_payment"):
-            # Bypass branch filters since payments are typically recorded at company/bank level
-            pay_filters = dict(filters, branch_ids=[])
-            where_pay_sql, pay_params = self._build_scope_clause(alias="payment", table_name="account_payment", filters=pay_filters)
+            where_pay_sql, pay_params = self._build_scope_clause(alias="payment", table_name="account_payment", filters=filters)
             pay_params += [filters["start_date"], filters["end_date"]]
             self.env.cr.execute(
                 f"""
                 SELECT COALESCE(SUM(
                     CASE WHEN payment.payment_type = 'inbound' THEN COALESCE(payment.amount, 0)
-                          ELSE -COALESCE(payment.amount, 0)
+                         ELSE -COALESCE(payment.amount, 0)
                     END
                 ), 0) AS collections_total
                 FROM account_payment payment
                 WHERE {where_pay_sql}
-                  AND payment.state IN ('posted', 'paid', 'in_process')
+                  AND payment.state = 'posted'
                   AND payment.partner_type = 'customer'
                   AND payment.date BETWEEN %s AND %s
                 """,
@@ -527,33 +469,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"""
             SELECT COALESCE(SUM(GREATEST(COALESCE(move.amount_residual_signed, 0), 0)), 0) AS overdue_receivables
             FROM account_move move
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt')
               AND COALESCE(move.amount_residual_signed, 0) > 0
@@ -597,38 +513,10 @@ class ExecutiveDashboardService(models.AbstractModel):
             f"""
             SELECT
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                COUNT(*) FILTER (WHERE move.move_type = 'out_refund') AS credit_note_count,
-                COUNT(*) AS total_move_count,
                 COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
             FROM account_move move
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -639,8 +527,6 @@ class ExecutiveDashboardService(models.AbstractModel):
         margin = self._margin_summary(filters, margin_status=margin_status)
         output = {
             "invoice_count": float(row.get("invoice_count") or 0),
-            "credit_note_count": float(row.get("credit_note_count") or 0),
-            "total_move_count": float(row.get("total_move_count") or 0),
             "average_basket": float(row.get("average_basket") or 0),
             "net_revenue": float(row.get("net_revenue") or 0),
             "margin_available": bool(margin.get("available")),
@@ -739,33 +625,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND COALESCE(lead.write_date::date, lead.create_date::date) <= CURRENT_DATE - INTERVAL '14 days'
                 ) AS stalled_count
             FROM crm_lead lead
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
             """,
             params[:-2],
         )
@@ -794,6 +654,9 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         if inventory.get("qty_gap_count", 0) > 0:
             alerts.append({"severity": "medium", "label": "Quant vs SVL gap", "detail": f"{int(inventory['qty_gap_count'])} products show quantity divergence > 10 units."})
+
+        if pipeline.get("stalled_count", 0) > 0:
+            alerts.append({"severity": "low", "label": "Stalled pipeline", "detail": f"{int(pipeline['stalled_count'])} opportunities are idle for 14+ days."})
 
         stale_pairs = [c["pair"] for c in fx_watch.get("cards", []) if c.get("is_stale")]
         if stale_pairs:
@@ -860,32 +723,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 f"""
                 SELECT COUNT(*) AS count_rows
                 FROM account_move move
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -929,7 +766,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _daily_sales_snapshot(self, scope: dict) -> dict:
         window_end = scope["end_date"]
-        window_start = window_end - timedelta(days=6)
+        window_start = max(scope["start_date"], window_end - timedelta(days=6))
         days = [window_start + timedelta(days=idx) for idx in range((window_end - window_start).days + 1)]
         rows_map = {}
 
@@ -948,32 +785,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                     COUNT(*) AS invoice_count,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
                 FROM account_move move
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -1057,11 +868,10 @@ class ExecutiveDashboardService(models.AbstractModel):
             {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral"},
             {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning"},
+            {"key": "open_pipeline", "label": "Open Pipeline", "value": pipeline["open_pipeline"], "unit": "EGP", "tone": "neutral"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral"},
             {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral"},
-            {"key": "invoice_count", "label": "Sales Invoices (Excl. CN)", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
-            {"key": "credit_note_count", "label": "Credit Notes", "value": sales["credit_note_count"], "unit": "", "tone": "neutral"},
-            {"key": "total_move_count", "label": "Total Invoices (Incl. CN)", "value": sales["total_move_count"], "unit": "", "tone": "neutral"},
+            {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
         ]
         if margin_status.get("available"):
             cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral"})
@@ -1199,33 +1009,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
             FROM account_move move
             {joins}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -1244,32 +1028,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT {dim_sql} AS dimension{company_select}
                 FROM account_move move
                 {joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -1297,13 +1055,35 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END
                     ), 0) AS net_margin,
@@ -1317,39 +1097,13 @@ class ExecutiveDashboardService(models.AbstractModel):
                 JOIN account_move_line line
                   ON line.move_id = move.id
                  AND (line.display_type = 'product' OR line.display_type IS NULL)
-                 -- total_cost removed
+                 AND line.total_cost IS NOT NULL
                 {joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                  -- total_cost removed
+                  AND line.total_cost IS NOT NULL
                 GROUP BY dimension{company_group_by}
                 """,
                 margin_params,
@@ -1444,33 +1198,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
             FROM account_move move
             {joins}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
@@ -1489,32 +1217,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT {dim_sql} AS dimension{company_select}
                 FROM account_move move
                 {joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -1533,7 +1235,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             margin_joins = joins
             if group_by not in {"category", "product"}:
                 margin_joins = (
-                    "JOIN account_move_line line ON line.move_id = move.id AND (line.display_type = 'product' OR line.display_type IS NULL) -- total_cost removed\n"
+                    "JOIN account_move_line line ON line.move_id = move.id AND (line.display_type = 'product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL\n"
                     + joins
                 )
             margin_params = list(params[:-2])  # remove limit/offset
@@ -1548,13 +1250,35 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END
                     ), 0) AS net_margin,
@@ -1566,32 +1290,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                     ), 0) AS margin_basis
                 FROM account_move move
                 {margin_joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -1866,33 +1564,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN lead.type = 'opportunity' AND lead.active IS TRUE AND COALESCE(lead.probability, 0) < 100 THEN COALESCE(lead.expected_revenue, 0) * COALESCE(lead.probability, 0) / 100.0 ELSE 0 END), 0) AS weighted_pipeline
             FROM crm_lead lead
             {joins}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
             GROUP BY dimension{company_group_by}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
@@ -1908,32 +1580,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT {dim_sql} AS dimension{company_select}
                 FROM crm_lead lead
                 {joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql}
                 GROUP BY dimension{company_group_by}
             ) grouped
@@ -1968,33 +1614,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         self.env.cr.execute(f"""
             SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
                 ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move 
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted'
+            FROM account_move move WHERE {where_sql} AND move.state='posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date = %s
         """, params)
@@ -2035,7 +1655,6 @@ class ExecutiveDashboardService(models.AbstractModel):
             "total_invoices": attachment["total_invoices"],
             "acc_sales": acc["acc_sales"],
             "acc_sales_prev_day": acc["acc_sales_prev_day"],
-            "acc_sales_last_month_mtd": acc["acc_sales_last_month_mtd"],
             "today_sales": today_sales_val,
             "yesterday_sales": yesterday_sales_val,
             "margin_available": bool(margin_status.get("available")),
@@ -2057,33 +1676,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0)) ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue,
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
             FROM account_move move {join_sql}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql}
+            WHERE {where_sql}
               AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
@@ -2099,46 +1692,42 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END),0) AS net_margin,
                     COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id
-                  AND (line.display_type='product' OR line.display_type IS NULL) -- total_cost removed
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
                 {join_sql}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension
@@ -2173,33 +1762,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0)) ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue,
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
             FROM account_move move {join_sql}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
         """, base_params + [limit])
@@ -2214,46 +1777,42 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END),0) AS net_margin,
                     COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id
-                  AND (line.display_type='product' OR line.display_type IS NULL) -- total_cost removed
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
                 {join_sql}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension
@@ -2287,33 +1846,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
                 COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
             FROM account_move move {cat_joins}
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
         """, base_params + [limit])
@@ -2321,7 +1854,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         if margin_status and margin_status.get("available"):
             marg_joins = """
                 JOIN account_move_line line ON line.move_id=move.id
-                  AND (line.display_type='product' OR line.display_type IS NULL) -- total_cost removed
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
                 LEFT JOIN product_product product ON product.id=line.product_id
                 LEFT JOIN product_template template ON template.id=product.product_tmpl_id
                 LEFT JOIN product_category category ON category.id=template.categ_id
@@ -2335,43 +1868,39 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END),0) AS net_margin,
                     COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
                 FROM account_move move {marg_joins}
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension
@@ -2393,134 +1922,36 @@ class ExecutiveDashboardService(models.AbstractModel):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
         
-        selected_category = scope.get("product_category") or "all"
-        if selected_category and selected_category != "all":
-            query_params = base_params + [selected_category, limit]
-            self.env.cr.execute(f"""
+        # We need to filter products to only those belonging to the top 10 categories by net revenue
+        self.env.cr.execute(f"""
+            WITH top_categories AS (
                 SELECT
-                    product.id AS product_id,
-                    COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    template.categ_id
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
                 LEFT JOIN product_product product ON product.id=line.product_id
                 LEFT JOIN product_template template ON template.id=product.product_tmpl_id
-                LEFT JOIN product_category category ON category.id=template.categ_id
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                  AND line.product_id IS NOT NULL
-                  AND category.complete_name = %s
-                GROUP BY product.id ORDER BY net_revenue DESC LIMIT %s
-            """, query_params)
-        else:
-            query_params = base_params + base_params + [limit]
-            self.env.cr.execute(f"""
-                WITH top_categories AS (
-                    SELECT
-                        template.categ_id
-                    FROM account_move move
-                    JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
-                    LEFT JOIN product_product product ON product.id=line.product_id
-                    LEFT JOIN product_template template ON template.id=product.product_tmpl_id
-                    
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-                      AND move.invoice_date BETWEEN %s AND %s
-                      AND template.categ_id IS NOT NULL
-                    GROUP BY template.categ_id
-                    ORDER BY COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) DESC
-                    LIMIT 10
-                )
-                SELECT
-                    product.id AS product_id,
-                    COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-                FROM account_move move
-                JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
-                LEFT JOIN product_product product ON product.id=line.product_id
-                LEFT JOIN product_template template ON template.id=product.product_tmpl_id
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-                  AND move.invoice_date BETWEEN %s AND %s
-                  AND line.product_id IS NOT NULL
-                  AND template.categ_id IN (SELECT categ_id FROM top_categories)
-                GROUP BY product.id ORDER BY net_revenue DESC LIMIT %s
-            """, query_params)
+                  AND template.categ_id IS NOT NULL
+                GROUP BY template.categ_id
+                ORDER BY COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) DESC
+                LIMIT 10
+            )
+            SELECT
+                product.id AS product_id,
+                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
+                COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+            FROM account_move move
+            JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
+            LEFT JOIN product_product product ON product.id=line.product_id
+            LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+              AND line.product_id IS NOT NULL
+              AND template.categ_id IN (SELECT categ_id FROM top_categories)
+            GROUP BY product.id ORDER BY net_revenue DESC LIMIT %s
+        """, base_params + base_params + [limit])
         rows = self._dictfetchall()
         if not rows:
             return []
@@ -2542,45 +1973,41 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END),0) AS net_margin,
                     COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id
-                  AND (line.display_type='product' OR line.display_type IS NULL) -- total_cost removed
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND line.product_id IS NOT NULL
@@ -2613,33 +2040,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
             FROM account_move move
             LEFT JOIN res_partner partner ON partner.id=move.partner_id
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
         """, base_params + [limit])
@@ -2654,46 +2055,42 @@ class ExecutiveDashboardService(models.AbstractModel):
                             (-line.balance + (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                         ELSE 
                             (-line.balance - (
                                 (line.quantity / NULLIF(COALESCE((SELECT factor FROM uom_uom WHERE id = line.product_uom_id), 1) / COALESCE((SELECT factor FROM uom_uom WHERE id = (SELECT uom_id FROM product_template WHERE id = (SELECT product_tmpl_id FROM product_product WHERE id = line.product_id))), 1), 0.0))
                                 *
-                                (COALESCE(svl_data.svl_unit_cost, COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
+                                (COALESCE((
+                                      SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0))
+                                      FROM sale_order_line_invoice_rel solir
+                                      JOIN sale_order_line sol ON sol.id = solir.order_line_id
+                                      JOIN stock_move sm ON sm.sale_line_id = sol.id
+                                      JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
+                                      WHERE solir.invoice_line_id = line.id
+                                        AND sm.product_id = line.product_id
+                                        AND svl.company_id = line.company_id
+                                        AND svl.product_id = line.product_id
+                                        AND svl.quantity < 0
+                                ), COALESCE(((SELECT standard_price FROM product_product WHERE id = line.product_id) ->> line.company_id::text)::float, 0.0)) / 1.14)
                             ))
                     END),0) AS net_margin,
                     COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS margin_basis
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id
-                  AND (line.display_type='product' OR line.display_type IS NULL) -- total_cost removed
+                  AND (line.display_type='product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL
                 LEFT JOIN res_partner partner ON partner.id=move.partner_id
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension
@@ -2767,33 +2164,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
                     ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue
             FROM account_move move
-            
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
             GROUP BY day ORDER BY day
         """, params)
@@ -2813,32 +2184,6 @@ class ExecutiveDashboardService(models.AbstractModel):
                     COUNT(line.id) FILTER (WHERE line.display_type='product' OR line.display_type IS NULL) AS product_line_count
                 FROM account_move move
                 LEFT JOIN account_move_line line ON line.move_id=move.id
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY move.id
@@ -2855,7 +2200,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _acc_sales_mtd(self, scope):
         if not self._has_table("account_move"):
-            return {"acc_sales": 0.0, "acc_sales_prev_day": 0.0, "acc_sales_last_month_mtd": 0.0}
+            return {"acc_sales": 0.0, "acc_sales_prev_day": 0.0}
         end_date = scope["end_date"]
         mtd_start = end_date.replace(day=1)
         prev_end = end_date - timedelta(days=1)
@@ -2865,33 +2210,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         self.env.cr.execute(f"""
             SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
                 ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move 
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                
-                LEFT JOIN LATERAL (
-                    SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) as svl_unit_cost
-                    FROM sale_order_line_invoice_rel solir
-                    JOIN sale_order_line sol ON sol.id = solir.order_line_id
-                    JOIN stock_move sm ON sm.sale_line_id = sol.id
-                    JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id
-                    WHERE solir.invoice_line_id = line.id
-                      AND sm.product_id = line.product_id
-                      AND svl.company_id = line.company_id
-                      AND svl.product_id = line.product_id
-                      AND svl.quantity < 0
-                ) svl_data ON TRUE
-                WHERE {where_sql} AND move.state='posted'
+            FROM account_move move WHERE {where_sql} AND move.state='posted'
               AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
         """, params)
@@ -2909,36 +2228,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.invoice_date BETWEEN %s AND %s
             """, p2)
             acc_prev = float((self._dictfetchone() or {}).get("total") or 0)
-
-        # Same day last month MTD calculation
-        from datetime import date
-        import calendar
-        try:
-            y = end_date.year
-            m = end_date.month - 1
-            if m == 0:
-                m = 12
-                y -= 1
-            max_day = calendar.monthrange(y, m)[1]
-            d = min(end_date.day, max_day)
-            lm_end = date(y, m, d)
-        except Exception:
-            lm_end = end_date - timedelta(days=30)
-        
-        lm_start = lm_end.replace(day=1)
-        lm_scope = dict(scope, start_date=lm_start, end_date=lm_end)
-        w3, p3 = self._build_scope_clause(alias="move", table_name="account_move", filters=lm_scope)
-        p3 += [lm_start, lm_end]
-        self.env.cr.execute(f"""
-            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move WHERE {w3} AND move.state='posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-        """, p3)
-        acc_last_month = float((self._dictfetchone() or {}).get("total") or 0)
-
-        return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev, "acc_sales_last_month_mtd": acc_last_month}
+        return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev}
 
     @api.model
     def get_fx_watch(self):
