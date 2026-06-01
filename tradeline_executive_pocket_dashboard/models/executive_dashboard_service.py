@@ -1580,7 +1580,8 @@ class ExecutiveDashboardService(models.AbstractModel):
         today_sales_val = self._single_day_sales(today_scope, report_date)
         yesterday_sales_val = self._single_day_sales(yesterday_scope, yesterday_date)
         acc = self._acc_sales_mtd(mtd_scope)
-        attachment = self._attachment_rate(today_scope)
+        attachment = self._attachment_rate(scope)
+        today_attachment = self._attachment_rate(today_scope)
         
         company_ids = scope.get("company_ids") or []
         company_names = [c.name for c in self.env["res.company"].sudo().browse(company_ids) if c.name]
@@ -1594,7 +1595,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "sales_over_month": self._sales_over_month(scope),
             "attachment": attachment,
             "attachment_rate": attachment["rate"],
-            "total_invoices": attachment["total_invoices"],
+            "total_invoices": today_attachment["total_invoices"],
             "acc_sales": acc["acc_sales"],
             "acc_sales_prev_day": acc["acc_sales_prev_day"],
             "today_sales": today_sales_val,
