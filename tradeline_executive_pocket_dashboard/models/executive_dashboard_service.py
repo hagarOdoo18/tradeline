@@ -2181,7 +2181,14 @@ class ExecutiveDashboardService(models.AbstractModel):
         self.env.cr.execute(f"""
             WITH invoice_products AS (
                 SELECT move.id,
-                    COUNT(line.id) FILTER (WHERE line.display_type='product' OR line.display_type IS NULL) AS product_line_count
+                    COUNT(line.id) FILTER (
+                        WHERE (line.display_type='product' OR line.display_type IS NULL)
+                          AND line.product_id IN (
+                              SELECT pp.id FROM product_product pp 
+                              JOIN product_template pt ON pt.id = pp.product_tmpl_id 
+                              WHERE pt.categ_id = 50
+                          )
+                    ) AS product_line_count
                 FROM account_move move
                 LEFT JOIN account_move_line line ON line.move_id=move.id
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt')
@@ -2190,7 +2197,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             )
             SELECT
                 COUNT(*) AS total_invoices,
-                COUNT(*) FILTER (WHERE product_line_count >= 2) AS multi_item_invoices
+                COUNT(*) FILTER (WHERE product_line_count > 0) AS multi_item_invoices
             FROM invoice_products
         """, params)
         row = self._dictfetchone() or {}

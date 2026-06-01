@@ -152,9 +152,9 @@
       <div class="tl-kpi-card">
         <div class="tl-kpi-icon">🔗</div>
         <div class="tl-kpi-body">
-          <div class="tl-kpi-label">Attachment Rate</div>
+          <div class="tl-kpi-label">Care Cards Rate</div>
           <div class="tl-kpi-value tl-value-pct"><t t-esc="attachmentRate.toFixed(1)"/>%</div>
-          <div class="tl-kpi-sub-text">multi-item invoices</div>
+          <div class="tl-kpi-sub-text">care cards attached</div>
         </div>
       </div>
 
