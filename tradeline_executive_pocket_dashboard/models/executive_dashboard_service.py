@@ -1723,21 +1723,37 @@ class ExecutiveDashboardService(models.AbstractModel):
             return []
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
-        prod_joins = """
-            JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
-            LEFT JOIN product_product product ON product.id=line.product_id
-        """
+        
+        # We need to filter products to only those belonging to the top 10 categories by net revenue
         self.env.cr.execute(f"""
+            WITH top_categories AS (
+                SELECT
+                    t.categ_id
+                FROM account_move m
+                JOIN account_move_line l ON l.move_id=m.id AND (l.display_type='product' OR l.display_type IS NULL)
+                LEFT JOIN product_product p ON p.id=l.product_id
+                LEFT JOIN product_template t ON t.id=p.product_tmpl_id
+                WHERE {where_sql} AND m.state='posted' AND m.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND m.invoice_date BETWEEN %s AND %s
+                  AND t.categ_id IS NOT NULL
+                GROUP BY t.categ_id
+                ORDER BY COALESCE(SUM(CASE WHEN m.move_type='out_refund' THEN -ABS(COALESCE(l.price_subtotal,0)) ELSE ABS(COALESCE(l.price_subtotal,0)) END),0) DESC
+                LIMIT 10
+            )
             SELECT
                 product.id AS product_id,
                 COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
                 COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-            FROM account_move move {prod_joins}
+            FROM account_move move
+            JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
+            LEFT JOIN product_product product ON product.id=line.product_id
+            LEFT JOIN product_template template ON template.id=product.product_tmpl_id
             WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
               AND move.invoice_date BETWEEN %s AND %s
               AND line.product_id IS NOT NULL
+              AND template.categ_id IN (SELECT categ_id FROM top_categories)
             GROUP BY product.id ORDER BY net_revenue DESC LIMIT %s
-        """, base_params + [limit])
+        """, base_params + base_params + [limit])
         rows = self._dictfetchall()
         if not rows:
             return []
