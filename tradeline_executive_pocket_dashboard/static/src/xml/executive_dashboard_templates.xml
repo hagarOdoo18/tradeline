@@ -116,7 +116,7 @@
 
     <!-- ══════════ KPI CARDS ══════════ -->
     <div class="tl-kpi-grid">
-      <div class="tl-kpi-card tl-kpi-hero">
+      <div class="tl-kpi-card tl-kpi-hero" t-on-click="() => this.onCardClick('today_sales')" style="cursor: pointer;">
         <div class="tl-kpi-icon">💰</div>
         <div class="tl-kpi-body">
           <div class="tl-kpi-label">Today's Sales</div>
@@ -130,7 +130,7 @@
         </div>
       </div>
 
-      <div class="tl-kpi-card tl-kpi-hero">
+      <div class="tl-kpi-card tl-kpi-hero" t-on-click="() => this.onCardClick('acc_sales')" style="cursor: pointer;">
         <div class="tl-kpi-icon">📈</div>
         <div class="tl-kpi-body">
           <div class="tl-kpi-label">Acc. Sales (MTD)</div>
@@ -139,6 +139,11 @@
             <t t-esc="_trendIcon(accSalesVsPrevPct)"/>
             <t t-esc="_formatPercentOrDash(accSalesVsPrevPct)"/>
             <span class="tl-kpi-sub-text">vs prev day MTD</span>
+          </div>
+          <div t-att-class="'tl-kpi-trend ' + _trendClass(accSalesVsLastMonthMtdPct)" style="margin-top: 2px;">
+            <t t-esc="_trendIcon(accSalesVsLastMonthMtdPct)"/>
+            <t t-esc="_formatPercentOrDash(accSalesVsLastMonthMtdPct)"/>
+            <span class="tl-kpi-sub-text">vs last month same day MTD</span>
           </div>
           <div class="tl-kpi-explain">Cumulative sales from Month Day 1 to Report Day</div>
         </div>
@@ -153,7 +158,7 @@
         </div>
       </div>
 
-      <div class="tl-kpi-card">
+      <div class="tl-kpi-card" t-on-click="() => this.onCardClick('total_invoices')" style="cursor: pointer;">
         <div class="tl-kpi-icon">🧾</div>
         <div class="tl-kpi-body">
           <div class="tl-kpi-label">Total Invoices</div>
@@ -163,7 +168,7 @@
       </div>
 
       <t t-foreach="cards" t-as="card" t-key="card.key">
-        <div t-att-class="'tl-kpi-card' + (card.tone === 'warning' ? ' tl-kpi-warn' : '')">
+        <div t-att-class="'tl-kpi-card' + (card.tone === 'warning' ? ' tl-kpi-warn' : '')" t-on-click="() => this.onCardClick(card.key)" style="cursor: pointer;">
           <div class="tl-kpi-body">
             <div class="tl-kpi-label"><t t-esc="card.label"/></div>
             <div class="tl-kpi-value">
@@ -214,7 +219,12 @@
                 <th class="col-num">Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
-                  <th class="col-num">Margin</th>
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
                   <th class="col-num">Margin%</th>
                 </t>
               </tr></thead>
@@ -265,7 +275,12 @@
                 <th class="col-num">Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
-                  <th class="col-num">Margin</th>
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
                   <th class="col-num">Margin%</th>
                 </t>
               </tr></thead>
@@ -369,7 +384,12 @@
                 <th class="col-num">Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
-                  <th class="col-num">Margin</th>
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
                   <th class="col-num">Margin%</th>
                 </t>
               </tr></thead>
@@ -396,7 +416,15 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
-          <span class="tl-badge tl-badge-teal">Net Revenue</span>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="tl-select" t-on-change="onProductCategoryChange" style="padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; background: #f0fdf4; border-color: #86efac; color: #166534; cursor: pointer;">
+              <option value="all">All (Top 10 Categories)</option>
+              <t t-foreach="productCategoryOptions" t-as="cat" t-key="cat">
+                <option t-att-value="cat" t-att-selected="state.filters.product_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
+              </t>
+            </select>
+            <span class="tl-badge tl-badge-teal">Net Revenue</span>
+          </div>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -420,7 +448,12 @@
                 <th class="col-num">Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
-                  <th class="col-num">Margin</th>
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
                   <th class="col-num">Margin%</th>
                 </t>
               </tr></thead>

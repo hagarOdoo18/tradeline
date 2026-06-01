@@ -54,6 +54,7 @@ export class ExecutivePocketDashboard extends Component {
     get totalInvoices() { return Number(this.topSections.total_invoices || 0); }
     get accSales() { return Number(this.topSections.acc_sales || 0); }
     get accSalesPrevDay() { return Number(this.topSections.acc_sales_prev_day || 0); }
+    get accSalesLastMonthMtd() { return Number(this.topSections.acc_sales_last_month_mtd || 0); }
     get todaySales() { return Number(this.topSections.today_sales || 0); }
     get yesterdaySales() { return Number(this.topSections.yesterday_sales || 0); }
     get marginAvailableTop() { return Boolean(this.topSections.margin_available); }
@@ -66,7 +67,9 @@ export class ExecutivePocketDashboard extends Component {
     get dailyTodayVsYesterdayPct() { return this._percentChange(this.dailyTodaySales, this.dailyYesterdaySales); }
     get dailyAccSales() { return Number(this.dailyTopSections.acc_sales || 0); }
     get dailyAccSalesPrevDay() { return Number(this.dailyTopSections.acc_sales_prev_day || 0); }
+    get dailyAccSalesLastMonthMtd() { return Number(this.dailyTopSections.acc_sales_last_month_mtd || 0); }
     get dailyAccSalesVsPrevPct() { return this._percentChange(this.dailyAccSales, this.dailyAccSalesPrevDay); }
+    get dailyAccSalesVsLastMonthMtdPct() { return this._percentChange(this.dailyAccSales, this.dailyAccSalesLastMonthMtd); }
     get dailyAttachmentRate() { return Number(this.dailyTopSections.attachment_rate || 0); }
     get dailyTotalInvoices() { return Number(this.dailyTopSections.total_invoices || 0); }
     get dailyBranchBarRows() { return this._barRowsFor(this.dailyTopSections.sales_by_branch || [], "net_revenue"); }
@@ -162,6 +165,7 @@ export class ExecutivePocketDashboard extends Component {
     get inventoryBarRows() { return this._barRowsFor(this.topInventoryByCategory, "allocated_value"); }
     get customerBarRows() { return this._barRowsFor(this.topSalesByCustomer, "net_revenue"); }
     get productBarRows() { return this._barRowsFor(this.topSalesByProduct, "net_revenue"); }
+    get productCategoryOptions() { return this.topSalesByCategory.map(c => c.dimension).filter(Boolean); }
     get salesOverMonthFirstDate() { return this.salesOverMonth[0]?.date || ""; }
     get salesOverMonthMidDate() {
         const d = this.salesOverMonth; return d.length > 2 ? d[Math.floor(d.length / 2)]?.date || "" : "";
@@ -171,6 +175,7 @@ export class ExecutivePocketDashboard extends Component {
     }
     get todayVsYesterdayPct() { return this._percentChange(this.todaySales, this.yesterdaySales); }
     get accSalesVsPrevPct() { return this._percentChange(this.accSales, this.accSalesPrevDay); }
+    get accSalesVsLastMonthMtdPct() { return this._percentChange(this.accSales, this.accSalesLastMonthMtd); }
     get reportCompanyName() {
         const n = this.companyNamesForReport;
         return n.length ? n.join(" / ") : "Company";
@@ -380,6 +385,152 @@ export class ExecutivePocketDashboard extends Component {
     async onTopNChange(ev) {
         this.state.topN = Number(ev.target.value || 10);
         await this._loadTopSections();
+    }
+    async onProductCategoryChange(ev) {
+        this.state.filters.product_category = ev.target.value || "all";
+        await this._loadTopSections();
+    }
+    async onCardClick(key) {
+        const filters = this.state.filters;
+        const start = filters.start_date;
+        const end = filters.end_date;
+        const report = filters.report_date;
+        const company_ids = filters.company_ids || [];
+
+        let model = "";
+        let domain = [];
+        let name = "";
+
+        const compDomain = company_ids.length ? [["company_id", "in", company_ids]] : [];
+
+        switch (key) {
+            case "today_sales":
+            case "total_invoices":
+                model = "account.move";
+                name = "Today's Invoices";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", "=", report]
+                ].concat(compDomain);
+                break;
+            case "acc_sales":
+                model = "account.move";
+                name = "Month-to-Date Invoices";
+                const dt = new Date(report + "T00:00:00");
+                const mtdStart = this._formatDate(new Date(dt.getFullYear(), dt.getMonth(), 1));
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", mtdStart],
+                    ["invoice_date", "<=", report]
+                ].concat(compDomain);
+                break;
+            case "net_margin":
+                model = "account.invoice.report";
+                name = "Margin Analysis";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", end]
+                ].concat(compDomain);
+                break;
+            case "net_revenue":
+            case "invoice_count":
+            case "total_move_count":
+                model = "account.move";
+                name = "Period Invoices";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", end]
+                ].concat(compDomain);
+                break;
+            case "credit_note_count":
+                model = "account.move";
+                name = "Credit Notes (Refunds)";
+                domain = [
+                    ["move_type", "=", "out_refund"],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", end]
+                ].concat(compDomain);
+                break;
+            case "collections_total":
+                model = "account.payment";
+                name = "Customer Collections";
+                domain = [
+                    ["payment_type", "=", "inbound"],
+                    ["state", "in", ["posted", "paid", "in_process"]],
+                    ["partner_type", "=", "customer"],
+                    ["date", ">=", start],
+                    ["date", "<=", end]
+                ].concat(compDomain);
+                break;
+            case "overdue_receivables":
+                model = "account.move";
+                name = "Overdue Receivables";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt"]],
+                    ["state", "=", "posted"],
+                    ["amount_residual_signed", ">", 0],
+                    ["invoice_date_due", "<", end]
+                ].concat(compDomain);
+                break;
+            case "open_pipeline":
+                model = "crm.lead";
+                name = "Open CRM Pipeline";
+                domain = [
+                    ["type", "=", "opportunity"],
+                    ["active", "=", true],
+                    ["probability", "<", 100]
+                ].concat(compDomain);
+                break;
+            case "inventory_value":
+            case "on_hand_qty":
+                model = "stock.quant";
+                name = "Stock Inventory";
+                domain = [
+                    ["location_id.usage", "=", "internal"]
+                ].concat(compDomain);
+                break;
+            default:
+                return;
+        }
+
+        await this.action.doAction({
+            type: "ir.actions.act_window",
+            name: name,
+            res_model: model,
+            views: [[false, "list"], [false, "form"]],
+            view_mode: "list,form",
+            domain: domain,
+            context: {},
+            target: "current"
+        });
+    }
+    async openMarginSource() {
+        const { start_date: start, end_date: end, company_ids } = this.state.filters;
+        const compDomain = company_ids.length ? [["company_id", "in", company_ids]] : [];
+        const domain = [
+            ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+            ["state", "=", "posted"],
+            ["invoice_date", ">=", start],
+            ["invoice_date", "<=", end]
+        ].concat(compDomain);
+
+        await this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Margin Source",
+            res_model: "account.invoice.report",
+            views: [[false, "pivot"], [false, "graph"], [false, "list"]],
+            view_mode: "pivot,graph,list",
+            domain: domain,
+            context: {},
+            target: "current"
+        });
     }
     async onDateChange() { this.state.pagination.offset = 0; await this._loadBundle(); }
     async onEndDateChange() {
