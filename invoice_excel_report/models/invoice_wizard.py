@@ -70,8 +70,10 @@ class AccountInvoiceWizard(models.TransientModel):
             SELECT DISTINCT inv.id
             FROM account_payment ap
             JOIN account_move_line aml_pay
-                ON  aml_pay.move_id      = ap.move_id
-                AND aml_pay.account_type = 'asset_receivable'
+                ON  aml_pay.move_id = ap.move_id
+            JOIN account_account aa_pay
+                ON  aa_pay.id          = aml_pay.account_id
+                AND aa_pay.account_type = 'asset_receivable'
             JOIN account_partial_reconcile apr
                 ON  apr.credit_move_id = aml_pay.id
             JOIN account_move_line aml_inv
@@ -184,7 +186,9 @@ class AccountInvoiceWizard(models.TransientModel):
                 JOIN account_journal aj
                     ON aj.id = ap.journal_id
                 WHERE aml_inv.move_id = ANY(%s)
-                  AND aml_inv.account_type = 'asset_receivable'
+            JOIN account_account aa_inv
+                    ON  aa_inv.id          = aml_inv.account_id
+                   AND aa_inv.account_type = 'asset_receivable'
             """, (inv_ids,))
             for inv_id, jname, amount in cr.fetchall():
                 pay_map.setdefault(inv_id, []).append((jname, float(amount or 0)))
