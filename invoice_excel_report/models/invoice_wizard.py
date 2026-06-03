@@ -24,6 +24,13 @@ class AccountInvoiceWizard(models.TransientModel):
     file_name = fields.Char(readonly=True)
 
 
+    def _s(self, val):
+        """Unwrap Odoo 18 JSONB translatable fields returned as dicts."""
+        if isinstance(val, dict):
+            lang = self.env.lang or 'en_US'
+            return str(val.get(lang) or next(iter(val.values()), '') or '')
+        return str(val or '')
+
     def action_account_invoice_search(self):
         invoices = self._search_invoices()
         if not invoices:
@@ -146,22 +153,22 @@ class AccountInvoiceWizard(models.TransientModel):
             values = [
                 idx,
                 str(inv.invoice_date or ''),
-                inv.name or 'None',
-                inv.branch_id.name or 'None',
-                inv.partner_id.name or 'None',
-                inv.partner_id.phone or 'None',
-                journal or 'None',
-                payment_amount if payment_amount < 0 else payment_amount *sign ,
-                inv.invoice_origin or inv.ref,
+                self._s(inv.name),
+                self._s(inv.branch_id.name) or 'None',
+                self._s(inv.partner_id.name) or 'None',
+                self._s(inv.partner_id.phone) or 'None',
+                self._s(journal) or 'None',
+                payment_amount if payment_amount < 0 else payment_amount * sign,
+                self._s(inv.invoice_origin or inv.ref),
                 inv.amount_untaxed_in_currency_signed  if show_residual else 0,
-                round( inv.tax_t1 * sign ,2) if show_residual else 0,
-                round(amount_total,2)  if show_residual else 0,
-                round(inv.tax_t2 * sign,2)  if show_residual else 0,
-                round(inv.tax_t2_t * sign,2)  if show_residual else 0,
-                round(inv.tax_t3 * sign,2)  if show_residual else 0,
-                round( inv.tax_t5 * sign,2)  if show_residual else 0,
-                round(inv.amount_total_in_currency_signed,2)  if show_residual else 0,
-                round(inv.amount_residual_signed ,2)  if show_residual else 0,
+                round(inv.tax_t1 * sign, 2)            if show_residual else 0,
+                round(amount_total, 2)                 if show_residual else 0,
+                round(inv.tax_t2 * sign, 2)            if show_residual else 0,
+                round(inv.tax_t2_t * sign, 2)          if show_residual else 0,
+                round(inv.tax_t3 * sign, 2)            if show_residual else 0,
+                round(inv.tax_t5 * sign, 2)            if show_residual else 0,
+                round(inv.amount_total_in_currency_signed, 2) if show_residual else 0,
+                round(inv.amount_residual_signed, 2)   if show_residual else 0,
             ]
 
             for col, val in enumerate(values):
