@@ -210,9 +210,9 @@ class AccountInvoiceWizard(models.TransientModel):
                     JOIN pos_payment_method ppm ON ppm.id  = pp.payment_method_id
                     JOIN account_journal aj ON aj.id = ppm.journal_id
                     WHERE inv.id = ANY(%s)
-                      AND inv.id NOT IN %(done)s
-                """, (inv_ids, {'done': tuple(pay_map.keys()) or (0,)}))
+                """, (inv_ids,))
                 for inv_id, jname, amount in cr.fetchall():
+                    # Only use POS payments as fallback (no reconciled payment found)
                     if inv_id not in pay_map:
                         pay_map.setdefault(inv_id, []).append((jname, float(amount or 0)))
             except Exception:
