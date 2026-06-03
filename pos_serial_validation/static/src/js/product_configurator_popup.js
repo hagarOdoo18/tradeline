@@ -491,9 +491,11 @@ patch(ProductConfiguratorPopup.prototype, {
             return;
         }
 
-        const displayPayload = super.computePayload(...arguments);
+        // Reuse the same payload preparation used for the final add-to-cart flow so
+        // hidden vendor attributes participate in variant matching as well.
+        const preparedPayload = this.computePayload(...arguments);
         const mappedValueIds = mapToVariantValueIds(
-            displayPayload.attribute_value_ids,
+            preparedPayload?.attribute_value_ids,
             this.availability
         );
         if (!mappedValueIds.length) {
