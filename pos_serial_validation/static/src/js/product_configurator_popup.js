@@ -540,8 +540,11 @@ patch(ProductConfiguratorPopup.prototype, {
     },
 
     getVariantAttributeValueIds() {
+        // Archived-combination checks must include the same hidden vendor value
+        // used during add-to-cart and product resolution.
+        const preparedPayload = this.computePayload(...arguments);
         const mappedValueIds = mapToVariantValueIds(
-            this.getDisplayVariantAttributeValueIds(),
+            preparedPayload?.attribute_value_ids,
             this.availability
         );
         return mappedValueIds.filter((valueId) => {
