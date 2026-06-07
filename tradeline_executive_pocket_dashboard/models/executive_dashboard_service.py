@@ -811,15 +811,15 @@ class ExecutiveDashboardService(models.AbstractModel):
         filter_options = self._get_filter_options(scope)
 
         cards = [
-            {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral"},
-            {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral"},
-            {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning"},
-            {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral"},
-            {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral"},
-            {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral"},
+            {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
+            {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
+            {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "as of report day"},
+            {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
+            {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
+            {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "in selected period"},
         ]
         if margin_status.get("available"):
-            cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral"})
+            cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral", "subtext": "in selected period"})
 
         default_domain = "finance"
         if drill_path and len(drill_path) > 1:
@@ -1598,6 +1598,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "total_invoices": today_attachment["total_invoices"],
             "acc_sales": acc["acc_sales"],
             "acc_sales_prev_day": acc["acc_sales_prev_day"],
+            "acc_sales_last_month_mtd": acc.get("acc_sales_last_month_mtd", 0.0),
             "today_sales": today_sales_val,
             "yesterday_sales": yesterday_sales_val,
             "margin_available": bool(margin_status.get("available")),
@@ -2160,7 +2161,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
     def _acc_sales_mtd(self, scope):
         if not self._has_table("account_move"):
-            return {"acc_sales": 0.0, "acc_sales_prev_day": 0.0}
+            return {"acc_sales": 0.0, "acc_sales_prev_day": 0.0, "acc_sales_last_month_mtd": 0.0}
         end_date = scope["end_date"]
         mtd_start = end_date.replace(day=1)
         prev_end = end_date - timedelta(days=1)
@@ -2175,6 +2176,7 @@ class ExecutiveDashboardService(models.AbstractModel):
               AND move.invoice_date BETWEEN %s AND %s
         """, params)
         acc_sales = float((self._dictfetchone() or {}).get("total") or 0)
+        
         acc_prev = 0.0
         if prev_end >= mtd_start:
             prev_scope = dict(scope, start_date=mtd_start, end_date=prev_end)
@@ -2188,7 +2190,22 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.invoice_date BETWEEN %s AND %s
             """, p2)
             acc_prev = float((self._dictfetchone() or {}).get("total") or 0)
-        return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev}
+
+        last_month_end = end_date - relativedelta(months=1)
+        last_month_start = last_month_end.replace(day=1)
+        last_month_scope = dict(scope, start_date=last_month_start, end_date=last_month_end)
+        w3, p3 = self._build_scope_clause(alias="move", table_name="account_move", filters=last_month_scope)
+        p3 += [last_month_start, last_month_end]
+        self.env.cr.execute(f"""
+            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
+                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
+            FROM account_move move WHERE {w3} AND move.state='posted'
+              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+        """, p3)
+        acc_last_month = float((self._dictfetchone() or {}).get("total") or 0)
+
+        return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev, "acc_sales_last_month_mtd": acc_last_month}
 
     @api.model
     def get_fx_watch(self):

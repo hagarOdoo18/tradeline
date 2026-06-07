@@ -156,6 +156,7 @@
           <div class="tl-kpi-sub-text">
             <span style="margin-right: 8px;"><t t-esc="attachmentData.one_card_invoices || 0"/> with 1 card</span>
             <span><t t-esc="attachmentData.two_plus_card_invoices || 0"/> with 2+ cards</span>
+            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period</div>
           </div>
           <div class="tl-kpi-explain">Percentage of invoices that include at least one Care Card. This helps track the success rate of attaching care plans to core product sales.</div>
         </div>
@@ -178,6 +179,7 @@
               <t t-if="card.unit === 'EGP'"><t t-esc="_formatCompactEGP(card.value)"/></t>
               <t t-else=""><t t-esc="_formatNumber(card.value)"/></t>
             </div>
+            <div class="tl-kpi-sub-text" t-if="card.subtext" style="margin-top: 4px; font-size: 0.9em;"><t t-esc="card.subtext"/></div>
           </div>
         </div>
       </t>
