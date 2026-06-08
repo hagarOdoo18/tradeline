@@ -31,6 +31,21 @@ def _sql_norm_code(expr):
     return f"NULLIF(REGEXP_REPLACE(UPPER(COALESCE({expr}, '')), '[^A-Z0-9]+', '', 'g'), '')"
 
 
+def _sql_clean_code_text(expr):
+    return (
+        "CASE "
+        f"WHEN {expr} IS NULL THEN NULL "
+        f"WHEN LOWER(BTRIM(COALESCE({expr}, ''))) IN ('', 'false', 'none', 'null') THEN NULL "
+        f"ELSE BTRIM({expr}) "
+        "END"
+    )
+
+
+def _sql_first_available_code(*exprs):
+    cleaned = ", ".join(_sql_clean_code_text(expr) for expr in exprs)
+    return f"COALESCE({cleaned})"
+
+
 def _sql_prefix(expr, length=5):
     return f"LEFT(COALESCE({_sql_norm_code(expr)}, ''), {int(length)})"
 
@@ -649,14 +664,14 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 target_default_code,
                 target_barcode,
                 target_name,
-                COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, '')) AS source_bucket_code,
-                COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, '')) AS target_bucket_code,
-                {_sql_prefix("COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))")} AS source_code_prefix5,
-                {_sql_prefix("COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))")} AS target_code_prefix5,
+                {_sql_first_available_code("source_default_code", "source_barcode")} AS source_bucket_code,
+                {_sql_first_available_code("target_barcode", "target_default_code")} AS target_bucket_code,
+                {_sql_prefix(_sql_first_available_code("source_default_code", "source_barcode"))} AS source_code_prefix5,
+                {_sql_prefix(_sql_first_available_code("target_barcode", "target_default_code"))} AS target_code_prefix5,
                 COALESCE(NULLIF(source_name, ''), NULLIF(target_name, '')) AS bucket_name,
                 {_sql_bucket_key(
                     "COALESCE(NULLIF(source_name, ''), NULLIF(target_name, ''))",
-                    "COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))",
+                    _sql_first_available_code("source_default_code", "source_barcode", "target_barcode", "target_default_code"),
                 )} AS bucket_key,
                 '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
                 match_status,
@@ -1152,14 +1167,14 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 target_default_code,
                 target_barcode,
                 target_name,
-                COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, '')) AS source_bucket_code,
-                COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, '')) AS target_bucket_code,
-                {_sql_prefix("COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))")} AS source_code_prefix5,
-                {_sql_prefix("COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))")} AS target_code_prefix5,
+                {_sql_first_available_code("source_default_code", "source_barcode")} AS source_bucket_code,
+                {_sql_first_available_code("target_barcode", "target_default_code")} AS target_bucket_code,
+                {_sql_prefix(_sql_first_available_code("source_default_code", "source_barcode"))} AS source_code_prefix5,
+                {_sql_prefix(_sql_first_available_code("target_barcode", "target_default_code"))} AS target_code_prefix5,
                 COALESCE(NULLIF(source_name, ''), NULLIF(target_name, '')) AS bucket_name,
                 {_sql_bucket_key(
                     "COALESCE(NULLIF(source_name, ''), NULLIF(target_name, ''))",
-                    "COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))",
+                    _sql_first_available_code("source_default_code", "source_barcode", "target_barcode", "target_default_code"),
                 )} AS bucket_key,
                 '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
                 match_status,
@@ -1313,8 +1328,8 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
-        legacy_code_expr = "COALESCE(NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''))"
-        current_code_expr = "COALESCE(NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''))"
+        legacy_code_expr = _sql_first_available_code("lmf.source_default_code", "lmf.source_barcode")
+        current_code_expr = _sql_first_available_code("pp.barcode", "pp.default_code")
         legacy_bucket_key = _sql_bucket_key_prefix_only(legacy_code_expr)
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
