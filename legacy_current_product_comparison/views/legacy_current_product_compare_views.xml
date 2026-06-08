@@ -9,6 +9,9 @@
                 <field name="source_default_code" string="Legacy Item Code"/>
                 <field name="source_name" string="Legacy Product"/>
                 <field name="target_product_id" string="Current Product"/>
+                <field name="bucket_name" string="Bucket" optional="show"/>
+                <field name="source_code_prefix5" string="Legacy Prefix5" optional="show"/>
+                <field name="target_code_prefix5" string="Current Prefix5" optional="show"/>
                 <button name="action_open_target_product" type="object" string="Open Product" invisible="not target_product_id"/>
                 <button name="action_open_mapping" type="object" string="Open Mapping"/>
                 <field name="match_status"/>
@@ -73,6 +76,9 @@
         <field name="model">legacy.current.product.compare.month</field>
         <field name="arch" type="xml">
             <search string="Legacy to Current Comparison">
+                <field name="source_name"
+                       string="Search Product / Item Code / Prefix / Bucket"
+                       filter_domain="['|','|','|','|','|','|','|','|','|','|','|',('source_name','ilike',self),('source_default_code','ilike',self),('source_barcode','ilike',self),('target_name','ilike',self),('target_default_code','ilike',self),('target_barcode','ilike',self),('source_category_name','ilike',self),('source_brand_name','ilike',self),('bucket_name','ilike',self),('bucket_key','ilike',self),('source_code_prefix5','ilike',self),('target_code_prefix5','ilike',self)]"/>
                 <field name="source_default_code"/>
                 <field name="source_barcode"/>
                 <field name="source_name"/>
@@ -80,6 +86,10 @@
                 <field name="target_default_code"/>
                 <field name="target_barcode"/>
                 <field name="target_name"/>
+                <field name="bucket_name"/>
+                <field name="bucket_key"/>
+                <field name="source_code_prefix5"/>
+                <field name="target_code_prefix5"/>
                 <field name="source_category_name"/>
                 <field name="source_brand_name"/>
                 <field name="match_status"/>
@@ -131,6 +141,8 @@
                     <filter name="compare_group_month" string="Month" context="{'group_by': 'period_month:month'}"/>
                     <filter name="compare_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
                     <filter name="compare_group_legacy_product" string="Legacy Product" context="{'group_by': 'source_name'}"/>
+                    <filter name="compare_group_bucket" string="Bucket" context="{'group_by': 'bucket_name'}"/>
+                    <filter name="compare_group_prefix5" string="Prefix5" context="{'group_by': 'source_code_prefix5'}"/>
                     <filter name="compare_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
                     <filter name="compare_group_state" string="State" context="{'group_by': 'match_status'}"/>
                     <filter name="compare_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
@@ -247,6 +259,9 @@
                 <field name="source_default_code" string="Legacy Item Code"/>
                 <field name="source_name" string="Legacy Product"/>
                 <field name="target_product_id" string="Current Product"/>
+                <field name="bucket_name" string="Bucket" optional="show"/>
+                <field name="source_code_prefix5" string="Legacy Prefix5" optional="show"/>
+                <field name="target_code_prefix5" string="Current Prefix5" optional="show"/>
                 <field name="source_category_name"/>
                 <field name="source_brand_name" optional="show"/>
                 <button name="action_open_target_product" type="object" string="Open Product" invisible="not target_product_id"/>
@@ -309,14 +324,18 @@
         <field name="arch" type="xml">
             <search string="Legacy to Current Baseline Comparison">
                 <field name="source_name"
-                       string="Product/Code/Barcode"
-                       filter_domain="['|','|','|','|','|',('source_name','ilike',self),('source_default_code','ilike',self),('source_barcode','ilike',self),('target_name','ilike',self),('target_default_code','ilike',self),('target_barcode','ilike',self)]"/>
+                       string="Search Product / Item Code / Prefix / Bucket"
+                       filter_domain="['|','|','|','|','|','|','|','|','|','|','|',('source_name','ilike',self),('source_default_code','ilike',self),('source_barcode','ilike',self),('target_name','ilike',self),('target_default_code','ilike',self),('target_barcode','ilike',self),('source_category_name','ilike',self),('source_brand_name','ilike',self),('bucket_name','ilike',self),('bucket_key','ilike',self),('source_code_prefix5','ilike',self),('target_code_prefix5','ilike',self)]"/>
                 <field name="source_default_code"/>
                 <field name="source_barcode"/>
                 <field name="target_product_id"/>
                 <field name="target_default_code"/>
                 <field name="target_barcode"/>
                 <field name="target_name"/>
+                <field name="bucket_name"/>
+                <field name="bucket_key"/>
+                <field name="source_code_prefix5"/>
+                <field name="target_code_prefix5"/>
                 <field name="source_category_name"/>
                 <field name="source_brand_name"/>
                 <field name="match_status"/>
@@ -366,6 +385,8 @@
                     <filter name="baseline_group_mode" string="Baseline Mode" context="{'group_by': 'baseline_mode'}"/>
                     <filter name="baseline_group_state" string="State" context="{'group_by': 'match_status'}"/>
                     <filter name="baseline_group_item_code" string="Legacy Item Code" context="{'group_by': 'source_default_code'}"/>
+                    <filter name="baseline_group_bucket" string="Bucket" context="{'group_by': 'bucket_name'}"/>
+                    <filter name="baseline_group_prefix5" string="Prefix5" context="{'group_by': 'source_code_prefix5'}"/>
                     <filter name="baseline_group_current_product" string="Current Product" context="{'group_by': 'target_product_id'}"/>
                     <filter name="baseline_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
                     <filter name="baseline_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
@@ -444,5 +465,161 @@
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_compare_baseline"
               sequence="92"
+              groups="account.group_account_readonly"/>
+
+    <record id="view_legacy_current_product_compare_bucket_baseline_list" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.bucket.baseline.list</field>
+        <field name="model">legacy.current.product.compare.bucket.baseline</field>
+        <field name="arch" type="xml">
+            <list string="Legacy to Current Bucket Baseline Comparison" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="current_period_month"/>
+                <field name="baseline_period_month"/>
+                <field name="baseline_mode"/>
+                <field name="bucket_name" string="Bucket Product"/>
+                <field name="bucket_code_prefix5" string="Prefix5"/>
+                <field name="sample_source_item_code" string="Legacy Sample Code" optional="show"/>
+                <field name="sample_target_item_code" string="Current Sample Code" optional="show"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name" optional="show"/>
+                <field name="legacy_product_count" sum="Legacy Product Count" optional="show"/>
+                <field name="current_product_count" sum="Current Product Count" optional="show"/>
+                <field name="current_sales_qty" sum="Current Sales Qty"/>
+                <field name="baseline_legacy_sales_qty" sum="Legacy Baseline Qty"/>
+                <field name="delta_sales_qty" sum="Sales Qty Delta"/>
+                <field name="delta_sales_qty_pct" optional="show"/>
+                <field name="current_sales_amount" sum="Current Sales Amount"/>
+                <field name="baseline_legacy_sales_amount" sum="Legacy Baseline Amount"/>
+                <field name="delta_sales_amount" sum="Sales Amount Delta"/>
+                <field name="delta_sales_amount_pct" optional="show"/>
+                <field name="current_return_qty" sum="Current Return Qty" optional="show"/>
+                <field name="baseline_legacy_return_qty" sum="Legacy Return Qty" optional="show"/>
+                <field name="delta_return_qty" sum="Return Qty Delta" optional="show"/>
+                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
+                <field name="baseline_legacy_discount_amount" sum="Legacy Discount" optional="show"/>
+                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
+                <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
+                <field name="baseline_legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
+                <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
+                <field name="current_net_sales_amount" sum="Current Net Sales" optional="show"/>
+                <field name="baseline_legacy_net_sales_amount" sum="Legacy Net Sales" optional="show"/>
+                <field name="delta_net_sales_amount" sum="Net Sales Delta" optional="show"/>
+                <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
+                <field name="baseline_legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
+                <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
+                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
+                <field name="baseline_legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
+                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="margin_comparable" optional="hide"/>
+                <field name="baseline_has_legacy_data" optional="show"/>
+                <field name="has_current_data" optional="show"/>
+                <field name="bucket_key" optional="hide"/>
+                <field name="bucket_match_rule" optional="hide"/>
+                <field name="source_db" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_bucket_baseline_search" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.bucket.baseline.search</field>
+        <field name="model">legacy.current.product.compare.bucket.baseline</field>
+        <field name="arch" type="xml">
+            <search string="Legacy to Current Bucket Baseline Comparison">
+                <field name="bucket_name"
+                       string="Search Bucket / Item Code / Prefix"
+                       filter_domain="['|','|','|','|','|','|',('bucket_name','ilike',self),('bucket_key','ilike',self),('bucket_code_prefix5','ilike',self),('sample_source_item_code','ilike',self),('sample_target_item_code','ilike',self),('source_category_name','ilike',self),('source_brand_name','ilike',self)]"/>
+                <field name="bucket_key"/>
+                <field name="bucket_code_prefix5"/>
+                <field name="sample_source_item_code"/>
+                <field name="sample_target_item_code"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="baseline_mode"/>
+                <field name="current_period_month"/>
+                <field name="baseline_period_month"/>
+                <separator/>
+                <filter name="bucket_mode_yoy" string="YoY Mode" domain="[('baseline_mode', '=', 'yoy')]"/>
+                <filter name="bucket_mode_custom" string="Custom Legacy Month" domain="[('baseline_mode', '=', 'custom_legacy')]"/>
+                <filter name="bucket_has_legacy" string="Has Legacy Baseline" domain="[('baseline_has_legacy_data', '=', True)]"/>
+                <filter name="bucket_has_current" string="Has Current Data" domain="[('has_current_data', '=', True)]"/>
+                <filter name="bucket_margin_comparable_only" string="Margin Comparable Only" domain="[('margin_comparable', '=', True)]"/>
+                <filter name="bucket_finance_ops_core" string="Finance + Ops Core" domain="[('baseline_has_legacy_data', '=', True)]"/>
+                <separator/>
+                <filter name="bucket_current_period_range" string="Current Period" date="current_period_month"/>
+                <filter name="bucket_legacy_period_range" string="Legacy Baseline Period" date="baseline_period_month"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="bucket_group_current_month" string="Current Month" context="{'group_by': 'current_period_month:month'}"/>
+                    <filter name="bucket_group_legacy_month" string="Legacy Baseline Month" context="{'group_by': 'baseline_period_month:month'}"/>
+                    <filter name="bucket_group_mode" string="Baseline Mode" context="{'group_by': 'baseline_mode'}"/>
+                    <filter name="bucket_group_name" string="Bucket Product" context="{'group_by': 'bucket_name'}"/>
+                    <filter name="bucket_group_prefix5" string="Prefix5" context="{'group_by': 'bucket_code_prefix5'}"/>
+                    <filter name="bucket_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="bucket_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_bucket_baseline_pivot" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.bucket.baseline.pivot</field>
+        <field name="model">legacy.current.product.compare.bucket.baseline</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy to Current Bucket Baseline Comparison">
+                <field name="current_sales_qty" type="measure"/>
+                <field name="baseline_legacy_sales_qty" type="measure"/>
+                <field name="delta_sales_qty" type="measure"/>
+                <field name="current_sales_amount" type="measure"/>
+                <field name="baseline_legacy_sales_amount" type="measure"/>
+                <field name="delta_sales_amount" type="measure"/>
+                <field name="current_return_qty" type="measure"/>
+                <field name="baseline_legacy_return_qty" type="measure"/>
+                <field name="delta_return_qty" type="measure"/>
+                <field name="current_discount_amount" type="measure"/>
+                <field name="baseline_legacy_discount_amount" type="measure"/>
+                <field name="delta_discount_amount" type="measure"/>
+                <field name="current_gross_sales_amount" type="measure"/>
+                <field name="baseline_legacy_gross_sales_amount" type="measure"/>
+                <field name="delta_gross_sales_amount" type="measure"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="baseline_legacy_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
+                <field name="current_cogs_amount" type="measure"/>
+                <field name="baseline_legacy_cogs_amount" type="measure"/>
+                <field name="delta_cogs_amount" type="measure"/>
+                <field name="current_margin_amount" type="measure"/>
+                <field name="baseline_legacy_margin_amount" type="measure"/>
+                <field name="delta_margin_amount" type="measure"/>
+                <field name="current_period_month" interval="month" type="col"/>
+                <field name="bucket_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_compare_bucket_baseline_graph" model="ir.ui.view">
+        <field name="name">legacy.current.product.compare.bucket.baseline.graph</field>
+        <field name="model">legacy.current.product.compare.bucket.baseline</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy to Current Bucket Baseline Comparison" type="line">
+                <field name="current_period_month" interval="month"/>
+                <field name="current_net_sales_amount" type="measure"/>
+                <field name="baseline_legacy_net_sales_amount" type="measure"/>
+                <field name="delta_net_sales_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_current_product_compare_bucket_baseline" model="ir.actions.act_window">
+        <field name="name">Legacy Bucket Baseline Comparison</field>
+        <field name="res_model">legacy.current.product.compare.bucket.baseline</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_legacy_current_product_compare_bucket_baseline_search"/>
+        <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_current_product_compare_bucket_baseline"
+              name="Legacy Bucket Baseline Comparison"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_compare_bucket_baseline"
+              sequence="93"
               groups="account.group_account_readonly"/>
 </odoo>

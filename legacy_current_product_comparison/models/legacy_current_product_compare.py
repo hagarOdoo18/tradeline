@@ -19,6 +19,33 @@ BASELINE_MODE_SELECTION = [
     ("custom_legacy", "Custom Legacy Month"),
 ]
 
+BUCKET_MATCH_RULE = "same_name_prefix5"
+
+
+def _sql_norm_name(expr):
+    return f"NULLIF(BTRIM(REGEXP_REPLACE(LOWER(COALESCE({expr}, '')), '[^a-z0-9]+', ' ', 'g')), '')"
+
+
+def _sql_norm_code(expr):
+    return f"NULLIF(REGEXP_REPLACE(UPPER(COALESCE({expr}, '')), '[^A-Z0-9]+', '', 'g'), '')"
+
+
+def _sql_prefix(expr, length=5):
+    return f"LEFT(COALESCE({_sql_norm_code(expr)}, ''), {int(length)})"
+
+
+def _sql_bucket_key(name_expr, code_expr, length=5):
+    name_norm = _sql_norm_name(name_expr)
+    prefix = _sql_prefix(code_expr, length)
+    return (
+        "CASE "
+        f"WHEN {name_norm} IS NULL AND NULLIF({prefix}, '') IS NULL THEN NULL "
+        f"WHEN {name_norm} IS NULL THEN {prefix} "
+        f"WHEN NULLIF({prefix}, '') IS NULL THEN {name_norm} "
+        f"ELSE {name_norm} || '|' || {prefix} "
+        "END"
+    )
+
 
 class LegacyProductMonthFact(models.Model):
     _name = "legacy.product.month.fact"
@@ -91,6 +118,13 @@ class LegacyCurrentProductCompareMonth(models.Model):
     target_default_code = fields.Char(readonly=True)
     target_barcode = fields.Char(readonly=True)
     target_name = fields.Char(readonly=True)
+    source_bucket_code = fields.Char(readonly=True)
+    target_bucket_code = fields.Char(readonly=True)
+    source_code_prefix5 = fields.Char(readonly=True)
+    target_code_prefix5 = fields.Char(readonly=True)
+    bucket_name = fields.Char(readonly=True)
+    bucket_key = fields.Char(readonly=True)
+    bucket_match_rule = fields.Char(readonly=True)
 
     match_status = fields.Selection(selection=MATCH_STATUS_SELECTION, readonly=True)
     match_method = fields.Selection(selection=MATCH_METHOD_SELECTION, readonly=True)
@@ -609,6 +643,16 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 target_default_code,
                 target_barcode,
                 target_name,
+                COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, '')) AS source_bucket_code,
+                COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, '')) AS target_bucket_code,
+                {_sql_prefix("COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))")} AS source_code_prefix5,
+                {_sql_prefix("COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))")} AS target_code_prefix5,
+                COALESCE(NULLIF(source_name, ''), NULLIF(target_name, '')) AS bucket_name,
+                {_sql_bucket_key(
+                    "COALESCE(NULLIF(source_name, ''), NULLIF(target_name, ''))",
+                    "COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))",
+                )} AS bucket_key,
+                '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
                 match_status,
                 match_method,
                 confidence,
@@ -691,6 +735,13 @@ class LegacyCurrentProductCompareBaseline(models.Model):
     target_default_code = fields.Char(readonly=True)
     target_barcode = fields.Char(readonly=True)
     target_name = fields.Char(readonly=True)
+    source_bucket_code = fields.Char(readonly=True)
+    target_bucket_code = fields.Char(readonly=True)
+    source_code_prefix5 = fields.Char(readonly=True)
+    target_code_prefix5 = fields.Char(readonly=True)
+    bucket_name = fields.Char(readonly=True)
+    bucket_key = fields.Char(readonly=True)
+    bucket_match_rule = fields.Char(readonly=True)
 
     match_status = fields.Selection(selection=MATCH_STATUS_SELECTION, readonly=True)
     match_method = fields.Selection(selection=MATCH_METHOD_SELECTION, readonly=True)
@@ -1095,6 +1146,16 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 target_default_code,
                 target_barcode,
                 target_name,
+                COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, '')) AS source_bucket_code,
+                COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, '')) AS target_bucket_code,
+                {_sql_prefix("COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))")} AS source_code_prefix5,
+                {_sql_prefix("COALESCE(NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))")} AS target_code_prefix5,
+                COALESCE(NULLIF(source_name, ''), NULLIF(target_name, '')) AS bucket_name,
+                {_sql_bucket_key(
+                    "COALESCE(NULLIF(source_name, ''), NULLIF(target_name, ''))",
+                    "COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), NULLIF(target_barcode, ''), NULLIF(target_default_code, ''))",
+                )} AS bucket_key,
+                '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
                 match_status,
                 match_method,
                 confidence,
@@ -1170,6 +1231,465 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 END AS delta_margin_pct,
                 (baseline_legacy_cost_available AND current_cost_available) AS margin_comparable,
                 baseline_has_legacy_data
+            FROM combined
+            """
+        )
+
+
+class LegacyCurrentProductCompareBucketBaseline(models.Model):
+    _name = "legacy.current.product.compare.bucket.baseline"
+    _description = "Legacy to Current Product Comparison (Bucket Baseline)"
+    _auto = False
+    _order = "current_period_month desc, baseline_mode, baseline_period_month desc, bucket_name, id"
+    _rec_name = "bucket_name"
+
+    source_db = fields.Char(readonly=True)
+    baseline_mode = fields.Selection(selection=BASELINE_MODE_SELECTION, readonly=True)
+    current_period_month = fields.Date(readonly=True)
+    baseline_period_month = fields.Date(readonly=True)
+    baseline_key = fields.Char(readonly=True)
+
+    bucket_name = fields.Char(readonly=True)
+    bucket_key = fields.Char(readonly=True)
+    bucket_code_prefix5 = fields.Char(readonly=True)
+    bucket_match_rule = fields.Char(readonly=True)
+    source_category_name = fields.Char(readonly=True)
+    source_brand_name = fields.Char(readonly=True)
+    sample_source_item_code = fields.Char(readonly=True)
+    sample_target_item_code = fields.Char(readonly=True)
+    legacy_product_count = fields.Integer(readonly=True)
+    current_product_count = fields.Integer(readonly=True)
+
+    current_sales_qty = fields.Float(readonly=True)
+    current_sales_amount = fields.Float(readonly=True)
+    current_return_qty = fields.Float(readonly=True)
+    current_return_amount = fields.Float(readonly=True)
+    current_discount_amount = fields.Float(readonly=True)
+    current_gross_sales_amount = fields.Float(readonly=True)
+    current_net_sales_amount = fields.Float(readonly=True)
+    current_asp = fields.Float(readonly=True)
+    current_cogs_amount = fields.Float(readonly=True)
+    current_margin_amount = fields.Float(readonly=True)
+    current_margin_pct = fields.Float(readonly=True)
+    current_cost_available = fields.Boolean(readonly=True)
+
+    baseline_legacy_sales_qty = fields.Float(readonly=True)
+    baseline_legacy_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_return_qty = fields.Float(readonly=True)
+    baseline_legacy_return_amount = fields.Float(readonly=True)
+    baseline_legacy_discount_amount = fields.Float(readonly=True)
+    baseline_legacy_gross_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_net_sales_amount = fields.Float(readonly=True)
+    baseline_legacy_asp = fields.Float(readonly=True)
+    baseline_legacy_cogs_amount = fields.Float(readonly=True)
+    baseline_legacy_margin_amount = fields.Float(readonly=True)
+    baseline_legacy_margin_pct = fields.Float(readonly=True)
+    baseline_legacy_cost_available = fields.Boolean(readonly=True)
+    baseline_legacy_margin_comparable = fields.Boolean(readonly=True)
+
+    delta_sales_qty = fields.Float(readonly=True)
+    delta_sales_amount = fields.Float(readonly=True)
+    delta_sales_qty_pct = fields.Float(readonly=True)
+    delta_sales_amount_pct = fields.Float(readonly=True)
+    delta_return_qty = fields.Float(readonly=True)
+    delta_return_amount = fields.Float(readonly=True)
+    delta_discount_amount = fields.Float(readonly=True)
+    delta_gross_sales_amount = fields.Float(readonly=True)
+    delta_net_sales_amount = fields.Float(readonly=True)
+    delta_asp = fields.Float(readonly=True)
+    delta_cogs_amount = fields.Float(readonly=True)
+    delta_margin_amount = fields.Float(readonly=True)
+    delta_margin_pct = fields.Float(readonly=True)
+
+    margin_comparable = fields.Boolean(readonly=True)
+    baseline_has_legacy_data = fields.Boolean(readonly=True)
+    has_current_data = fields.Boolean(readonly=True)
+
+    def init(self):
+        tools.drop_view_if_exists(self.env.cr, self._table)
+        legacy_code_expr = "COALESCE(NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''))"
+        current_code_expr = "COALESCE(NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''))"
+        legacy_bucket_key = _sql_bucket_key("lmf.source_name", legacy_code_expr)
+        current_bucket_key = _sql_bucket_key("pt.name->>'en_US'", current_code_expr)
+        legacy_prefix5 = _sql_prefix(legacy_code_expr)
+        current_prefix5 = _sql_prefix(current_code_expr)
+        self.env.cr.execute(
+            f"""
+            CREATE OR REPLACE VIEW {self._table} AS
+            WITH months_current AS (
+                SELECT generate_series(
+                    DATE '2026-01-01',
+                    GREATEST(DATE '2026-01-01', date_trunc('month', CURRENT_DATE)::date),
+                    INTERVAL '1 month'
+                )::date AS period_month
+            ),
+            legacy_sales AS (
+                SELECT
+                    MAX(lmf.source_db) AS source_db,
+                    lmf.period_month::date AS baseline_period_month,
+                    {legacy_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(lmf.source_name, ''), NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''), '[No Name]')) AS bucket_name,
+                    {legacy_prefix5} AS bucket_code_prefix5,
+                    MIN(lmf.source_category_name) AS source_category_name,
+                    MIN(lmf.source_brand_name) AS source_brand_name,
+                    MIN({legacy_code_expr}) AS sample_source_item_code,
+                    COUNT(DISTINCT lmf.source_product_id) AS legacy_product_count,
+                    SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS legacy_sales_qty,
+                    SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS legacy_sales_amount,
+                    SUM(COALESCE(lmf.legacy_return_qty, 0.0)) AS legacy_return_qty,
+                    SUM(COALESCE(lmf.legacy_return_amount, 0.0)) AS legacy_return_amount,
+                    SUM(COALESCE(lmf.legacy_discount_amount, 0.0)) AS legacy_discount_amount,
+                    SUM(COALESCE(lmf.legacy_gross_sales_amount, 0.0)) AS legacy_gross_sales_amount,
+                    SUM(COALESCE(lmf.legacy_net_sales_amount, COALESCE(lmf.legacy_sales_amount, 0.0))) AS legacy_net_sales_amount,
+                    CASE
+                        WHEN SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) = 0 THEN NULL
+                        ELSE SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) / SUM(COALESCE(lmf.legacy_sales_qty, 0.0))
+                    END AS legacy_asp,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_cogs_amount, 0.0))
+                        ELSE NULL
+                    END AS legacy_cogs_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                        ELSE NULL
+                    END AS legacy_margin_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                             AND SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) != 0
+                        THEN (
+                            SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                            / SUM(COALESCE(lmf.legacy_sales_amount, 0.0))
+                        ) * 100.0
+                        ELSE NULL
+                    END AS legacy_margin_pct,
+                    BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE)) AS legacy_cost_available,
+                    BOOL_OR(COALESCE(lmf.legacy_margin_comparable, FALSE)) AS legacy_margin_comparable
+                FROM legacy_product_month_fact lmf
+                WHERE lmf.period_month < DATE '2026-01-01'
+                GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
+                HAVING {legacy_bucket_key} IS NOT NULL
+            ),
+            current_sales AS (
+                SELECT
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS current_period_month,
+                    {current_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.default_code, ''), NULLIF(pp.barcode, ''), '[No Name]')) AS bucket_name,
+                    {current_prefix5} AS bucket_code_prefix5,
+                    MIN({current_code_expr}) AS sample_target_item_code,
+                    COUNT(DISTINCT aml.product_id) AS current_product_count,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.quantity, 0.0))
+                            ELSE ABS(COALESCE(aml.quantity, 0.0))
+                        END
+                    ) AS current_sales_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
+                            ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
+                        END
+                    ) AS current_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_discount_amount,
+                    SUM(
+                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
+                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                    ) AS current_gross_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund'
+                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
+                        END
+                    ) AS current_cogs_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                JOIN product_product pp
+                    ON pp.id = aml.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+                GROUP BY date_trunc('month', COALESCE(am.invoice_date, am.date))::date, {current_bucket_key}, {current_prefix5}
+                HAVING {current_bucket_key} IS NOT NULL
+            ),
+            legacy_source_db AS (
+                SELECT MAX(source_db) AS source_db
+                FROM legacy_product_month_fact
+            ),
+            legacy_bucket_dim AS (
+                SELECT
+                    bucket_key,
+                    MAX(source_db) AS source_db,
+                    MIN(bucket_name) AS bucket_name,
+                    MIN(bucket_code_prefix5) AS bucket_code_prefix5,
+                    MIN(source_category_name) AS source_category_name,
+                    MIN(source_brand_name) AS source_brand_name,
+                    MIN(sample_source_item_code) AS sample_source_item_code
+                FROM legacy_sales
+                GROUP BY bucket_key
+            ),
+            current_bucket_dim AS (
+                SELECT
+                    bucket_key,
+                    MIN(bucket_name) AS bucket_name,
+                    MIN(bucket_code_prefix5) AS bucket_code_prefix5,
+                    MIN(sample_target_item_code) AS sample_target_item_code
+                FROM current_sales
+                GROUP BY bucket_key
+            ),
+            bucket_dim AS (
+                SELECT
+                    COALESCE(ld.source_db, ldb.source_db) AS source_db,
+                    COALESCE(ld.bucket_key, cd.bucket_key) AS bucket_key,
+                    COALESCE(ld.bucket_name, cd.bucket_name) AS bucket_name,
+                    COALESCE(ld.bucket_code_prefix5, cd.bucket_code_prefix5) AS bucket_code_prefix5,
+                    ld.source_category_name,
+                    ld.source_brand_name,
+                    ld.sample_source_item_code,
+                    cd.sample_target_item_code
+                FROM legacy_bucket_dim ld
+                FULL OUTER JOIN current_bucket_dim cd
+                    ON cd.bucket_key = ld.bucket_key
+                CROSS JOIN legacy_source_db ldb
+                WHERE COALESCE(ld.bucket_key, cd.bucket_key) IS NOT NULL
+            ),
+            current_grid AS (
+                SELECT
+                    bd.source_db,
+                    bd.bucket_key,
+                    bd.bucket_name,
+                    bd.bucket_code_prefix5,
+                    bd.source_category_name,
+                    bd.source_brand_name,
+                    bd.sample_source_item_code,
+                    bd.sample_target_item_code,
+                    m.period_month AS current_period_month
+                FROM bucket_dim bd
+                JOIN months_current m ON TRUE
+            ),
+            current_facts AS (
+                SELECT
+                    cg.source_db,
+                    cg.bucket_key,
+                    cg.bucket_name,
+                    cg.bucket_code_prefix5,
+                    cg.source_category_name,
+                    cg.source_brand_name,
+                    cg.sample_source_item_code,
+                    COALESCE(cs.sample_target_item_code, cg.sample_target_item_code) AS sample_target_item_code,
+                    cg.current_period_month,
+                    COALESCE(cs.current_product_count, 0) AS current_product_count,
+                    COALESCE(cs.current_sales_qty, 0.0) AS current_sales_qty,
+                    COALESCE(cs.current_sales_amount, 0.0) AS current_sales_amount,
+                    COALESCE(cs.current_return_qty, 0.0) AS current_return_qty,
+                    COALESCE(cs.current_return_amount, 0.0) AS current_return_amount,
+                    COALESCE(cs.current_discount_amount, 0.0) AS current_discount_amount,
+                    COALESCE(cs.current_gross_sales_amount, 0.0) AS current_gross_sales_amount,
+                    COALESCE(cs.current_sales_amount, 0.0) AS current_net_sales_amount,
+                    CASE
+                        WHEN COALESCE(cs.current_sales_qty, 0.0) = 0 THEN NULL
+                        ELSE cs.current_sales_amount / cs.current_sales_qty
+                    END AS current_asp,
+                    cs.current_cogs_amount,
+                    CASE
+                        WHEN cs.current_cogs_amount IS NULL THEN NULL
+                        ELSE cs.current_sales_amount - cs.current_cogs_amount
+                    END AS current_margin_amount,
+                    CASE
+                        WHEN cs.current_sales_amount = 0 OR cs.current_cogs_amount IS NULL THEN NULL
+                        ELSE ((cs.current_sales_amount - cs.current_cogs_amount) / cs.current_sales_amount) * 100.0
+                    END AS current_margin_pct,
+                    COALESCE(cs.current_cost_available, FALSE) AS current_cost_available
+                FROM current_grid cg
+                LEFT JOIN current_sales cs
+                    ON cs.bucket_key = cg.bucket_key
+                   AND cs.current_period_month = cg.current_period_month
+            ),
+            legacy_months AS (
+                SELECT DISTINCT baseline_period_month
+                FROM legacy_sales
+            ),
+            yoy_rows AS (
+                SELECT
+                    cf.*,
+                    'yoy'::text AS baseline_mode,
+                    (cf.current_period_month - INTERVAL '1 year')::date AS baseline_period_month
+                FROM current_facts cf
+            ),
+            custom_rows AS (
+                SELECT
+                    cf.*,
+                    'custom_legacy'::text AS baseline_mode,
+                    lm.baseline_period_month
+                FROM current_facts cf
+                JOIN legacy_months lm ON TRUE
+            ),
+            all_rows AS (
+                SELECT * FROM yoy_rows
+                UNION ALL
+                SELECT * FROM custom_rows
+            ),
+            combined AS (
+                SELECT
+                    ar.source_db,
+                    ar.baseline_mode,
+                    ar.current_period_month,
+                    ar.baseline_period_month,
+                    ar.bucket_name,
+                    ar.bucket_key,
+                    ar.bucket_code_prefix5,
+                    '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
+                    ar.source_category_name,
+                    ar.source_brand_name,
+                    ar.sample_source_item_code,
+                    ar.sample_target_item_code,
+                    COALESCE(ls.legacy_product_count, 0) AS legacy_product_count,
+                    COALESCE(ar.current_product_count, 0) AS current_product_count,
+                    ar.current_sales_qty,
+                    ar.current_sales_amount,
+                    ar.current_return_qty,
+                    ar.current_return_amount,
+                    ar.current_discount_amount,
+                    ar.current_gross_sales_amount,
+                    ar.current_net_sales_amount,
+                    ar.current_asp,
+                    ar.current_cogs_amount,
+                    ar.current_margin_amount,
+                    ar.current_margin_pct,
+                    ar.current_cost_available,
+                    COALESCE(ls.legacy_sales_qty, 0.0) AS baseline_legacy_sales_qty,
+                    COALESCE(ls.legacy_sales_amount, 0.0) AS baseline_legacy_sales_amount,
+                    COALESCE(ls.legacy_return_qty, 0.0) AS baseline_legacy_return_qty,
+                    COALESCE(ls.legacy_return_amount, 0.0) AS baseline_legacy_return_amount,
+                    COALESCE(ls.legacy_discount_amount, 0.0) AS baseline_legacy_discount_amount,
+                    COALESCE(ls.legacy_gross_sales_amount, 0.0) AS baseline_legacy_gross_sales_amount,
+                    COALESCE(ls.legacy_net_sales_amount, 0.0) AS baseline_legacy_net_sales_amount,
+                    ls.legacy_asp AS baseline_legacy_asp,
+                    ls.legacy_cogs_amount AS baseline_legacy_cogs_amount,
+                    ls.legacy_margin_amount AS baseline_legacy_margin_amount,
+                    ls.legacy_margin_pct AS baseline_legacy_margin_pct,
+                    COALESCE(ls.legacy_cost_available, FALSE) AS baseline_legacy_cost_available,
+                    COALESCE(ls.legacy_margin_comparable, FALSE) AS baseline_legacy_margin_comparable,
+                    (ls.bucket_key IS NOT NULL) AS baseline_has_legacy_data,
+                    (
+                        COALESCE(ar.current_sales_qty, 0.0) != 0.0
+                        OR COALESCE(ar.current_sales_amount, 0.0) != 0.0
+                        OR COALESCE(ar.current_return_qty, 0.0) != 0.0
+                        OR COALESCE(ar.current_return_amount, 0.0) != 0.0
+                    ) AS has_current_data
+                FROM all_rows ar
+                LEFT JOIN legacy_sales ls
+                    ON ls.bucket_key = ar.bucket_key
+                   AND ls.baseline_period_month = ar.baseline_period_month
+            )
+            SELECT
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        current_period_month DESC,
+                        baseline_mode,
+                        baseline_period_month DESC,
+                        bucket_name NULLS LAST,
+                        bucket_key NULLS LAST
+                ) AS id,
+                source_db,
+                baseline_mode,
+                current_period_month,
+                baseline_period_month,
+                CASE
+                    WHEN baseline_mode = 'yoy' THEN to_char(baseline_period_month, 'YYYY-MM')
+                    ELSE to_char(current_period_month, 'YYYY-MM') || ' vs ' || to_char(baseline_period_month, 'YYYY-MM')
+                END AS baseline_key,
+                bucket_name,
+                bucket_key,
+                bucket_code_prefix5,
+                bucket_match_rule,
+                source_category_name,
+                source_brand_name,
+                sample_source_item_code,
+                sample_target_item_code,
+                legacy_product_count,
+                current_product_count,
+                current_sales_qty,
+                current_sales_amount,
+                current_return_qty,
+                current_return_amount,
+                current_discount_amount,
+                current_gross_sales_amount,
+                current_net_sales_amount,
+                current_asp,
+                current_cogs_amount,
+                current_margin_amount,
+                current_margin_pct,
+                current_cost_available,
+                baseline_legacy_sales_qty,
+                baseline_legacy_sales_amount,
+                baseline_legacy_return_qty,
+                baseline_legacy_return_amount,
+                baseline_legacy_discount_amount,
+                baseline_legacy_gross_sales_amount,
+                baseline_legacy_net_sales_amount,
+                baseline_legacy_asp,
+                baseline_legacy_cogs_amount,
+                baseline_legacy_margin_amount,
+                baseline_legacy_margin_pct,
+                baseline_legacy_cost_available,
+                baseline_legacy_margin_comparable,
+                current_sales_qty - baseline_legacy_sales_qty AS delta_sales_qty,
+                current_sales_amount - baseline_legacy_sales_amount AS delta_sales_amount,
+                CASE
+                    WHEN baseline_legacy_sales_qty = 0 THEN NULL
+                    ELSE ((current_sales_qty - baseline_legacy_sales_qty) / baseline_legacy_sales_qty) * 100.0
+                END AS delta_sales_qty_pct,
+                CASE
+                    WHEN baseline_legacy_sales_amount = 0 THEN NULL
+                    ELSE ((current_sales_amount - baseline_legacy_sales_amount) / baseline_legacy_sales_amount) * 100.0
+                END AS delta_sales_amount_pct,
+                current_return_qty - baseline_legacy_return_qty AS delta_return_qty,
+                current_return_amount - baseline_legacy_return_amount AS delta_return_amount,
+                current_discount_amount - baseline_legacy_discount_amount AS delta_discount_amount,
+                current_gross_sales_amount - baseline_legacy_gross_sales_amount AS delta_gross_sales_amount,
+                current_net_sales_amount - baseline_legacy_net_sales_amount AS delta_net_sales_amount,
+                CASE
+                    WHEN current_asp IS NULL OR baseline_legacy_asp IS NULL THEN NULL
+                    ELSE current_asp - baseline_legacy_asp
+                END AS delta_asp,
+                CASE
+                    WHEN current_cogs_amount IS NULL OR baseline_legacy_cogs_amount IS NULL THEN NULL
+                    ELSE current_cogs_amount - baseline_legacy_cogs_amount
+                END AS delta_cogs_amount,
+                CASE
+                    WHEN current_margin_amount IS NULL OR baseline_legacy_margin_amount IS NULL THEN NULL
+                    ELSE current_margin_amount - baseline_legacy_margin_amount
+                END AS delta_margin_amount,
+                CASE
+                    WHEN current_margin_pct IS NULL OR baseline_legacy_margin_pct IS NULL THEN NULL
+                    ELSE current_margin_pct - baseline_legacy_margin_pct
+                END AS delta_margin_pct,
+                (baseline_legacy_cost_available AND current_cost_available) AS margin_comparable,
+                baseline_has_legacy_data,
+                has_current_data
             FROM combined
             """
         )
