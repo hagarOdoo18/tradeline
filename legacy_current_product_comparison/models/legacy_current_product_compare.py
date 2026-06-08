@@ -20,6 +20,7 @@ BASELINE_MODE_SELECTION = [
 ]
 
 BUCKET_MATCH_RULE = "same_name_prefix5"
+BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
 def _sql_norm_name(expr):
@@ -45,6 +46,11 @@ def _sql_bucket_key(name_expr, code_expr, length=5):
         f"ELSE {name_norm} || '|' || {prefix} "
         "END"
     )
+
+
+def _sql_bucket_key_prefix_only(code_expr, length=5):
+    prefix = _sql_prefix(code_expr, length)
+    return f"CASE WHEN NULLIF({prefix}, '') IS NULL THEN NULL ELSE {prefix} END"
 
 
 class LegacyProductMonthFact(models.Model):
@@ -1309,8 +1315,8 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
         tools.drop_view_if_exists(self.env.cr, self._table)
         legacy_code_expr = "COALESCE(NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''))"
         current_code_expr = "COALESCE(NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''))"
-        legacy_bucket_key = _sql_bucket_key("lmf.source_name", legacy_code_expr)
-        current_bucket_key = _sql_bucket_key("pt.name->>'en_US'", current_code_expr)
+        legacy_bucket_key = _sql_bucket_key_prefix_only(legacy_code_expr)
+        current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
         self.env.cr.execute(
@@ -1560,7 +1566,7 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     ar.bucket_name,
                     ar.bucket_key,
                     ar.bucket_code_prefix5,
-                    '{BUCKET_MATCH_RULE}'::text AS bucket_match_rule,
+                    '{BUCKET_BASELINE_MATCH_RULE}'::text AS bucket_match_rule,
                     ar.source_category_name,
                     ar.source_brand_name,
                     ar.sample_source_item_code,
