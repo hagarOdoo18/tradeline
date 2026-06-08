@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Add Inter-company tab to partner form -->
     <record id="res_partner_view_form_intercompany" model="ir.ui.view">
         <field name="name">res.partner.form.intercompany.tax</field>
         <field name="model">res.partner</field>
         <field name="inherit_id" ref="base.view_partner_form"/>
         <field name="arch" type="xml">
 
-            <!-- Insert new tab after Sales & Purchase tab -->
             <xpath expr="//page[@name='sales_purchases']" position="after">
                 <page string="Inter-company Tax" name="intercompany_tax">
                     <group>
@@ -17,6 +15,8 @@
                             <field name="is_auto_intercompany"
                                    invisible="not is_auto_intercompany"
                                    readonly="1"/>
+                            <field name="intercompany_price_include"
+                                   invisible="not is_intercompany_customer and not is_auto_intercompany"/>
                         </group>
                     </group>
                     <group string="Taxes Applied on Sale Order Lines"

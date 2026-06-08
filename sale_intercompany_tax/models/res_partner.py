@@ -24,6 +24,14 @@ class ResPartner(models.Model):
              'inter-company customer is selected.',
     )
 
+    intercompany_price_include = fields.Boolean(
+        string='Unit Price Includes Tax',
+        default=False,
+        help='When enabled, the unit price on sale order lines for this '
+             'inter-company customer will be displayed as tax-inclusive '
+             '(gross price = price + inter-company taxes).',
+    )
+
     is_auto_intercompany = fields.Boolean(
         string='Auto-detected Inter-company',
         compute='_compute_is_auto_intercompany',
