@@ -474,43 +474,43 @@
             <list string="Legacy to Current Bucket Baseline Comparison" create="false" edit="false" delete="false" export_xlsx="1">
                 <field name="current_period_month"/>
                 <field name="baseline_period_month"/>
-                <field name="baseline_mode"/>
+                <field name="baseline_mode" string="Compare Mode"/>
                 <field name="bucket_name" string="Bucket Product"/>
                 <field name="bucket_code_prefix5" string="Prefix5"/>
                 <field name="sample_source_item_code" string="Legacy Sample Code" optional="show"/>
                 <field name="sample_target_item_code" string="Current Sample Code" optional="show"/>
                 <field name="source_category_name"/>
                 <field name="source_brand_name" optional="show"/>
-                <field name="legacy_product_count" sum="Legacy Product Count" optional="show"/>
-                <field name="current_product_count" sum="Current Product Count" optional="show"/>
-                <field name="current_sales_qty" sum="Current Sales Qty"/>
-                <field name="baseline_legacy_sales_qty" sum="Legacy Baseline Qty"/>
-                <field name="delta_sales_qty" sum="Sales Qty Delta"/>
+                <field name="legacy_product_count" string="Baseline Product Count" optional="show"/>
+                <field name="current_product_count" string="Current Product Count" optional="show"/>
+                <field name="current_sales_qty" string="Current Sales Qty"/>
+                <field name="baseline_legacy_sales_qty" string="Baseline Sales Qty"/>
+                <field name="delta_sales_qty" string="Delta Sales Qty"/>
                 <field name="delta_sales_qty_pct" optional="show"/>
-                <field name="current_sales_amount" sum="Current Sales Amount"/>
-                <field name="baseline_legacy_sales_amount" sum="Legacy Baseline Amount"/>
-                <field name="delta_sales_amount" sum="Sales Amount Delta"/>
+                <field name="current_sales_amount" string="Current Sales Amount"/>
+                <field name="baseline_legacy_sales_amount" string="Baseline Sales Amount"/>
+                <field name="delta_sales_amount" string="Delta Sales Amount"/>
                 <field name="delta_sales_amount_pct" optional="show"/>
-                <field name="current_return_qty" sum="Current Return Qty" optional="show"/>
-                <field name="baseline_legacy_return_qty" sum="Legacy Return Qty" optional="show"/>
-                <field name="delta_return_qty" sum="Return Qty Delta" optional="show"/>
-                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
-                <field name="baseline_legacy_discount_amount" sum="Legacy Discount" optional="show"/>
-                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
-                <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
-                <field name="baseline_legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
-                <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
-                <field name="current_net_sales_amount" sum="Current Net Sales" optional="show"/>
-                <field name="baseline_legacy_net_sales_amount" sum="Legacy Net Sales" optional="show"/>
-                <field name="delta_net_sales_amount" sum="Net Sales Delta" optional="show"/>
-                <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
-                <field name="baseline_legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
-                <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
-                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
-                <field name="baseline_legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
-                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="current_return_qty" string="Current Return Qty" optional="show"/>
+                <field name="baseline_legacy_return_qty" string="Baseline Return Qty" optional="show"/>
+                <field name="delta_return_qty" string="Delta Return Qty" optional="show"/>
+                <field name="current_discount_amount" string="Current Discount" optional="show"/>
+                <field name="baseline_legacy_discount_amount" string="Baseline Discount" optional="show"/>
+                <field name="delta_discount_amount" string="Delta Discount" optional="show"/>
+                <field name="current_gross_sales_amount" string="Current Gross Sales" optional="show"/>
+                <field name="baseline_legacy_gross_sales_amount" string="Baseline Gross Sales" optional="show"/>
+                <field name="delta_gross_sales_amount" string="Delta Gross Sales" optional="show"/>
+                <field name="current_net_sales_amount" string="Current Net Sales" optional="show"/>
+                <field name="baseline_legacy_net_sales_amount" string="Baseline Net Sales" optional="show"/>
+                <field name="delta_net_sales_amount" string="Delta Net Sales" optional="show"/>
+                <field name="current_cogs_amount" string="Current COGS" optional="show"/>
+                <field name="baseline_legacy_cogs_amount" string="Baseline COGS" optional="show"/>
+                <field name="delta_cogs_amount" string="Delta COGS" optional="show"/>
+                <field name="current_margin_amount" string="Current Margin $" optional="show"/>
+                <field name="baseline_legacy_margin_amount" string="Baseline Margin $" optional="show"/>
+                <field name="delta_margin_amount" string="Delta Margin $" optional="show"/>
                 <field name="margin_comparable" optional="hide"/>
-                <field name="baseline_has_legacy_data" optional="show"/>
+                <field name="baseline_has_legacy_data" string="Has Baseline Data" optional="show"/>
                 <field name="has_current_data" optional="show"/>
                 <field name="bucket_key" optional="hide"/>
                 <field name="bucket_match_rule" optional="hide"/>
@@ -539,17 +539,19 @@
                 <separator/>
                 <filter name="bucket_mode_yoy" string="YoY Mode" domain="[('baseline_mode', '=', 'yoy')]"/>
                 <filter name="bucket_mode_custom" string="Custom Legacy Month" domain="[('baseline_mode', '=', 'custom_legacy')]"/>
-                <filter name="bucket_has_legacy" string="Has Legacy Baseline" domain="[('baseline_has_legacy_data', '=', True)]"/>
+                <filter name="bucket_mode_previous" string="Previous Current Month" domain="[('baseline_mode', '=', 'previous_current')]"/>
+                <filter name="bucket_latest_current" string="Latest Current Month" domain="[('is_latest_current_month', '=', True)]"/>
+                <filter name="bucket_has_legacy" string="Has Baseline Data" domain="[('baseline_has_legacy_data', '=', True)]"/>
                 <filter name="bucket_has_current" string="Has Current Data" domain="[('has_current_data', '=', True)]"/>
                 <filter name="bucket_margin_comparable_only" string="Margin Comparable Only" domain="[('margin_comparable', '=', True)]"/>
                 <filter name="bucket_finance_ops_core" string="Finance + Ops Core" domain="[('baseline_has_legacy_data', '=', True)]"/>
                 <separator/>
                 <filter name="bucket_current_period_range" string="Current Period" date="current_period_month"/>
-                <filter name="bucket_legacy_period_range" string="Legacy Baseline Period" date="baseline_period_month"/>
+                <filter name="bucket_legacy_period_range" string="Baseline Period" date="baseline_period_month"/>
                 <separator/>
                 <group expand="0" string="Group By">
                     <filter name="bucket_group_current_month" string="Current Month" context="{'group_by': 'current_period_month:month'}"/>
-                    <filter name="bucket_group_legacy_month" string="Legacy Baseline Month" context="{'group_by': 'baseline_period_month:month'}"/>
+                    <filter name="bucket_group_legacy_month" string="Baseline Month" context="{'group_by': 'baseline_period_month:month'}"/>
                     <filter name="bucket_group_mode" string="Baseline Mode" context="{'group_by': 'baseline_mode'}"/>
                     <filter name="bucket_group_name" string="Bucket Product" context="{'group_by': 'bucket_name'}"/>
                     <filter name="bucket_group_prefix5" string="Prefix5" context="{'group_by': 'bucket_code_prefix5'}"/>
@@ -613,7 +615,7 @@
         <field name="res_model">legacy.current.product.compare.bucket.baseline</field>
         <field name="view_mode">list,pivot,graph</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_bucket_baseline_search"/>
-        <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_latest_current': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_bucket_baseline"
