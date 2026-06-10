@@ -61,8 +61,7 @@ class SaleOrderLine(models.Model):
                 continue
             if not partner.is_effective_intercompany():
                 continue
-            if not partner.intercompany_price_include:
-                continue
+
             taxes = partner.intercompany_tax_ids
             if not taxes:
                 continue
