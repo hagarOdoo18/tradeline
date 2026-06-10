@@ -15,8 +15,7 @@
                             <field name="is_auto_intercompany"
                                    invisible="not is_auto_intercompany"
                                    readonly="1"/>
-                            <field name="intercompany_price_include"
-                                   invisible="not is_intercompany_customer and not is_auto_intercompany"/>
+
                         </group>
                     </group>
                     <group string="Taxes Applied on Sale Order Lines"
