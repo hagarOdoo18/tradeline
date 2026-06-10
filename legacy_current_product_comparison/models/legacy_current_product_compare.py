@@ -791,6 +791,7 @@ class LegacyCurrentProductCompareBaseline(models.Model):
     current_period_month = fields.Date(readonly=True)
     baseline_period_month = fields.Date(readonly=True)
     baseline_key = fields.Char(readonly=True)
+    is_latest_current_month = fields.Boolean(readonly=True)
 
     current_sales_qty = fields.Float(readonly=True)
     current_sales_amount = fields.Float(readonly=True)
@@ -1081,6 +1082,14 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     (cf.current_period_month - INTERVAL '1 year')::date AS baseline_period_month
                 FROM current_facts cf
             ),
+            previous_rows AS (
+                SELECT
+                    cf.*,
+                    'previous_current'::text AS baseline_mode,
+                    (cf.current_period_month - INTERVAL '1 month')::date AS baseline_period_month
+                FROM current_facts cf
+                WHERE cf.current_period_month > DATE '2026-01-01'
+            ),
             custom_rows AS (
                 SELECT
                     cf.*,
@@ -1091,6 +1100,8 @@ class LegacyCurrentProductCompareBaseline(models.Model):
             ),
             all_rows AS (
                 SELECT * FROM yoy_rows
+                UNION ALL
+                SELECT * FROM previous_rows
                 UNION ALL
                 SELECT * FROM custom_rows
             ),
@@ -1133,25 +1144,72 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     ar.current_margin_amount,
                     ar.current_margin_pct,
                     ar.current_cost_available,
-                    COALESCE(ls.legacy_sales_qty, 0.0) AS baseline_legacy_sales_qty,
-                    COALESCE(ls.legacy_sales_amount, 0.0) AS baseline_legacy_sales_amount,
-                    COALESCE(ls.legacy_return_qty, 0.0) AS baseline_legacy_return_qty,
-                    COALESCE(ls.legacy_return_amount, 0.0) AS baseline_legacy_return_amount,
-                    COALESCE(ls.legacy_discount_amount, 0.0) AS baseline_legacy_discount_amount,
-                    COALESCE(ls.legacy_gross_sales_amount, 0.0) AS baseline_legacy_gross_sales_amount,
-                    COALESCE(ls.legacy_net_sales_amount, 0.0) AS baseline_legacy_net_sales_amount,
-                    ls.legacy_asp AS baseline_legacy_asp,
-                    ls.legacy_cogs_amount AS baseline_legacy_cogs_amount,
-                    ls.legacy_margin_amount AS baseline_legacy_margin_amount,
-                    ls.legacy_margin_pct AS baseline_legacy_margin_pct,
-                    COALESCE(ls.legacy_cost_available, FALSE) AS baseline_legacy_cost_available,
-                    COALESCE(ls.legacy_margin_comparable, FALSE) AS baseline_legacy_margin_comparable,
-                    (ls.source_product_id IS NOT NULL) AS baseline_has_legacy_data
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_sales_qty, 0.0)
+                        ELSE COALESCE(ls.legacy_sales_qty, 0.0)
+                    END AS baseline_legacy_sales_qty,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_sales_amount, 0.0)
+                        ELSE COALESCE(ls.legacy_sales_amount, 0.0)
+                    END AS baseline_legacy_sales_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_return_qty, 0.0)
+                        ELSE COALESCE(ls.legacy_return_qty, 0.0)
+                    END AS baseline_legacy_return_qty,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_return_amount, 0.0)
+                        ELSE COALESCE(ls.legacy_return_amount, 0.0)
+                    END AS baseline_legacy_return_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_discount_amount, 0.0)
+                        ELSE COALESCE(ls.legacy_discount_amount, 0.0)
+                    END AS baseline_legacy_discount_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_gross_sales_amount, 0.0)
+                        ELSE COALESCE(ls.legacy_gross_sales_amount, 0.0)
+                    END AS baseline_legacy_gross_sales_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_net_sales_amount, 0.0)
+                        ELSE COALESCE(ls.legacy_net_sales_amount, 0.0)
+                    END AS baseline_legacy_net_sales_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN pf.current_asp
+                        ELSE ls.legacy_asp
+                    END AS baseline_legacy_asp,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN pf.current_cogs_amount
+                        ELSE ls.legacy_cogs_amount
+                    END AS baseline_legacy_cogs_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN pf.current_margin_amount
+                        ELSE ls.legacy_margin_amount
+                    END AS baseline_legacy_margin_amount,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN pf.current_margin_pct
+                        ELSE ls.legacy_margin_pct
+                    END AS baseline_legacy_margin_pct,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_cost_available, FALSE)
+                        ELSE COALESCE(ls.legacy_cost_available, FALSE)
+                    END AS baseline_legacy_cost_available,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN COALESCE(pf.current_cost_available, FALSE)
+                        ELSE COALESCE(ls.legacy_margin_comparable, FALSE)
+                    END AS baseline_legacy_margin_comparable,
+                    CASE
+                        WHEN ar.baseline_mode = 'previous_current' THEN (pf.source_product_id IS NOT NULL)
+                        ELSE (ls.source_product_id IS NOT NULL)
+                    END AS baseline_has_legacy_data
                 FROM all_rows ar
                 LEFT JOIN legacy_sales ls
                     ON ls.source_db = ar.source_db
                    AND ls.source_product_id = ar.source_product_id
                    AND ls.baseline_period_month = ar.baseline_period_month
+                LEFT JOIN current_facts pf
+                    ON ar.baseline_mode = 'previous_current'
+                   AND pf.source_db = ar.source_db
+                   AND pf.source_product_id = ar.source_product_id
+                   AND pf.current_period_month = ar.baseline_period_month
                 LEFT JOIN product_product pp
                     ON pp.id = ar.target_product_id
                 LEFT JOIN product_template pt
@@ -1204,8 +1262,10 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 baseline_period_month,
                 CASE
                     WHEN baseline_mode = 'yoy' THEN to_char(baseline_period_month, 'YYYY-MM')
+                    WHEN baseline_mode = 'previous_current' THEN to_char(current_period_month, 'YYYY-MM') || ' vs prev ' || to_char(baseline_period_month, 'YYYY-MM')
                     ELSE to_char(current_period_month, 'YYYY-MM') || ' vs ' || to_char(baseline_period_month, 'YYYY-MM')
                 END AS baseline_key,
+                (current_period_month = (SELECT MAX(period_month) FROM months_current)) AS is_latest_current_month,
                 current_sales_qty,
                 current_sales_amount,
                 current_return_qty,

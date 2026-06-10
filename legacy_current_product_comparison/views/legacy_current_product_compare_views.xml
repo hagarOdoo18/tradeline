@@ -366,6 +366,12 @@
                 <filter name="baseline_mode_custom"
                         string="Custom Legacy Month"
                         domain="[('baseline_mode', '=', 'custom_legacy')]"/>
+                <filter name="baseline_mode_previous"
+                        string="MoM Mode"
+                        domain="[('baseline_mode', '=', 'previous_current')]"/>
+                <filter name="baseline_latest_current"
+                        string="Latest Current Month"
+                        domain="[('is_latest_current_month', '=', True)]"/>
                 <filter name="baseline_missing_legacy"
                         string="Missing Legacy Baseline"
                         domain="[('baseline_has_legacy_data', '=', False)]"/>
@@ -460,11 +466,26 @@
         <field name="context">{'search_default_baseline_ready_scope': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
+    <record id="action_legacy_current_product_compare_baseline_mom" model="ir.actions.act_window">
+        <field name="name">Legacy MoM Baseline Comparison</field>
+        <field name="res_model">legacy.current.product.compare.baseline</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
+        <field name="context">{'search_default_baseline_mode_previous': 1, 'search_default_baseline_latest_current': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
     <menuitem id="menu_legacy_current_product_compare_baseline"
               name="Legacy to Current Baseline Comparison"
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_compare_baseline"
               sequence="92"
+              groups="account.group_account_readonly"/>
+
+    <menuitem id="menu_legacy_current_product_compare_baseline_mom"
+              name="Legacy MoM Baseline Comparison"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_compare_baseline_mom"
+              sequence="94"
               groups="account.group_account_readonly"/>
 
     <record id="view_legacy_current_product_compare_bucket_baseline_list" model="ir.ui.view">
@@ -539,7 +560,7 @@
                 <separator/>
                 <filter name="bucket_mode_yoy" string="YoY Mode" domain="[('baseline_mode', '=', 'yoy')]"/>
                 <filter name="bucket_mode_custom" string="Custom Legacy Month" domain="[('baseline_mode', '=', 'custom_legacy')]"/>
-                <filter name="bucket_mode_previous" string="Previous Current Month" domain="[('baseline_mode', '=', 'previous_current')]"/>
+                <filter name="bucket_mode_previous" string="MoM Mode" domain="[('baseline_mode', '=', 'previous_current')]"/>
                 <filter name="bucket_latest_current" string="Latest Current Month" domain="[('is_latest_current_month', '=', True)]"/>
                 <filter name="bucket_has_legacy" string="Has Baseline Data" domain="[('baseline_has_legacy_data', '=', True)]"/>
                 <filter name="bucket_has_current" string="Has Current Data" domain="[('has_current_data', '=', True)]"/>
