@@ -68,11 +68,12 @@ class SaleOrderLine(models.Model):
                 continue
             # compute_all returns total_included = price + tax amount
             currency = line.order_id.currency_id
-            tax_result = taxes.compute_all(
-                line.price_unit,
-                currency=currency,
-                quantity=1.0,
-                product=line.product_id,
-                partner=line.order_id.partner_id,
-            )
-            line.price_unit = tax_result['total_included']
+            if line.product_id:
+                tax_result = taxes.compute_all(
+                    line.product_id.lst_price,
+                    currency=currency,
+                    quantity=1.0,
+                    product=line.product_id,
+                    partner=line.order_id.partner_id,
+                )
+                line.price_unit = tax_result['total_included']
