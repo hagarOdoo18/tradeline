@@ -52,28 +52,49 @@ class SaleOrderLine(models.Model):
         'order_id.partner_id.intercompany_tax_ids',
     )
     def _compute_price_unit(self):
-        """After Odoo computes the base price, gross it up with inter-company
-        taxes when the partner has 'Unit Price Includes Tax' enabled."""
+        """Compute unit price for inter-company lines.
+
+        Priority:
+          1. Pricelist price  — if a pricelist is set on the order and the
+                                product has an entry in it.
+          2. lst_price        — the product's public sales price as fallback.
+
+        The resulting price is then converted to the order currency when needed.
+        """
         super()._compute_price_unit()
+
         for line in self:
             partner = line.order_id.partner_id.commercial_partner_id
-            if not partner:
+            if not partner or not partner.is_effective_intercompany():
                 continue
-            if not partner.is_effective_intercompany():
+            if not partner.intercompany_tax_ids or not line.product_id:
                 continue
 
-            taxes = partner.intercompany_tax_ids
-            if not taxes:
-                continue
-            # compute_all returns total_included = price + tax amount
-            currency = line.order_id.currency_id
-            if line.product_id:
-                unit_price =line.product_id.lst_price
-                if self.env.company.currency_id != line.order_id.currency_id:
-                   unit_price= self.env.company.currency_id._convert(
-                       unit_price,
-                        line.order_id.currency_id,
-                        self.company_id,
-                       line.order_id.date_order,
+            order      = line.order_id
+            pricelist  = order.pricelist_id
+            currency   = order.currency_id
+            company    = line.company_id or self.env.company
+            date       = order.date_order or fields.Date.today()
+
+            # ── 1. Try pricelist price ──────────────────────────────────
+            if pricelist:
+                pricelist_price = pricelist._get_product_price(
+                    line.product_id,
+                    line.product_uom_qty or 1.0,
+                    currency=currency,
+                    date=date,
+                    uom=line.product_uom,
+                )
+                unit_price = pricelist_price
+            else:
+                # ── 2. Fallback: lst_price converted to order currency ──
+                unit_price = line.product_id.lst_price
+                if company.currency_id != currency:
+                    unit_price = company.currency_id._convert(
+                        unit_price,
+                        currency,
+                        company,
+                        date,
                     )
-                line.price_unit = unit_price
+
+            line.price_unit = unit_price
