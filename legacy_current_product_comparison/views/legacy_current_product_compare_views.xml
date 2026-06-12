@@ -51,9 +51,9 @@
                 <field name="legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
                 <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
                 <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
-                <field name="legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
-                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
-                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="legacy_margin_amount" sum="Legacy Net Margin $" optional="show"/>
+                <field name="current_margin_amount" sum="Current Net Margin $" optional="show"/>
+                <field name="delta_margin_amount" sum="Net Margin $ Delta" optional="show"/>
                 <field name="legacy_margin_pct" optional="hide"/>
                 <field name="current_margin_pct" optional="hide"/>
                 <field name="delta_margin_pct" optional="hide"/>
@@ -304,9 +304,9 @@
                 <field name="current_cogs_amount" sum="Current COGS" optional="show"/>
                 <field name="baseline_legacy_cogs_amount" sum="Legacy COGS" optional="show"/>
                 <field name="delta_cogs_amount" sum="COGS Delta" optional="show"/>
-                <field name="current_margin_amount" sum="Current Margin $" optional="show"/>
-                <field name="baseline_legacy_margin_amount" sum="Legacy Margin $" optional="show"/>
-                <field name="delta_margin_amount" sum="Margin $ Delta" optional="show"/>
+                <field name="current_margin_amount" sum="Current Net Margin $" optional="show"/>
+                <field name="baseline_legacy_margin_amount" sum="Baseline Net Margin $" optional="show"/>
+                <field name="delta_margin_amount" sum="Net Margin $ Delta" optional="show"/>
                 <field name="current_margin_pct" optional="hide"/>
                 <field name="baseline_legacy_margin_pct" optional="hide"/>
                 <field name="delta_margin_pct" optional="hide"/>
@@ -527,9 +527,9 @@
                 <field name="current_cogs_amount" string="Current COGS" optional="show"/>
                 <field name="baseline_legacy_cogs_amount" string="Baseline COGS" optional="show"/>
                 <field name="delta_cogs_amount" string="Delta COGS" optional="show"/>
-                <field name="current_margin_amount" string="Current Margin $" optional="show"/>
-                <field name="baseline_legacy_margin_amount" string="Baseline Margin $" optional="show"/>
-                <field name="delta_margin_amount" string="Delta Margin $" optional="show"/>
+                <field name="current_margin_amount" string="Current Net Margin $" optional="show"/>
+                <field name="baseline_legacy_margin_amount" string="Baseline Net Margin $" optional="show"/>
+                <field name="delta_margin_amount" string="Net Margin $ Delta" optional="show"/>
                 <field name="margin_comparable" optional="hide"/>
                 <field name="baseline_has_legacy_data" string="Has Baseline Data" optional="show"/>
                 <field name="has_current_data" optional="show"/>
