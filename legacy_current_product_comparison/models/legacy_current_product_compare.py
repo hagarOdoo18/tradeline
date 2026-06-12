@@ -1795,3 +1795,257 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
             FROM combined
             """
         )
+
+
+class LegacyCurrentProductHistory(models.Model):
+    _name = "legacy.current.product.history"
+    _description = "Legacy to Current Product History"
+    _auto = False
+    _order = "bucket_code_prefix5, period_month, source_system, id"
+    _rec_name = "bucket_name"
+
+    source_db = fields.Char(readonly=True)
+    period_month = fields.Date(readonly=True)
+    source_system = fields.Selection(
+        selection=[
+            ("legacy", "Legacy"),
+            ("current", "Current"),
+        ],
+        readonly=True,
+    )
+
+    bucket_name = fields.Char(readonly=True)
+    bucket_key = fields.Char(readonly=True)
+    bucket_code_prefix5 = fields.Char(readonly=True)
+    sample_item_code = fields.Char(readonly=True)
+    source_category_name = fields.Char(readonly=True)
+    source_brand_name = fields.Char(readonly=True)
+    product_count = fields.Integer(readonly=True)
+
+    sales_qty = fields.Float(readonly=True)
+    sales_amount = fields.Float(readonly=True, string="Net Sales Amount")
+    return_qty = fields.Float(readonly=True)
+    return_amount = fields.Float(readonly=True)
+    discount_amount = fields.Float(readonly=True)
+    gross_sales_amount = fields.Float(readonly=True)
+    asp = fields.Float(readonly=True)
+    cogs_amount = fields.Float(readonly=True)
+    margin_amount = fields.Float(readonly=True, string="Net Margin $")
+    margin_pct = fields.Float(readonly=True, string="Net Margin %")
+    cost_available = fields.Boolean(readonly=True)
+    margin_comparable = fields.Boolean(readonly=True)
+
+    def init(self):
+        tools.drop_view_if_exists(self.env.cr, self._table)
+
+        legacy_code_expr = _sql_first_available_code("lmf.source_default_code", "lmf.source_barcode")
+        current_code_expr = _sql_first_available_code("aml.item_code", "pp.barcode", "pp.default_code")
+        legacy_bucket_key = _sql_bucket_key_prefix_only(legacy_code_expr)
+        current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
+        legacy_prefix5 = _sql_prefix(legacy_code_expr)
+        current_prefix5 = _sql_prefix(current_code_expr)
+
+        self.env.cr.execute(
+            f"""
+            CREATE OR REPLACE VIEW {self._table} AS
+            WITH legacy_source_db AS (
+                SELECT MAX(source_db) AS source_db
+                FROM legacy_product_month_fact
+            ),
+            legacy_sales AS (
+                SELECT
+                    lmf.period_month::date AS period_month,
+                    'legacy'::text AS source_system,
+                    {legacy_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(lmf.source_name, ''), NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''), '[No Name]')) AS bucket_name,
+                    {legacy_prefix5} AS bucket_code_prefix5,
+                    MIN(COALESCE(NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''), '[No Code]')) AS sample_item_code,
+                    MIN(lmf.source_category_name) AS source_category_name,
+                    MIN(lmf.source_brand_name) AS source_brand_name,
+                    COUNT(DISTINCT lmf.source_product_id) AS product_count,
+                    SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS sales_qty,
+                    SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS sales_amount,
+                    SUM(COALESCE(lmf.legacy_return_qty, 0.0)) AS return_qty,
+                    SUM(COALESCE(lmf.legacy_return_amount, 0.0)) AS return_amount,
+                    SUM(COALESCE(lmf.legacy_discount_amount, 0.0)) AS discount_amount,
+                    SUM(COALESCE(lmf.legacy_gross_sales_amount, 0.0)) AS gross_sales_amount,
+                    CASE
+                        WHEN SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) = 0 THEN NULL
+                        ELSE SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) / SUM(COALESCE(lmf.legacy_sales_qty, 0.0))
+                    END AS asp,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_cogs_amount, 0.0))
+                        ELSE NULL
+                    END AS cogs_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                        THEN SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                        ELSE NULL
+                    END AS margin_amount,
+                    CASE
+                        WHEN BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE))
+                             AND SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) != 0
+                        THEN (
+                            SUM(COALESCE(lmf.legacy_margin_amount, COALESCE(lmf.legacy_sales_amount, 0.0) - COALESCE(lmf.legacy_cogs_amount, 0.0)))
+                            / SUM(COALESCE(lmf.legacy_sales_amount, 0.0))
+                        ) * 100.0
+                        ELSE NULL
+                    END AS margin_pct,
+                    BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE)) AS cost_available
+                FROM legacy_product_month_fact lmf
+                WHERE lmf.period_month < DATE '2026-01-01'
+                GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
+                HAVING {legacy_bucket_key} IS NOT NULL
+            ),
+            current_sales AS (
+                SELECT
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    'current'::text AS source_system,
+                    {current_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(aml.item_code, ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
+                    {current_prefix5} AS bucket_code_prefix5,
+                    MIN(COALESCE(NULLIF(aml.item_code, ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Code]')) AS sample_item_code,
+                    MIN(pc.complete_name) AS source_category_name,
+                    NULL::text AS source_brand_name,
+                    COUNT(DISTINCT aml.product_id) AS product_count,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_amount,
+                    SUM(
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                    ) AS discount_amount,
+                    SUM(
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
+                    ) AS gross_sales_amount,
+                    CASE
+                        WHEN SUM(COALESCE(aml.signed_quantity, 0.0)) = 0 THEN NULL
+                        ELSE SUM(COALESCE(aml.amount_signed, 0.0)) / SUM(COALESCE(aml.signed_quantity, 0.0))
+                    END AS asp,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
+                    CASE
+                        WHEN SUM(COALESCE(aml.amount_signed, 0.0)) = 0 THEN NULL
+                        ELSE (
+                            SUM(COALESCE(aml.amount_signed, 0.0))
+                            - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                        ) / SUM(COALESCE(aml.amount_signed, 0.0)) * 100.0
+                    END AS margin_pct,
+                    (
+                        SUM(COALESCE(aml.amount_signed, 0.0))
+                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                    ) AS margin_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                JOIN product_product pp
+                    ON pp.id = aml.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                LEFT JOIN product_category pc
+                    ON pc.id = pt.categ_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+                GROUP BY date_trunc('month', COALESCE(am.invoice_date, am.date))::date, {current_bucket_key}, {current_prefix5}
+                HAVING {current_bucket_key} IS NOT NULL
+            ),
+            combined AS (
+                SELECT
+                    lsd.source_db,
+                    ls.period_month,
+                    ls.source_system,
+                    ls.bucket_name,
+                    ls.bucket_key,
+                    ls.bucket_code_prefix5,
+                    ls.sample_item_code,
+                    ls.source_category_name,
+                    ls.source_brand_name,
+                    ls.product_count,
+                    ls.sales_qty,
+                    ls.sales_amount,
+                    ls.return_qty,
+                    ls.return_amount,
+                    ls.discount_amount,
+                    ls.gross_sales_amount,
+                    ls.asp,
+                    ls.cogs_amount,
+                    ls.margin_amount,
+                    ls.margin_pct,
+                    COALESCE(ls.cost_available, FALSE) AS cost_available
+                FROM legacy_sales ls
+                CROSS JOIN legacy_source_db lsd
+                UNION ALL
+                SELECT
+                    lsd.source_db,
+                    cs.period_month,
+                    cs.source_system,
+                    cs.bucket_name,
+                    cs.bucket_key,
+                    cs.bucket_code_prefix5,
+                    cs.sample_item_code,
+                    cs.source_category_name,
+                    cs.source_brand_name,
+                    cs.product_count,
+                    cs.sales_qty,
+                    cs.sales_amount,
+                    cs.return_qty,
+                    cs.return_amount,
+                    cs.discount_amount,
+                    cs.gross_sales_amount,
+                    cs.asp,
+                    cs.cogs_amount,
+                    cs.margin_amount,
+                    cs.margin_pct,
+                    COALESCE(cs.cost_available, FALSE) AS cost_available
+                FROM current_sales cs
+                CROSS JOIN legacy_source_db lsd
+            )
+            SELECT
+                ROW_NUMBER() OVER (
+                    ORDER BY
+                        period_month,
+                        source_system,
+                        bucket_code_prefix5 NULLS LAST,
+                        bucket_name NULLS LAST,
+                        sample_item_code NULLS LAST
+                ) AS id,
+                source_db,
+                period_month,
+                source_system,
+                bucket_name,
+                bucket_key,
+                bucket_code_prefix5,
+                sample_item_code,
+                source_category_name,
+                source_brand_name,
+                product_count,
+                sales_qty,
+                sales_amount,
+                return_qty,
+                return_amount,
+                discount_amount,
+                gross_sales_amount,
+                asp,
+                cogs_amount,
+                margin_amount,
+                margin_pct,
+                cost_available,
+                cost_available AS margin_comparable
+            FROM combined
+            WHERE bucket_key IS NOT NULL
+            """
+        )

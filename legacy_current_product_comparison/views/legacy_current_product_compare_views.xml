@@ -645,4 +645,119 @@
               action="action_legacy_current_product_compare_bucket_baseline"
               sequence="93"
               groups="account.group_account_readonly"/>
+
+    <record id="view_legacy_current_product_history_list" model="ir.ui.view">
+        <field name="name">legacy.current.product.history.list</field>
+        <field name="model">legacy.current.product.history</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Full History" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="period_month"/>
+                <field name="source_system" string="System"/>
+                <field name="bucket_name" string="Bucket Product"/>
+                <field name="bucket_code_prefix5" string="Prefix5"/>
+                <field name="sample_item_code" string="Sample Item Code"/>
+                <field name="source_category_name" string="Category" optional="show"/>
+                <field name="source_brand_name" string="Brand" optional="show"/>
+                <field name="product_count" string="Product Count" optional="show"/>
+                <field name="sales_qty" string="Sales Qty"/>
+                <field name="sales_amount" string="Net Sales Amount"/>
+                <field name="return_qty" string="Return Qty" optional="show"/>
+                <field name="return_amount" string="Return Amount" optional="hide"/>
+                <field name="discount_amount" string="Discount" optional="show"/>
+                <field name="gross_sales_amount" string="Gross Sales" optional="show"/>
+                <field name="asp" string="ASP" optional="hide"/>
+                <field name="cogs_amount" string="COGS" optional="show"/>
+                <field name="margin_amount" string="Net Margin $" optional="show"/>
+                <field name="margin_pct" string="Net Margin %" optional="show"/>
+                <field name="cost_available" optional="hide"/>
+                <field name="margin_comparable" optional="hide"/>
+                <field name="bucket_key" optional="hide"/>
+                <field name="source_db" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_history_search" model="ir.ui.view">
+        <field name="name">legacy.current.product.history.search</field>
+        <field name="model">legacy.current.product.history</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Full History">
+                <field name="bucket_name"
+                       string="Search Bucket / Item Code / Prefix"
+                       filter_domain="['|','|','|','|','|','|',('bucket_name','ilike',self),('bucket_key','ilike',self),('bucket_code_prefix5','ilike',self),('sample_item_code','ilike',self),('source_category_name','ilike',self),('source_brand_name','ilike',self),('source_system','ilike',self)]"/>
+                <field name="bucket_key"/>
+                <field name="bucket_code_prefix5"/>
+                <field name="sample_item_code"/>
+                <field name="source_category_name"/>
+                <field name="source_brand_name"/>
+                <field name="source_system"/>
+                <field name="period_month"/>
+                <separator/>
+                <filter name="history_legacy_only" string="Legacy Only" domain="[('source_system', '=', 'legacy')]"/>
+                <filter name="history_current_only" string="Current Only" domain="[('source_system', '=', 'current')]"/>
+                <filter name="history_margin_comparable_only" string="Margin Comparable Only" domain="[('margin_comparable', '=', True)]"/>
+                <filter name="history_finance_ops_core" string="Finance + Ops Core" domain="[('cost_available', '=', True)]"/>
+                <separator/>
+                <filter name="history_period_range" string="Period" date="period_month"/>
+                <separator/>
+                <group expand="0" string="Group By">
+                    <filter name="history_group_month" string="Month" context="{'group_by': 'period_month:month'}"/>
+                    <filter name="history_group_source_system" string="Source System" context="{'group_by': 'source_system'}"/>
+                    <filter name="history_group_bucket" string="Bucket" context="{'group_by': 'bucket_name'}"/>
+                    <filter name="history_group_prefix5" string="Prefix5" context="{'group_by': 'bucket_code_prefix5'}"/>
+                    <filter name="history_group_category" string="Category" context="{'group_by': 'source_category_name'}"/>
+                    <filter name="history_group_brand" string="Brand" context="{'group_by': 'source_brand_name'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_history_pivot" model="ir.ui.view">
+        <field name="name">legacy.current.product.history.pivot</field>
+        <field name="model">legacy.current.product.history</field>
+        <field name="arch" type="xml">
+            <pivot string="Legacy Full History">
+                <field name="sales_qty" type="measure"/>
+                <field name="sales_amount" type="measure"/>
+                <field name="return_qty" type="measure"/>
+                <field name="return_amount" type="measure"/>
+                <field name="discount_amount" type="measure"/>
+                <field name="gross_sales_amount" type="measure"/>
+                <field name="cogs_amount" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+                <field name="margin_pct" type="measure"/>
+                <field name="period_month" interval="month" type="col"/>
+                <field name="source_system" type="row"/>
+                <field name="bucket_name" type="row"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="view_legacy_current_product_history_graph" model="ir.ui.view">
+        <field name="name">legacy.current.product.history.graph</field>
+        <field name="model">legacy.current.product.history</field>
+        <field name="arch" type="xml">
+            <graph string="Legacy Full History" type="line">
+                <field name="period_month" interval="month"/>
+                <field name="source_system" type="row"/>
+                <field name="sales_amount" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_legacy_current_product_history" model="ir.actions.act_window">
+        <field name="name">Legacy Full History</field>
+        <field name="res_model">legacy.current.product.history</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="search_view_id" ref="view_legacy_current_product_history_search"/>
+        <field name="context">{'search_default_history_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_current_product_history"
+              name="Legacy Full History"
+              parent="legacy_invoice_archive.menu_legacy_reporting_root"
+              action="action_legacy_current_product_history"
+              sequence="95"
+              groups="account.group_account_readonly"/>
 </odoo>
