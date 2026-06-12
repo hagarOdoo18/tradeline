@@ -433,45 +433,27 @@ class LegacyCurrentProductCompareMonth(models.Model):
                 SELECT
                     aml.product_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.quantity, 0.0))
-                            ELSE ABS(COALESCE(aml.quantity, 0.0))
-                        END
-                    ) AS current_sales_qty,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
-                            ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
-                        END
-                    ) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
                     ) AS current_gross_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund'
-                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                        END
-                    ) AS current_cogs_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
                     BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
@@ -908,45 +890,27 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                 SELECT
                     aml.product_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.quantity, 0.0))
-                            ELSE ABS(COALESCE(aml.quantity, 0.0))
-                        END
-                    ) AS current_sales_qty,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
-                            ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
-                        END
-                    ) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
                     ) AS current_gross_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund'
-                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                        END
-                    ) AS current_cogs_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
                     BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
@@ -1473,45 +1437,27 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     {current_prefix5} AS bucket_code_prefix5,
                     MIN({current_code_expr}) AS sample_target_item_code,
                     COUNT(DISTINCT aml.product_id) AS current_product_count,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.quantity, 0.0))
-                            ELSE ABS(COALESCE(aml.quantity, 0.0))
-                        END
-                    ) AS current_sales_qty,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN -ABS(COALESCE(aml.price_subtotal, 0.0))
-                            ELSE ABS(COALESCE(aml.price_subtotal, 0.0))
-                        END
-                    ) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.quantity, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_subtotal, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.quantity, 0.0) * COALESCE(aml.price_unit, 0.0)
-                        * CASE WHEN am.move_type = 'out_refund' THEN -1 ELSE 1 END
+                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
                     ) AS current_gross_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN am.move_type = 'out_refund'
-                            THEN -ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                            ELSE ABS(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.quantity, 0.0)))
-                        END
-                    ) AS current_cogs_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
                     BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
