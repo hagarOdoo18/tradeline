@@ -467,7 +467,7 @@
     </record>
 
     <record id="action_legacy_current_product_compare_baseline_mom" model="ir.actions.act_window">
-        <field name="name">Legacy MoM Baseline Comparison</field>
+        <field name="name">Legacy Bucket MoM Comparison</field>
         <field name="res_model">legacy.current.product.compare.baseline</field>
         <field name="view_mode">graph,pivot,list</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
@@ -482,10 +482,10 @@
               groups="account.group_account_readonly"/>
 
     <menuitem id="menu_legacy_current_product_compare_baseline_mom"
-              name="Legacy MoM Baseline Comparison"
+              name="Legacy Bucket MoM Comparison"
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_compare_baseline_mom"
-              sequence="94"
+              sequence="95"
               groups="account.group_account_readonly"/>
 
     <record id="view_legacy_current_product_compare_bucket_baseline_list" model="ir.ui.view">
@@ -747,7 +747,7 @@
     </record>
 
     <record id="action_legacy_current_product_history" model="ir.actions.act_window">
-        <field name="name">Legacy Full History</field>
+        <field name="name">Legacy Bucket Full History</field>
         <field name="res_model">legacy.current.product.history</field>
         <field name="view_mode">list,pivot,graph</field>
         <field name="search_view_id" ref="view_legacy_current_product_history_search"/>
@@ -755,9 +755,9 @@
     </record>
 
     <menuitem id="menu_legacy_current_product_history"
-              name="Legacy Full History"
+              name="Legacy Bucket Full History"
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_history"
-              sequence="95"
+              sequence="94"
               groups="account.group_account_readonly"/>
 </odoo>
