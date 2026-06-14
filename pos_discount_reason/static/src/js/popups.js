@@ -8,6 +8,7 @@ import { TextInputPopup } from "@point_of_sale/app/utils/input_popups/text_input
 import { makeAwaitable } from "@point_of_sale/app/store/make_awaitable_dialog";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { rpc } from "@web/core/network/rpc";
+import { PosChoiceListDialog } from "./selector_dialog";
 
 patch(ControlButtons.prototype, {
     setup() {
@@ -531,12 +532,20 @@ patch(ControlButtons.prototype, {
 
             console.log("Showing selection popup with options:", reasonList);
 
-            const confirmed = await makeAwaitable(this.dialog, SelectionPopup, {
+            const confirmed = await makeAwaitable(this.dialog, PosChoiceListDialog, {
                 title: _t("Select Discount Reason"),
-                list: reasonList,
+                items: reasonList,
+                selectedId: this._asId(order.discount_reason_id),
+                placeholder: _t("Search Discount Reasons..."),
+                emptyMessage: _t("No discount reasons found."),
             });
 
             console.log("Selection result:", confirmed);
+
+            if (confirmed === null) {
+                this.clearDiscountReason();
+                return;
+            }
 
             if (confirmed) {
                 if (confirmed.id === 'custom') {
@@ -747,12 +756,20 @@ patch(ControlButtons.prototype, {
 
             console.log("Showing sales rep selection:", repList);
 
-            const confirmed = await makeAwaitable(this.dialog, SelectionPopup, {
+            const confirmed = await makeAwaitable(this.dialog, PosChoiceListDialog, {
                 title: _t("Select Sales Representative"),
-                list: repList,
+                items: repList,
+                selectedId: this._asId(order.sales_rep_id),
+                placeholder: _t("Search Sales Representatives..."),
+                emptyMessage: _t("No sales representatives found."),
             });
 
             console.log("Sales rep selection result:", confirmed);
+
+            if (confirmed === null) {
+                this.clearSalesRep();
+                return;
+            }
 
             if (confirmed) {
                 order.sales_rep_id = confirmed;

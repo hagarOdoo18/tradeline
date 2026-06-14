@@ -11,15 +11,7 @@
                 <i class="fa fa-percent"/>
                 <br/>Discount Reason
                  <t t-if="env.services.pos.get_order() and env.services.pos.get_order().discount_reason_id">
-                    <br/>
-                    <small><t t-esc="env.services.pos.get_order().discount_reason_id.name"/></small>
-                    <span class="ms-1"
-                          role="button"
-                          t-on-click.stop="() => this.clearDiscountReason()"
-                          title="Remove Discount Reason"
-                          style="color: inherit; vertical-align: baseline; cursor: pointer;">
-                        <i class="fa fa-times"/>
-                    </span>
+                    <br/><small><t t-esc="env.services.pos.get_order().discount_reason_id.name"/></small>
                 </t>
             </button>
 
@@ -44,15 +36,7 @@
                 <i class="fa fa-user"/>
                 <br/>Sales Rep
                 <t t-if="env.services.pos.get_order() and env.services.pos.get_order().sales_rep_id">
-                    <br/>
-                    <small><t t-esc="env.services.pos.get_order().sales_rep_id.name"/></small>
-                    <span class="ms-1"
-                          role="button"
-                          t-on-click.stop="() => this.clearSalesRep()"
-                          title="Remove Sales Rep"
-                          style="color: inherit; vertical-align: baseline; cursor: pointer;">
-                        <i class="fa fa-times"/>
-                    </span>
+                    <br/><small><t t-esc="env.services.pos.get_order().sales_rep_id.name"/></small>
                 </t>
             </button>
 
