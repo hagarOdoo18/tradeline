@@ -14,6 +14,10 @@ patch(ControlButtons.prototype, {
         super.setup();
         console.log("ControlButtons patched successfully!");
     },
+    _getCurrentOrder() {
+        return this.pos.get_order();
+    },
+
     _asId(value) {
         if (Array.isArray(value)) {
             return value[0] || false;
@@ -426,11 +430,36 @@ patch(ControlButtons.prototype, {
         return { ok: true };
     },
 
+    clearDiscountReason() {
+        const order = this._getCurrentOrder();
+        if (!order) {
+            return;
+        }
+
+        order.discount_reason_id = false;
+        order.discount_reason = "";
+
+        if (order._discount_reason_rule_lines_by_reason) {
+            order._discount_reason_rule_lines_by_reason = {};
+        }
+
+        order.get_orderlines().forEach((line) => line.set_discount(0));
+    },
+
+    clearSalesRep() {
+        const order = this._getCurrentOrder();
+        if (!order) {
+            return;
+        }
+
+        order.sales_rep_id = false;
+    },
+
     // Add Discount Reason Button Function
     async addDiscountReason() {
         console.log("addDiscountReason clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
@@ -586,7 +615,7 @@ patch(ControlButtons.prototype, {
     async toggleAsGift() {
         console.log("toggleAsGift clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
@@ -643,7 +672,7 @@ patch(ControlButtons.prototype, {
     async selectSalesRep() {
         console.log("selectSalesRep clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
