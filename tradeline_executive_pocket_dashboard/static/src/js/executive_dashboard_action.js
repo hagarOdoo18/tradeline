@@ -26,6 +26,7 @@ export class ExecutivePocketDashboard extends Component {
                 company_ids: [],
                 branch_ids: [],
                 salesperson_ids: [],
+                product_category: "all",
             },
             activePoint: null,
             selectedDomain: "finance",
@@ -335,6 +336,9 @@ export class ExecutivePocketDashboard extends Component {
             }
             this._syncCompanyDraft();
             this._syncSelectionFromBundle();
+            if (this._ensureValidProductCategory()) {
+                await this._loadTopSections();
+            }
             await this._reloadDrilldown();
         } catch (error) {
             this.state.error = error?.message || "Failed to load dashboard data.";
@@ -351,6 +355,9 @@ export class ExecutivePocketDashboard extends Component {
                 [this.state.filters, this.state.topN]
             );
             if (this.state.bundle) this.state.bundle.top_sections = topSections;
+            if (this._ensureValidProductCategory()) {
+                await this._loadTopSections();
+            }
         } catch {
             this.notification.add("Failed to refresh top sections", { type: "warning" });
         }
@@ -380,6 +387,13 @@ export class ExecutivePocketDashboard extends Component {
     _syncCompanyDraft() {
         const valid = new Set(this.companyOptions.map(c => c.id));
         this.state.companyPicker.draft_ids = (this.state.filters.company_ids || []).filter(id => valid.has(id));
+    }
+    _ensureValidProductCategory() {
+        const selected = this.state.filters.product_category || "all";
+        if (selected === "all") return false;
+        if (this.productCategoryOptions.includes(selected)) return false;
+        this.state.filters.product_category = "all";
+        return true;
     }
 
     // ─── Event handlers ───────────────────────────────────────────────────────
