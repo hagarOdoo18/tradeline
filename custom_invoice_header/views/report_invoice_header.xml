@@ -1,68 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <odoo>
+    <!-- Taxes EGP table removed: render nothing for company-currency tax totals -->
     <template id="account.document_tax_totals_company_currency_template">
-            <t t-set="currency" t-value="o.company_currency_id"/>
-            <t t-set="same_tax_base" t-value="tax_totals['same_tax_base']"/>
-            <div class="mb-2 mt-3 border p-2 avoid-page-break-inside totals_taxes_company_currency">
-                <table class="o_total_table table table-borderless mb-0">
-                    <p class="tax_computation_company_currency">
-                        Taxes <span t-field="o.company_currency_id"/>
-                    </p>
-                    <t t-foreach="tax_totals['subtotals']" t-as="subtotal">
-                        <tr class="o_subtotal">
-                            <td>
-                                <span t-out="subtotal['name']">الاجمالي غير شامل الضربيه</span>
-                            </td>
-                            <td class="text-end">
-                                <span t-out="subtotal['base_amount']"
-                                      t-options='{"widget": "monetary", "display_currency": currency}'
-                                >27.00</span>
-                            </td>
-                        </tr>
-                        <t t-foreach="subtotal['tax_groups']" t-as="tax_group">
-                            <tr class="o_taxes">
-                                <t t-if="same_tax_base or tax_group['display_base_amount'] is None">
-                                    <td>
-                                        <span class="text-nowrap" t-out="tax_group['group_name']"/>
-                                    </td>
-                                    <td class="text-end o_price_total">
-                                        <span class="text-nowrap"
-                                              t-out="tax_group['tax_amount']"
-                                              t-options='{"widget": "monetary", "display_currency": currency}'
-                                        >31.05</span>
-                                    </td>
-                                </t>
-                                <t t-else="">
-                                    <td>
-                                        <span t-out="tax_group['group_name']">Tax 15%</span>
-                                        <span> on </span>
-                                        <span class="text-nowrap"
-                                              t-out="tax_group['display_base_amount']"
-                                              t-options='{"widget": "monetary", "display_currency": currency}'
-                                        >27.00</span>
-                                    </td>
-                                    <td class="text-end o_price_total">
-                                        <span class="text-nowrap"
-                                              t-out="tax_group['tax_amount']"
-                                              t-options='{"widget": "monetary", "display_currency": currency}'
-                                        >4.05</span>
-                                    </td>
-                                </t>
-                            </tr>
-                        </t>
-                    </t>
-                    <!--Total amount with all taxes-->
-                    <tr class="o_total">
-                        <td><strong>Total</strong></td>
-                        <td class="text-end">
-                            <strong t-out="tax_totals['total_amount']"
-                                    t-options='{"widget": "monetary", "display_currency": currency}'
-                            >31.05</strong>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </template>
+    </template>
 
 
 
@@ -254,48 +194,7 @@
                     </p>
                 </div>
 
-                <t t-if="print_summary['show_company_currency']">
-                    <div class="mb-2 mt-3 border p-2 avoid-page-break-inside totals_taxes_company_currency">
-                        <table class="o_total_table table table-borderless mb-0">
-                            <p class="tax_computation_company_currency">
-                                Taxes <span t-field="o.company_currency_id"/>
-                            </p>
-                            <tr class="o_subtotal">
-                                <td>Untaxed Amount</td>
-                                <td class="text-end">
-                                    <span t-out="print_summary['printed_untaxed_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
-                                </td>
-                            </tr>
-                            <t t-if="print_summary.get('printed_tax_groups_company')">
-                                <tr class="o_taxes" t-foreach="print_summary.get('printed_tax_groups_company')" t-as="tax_group_company">
-                                    <td>
-                                        <span t-esc="tax_group_company.get('name')"/>
-                                    </td>
-                                    <td class="text-end o_price_total">
-                                        <span t-out="tax_group_company.get('amount')" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
-                                    </td>
-                                </tr>
-                            </t>
-                            <t t-else="">
-                                <tr class="o_taxes">
-                                    <td>Tax</td>
-                                    <td class="text-end o_price_total">
-                                        <span t-out="print_summary['printed_tax_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</span>
-                                    </td>
-                                </tr>
-                            </t>
-                            <tr class="o_total">
-                                <td><strong>Total</strong></td>
-                                <td class="text-end">
-                                    <strong t-out="print_summary['printed_total_company']" t-options='{"widget": "monetary", "display_currency": o.company_currency_id}'>0.00</strong>
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-                </t>
-                <t t-else="">
-                    <div class="oe_structure"/>
-                </t>
+                <!-- Taxes EGP table removed -->
             </div>
         </xpath>
 
