@@ -2,6 +2,7 @@
 
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
 import { PosOrder } from "@point_of_sale/app/models/pos_order";
+import { PosStore } from "@point_of_sale/app/store/pos_store";
 import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { SelectionPopup } from "@point_of_sale/app/utils/input_popups/selection_popup";
@@ -166,6 +167,31 @@ function setLineValuesCompat(line, quantity, priceUnit, discount) {
     }
 }
 
+async function resetDraftPayments(order) {
+    if (!order?.payment_ids?.length) {
+        return;
+    }
+
+    for (const paymentLine of [...order.payment_ids]) {
+        const paymentTerminal = paymentLine.payment_method_id.payment_terminal;
+        const paymentStatus = typeof paymentLine.get_payment_status === "function"
+            ? paymentLine.get_payment_status()
+            : paymentLine.payment_status;
+
+        if (
+            paymentTerminal &&
+            ["waiting", "waitingCard", "timeout"].includes(paymentStatus)
+        ) {
+            paymentLine.set_payment_status("waitingCancel");
+            await paymentTerminal.send_payment_cancel(order, paymentLine.uuid);
+        }
+
+        if (paymentStatus !== "waitingCancel") {
+            order.remove_paymentline(paymentLine);
+        }
+    }
+}
+
 patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(...arguments);
@@ -196,6 +222,16 @@ patch(PosOrder.prototype, {
         serialized.downpayment_source_quotation_name = sourceName;
         serialized.downpayment_source_reference_number = sourceReference;
         return serialized;
+    },
+});
+
+patch(PosStore.prototype, {
+    async onClickBackButton() {
+        const order = this.get_order();
+        if (order && !order.finalized && order.payment_ids?.length) {
+            await resetDraftPayments(order);
+        }
+        return await super.onClickBackButton(...arguments);
     },
 });
 
