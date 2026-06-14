@@ -7,7 +7,7 @@
                 <Input tModel="[state, 'query']"
                        class="'ms-auto'"
                        isSmall="ui.isSmall"
-                       t-att-placeholder="placeholder"
+                       placeholder="placeholder"
                        icon="{type: 'fa', value: 'fa-search'}"
                        autofocus="true"
                        debounceMillis="250" />
