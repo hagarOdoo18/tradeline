@@ -1429,43 +1429,57 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                 GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
                 HAVING {legacy_bucket_key} IS NOT NULL
             ),
-            current_sales AS (
+            current_invoice_analysis AS (
                 SELECT
-                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS current_period_month,
+                    date_trunc('month', air.invoice_date)::date AS current_period_month,
                     {current_bucket_key} AS bucket_key,
                     MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.default_code, ''), NULLIF(pp.barcode, ''), '[No Name]')) AS bucket_name,
                     {current_prefix5} AS bucket_code_prefix5,
                     MIN({current_code_expr}) AS sample_target_item_code,
-                    COUNT(DISTINCT aml.product_id) AS current_product_count,
-                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
-                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
+                    COUNT(DISTINCT air.product_id) AS current_product_count,
+                    SUM(COALESCE(air.quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
+                    SUM(COALESCE(air.price_subtotal, 0.0) - COALESCE(air.price_margin_taxed, 0.0)) AS current_cogs_amount,
+                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS current_margin_amount,
+                    BOOL_OR(air.price_margin_taxed IS NOT NULL) AS current_cost_available
+                FROM account_invoice_report air
+                JOIN product_product pp
+                    ON pp.id = air.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                WHERE air.product_id IS NOT NULL
+                  AND air.invoice_date >= DATE '2026-01-01'
+                GROUP BY date_trunc('month', air.invoice_date)::date, {current_bucket_key}, {current_prefix5}
+                HAVING {current_bucket_key} IS NOT NULL
+            ),
+            current_aux AS (
+                SELECT
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS current_period_month,
+                    {current_bucket_key} AS bucket_key,
+                    {current_prefix5} AS bucket_code_prefix5,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS current_discount_amount,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
-                    ) AS current_gross_sales_amount,
-                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
-                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
+                    ) AS current_gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
                 JOIN product_product pp
                     ON pp.id = aml.product_id
-                JOIN product_template pt
-                    ON pt.id = pp.product_tmpl_id
                 WHERE aml.product_id IS NOT NULL
                   AND COALESCE(aml.display_type, 'product') = 'product'
                   AND am.state = 'posted'
@@ -1473,6 +1487,28 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                   AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
                 GROUP BY date_trunc('month', COALESCE(am.invoice_date, am.date))::date, {current_bucket_key}, {current_prefix5}
                 HAVING {current_bucket_key} IS NOT NULL
+            ),
+            current_sales AS (
+                SELECT
+                    cia.current_period_month,
+                    cia.bucket_key,
+                    cia.bucket_name,
+                    cia.bucket_code_prefix5,
+                    cia.sample_target_item_code,
+                    cia.current_product_count,
+                    cia.current_sales_qty,
+                    cia.current_sales_amount,
+                    cia.current_return_qty,
+                    cia.current_return_amount,
+                    COALESCE(ca.current_discount_amount, 0.0) AS current_discount_amount,
+                    COALESCE(ca.current_gross_sales_amount, cia.current_sales_amount) AS current_gross_sales_amount,
+                    cia.current_cogs_amount,
+                    cia.current_margin_amount,
+                    cia.current_cost_available
+                FROM current_invoice_analysis cia
+                LEFT JOIN current_aux ca
+                    ON ca.current_period_month = cia.current_period_month
+                   AND ca.bucket_key = cia.bucket_key
             ),
             legacy_source_db AS (
                 SELECT MAX(source_db) AS source_db
@@ -1839,7 +1875,7 @@ class LegacyCurrentProductHistory(models.Model):
         tools.drop_view_if_exists(self.env.cr, self._table)
 
         legacy_code_expr = _sql_first_available_code("lmf.source_default_code", "lmf.source_barcode")
-        current_code_expr = _sql_first_available_code("aml.item_code", "pp.barcode", "pp.default_code")
+        current_code_expr = _sql_first_available_code("pp.barcode", "pp.default_code")
         legacy_bucket_key = _sql_bucket_key_prefix_only(legacy_code_expr)
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
@@ -1898,63 +1934,70 @@ class LegacyCurrentProductHistory(models.Model):
                 GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
                 HAVING {legacy_bucket_key} IS NOT NULL
             ),
-            current_sales AS (
+            current_invoice_analysis AS (
                 SELECT
-                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    date_trunc('month', air.invoice_date)::date AS period_month,
                     'current'::text AS source_system,
                     {current_bucket_key} AS bucket_key,
-                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(aml.item_code, ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
+                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
                     {current_prefix5} AS bucket_code_prefix5,
-                    MIN(COALESCE(NULLIF(aml.item_code, ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Code]')) AS sample_item_code,
+                    MIN(COALESCE(NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Code]')) AS sample_item_code,
                     MIN(pc.complete_name) AS source_category_name,
                     NULL::text AS source_brand_name,
-                    COUNT(DISTINCT aml.product_id) AS product_count,
-                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS sales_qty,
-                    SUM(COALESCE(aml.amount_signed, 0.0)) AS sales_amount,
+                    COUNT(DISTINCT air.product_id) AS product_count,
+                    SUM(COALESCE(air.quantity, 0.0)) AS sales_qty,
+                    SUM(COALESCE(air.price_subtotal, 0.0)) AS sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
                             ELSE 0.0
                         END
                     ) AS return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
                             ELSE 0.0
                         END
                     ) AS return_amount,
+                    CASE
+                        WHEN SUM(COALESCE(air.quantity, 0.0)) = 0 THEN NULL
+                        ELSE SUM(COALESCE(air.price_subtotal, 0.0)) / SUM(COALESCE(air.quantity, 0.0))
+                    END AS asp,
+                    SUM(COALESCE(air.price_subtotal, 0.0) - COALESCE(air.price_margin_taxed, 0.0)) AS cogs_amount,
+                    CASE
+                        WHEN SUM(COALESCE(air.price_subtotal, 0.0)) = 0 THEN NULL
+                        ELSE (SUM(COALESCE(air.price_margin_taxed, 0.0)) / SUM(COALESCE(air.price_subtotal, 0.0))) * 100.0
+                    END AS margin_pct,
+                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS margin_amount,
+                    BOOL_OR(air.price_margin_taxed IS NOT NULL) AS cost_available
+                FROM account_invoice_report air
+                JOIN product_product pp
+                    ON pp.id = air.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                LEFT JOIN product_category pc
+                    ON pc.id = pt.categ_id
+                WHERE air.product_id IS NOT NULL
+                  AND air.invoice_date >= DATE '2026-01-01'
+                GROUP BY date_trunc('month', air.invoice_date)::date, {current_bucket_key}, {current_prefix5}
+                HAVING {current_bucket_key} IS NOT NULL
+            ),
+            current_aux AS (
+                SELECT
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    {current_bucket_key} AS bucket_key,
+                    {current_prefix5} AS bucket_code_prefix5,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS discount_amount,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
-                    ) AS gross_sales_amount,
-                    CASE
-                        WHEN SUM(COALESCE(aml.signed_quantity, 0.0)) = 0 THEN NULL
-                        ELSE SUM(COALESCE(aml.amount_signed, 0.0)) / SUM(COALESCE(aml.signed_quantity, 0.0))
-                    END AS asp,
-                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
-                    CASE
-                        WHEN SUM(COALESCE(aml.amount_signed, 0.0)) = 0 THEN NULL
-                        ELSE (
-                            SUM(COALESCE(aml.amount_signed, 0.0))
-                            - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
-                        ) / SUM(COALESCE(aml.amount_signed, 0.0)) * 100.0
-                    END AS margin_pct,
-                    (
-                        SUM(COALESCE(aml.amount_signed, 0.0))
-                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
-                    ) AS margin_amount,
-                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
+                    ) AS gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
                 JOIN product_product pp
                     ON pp.id = aml.product_id
-                JOIN product_template pt
-                    ON pt.id = pp.product_tmpl_id
-                LEFT JOIN product_category pc
-                    ON pc.id = pt.categ_id
                 WHERE aml.product_id IS NOT NULL
                   AND COALESCE(aml.display_type, 'product') = 'product'
                   AND am.state = 'posted'
@@ -1962,6 +2005,33 @@ class LegacyCurrentProductHistory(models.Model):
                   AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
                 GROUP BY date_trunc('month', COALESCE(am.invoice_date, am.date))::date, {current_bucket_key}, {current_prefix5}
                 HAVING {current_bucket_key} IS NOT NULL
+            ),
+            current_sales AS (
+                SELECT
+                    cia.period_month,
+                    cia.source_system,
+                    cia.bucket_key,
+                    cia.bucket_name,
+                    cia.bucket_code_prefix5,
+                    cia.sample_item_code,
+                    cia.source_category_name,
+                    cia.source_brand_name,
+                    cia.product_count,
+                    cia.sales_qty,
+                    cia.sales_amount,
+                    cia.return_qty,
+                    cia.return_amount,
+                    COALESCE(ca.discount_amount, 0.0) AS discount_amount,
+                    COALESCE(ca.gross_sales_amount, cia.sales_amount) AS gross_sales_amount,
+                    cia.asp,
+                    cia.cogs_amount,
+                    cia.margin_pct,
+                    cia.margin_amount,
+                    cia.cost_available
+                FROM current_invoice_analysis cia
+                LEFT JOIN current_aux ca
+                    ON ca.period_month = cia.period_month
+                   AND ca.bucket_key = cia.bucket_key
             ),
             combined AS (
                 SELECT
