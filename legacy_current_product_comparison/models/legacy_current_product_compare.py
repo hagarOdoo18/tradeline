@@ -1451,9 +1451,6 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
-                    SUM(COALESCE(air.price_subtotal, 0.0) - COALESCE(air.price_margin_taxed, 0.0)) AS current_cogs_amount,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS current_margin_amount,
-                    BOOL_OR(air.price_margin_taxed IS NOT NULL) AS current_cost_available
                 FROM account_invoice_report air
                 JOIN product_product pp
                     ON pp.id = air.product_id
@@ -1474,7 +1471,9 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     ) AS current_discount_amount,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
-                    ) AS current_gross_sales_amount
+                    ) AS current_gross_sales_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -1502,9 +1501,8 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     cia.current_return_amount,
                     COALESCE(ca.current_discount_amount, 0.0) AS current_discount_amount,
                     COALESCE(ca.current_gross_sales_amount, cia.current_sales_amount) AS current_gross_sales_amount,
-                    cia.current_cogs_amount,
-                    cia.current_margin_amount,
-                    cia.current_cost_available
+                    ca.current_cogs_amount,
+                    ca.current_cost_available
                 FROM current_invoice_analysis cia
                 LEFT JOIN current_aux ca
                     ON ca.current_period_month = cia.current_period_month
@@ -1963,13 +1961,6 @@ class LegacyCurrentProductHistory(models.Model):
                         WHEN SUM(COALESCE(air.quantity, 0.0)) = 0 THEN NULL
                         ELSE SUM(COALESCE(air.price_subtotal, 0.0)) / SUM(COALESCE(air.quantity, 0.0))
                     END AS asp,
-                    SUM(COALESCE(air.price_subtotal, 0.0) - COALESCE(air.price_margin_taxed, 0.0)) AS cogs_amount,
-                    CASE
-                        WHEN SUM(COALESCE(air.price_subtotal, 0.0)) = 0 THEN NULL
-                        ELSE (SUM(COALESCE(air.price_margin_taxed, 0.0)) / SUM(COALESCE(air.price_subtotal, 0.0))) * 100.0
-                    END AS margin_pct,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS margin_amount,
-                    BOOL_OR(air.price_margin_taxed IS NOT NULL) AS cost_available
                 FROM account_invoice_report air
                 JOIN product_product pp
                     ON pp.id = air.product_id
@@ -1992,7 +1983,9 @@ class LegacyCurrentProductHistory(models.Model):
                     ) AS discount_amount,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
-                    ) AS gross_sales_amount
+                    ) AS gross_sales_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -2024,10 +2017,16 @@ class LegacyCurrentProductHistory(models.Model):
                     COALESCE(ca.discount_amount, 0.0) AS discount_amount,
                     COALESCE(ca.gross_sales_amount, cia.sales_amount) AS gross_sales_amount,
                     cia.asp,
-                    cia.cogs_amount,
-                    cia.margin_pct,
-                    cia.margin_amount,
-                    cia.cost_available
+                    ca.cogs_amount,
+                    CASE
+                        WHEN cia.sales_amount = 0 OR ca.cogs_amount IS NULL THEN NULL
+                        ELSE ((cia.sales_amount - ca.cogs_amount) / cia.sales_amount) * 100.0
+                    END AS margin_pct,
+                    CASE
+                        WHEN ca.cogs_amount IS NULL THEN NULL
+                        ELSE cia.sales_amount - ca.cogs_amount
+                    END AS margin_amount,
+                    ca.cost_available
                 FROM current_invoice_analysis cia
                 LEFT JOIN current_aux ca
                     ON ca.period_month = cia.period_month
