@@ -8,6 +8,27 @@
             <xpath expr="//field[@name='sale_ok']" position="after">
                 <field name="business_customer_only"/>
             </xpath>
+            <xpath expr="//page[@name='sales']//group[1]" position="after">
+                <group string="Customer Restrictions" name="business_customer_restrictions">
+                    <field name="business_customer_only"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="product_product_form_business_customer_only" model="ir.ui.view">
+        <field name="name">product.product.form.business.customer.only</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_normal_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='sale_ok']" position="after">
+                <field name="business_customer_only"/>
+            </xpath>
+            <xpath expr="//page[@name='sales']//group[1]" position="after">
+                <group string="Customer Restrictions" name="business_customer_restrictions">
+                    <field name="business_customer_only"/>
+                </group>
+            </xpath>
         </field>
     </record>
 

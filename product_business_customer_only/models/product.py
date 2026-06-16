@@ -18,7 +18,7 @@ class ProductProduct(models.Model):
     business_customer_only = fields.Boolean(
         related="product_tmpl_id.business_customer_only",
         string="Business Customers Only",
-        readonly=True,
+        readonly=False,
     )
 
     @api.model
