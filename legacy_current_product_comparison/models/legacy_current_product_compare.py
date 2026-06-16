@@ -774,7 +774,6 @@ class LegacyCurrentProductCompareBaseline(models.Model):
     baseline_period_month = fields.Date(readonly=True)
     baseline_key = fields.Char(readonly=True)
     is_latest_current_month = fields.Boolean(readonly=True)
-
     current_sales_qty = fields.Float(readonly=True)
     current_sales_amount = fields.Float(readonly=True)
     current_return_qty = fields.Float(readonly=True)
@@ -1306,6 +1305,7 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
     baseline_period_month = fields.Date(readonly=True)
     baseline_key = fields.Char(readonly=True)
     is_latest_current_month = fields.Boolean(readonly=True)
+    is_latest_legacy_month = fields.Boolean(readonly=True)
 
     bucket_name = fields.Char(readonly=True)
     bucket_key = fields.Char(readonly=True)
@@ -1723,6 +1723,13 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     ELSE to_char(current_period_month, 'YYYY-MM') || ' vs ' || to_char(baseline_period_month, 'YYYY-MM')
                 END AS baseline_key,
                 (current_period_month = (SELECT MAX(period_month) FROM months_current)) AS is_latest_current_month,
+                (
+                    baseline_period_month = (
+                        SELECT MAX(period_month)
+                        FROM legacy_product_month_fact
+                        WHERE period_month < DATE '2026-01-01'
+                    )
+                ) AS is_latest_legacy_month,
                 bucket_name,
                 bucket_key,
                 bucket_code_prefix5,

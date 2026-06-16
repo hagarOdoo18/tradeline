@@ -562,6 +562,7 @@
                 <filter name="bucket_mode_custom" string="Custom Legacy Month" domain="[('baseline_mode', '=', 'custom_legacy')]"/>
                 <filter name="bucket_mode_previous" string="MoM Mode" domain="[('baseline_mode', '=', 'previous_current')]"/>
                 <filter name="bucket_latest_current" string="Latest Current Month" domain="[('is_latest_current_month', '=', True)]"/>
+                <filter name="bucket_latest_legacy" string="Latest Legacy Month" domain="[('is_latest_legacy_month', '=', True)]"/>
                 <filter name="bucket_has_legacy" string="Has Baseline Data" domain="[('baseline_has_legacy_data', '=', True)]"/>
                 <filter name="bucket_has_current" string="Has Current Data" domain="[('has_current_data', '=', True)]"/>
                 <filter name="bucket_margin_comparable_only" string="Margin Comparable Only" domain="[('margin_comparable', '=', True)]"/>
@@ -636,7 +637,7 @@
         <field name="res_model">legacy.current.product.compare.bucket.baseline</field>
         <field name="view_mode">list,pivot,graph</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_bucket_baseline_search"/>
-        <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_latest_current': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_latest_current': 1, 'search_default_bucket_latest_legacy': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_bucket_baseline"
