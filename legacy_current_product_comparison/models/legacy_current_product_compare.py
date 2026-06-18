@@ -31,8 +31,7 @@ def _table_columns(cr, table_name):
         """
         SELECT column_name
         FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = %s
+        WHERE table_name = %s
         """,
         (table_name,),
     )
