@@ -1899,17 +1899,11 @@ class LegacyCurrentProductHistory(models.Model):
         )
 
     @api.model
-    def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
+    def _search(self, domain, offset=0, limit=None, order=None, *args, **kwargs):
         scope_filter = self._get_invoice_analysis_scope_filter()
         if scope_filter:
             domain = expression.AND([domain or [], scope_filter])
-        return super()._search(
-            domain,
-            offset=offset,
-            limit=limit,
-            order=order,
-            access_rights_uid=access_rights_uid,
-        )
+        return super()._search(domain, offset=offset, limit=limit, order=order, *args, **kwargs)
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
