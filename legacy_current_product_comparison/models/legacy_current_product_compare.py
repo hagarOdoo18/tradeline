@@ -45,7 +45,13 @@ def _relation_columns(cr, relation_name):
 def _invoice_report_capabilities(cr):
     cols = _relation_columns(cr, "account_invoice_report")
     return {
-        "sales": True,
+        "sales": {
+            "product_id",
+            "invoice_date",
+            "quantity",
+            "price_subtotal",
+            "move_type",
+        }.issubset(cols),
         "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
         "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
     }
