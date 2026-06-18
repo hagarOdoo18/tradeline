@@ -26,20 +26,8 @@ BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
-def _table_columns(cr, table_name):
-    cr.execute(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_name = %s
-        """,
-        (table_name,),
-    )
-    return {row[0] for row in cr.fetchall()}
-
-
-def _invoice_report_capabilities(cr):
-    cols = _table_columns(cr, "account_invoice_report")
+def _invoice_report_capabilities(env):
+    cols = set(env["account.invoice.report"]._fields)
     return {
         "sales": {
             "product_id",
@@ -53,8 +41,8 @@ def _invoice_report_capabilities(cr):
     }
 
 
-def _sql_current_product_sales_cte(cr):
-    invoice_caps = _invoice_report_capabilities(cr)
+def _sql_current_product_sales_cte(env):
+    invoice_caps = _invoice_report_capabilities(env)
     if invoice_caps["sales"]:
         report_cogs_expr = (
             "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
@@ -138,8 +126,8 @@ def _sql_current_product_sales_cte(cr):
         """
 
 
-def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, current_code_expr):
-    invoice_caps = _invoice_report_capabilities(cr)
+def _sql_current_history_sales_cte(env, current_bucket_key, current_prefix5, current_code_expr):
+    invoice_caps = _invoice_report_capabilities(env)
     if invoice_caps["sales"]:
         report_cogs_expr = (
             "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
@@ -622,7 +610,7 @@ class LegacyCurrentProductCompareMonth(models.Model):
             ),
             """
 
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env)
 
         self.env.cr.execute(
             f"""
@@ -1112,7 +1100,7 @@ class LegacyCurrentProductCompareBaseline(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -1635,7 +1623,7 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -2200,7 +2188,7 @@ class LegacyCurrentProductHistory(models.Model):
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
         current_report_sales_cte = _sql_current_history_sales_cte(
-            self.env.cr,
+            self.env,
             current_bucket_key,
             current_prefix5,
             current_code_expr,
