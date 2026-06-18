@@ -180,7 +180,7 @@
 
                     <div class="col-3"  >
                             <strong>Billing Address:</strong>
-                                    <p t-field="o.partner_id.street2" />
+                                    <p t-field="o.partner_id.street" />
                     </div>
                     <div class="col-3" >
                         <strong>Tax ID :</strong>
