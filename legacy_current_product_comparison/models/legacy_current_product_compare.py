@@ -1,4 +1,6 @@
-from odoo import fields, models, tools
+from odoo import api, fields, models, tools
+from odoo.osv import expression
+from odoo.tools.safe_eval import safe_eval
 
 
 MATCH_STATUS_SELECTION = [
@@ -1827,6 +1829,10 @@ class LegacyCurrentProductHistory(models.Model):
     sample_item_code = fields.Char(readonly=True)
     source_category_name = fields.Char(readonly=True)
     source_brand_name = fields.Char(readonly=True)
+    branch_id = fields.Integer(readonly=True)
+    team_id = fields.Integer(readonly=True)
+    invoice_user_id = fields.Integer(readonly=True)
+    company_id = fields.Integer(readonly=True)
     product_count = fields.Integer(readonly=True)
 
     sales_qty = fields.Float(readonly=True)
@@ -1841,6 +1847,69 @@ class LegacyCurrentProductHistory(models.Model):
     margin_pct = fields.Float(readonly=True, string="Net Margin %")
     cost_available = fields.Boolean(readonly=True)
     margin_comparable = fields.Boolean(readonly=True)
+
+    @api.model
+    def _get_invoice_analysis_scope_filter(self):
+        if self.env.context.get("legacy_history_skip_invoice_scope"):
+            return []
+
+        invoice_filter = self.env["ir.filters"].search(
+            [
+                ("model_id", "=", "account.invoice.report"),
+                ("name", "=", "Invoices Analysis"),
+                "|",
+                ("user_id", "=", self.env.uid),
+                ("user_id", "=", False),
+            ],
+            order="user_id desc, write_date desc, id desc",
+            limit=1,
+        )
+        if not invoice_filter or not invoice_filter.domain:
+            return []
+
+        try:
+            raw_domain = safe_eval(
+                invoice_filter.domain,
+                {"context_today": lambda: fields.Date.context_today(self)},
+                {"self": self},
+            )
+        except Exception:
+            return []
+
+        supported_fields = {"branch_id", "team_id", "invoice_user_id", "company_id"}
+        current_scope = []
+
+        def _collect_terms(node):
+            if isinstance(node, (list, tuple)):
+                if len(node) >= 3 and isinstance(node[0], str) and node[0] in supported_fields:
+                    current_scope.append(tuple(node[:3]))
+                    return
+                for child in node:
+                    _collect_terms(child)
+
+        _collect_terms(raw_domain)
+        if not current_scope:
+            return []
+
+        return expression.OR(
+            [
+                [("source_system", "=", "legacy")],
+                expression.AND([[("source_system", "=", "current")], current_scope]),
+            ]
+        )
+
+    @api.model
+    def _search(self, domain, offset=0, limit=None, order=None, access_rights_uid=None):
+        scope_filter = self._get_invoice_analysis_scope_filter()
+        if scope_filter:
+            domain = expression.AND([domain or [], scope_filter])
+        return super()._search(
+            domain,
+            offset=offset,
+            limit=limit,
+            order=order,
+            access_rights_uid=access_rights_uid,
+        )
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
@@ -1869,6 +1938,10 @@ class LegacyCurrentProductHistory(models.Model):
                     MIN(COALESCE(NULLIF(lmf.source_default_code, ''), NULLIF(lmf.source_barcode, ''), '[No Code]')) AS sample_item_code,
                     MIN(lmf.source_category_name) AS source_category_name,
                     MIN(lmf.source_brand_name) AS source_brand_name,
+                    NULL::integer AS branch_id,
+                    NULL::integer AS team_id,
+                    NULL::integer AS invoice_user_id,
+                    NULL::integer AS company_id,
                     COUNT(DISTINCT lmf.source_product_id) AS product_count,
                     SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS sales_qty,
                     SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS sales_amount,
@@ -1915,6 +1988,10 @@ class LegacyCurrentProductHistory(models.Model):
                     MIN(COALESCE(NULLIF(aml.item_code, ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Code]')) AS sample_item_code,
                     MIN(pc.complete_name) AS source_category_name,
                     NULL::text AS source_brand_name,
+                    am.branch_id AS branch_id,
+                    am.team_id AS team_id,
+                    am.invoice_user_id AS invoice_user_id,
+                    am.company_id AS company_id,
                     COUNT(DISTINCT aml.product_id) AS product_count,
                     SUM(COALESCE(aml.signed_quantity, 0.0)) AS sales_qty,
                     SUM(COALESCE(aml.amount_signed, 0.0)) AS sales_amount,
@@ -1967,7 +2044,14 @@ class LegacyCurrentProductHistory(models.Model):
                   AND am.state = 'posted'
                   AND am.move_type IN ('out_invoice', 'out_refund')
                   AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
-                GROUP BY date_trunc('month', COALESCE(am.invoice_date, am.date))::date, {current_bucket_key}, {current_prefix5}
+                GROUP BY
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date,
+                    {current_bucket_key},
+                    {current_prefix5},
+                    am.branch_id,
+                    am.team_id,
+                    am.invoice_user_id,
+                    am.company_id
                 HAVING {current_bucket_key} IS NOT NULL
             ),
             combined AS (
@@ -1981,6 +2065,10 @@ class LegacyCurrentProductHistory(models.Model):
                     ls.sample_item_code,
                     ls.source_category_name,
                     ls.source_brand_name,
+                    ls.branch_id,
+                    ls.team_id,
+                    ls.invoice_user_id,
+                    ls.company_id,
                     ls.product_count,
                     ls.sales_qty,
                     ls.sales_amount,
@@ -2006,6 +2094,10 @@ class LegacyCurrentProductHistory(models.Model):
                     cs.sample_item_code,
                     cs.source_category_name,
                     cs.source_brand_name,
+                    cs.branch_id,
+                    cs.team_id,
+                    cs.invoice_user_id,
+                    cs.company_id,
                     cs.product_count,
                     cs.sales_qty,
                     cs.sales_amount,
@@ -2039,6 +2131,10 @@ class LegacyCurrentProductHistory(models.Model):
                 sample_item_code,
                 source_category_name,
                 source_brand_name,
+                branch_id,
+                team_id,
+                invoice_user_id,
+                company_id,
                 product_count,
                 sales_qty,
                 sales_amount,
