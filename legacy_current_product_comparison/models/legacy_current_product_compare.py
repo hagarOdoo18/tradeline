@@ -26,6 +26,260 @@ BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
+def _table_columns(cr, table_name):
+    cr.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (table_name,),
+    )
+    return {row[0] for row in cr.fetchall()}
+
+
+def _invoice_report_capabilities(cr):
+    cols = _table_columns(cr, "account_invoice_report")
+    return {
+        "sales": {
+            "product_id",
+            "invoice_date",
+            "quantity",
+            "price_subtotal",
+            "move_type",
+        }.issubset(cols),
+        "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
+        "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
+    }
+
+
+def _sql_current_product_sales_cte(cr):
+    invoice_caps = _invoice_report_capabilities(cr)
+    if invoice_caps["sales"]:
+        report_cogs_expr = (
+            "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
+            if invoice_caps["margin"]
+            else "NULL::double precision"
+        )
+        report_margin_expr = (
+            "SUM(COALESCE(air.price_margin_taxed, 0.0))"
+            if invoice_caps["margin"]
+            else "NULL::double precision"
+        )
+        report_cost_available_expr = (
+            "BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL)"
+            if invoice_caps["margin"]
+            else "FALSE"
+        )
+        return f"""
+            current_report_sales AS (
+                SELECT
+                    air.product_id,
+                    date_trunc('month', air.invoice_date)::date AS period_month,
+                    SUM(COALESCE(air.quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_qty,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_amount,
+                    {report_cogs_expr} AS current_cogs_amount,
+                    {report_margin_expr} AS current_margin_amount,
+                    {report_cost_available_expr} AS current_cost_available
+                FROM account_invoice_report air
+                WHERE air.product_id IS NOT NULL
+                  AND air.move_type IN ('out_invoice', 'out_refund')
+                  AND air.invoice_date >= DATE '2026-01-01'
+                GROUP BY air.product_id, date_trunc('month', air.invoice_date)::date
+            )
+        """
+    return """
+            current_report_sales AS (
+                SELECT
+                    aml.product_id,
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS current_return_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
+                    (
+                        SUM(COALESCE(aml.amount_signed, 0.0))
+                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                    ) AS current_margin_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+                GROUP BY aml.product_id, date_trunc('month', COALESCE(am.invoice_date, am.date))::date
+            )
+        """
+
+
+def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, current_code_expr):
+    invoice_caps = _invoice_report_capabilities(cr)
+    if invoice_caps["sales"]:
+        report_cogs_expr = (
+            "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
+            if invoice_caps["margin"]
+            else "NULL::double precision"
+        )
+        report_margin_expr = (
+            "SUM(COALESCE(air.price_margin_taxed, 0.0))"
+            if invoice_caps["margin"]
+            else "NULL::double precision"
+        )
+        report_cost_available_expr = (
+            "BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL)"
+            if invoice_caps["margin"]
+            else "FALSE"
+        )
+        branch_expr = "air.branch_id" if invoice_caps["dimensions"] else "NULL::integer"
+        team_expr = "air.team_id" if invoice_caps["dimensions"] else "NULL::integer"
+        user_expr = "air.invoice_user_id" if invoice_caps["dimensions"] else "NULL::integer"
+        company_expr = "air.company_id" if invoice_caps["dimensions"] else "NULL::integer"
+        group_dimensions = (
+            f"{branch_expr}, {team_expr}, {user_expr}, {company_expr}"
+            if invoice_caps["dimensions"]
+            else "NULL::integer, NULL::integer, NULL::integer, NULL::integer"
+        )
+        return f"""
+            current_report_sales AS (
+                SELECT
+                    date_trunc('month', air.invoice_date)::date AS period_month,
+                    'current'::text AS source_system,
+                    {current_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
+                    {current_prefix5} AS bucket_code_prefix5,
+                    MIN({current_code_expr}) AS sample_item_code,
+                    MIN(pc.complete_name) AS source_category_name,
+                    NULL::text AS source_brand_name,
+                    {branch_expr} AS branch_id,
+                    {team_expr} AS team_id,
+                    {user_expr} AS invoice_user_id,
+                    {company_expr} AS company_id,
+                    COUNT(DISTINCT air.product_id) AS product_count,
+                    SUM(COALESCE(air.quantity, 0.0)) AS sales_qty,
+                    SUM(COALESCE(air.price_subtotal, 0.0)) AS sales_amount,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_qty,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_amount,
+                    {report_cogs_expr} AS cogs_amount,
+                    {report_margin_expr} AS margin_amount,
+                    {report_cost_available_expr} AS cost_available
+                FROM account_invoice_report air
+                JOIN product_product pp
+                    ON pp.id = air.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                LEFT JOIN product_category pc
+                    ON pc.id = pt.categ_id
+                WHERE air.product_id IS NOT NULL
+                  AND air.move_type IN ('out_invoice', 'out_refund')
+                  AND air.invoice_date >= DATE '2026-01-01'
+                GROUP BY
+                    date_trunc('month', air.invoice_date)::date,
+                    {current_bucket_key},
+                    {current_prefix5},
+                    {group_dimensions}
+                HAVING {current_bucket_key} IS NOT NULL
+            )
+        """
+    return f"""
+            current_report_sales AS (
+                SELECT
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
+                    'current'::text AS source_system,
+                    {current_bucket_key} AS bucket_key,
+                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
+                    {current_prefix5} AS bucket_code_prefix5,
+                    MIN({current_code_expr}) AS sample_item_code,
+                    MIN(pc.complete_name) AS source_category_name,
+                    NULL::text AS source_brand_name,
+                    am.branch_id AS branch_id,
+                    am.team_id AS team_id,
+                    am.invoice_user_id AS invoice_user_id,
+                    am.company_id AS company_id,
+                    COUNT(DISTINCT aml.product_id) AS product_count,
+                    SUM(COALESCE(aml.signed_quantity, 0.0)) AS sales_qty,
+                    SUM(COALESCE(aml.amount_signed, 0.0)) AS sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_qty,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
+                    (
+                        SUM(COALESCE(aml.amount_signed, 0.0))
+                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                    ) AS margin_amount,
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                JOIN product_product pp
+                    ON pp.id = aml.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                LEFT JOIN product_category pc
+                    ON pc.id = pt.categ_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+                GROUP BY
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date,
+                    {current_bucket_key},
+                    {current_prefix5},
+                    am.branch_id,
+                    am.team_id,
+                    am.invoice_user_id,
+                    am.company_id
+                HAVING {current_bucket_key} IS NOT NULL
+            )
+        """
+
+
 def _sql_norm_name(expr):
     return f"NULLIF(BTRIM(REGEXP_REPLACE(LOWER(COALESCE({expr}, '')), '[^a-z0-9]+', ' ', 'g')), '')"
 
@@ -369,6 +623,8 @@ class LegacyCurrentProductCompareMonth(models.Model):
             ),
             """
 
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -431,33 +687,7 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     INTERVAL '1 month'
                 )::date AS period_month
             ),
-            current_report_sales AS (
-                SELECT
-                    air.product_id,
-                    date_trunc('month', air.invoice_date)::date AS period_month,
-                    SUM(COALESCE(air.quantity, 0.0)) AS current_sales_qty,
-                    SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_qty,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_amount,
-                    SUM(COALESCE(air.inventory_value_untaxed, 0.0)) AS current_cogs_amount,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS current_margin_amount,
-                    BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL) AS current_cost_available
-                FROM account_invoice_report air
-                WHERE air.product_id IS NOT NULL
-                  AND air.move_type IN ('out_invoice', 'out_refund')
-                  AND air.invoice_date >= DATE '2026-01-01'
-                GROUP BY air.product_id, date_trunc('month', air.invoice_date)::date
-            ),
+            {current_report_sales_cte},
             current_line_extras AS (
                 SELECT
                     aml.product_id,
@@ -883,6 +1113,7 @@ class LegacyCurrentProductCompareBaseline(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -916,33 +1147,7 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     INTERVAL '1 month'
                 )::date AS period_month
             ),
-            current_report_sales AS (
-                SELECT
-                    air.product_id,
-                    date_trunc('month', air.invoice_date)::date AS period_month,
-                    SUM(COALESCE(air.quantity, 0.0)) AS current_sales_qty,
-                    SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_qty,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_amount,
-                    SUM(COALESCE(air.inventory_value_untaxed, 0.0)) AS current_cogs_amount,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS current_margin_amount,
-                    BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL) AS current_cost_available
-                FROM account_invoice_report air
-                WHERE air.product_id IS NOT NULL
-                  AND air.move_type IN ('out_invoice', 'out_refund')
-                  AND air.invoice_date >= DATE '2026-01-01'
-                GROUP BY air.product_id, date_trunc('month', air.invoice_date)::date
-            ),
+            {current_report_sales_cte},
             current_line_extras AS (
                 SELECT
                     aml.product_id,
@@ -1431,6 +1636,7 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -1489,40 +1695,28 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                 GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
                 HAVING {legacy_bucket_key} IS NOT NULL
             ),
-            current_report_sales AS (
+            {current_report_sales_cte},
+            current_bucket_report_sales AS (
                 SELECT
-                    date_trunc('month', air.invoice_date)::date AS current_period_month,
+                    crs.period_month AS current_period_month,
                     {current_bucket_key} AS bucket_key,
                     MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.default_code, ''), NULLIF(pp.barcode, ''), '[No Name]')) AS bucket_name,
                     {current_prefix5} AS bucket_code_prefix5,
                     MIN({current_code_expr}) AS sample_target_item_code,
-                    COUNT(DISTINCT air.product_id) AS current_product_count,
-                    SUM(COALESCE(air.quantity, 0.0)) AS current_sales_qty,
-                    SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_qty,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS current_return_amount,
-                    SUM(COALESCE(air.inventory_value_untaxed, 0.0)) AS current_cogs_amount,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS current_margin_amount,
-                    BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL) AS current_cost_available
-                FROM account_invoice_report air
+                    COUNT(DISTINCT crs.product_id) AS current_product_count,
+                    SUM(COALESCE(crs.current_sales_qty, 0.0)) AS current_sales_qty,
+                    SUM(COALESCE(crs.current_sales_amount, 0.0)) AS current_sales_amount,
+                    SUM(COALESCE(crs.current_return_qty, 0.0)) AS current_return_qty,
+                    SUM(COALESCE(crs.current_return_amount, 0.0)) AS current_return_amount,
+                    SUM(COALESCE(crs.current_cogs_amount, 0.0)) AS current_cogs_amount,
+                    SUM(COALESCE(crs.current_margin_amount, 0.0)) AS current_margin_amount,
+                    BOOL_OR(COALESCE(crs.current_cost_available, FALSE)) AS current_cost_available
+                FROM current_report_sales crs
                 JOIN product_product pp
-                    ON pp.id = air.product_id
+                    ON pp.id = crs.product_id
                 JOIN product_template pt
                     ON pt.id = pp.product_tmpl_id
-                WHERE air.product_id IS NOT NULL
-                  AND air.move_type IN ('out_invoice', 'out_refund')
-                  AND air.invoice_date >= DATE '2026-01-01'
-                GROUP BY date_trunc('month', air.invoice_date)::date, {current_bucket_key}, {current_prefix5}
+                GROUP BY crs.period_month, {current_bucket_key}, {current_prefix5}
                 HAVING {current_bucket_key} IS NOT NULL
             ),
             current_line_extras AS (
@@ -1566,7 +1760,7 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     crs.current_cogs_amount,
                     crs.current_margin_amount,
                     COALESCE(crs.current_cost_available, FALSE) AS current_cost_available
-                FROM current_report_sales crs
+                FROM current_bucket_report_sales crs
                 FULL OUTER JOIN current_line_extras cle
                     ON cle.current_period_month = crs.current_period_month
                    AND cle.bucket_key = crs.bucket_key
@@ -2006,6 +2200,12 @@ class LegacyCurrentProductHistory(models.Model):
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
+        current_report_sales_cte = _sql_current_history_sales_cte(
+            self.env.cr,
+            current_bucket_key,
+            current_prefix5,
+            current_code_expr,
+        )
 
         self.env.cr.execute(
             f"""
@@ -2064,58 +2264,7 @@ class LegacyCurrentProductHistory(models.Model):
                 GROUP BY lmf.period_month::date, {legacy_bucket_key}, {legacy_prefix5}
                 HAVING {legacy_bucket_key} IS NOT NULL
             ),
-            current_report_sales AS (
-                SELECT
-                    date_trunc('month', air.invoice_date)::date AS period_month,
-                    'current'::text AS source_system,
-                    {current_bucket_key} AS bucket_key,
-                    MIN(COALESCE(NULLIF(pt.name->>'en_US', ''), NULLIF(pp.barcode, ''), NULLIF(pp.default_code, ''), '[No Name]')) AS bucket_name,
-                    {current_prefix5} AS bucket_code_prefix5,
-                    MIN({current_code_expr}) AS sample_item_code,
-                    MIN(pc.complete_name) AS source_category_name,
-                    NULL::text AS source_brand_name,
-                    air.branch_id AS branch_id,
-                    air.team_id AS team_id,
-                    air.invoice_user_id AS invoice_user_id,
-                    air.company_id AS company_id,
-                    COUNT(DISTINCT air.product_id) AS product_count,
-                    SUM(COALESCE(air.quantity, 0.0)) AS sales_qty,
-                    SUM(COALESCE(air.price_subtotal, 0.0)) AS sales_amount,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS return_qty,
-                    SUM(
-                        CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
-                            ELSE 0.0
-                        END
-                    ) AS return_amount,
-                    SUM(COALESCE(air.inventory_value_untaxed, 0.0)) AS cogs_amount,
-                    SUM(COALESCE(air.price_margin_taxed, 0.0)) AS margin_amount,
-                    BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL) AS cost_available
-                FROM account_invoice_report air
-                JOIN product_product pp
-                    ON pp.id = air.product_id
-                JOIN product_template pt
-                    ON pt.id = pp.product_tmpl_id
-                LEFT JOIN product_category pc
-                    ON pc.id = pt.categ_id
-                WHERE air.product_id IS NOT NULL
-                  AND air.move_type IN ('out_invoice', 'out_refund')
-                  AND air.invoice_date >= DATE '2026-01-01'
-                GROUP BY
-                    date_trunc('month', air.invoice_date)::date,
-                    {current_bucket_key},
-                    {current_prefix5},
-                    air.branch_id,
-                    air.team_id,
-                    air.invoice_user_id,
-                    air.company_id
-                HAVING {current_bucket_key} IS NOT NULL
-            ),
+            {current_report_sales_cte},
             current_line_extras AS (
                 SELECT
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
