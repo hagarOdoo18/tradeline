@@ -24,17 +24,76 @@ BASELINE_MODE_SELECTION = [
 
 BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
+UNTAX_COST_DIVISOR = 1.14
+
+
+def _relation_columns(cr, relation_name):
+    cr.execute(
+        """
+        SELECT a.attname
+        FROM pg_attribute a
+        JOIN pg_class c
+            ON c.oid = a.attrelid
+        WHERE c.relname = %s
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+        """,
+        (relation_name,),
+    )
+    return {row[0] for row in cr.fetchall()}
 
 
 def _invoice_report_capabilities(cr):
-    # This module depends on accounting_customization, which extends
-    # account.invoice.report with these columns. Keep current metrics aligned
-    # with the live Invoice Analysis report instead of falling back to raw AML.
+    cols = _relation_columns(cr, "account_invoice_report")
     return {
-        "sales": True,
-        "margin": True,
-        "dimensions": True,
+        "sales": {
+            "product_id",
+            "invoice_date",
+            "quantity",
+            "price_subtotal",
+            "move_type",
+        }.issubset(cols),
+        "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
+        "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
     }
+
+
+def _sql_aml_untaxed_amount_expr():
+    return "(-COALESCE(aml.balance, 0.0))"
+
+
+def _sql_aml_untaxed_cost_expr():
+    cost_qty_expr = (
+        "(COALESCE(aml.quantity, 0.0) / "
+        "NULLIF(COALESCE(uom_line.factor, 1.0) / COALESCE(uom_template.factor, 1.0), 0.0))"
+    )
+    std_price_expr = "COALESCE(pt.standard_price -> aml.company_id::text, to_jsonb(0.0))::float"
+    linked_unit_cost_expr = (
+        "COALESCE(( "
+        "  SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) "
+        "  FROM sale_order_line_invoice_rel solir "
+        "  JOIN sale_order_line sol ON sol.id = solir.order_line_id "
+        "  JOIN stock_move sm ON sm.sale_line_id = sol.id "
+        "  JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id "
+        "  WHERE solir.invoice_line_id = aml.id "
+        "    AND sm.product_id = aml.product_id "
+        "    AND svl.company_id = aml.company_id "
+        "    AND svl.product_id = aml.product_id "
+        "    AND svl.quantity < 0 "
+        f"), {std_price_expr})"
+    )
+    return f"({cost_qty_expr} * ({linked_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
+
+
+def _sql_aml_signed_untaxed_cost_expr():
+    cost_expr = _sql_aml_untaxed_cost_expr()
+    return (
+        "CASE "
+        "WHEN am.move_type = 'out_refund' THEN -1.0 * "
+        f"({cost_expr}) "
+        f"ELSE ({cost_expr}) "
+        "END"
+    )
 
 
 def _sql_current_product_sales_cte(cr):
@@ -84,13 +143,15 @@ def _sql_current_product_sales_cte(cr):
                 GROUP BY air.product_id, date_trunc('month', air.invoice_date)::date
             )
         """
-    return """
+    untaxed_amount_expr = _sql_aml_untaxed_amount_expr()
+    signed_cost_expr = _sql_aml_signed_untaxed_cost_expr()
+    return f"""
             current_report_sales AS (
                 SELECT
                     aml.product_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
                     SUM(COALESCE(aml.signed_quantity, 0.0)) AS current_sales_qty,
-                    SUM(COALESCE(aml.amount_signed, 0.0)) AS current_sales_amount,
+                    SUM({untaxed_amount_expr}) AS current_sales_amount,
                     SUM(
                         CASE
                             WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
@@ -99,19 +160,27 @@ def _sql_current_product_sales_cte(cr):
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS({untaxed_amount_expr})
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
-                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
+                    SUM({signed_cost_expr}) AS current_cogs_amount,
                     (
-                        SUM(COALESCE(aml.amount_signed, 0.0))
-                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                        SUM({untaxed_amount_expr})
+                        - SUM({signed_cost_expr})
                     ) AS current_margin_amount,
-                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
+                    TRUE AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
+                JOIN product_product pp
+                    ON pp.id = aml.product_id
+                JOIN product_template pt
+                    ON pt.id = pp.product_tmpl_id
+                LEFT JOIN uom_uom uom_line
+                    ON uom_line.id = aml.product_uom_id
+                LEFT JOIN uom_uom uom_template
+                    ON uom_template.id = pt.uom_id
                 WHERE aml.product_id IS NOT NULL
                   AND COALESCE(aml.display_type, 'product') = 'product'
                   AND am.state = 'posted'
@@ -200,6 +269,8 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                 HAVING {current_bucket_key} IS NOT NULL
             )
         """
+    untaxed_amount_expr = _sql_aml_untaxed_amount_expr()
+    signed_cost_expr = _sql_aml_signed_untaxed_cost_expr()
     return f"""
             current_report_sales AS (
                 SELECT
@@ -217,7 +288,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     am.company_id AS company_id,
                     COUNT(DISTINCT aml.product_id) AS product_count,
                     SUM(COALESCE(aml.signed_quantity, 0.0)) AS sales_qty,
-                    SUM(COALESCE(aml.amount_signed, 0.0)) AS sales_amount,
+                    SUM({untaxed_amount_expr}) AS sales_amount,
                     SUM(
                         CASE
                             WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
@@ -226,16 +297,16 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ) AS return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.amount_signed, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN ABS({untaxed_amount_expr})
                             ELSE 0.0
                         END
                     ) AS return_amount,
-                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
+                    SUM({signed_cost_expr}) AS cogs_amount,
                     (
-                        SUM(COALESCE(aml.amount_signed, 0.0))
-                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
+                        SUM({untaxed_amount_expr})
+                        - SUM({signed_cost_expr})
                     ) AS margin_amount,
-                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
+                    TRUE AS cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -243,6 +314,10 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pp.id = aml.product_id
                 JOIN product_template pt
                     ON pt.id = pp.product_tmpl_id
+                LEFT JOIN uom_uom uom_line
+                    ON uom_line.id = aml.product_uom_id
+                LEFT JOIN uom_uom uom_template
+                    ON uom_template.id = pt.uom_id
                 LEFT JOIN product_category pc
                     ON pc.id = pt.categ_id
                 WHERE aml.product_id IS NOT NULL
