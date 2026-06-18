@@ -26,34 +26,14 @@ BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
-def _relation_columns(cr, relation_name):
-    cr.execute(
-        """
-        SELECT a.attname
-        FROM pg_attribute a
-        JOIN pg_class c
-            ON c.oid = a.attrelid
-        WHERE c.relname = %s
-          AND a.attnum > 0
-          AND NOT a.attisdropped
-        """,
-        (relation_name,),
-    )
-    return {row[0] for row in cr.fetchall()}
-
-
 def _invoice_report_capabilities(cr):
-    cols = _relation_columns(cr, "account_invoice_report")
+    # This module depends on accounting_customization, which extends
+    # account.invoice.report with these columns. Keep current metrics aligned
+    # with the live Invoice Analysis report instead of falling back to raw AML.
     return {
-        "sales": {
-            "product_id",
-            "invoice_date",
-            "quantity",
-            "price_subtotal",
-            "move_type",
-        }.issubset(cols),
-        "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
-        "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
+        "sales": True,
+        "margin": True,
+        "dimensions": True,
     }
 
 
