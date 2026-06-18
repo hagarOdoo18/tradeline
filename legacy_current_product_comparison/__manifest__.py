@@ -6,7 +6,7 @@
     "author": "Tradeline",
     "website": "http://www.tradelinestores.com",
     "license": "LGPL-3",
-    "depends": ["legacy_invoice_archive", "account", "stock", "sales_invoice_lines_view"],
+    "depends": ["legacy_invoice_archive", "account", "stock", "sales_invoice_lines_view", "accounting_customization"],
     "data": [
         "security/ir.model.access.csv",
         "views/legacy_current_product_compare_views.xml",
