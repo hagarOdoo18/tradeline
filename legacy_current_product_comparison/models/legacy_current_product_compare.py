@@ -26,34 +26,35 @@ BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
-def _relation_columns(cr, relation_name):
-    # Catalog lookup only -- never SELECT from the relation to test it. In
-    # production account_invoice_report is NOT materialised as a relation, and
-    # probing it with a real SELECT raises a PostgreSQL error that Odoo logs at
-    # ERROR level, which odoo.sh then reports as a failed build. to_regclass
-    # returns NULL for a missing relation, so this yields an empty set cleanly
-    # and the current side falls back to account.move.line (which replicates the
-    # Invoices Analysis cost basis -- see _sql_aml_signed_untaxed_cost_expr).
-    cr.execute(
-        """
-        SELECT a.attname
-        FROM pg_attribute a
-        WHERE a.attrelid = to_regclass(%s)
-          AND a.attnum > 0
-          AND NOT a.attisdropped
-        """,
-        (relation_name,),
-    )
-    return {row[0] for row in cr.fetchall()}
+def _invoice_report_source(env):
+    """Embed the live Invoices Analysis query as a subquery for the current side.
 
+    account.invoice.report is an _auto=False model with a _table_query, so Odoo 18
+    never materialises it as a relation -- it inlines that query as a subquery on
+    every read (which is why to_regclass('account_invoice_report') is NULL and the
+    table is absent from pg_class). To make the current side BIT-IDENTICAL to the
+    "Invoices Analysis" report (incl. its exact UoM/sign/cost and credit-note row
+    handling), embed the very same _table_query here instead of recomputing.
 
-def _invoice_report_capabilities(cr):
-    cols = _relation_columns(cr, "account_invoice_report")
-    return {
-        "sales": {"product_id", "invoice_date", "quantity", "price_subtotal", "move_type"}.issubset(cols),
-        "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
-        "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
+    Returns (report_source, caps):
+      report_source -- a parenthesised SQL subquery string (aliased `air` by the
+                       callers), or None when the report query cannot be obtained
+                       (callers then fall back to the account.move.line cost
+                       replication in _sql_aml_signed_untaxed_cost_expr).
+      caps          -- which optional report columns are present.
+    """
+    air = env["account.invoice.report"]
+    model_fields = air._fields
+    caps = {
+        "margin": "price_margin_taxed" in model_fields and "inventory_value_untaxed" in model_fields,
+        "dimensions": all(f in model_fields for f in ("branch_id", "team_id", "invoice_user_id", "company_id")),
     }
+    try:
+        table_query = air._table_query
+        rendered = env.cr.mogrify(table_query.code, table_query.params).decode()
+    except Exception:
+        return None, caps
+    return f"(\n{rendered}\n)", caps
 
 
 def _sql_aml_untaxed_amount_expr():
@@ -104,22 +105,21 @@ def _sql_aml_signed_untaxed_cost_expr():
     )
 
 
-def _sql_current_product_sales_cte(cr):
-    invoice_caps = _invoice_report_capabilities(cr)
-    if invoice_caps["sales"]:
+def _sql_current_product_sales_cte(cr, report_source, caps):
+    if report_source:
         report_cogs_expr = (
             "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "NULL::double precision"
         )
         report_margin_expr = (
             "SUM(COALESCE(air.price_margin_taxed, 0.0))"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "NULL::double precision"
         )
         report_cost_available_expr = (
             "BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL)"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "FALSE"
         )
         return f"""
@@ -144,7 +144,7 @@ def _sql_current_product_sales_cte(cr):
                     {report_cogs_expr} AS current_cogs_amount,
                     {report_margin_expr} AS current_margin_amount,
                     {report_cost_available_expr} AS current_cost_available
-                FROM account_invoice_report air
+                FROM {report_source} air
                 WHERE air.product_id IS NOT NULL
                   AND air.move_type IN ('out_invoice', 'out_refund')
                   AND air.invoice_date >= DATE '2026-01-01'
@@ -199,31 +199,30 @@ def _sql_current_product_sales_cte(cr):
         """
 
 
-def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, current_code_expr):
-    invoice_caps = _invoice_report_capabilities(cr)
-    if invoice_caps["sales"]:
+def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, current_code_expr, report_source, caps):
+    if report_source:
         report_cogs_expr = (
             "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "NULL::double precision"
         )
         report_margin_expr = (
             "SUM(COALESCE(air.price_margin_taxed, 0.0))"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "NULL::double precision"
         )
         report_cost_available_expr = (
             "BOOL_OR(air.inventory_value_untaxed IS NOT NULL OR air.price_margin_taxed IS NOT NULL)"
-            if invoice_caps["margin"]
+            if caps["margin"]
             else "FALSE"
         )
-        branch_expr = "air.branch_id" if invoice_caps["dimensions"] else "NULL::integer"
-        team_expr = "air.team_id" if invoice_caps["dimensions"] else "NULL::integer"
-        user_expr = "air.invoice_user_id" if invoice_caps["dimensions"] else "NULL::integer"
-        company_expr = "air.company_id" if invoice_caps["dimensions"] else "NULL::integer"
+        branch_expr = "air.branch_id" if caps["dimensions"] else "NULL::integer"
+        team_expr = "air.team_id" if caps["dimensions"] else "NULL::integer"
+        user_expr = "air.invoice_user_id" if caps["dimensions"] else "NULL::integer"
+        company_expr = "air.company_id" if caps["dimensions"] else "NULL::integer"
         group_dimensions = (
             f"{branch_expr}, {team_expr}, {user_expr}, {company_expr}"
-            if invoice_caps["dimensions"]
+            if caps["dimensions"]
             else "NULL::integer, NULL::integer, NULL::integer, NULL::integer"
         )
         return f"""
@@ -259,7 +258,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     {report_cogs_expr} AS cogs_amount,
                     {report_margin_expr} AS margin_amount,
                     {report_cost_available_expr} AS cost_available
-                FROM account_invoice_report air
+                FROM {report_source} air
                 JOIN product_product pp
                     ON pp.id = air.product_id
                 JOIN product_template pt
@@ -689,7 +688,8 @@ class LegacyCurrentProductCompareMonth(models.Model):
             ),
             """
 
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        report_source, invoice_caps = _invoice_report_source(self.env)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr, report_source, invoice_caps)
 
         self.env.cr.execute(
             f"""
@@ -1179,7 +1179,8 @@ class LegacyCurrentProductCompareBaseline(models.Model):
 
     def init(self):
         tools.drop_view_if_exists(self.env.cr, self._table)
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        report_source, invoice_caps = _invoice_report_source(self.env)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr, report_source, invoice_caps)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -1702,7 +1703,8 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
-        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr)
+        report_source, invoice_caps = _invoice_report_source(self.env)
+        current_report_sales_cte = _sql_current_product_sales_cte(self.env.cr, report_source, invoice_caps)
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -2266,11 +2268,14 @@ class LegacyCurrentProductHistory(models.Model):
         current_bucket_key = _sql_bucket_key_prefix_only(current_code_expr)
         legacy_prefix5 = _sql_prefix(legacy_code_expr)
         current_prefix5 = _sql_prefix(current_code_expr)
+        report_source, invoice_caps = _invoice_report_source(self.env)
         current_report_sales_cte = _sql_current_history_sales_cte(
             self.env.cr,
             current_bucket_key,
             current_prefix5,
             current_code_expr,
+            report_source,
+            invoice_caps,
         )
 
         # The current_line_extras CTE (discount / gross) must expose its branch /
@@ -2279,7 +2284,6 @@ class LegacyCurrentProductHistory(models.Model):
         # "sales but no gross" row and one "gross but no sales" row. The invoice
         # report path emits NULL dimensions when the report lacks those columns,
         # so mirror that decision here based on the same capability check.
-        invoice_caps = _invoice_report_capabilities(self.env.cr)
         if invoice_caps["dimensions"]:
             extras_branch_id = "am.branch_id"
             extras_team_id = "am.team_id"
