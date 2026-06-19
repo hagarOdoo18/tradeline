@@ -24,17 +24,18 @@ BASELINE_MODE_SELECTION = [
 
 BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
-UNTAX_COST_DIVISOR = 1.14
 
 
 def _relation_columns(cr, relation_name):
+    # Resolve via to_regclass so the lookup respects the search_path and can
+    # never match a same-named relation in another schema (the unreliable
+    # detection behind the repeated "current reads from the wrong source"
+    # regressions). Returns an empty set when the relation does not exist.
     cr.execute(
         """
         SELECT a.attname
         FROM pg_attribute a
-        JOIN pg_class c
-            ON c.oid = a.attrelid
-        WHERE c.relname = %s
+        WHERE a.attrelid = to_regclass(%s)
           AND a.attnum > 0
           AND NOT a.attisdropped
         """,
@@ -60,40 +61,6 @@ def _invoice_report_capabilities(cr):
 
 def _sql_aml_untaxed_amount_expr():
     return "(-COALESCE(aml.balance, 0.0))"
-
-
-def _sql_aml_untaxed_cost_expr():
-    cost_qty_expr = (
-        "(COALESCE(aml.quantity, 0.0) / "
-        "NULLIF(COALESCE(uom_line.factor, 1.0) / COALESCE(uom_template.factor, 1.0), 0.0))"
-    )
-    std_price_expr = "COALESCE(pt.standard_price -> aml.company_id::text, to_jsonb(0.0))::float"
-    linked_unit_cost_expr = (
-        "COALESCE(( "
-        "  SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) "
-        "  FROM sale_order_line_invoice_rel solir "
-        "  JOIN sale_order_line sol ON sol.id = solir.order_line_id "
-        "  JOIN stock_move sm ON sm.sale_line_id = sol.id "
-        "  JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id "
-        "  WHERE solir.invoice_line_id = aml.id "
-        "    AND sm.product_id = aml.product_id "
-        "    AND svl.company_id = aml.company_id "
-        "    AND svl.product_id = aml.product_id "
-        "    AND svl.quantity < 0 "
-        f"), {std_price_expr})"
-    )
-    return f"({cost_qty_expr} * ({linked_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
-
-
-def _sql_aml_signed_untaxed_cost_expr():
-    cost_expr = _sql_aml_untaxed_cost_expr()
-    return (
-        "CASE "
-        "WHEN am.move_type = 'out_refund' THEN -1.0 * "
-        f"({cost_expr}) "
-        f"ELSE ({cost_expr}) "
-        "END"
-    )
 
 
 def _sql_current_product_sales_cte(cr):
@@ -144,7 +111,6 @@ def _sql_current_product_sales_cte(cr):
             )
         """
     untaxed_amount_expr = _sql_aml_untaxed_amount_expr()
-    signed_cost_expr = _sql_aml_signed_untaxed_cost_expr()
     return f"""
             current_report_sales AS (
                 SELECT
@@ -164,23 +130,15 @@ def _sql_current_product_sales_cte(cr):
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
-                    SUM({signed_cost_expr}) AS current_cogs_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS current_cogs_amount,
                     (
                         SUM({untaxed_amount_expr})
-                        - SUM({signed_cost_expr})
+                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
                     ) AS current_margin_amount,
-                    TRUE AS current_cost_available
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS current_cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
-                JOIN product_product pp
-                    ON pp.id = aml.product_id
-                JOIN product_template pt
-                    ON pt.id = pp.product_tmpl_id
-                LEFT JOIN uom_uom uom_line
-                    ON uom_line.id = aml.product_uom_id
-                LEFT JOIN uom_uom uom_template
-                    ON uom_template.id = pt.uom_id
                 WHERE aml.product_id IS NOT NULL
                   AND COALESCE(aml.display_type, 'product') = 'product'
                   AND am.state = 'posted'
@@ -270,7 +228,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             )
         """
     untaxed_amount_expr = _sql_aml_untaxed_amount_expr()
-    signed_cost_expr = _sql_aml_signed_untaxed_cost_expr()
     return f"""
             current_report_sales AS (
                 SELECT
@@ -301,12 +258,12 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                             ELSE 0.0
                         END
                     ) AS return_amount,
-                    SUM({signed_cost_expr}) AS cogs_amount,
+                    SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0))) AS cogs_amount,
                     (
                         SUM({untaxed_amount_expr})
-                        - SUM({signed_cost_expr})
+                        - SUM(COALESCE(aml.total_cost, COALESCE(aml.standard_price, 0.0) * COALESCE(aml.signed_quantity, 0.0)))
                     ) AS margin_amount,
-                    TRUE AS cost_available
+                    BOOL_OR(aml.total_cost IS NOT NULL OR aml.standard_price IS NOT NULL) AS cost_available
                 FROM account_move_line aml
                 JOIN account_move am
                     ON am.id = aml.move_id
@@ -314,10 +271,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pp.id = aml.product_id
                 JOIN product_template pt
                     ON pt.id = pp.product_tmpl_id
-                LEFT JOIN uom_uom uom_line
-                    ON uom_line.id = aml.product_uom_id
-                LEFT JOIN uom_uom uom_template
-                    ON uom_template.id = pt.uom_id
                 LEFT JOIN product_category pc
                     ON pc.id = pt.categ_id
                 WHERE aml.product_id IS NOT NULL
@@ -2265,6 +2218,31 @@ class LegacyCurrentProductHistory(models.Model):
             current_code_expr,
         )
 
+        # The current_line_extras CTE (discount / gross) must expose its branch /
+        # team / user / company dimensions exactly the way current_report_sales
+        # does, otherwise the FULL OUTER JOIN below splits every bucket into one
+        # "sales but no gross" row and one "gross but no sales" row. The invoice
+        # report path emits NULL dimensions when the report lacks those columns,
+        # so mirror that decision here based on the same capability check.
+        invoice_caps = _invoice_report_capabilities(self.env.cr)
+        if invoice_caps["dimensions"]:
+            extras_branch_id = "am.branch_id"
+            extras_team_id = "am.team_id"
+            extras_user_id = "am.invoice_user_id"
+            extras_company_id = "am.company_id"
+            extras_group_dims = (
+                ",\n                    am.branch_id,"
+                "\n                    am.team_id,"
+                "\n                    am.invoice_user_id,"
+                "\n                    am.company_id"
+            )
+        else:
+            extras_branch_id = "NULL::integer"
+            extras_team_id = "NULL::integer"
+            extras_user_id = "NULL::integer"
+            extras_company_id = "NULL::integer"
+            extras_group_dims = ""
+
         self.env.cr.execute(
             f"""
             CREATE OR REPLACE VIEW {self._table} AS
@@ -2328,10 +2306,10 @@ class LegacyCurrentProductHistory(models.Model):
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
                     {current_bucket_key} AS bucket_key,
                     {current_prefix5} AS bucket_code_prefix5,
-                    am.branch_id AS branch_id,
-                    am.team_id AS team_id,
-                    am.invoice_user_id AS invoice_user_id,
-                    am.company_id AS company_id,
+                    {extras_branch_id} AS branch_id,
+                    {extras_team_id} AS team_id,
+                    {extras_user_id} AS invoice_user_id,
+                    {extras_company_id} AS company_id,
                     SUM(
                         COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
                     ) AS discount_amount,
@@ -2351,11 +2329,7 @@ class LegacyCurrentProductHistory(models.Model):
                 GROUP BY
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date,
                     {current_bucket_key},
-                    {current_prefix5},
-                    am.branch_id,
-                    am.team_id,
-                    am.invoice_user_id,
-                    am.company_id
+                    {current_prefix5}{extras_group_dims}
                 HAVING {current_bucket_key} IS NOT NULL
             ),
             current_sales AS (
