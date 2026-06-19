@@ -26,40 +26,33 @@ BUCKET_MATCH_RULE = "same_name_prefix5"
 BUCKET_BASELINE_MATCH_RULE = "prefix5_only"
 
 
-def _relation_has_columns(cr, relation_name, columns):
-    # Probe by actually SELECTing the columns instead of introspecting the
-    # catalog. Catalog lookups (pg_class / to_regclass / information_schema)
-    # proved unreliable on the odoo.sh database -- they returned an empty set
-    # for account_invoice_report even though every column exists and is
-    # readable, which silently dropped the current side onto the
-    # account.move.line cost basis and broke the margin match. This probe
-    # resolves the relation exactly the way the view's own SQL will, so a
-    # passing probe guarantees the report path can run. A savepoint keeps a
-    # failed probe from poisoning the surrounding upgrade transaction.
-    column_list = ", ".join(columns)
-    cr.execute("SAVEPOINT lcpc_cap_probe")
-    try:
-        cr.execute(f"SELECT {column_list} FROM {relation_name} WHERE FALSE")
-        cr.fetchall()
-    except Exception:
-        cr.execute("ROLLBACK TO SAVEPOINT lcpc_cap_probe")
-        return False
-    cr.execute("RELEASE SAVEPOINT lcpc_cap_probe")
-    return True
+def _relation_columns(cr, relation_name):
+    # Catalog lookup only -- never SELECT from the relation to test it. In
+    # production account_invoice_report is NOT materialised as a relation, and
+    # probing it with a real SELECT raises a PostgreSQL error that Odoo logs at
+    # ERROR level, which odoo.sh then reports as a failed build. to_regclass
+    # returns NULL for a missing relation, so this yields an empty set cleanly
+    # and the current side falls back to account.move.line (which replicates the
+    # Invoices Analysis cost basis -- see _sql_aml_signed_untaxed_cost_expr).
+    cr.execute(
+        """
+        SELECT a.attname
+        FROM pg_attribute a
+        WHERE a.attrelid = to_regclass(%s)
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+        """,
+        (relation_name,),
+    )
+    return {row[0] for row in cr.fetchall()}
 
 
 def _invoice_report_capabilities(cr):
-    relation = "account_invoice_report"
+    cols = _relation_columns(cr, "account_invoice_report")
     return {
-        "sales": _relation_has_columns(
-            cr, relation, ["product_id", "invoice_date", "quantity", "price_subtotal", "move_type"]
-        ),
-        "margin": _relation_has_columns(
-            cr, relation, ["inventory_value_untaxed", "price_margin_taxed"]
-        ),
-        "dimensions": _relation_has_columns(
-            cr, relation, ["branch_id", "team_id", "invoice_user_id", "company_id"]
-        ),
+        "sales": {"product_id", "invoice_date", "quantity", "price_subtotal", "move_type"}.issubset(cols),
+        "margin": {"inventory_value_untaxed", "price_margin_taxed"}.issubset(cols),
+        "dimensions": {"branch_id", "team_id", "invoice_user_id", "company_id"}.issubset(cols),
     }
 
 
