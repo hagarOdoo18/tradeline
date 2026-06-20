@@ -245,6 +245,19 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     SUM(COALESCE(air.price_subtotal, 0.0)) AS sales_amount,
                     SUM(
                         CASE
+                            WHEN air.move_type = 'out_invoice' THEN COALESCE(air.price_subtotal, 0.0)
+                            ELSE 0.0
+                        END
+                    ) AS untaxed_total_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_invoice' THEN COALESCE(air.price_total, 0.0)
+                            ELSE 0.0
+                        END
+                    ) AS total_sales_amount,
+                    SUM(COALESCE(air.price_total, 0.0)) AS net_total_sales_amount,
+                    SUM(
+                        CASE
                             WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
                             ELSE 0.0
                         END
@@ -255,8 +268,16 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                             ELSE 0.0
                         END
                     ) AS return_amount,
+                    SUM(
+                        CASE
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_total, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_total_amount,
                     {report_cogs_expr} AS cogs_amount,
                     {report_margin_expr} AS margin_amount,
+                    NULL::double precision AS last_cost_unit,
+                    NULL::double precision AS avg_cost_unit,
                     {report_cost_available_expr} AS cost_available
                 FROM {report_source} air
                 JOIN product_product pp
@@ -298,6 +319,19 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     SUM({untaxed_amount_expr}) AS sales_amount,
                     SUM(
                         CASE
+                            WHEN am.move_type = 'out_invoice' THEN ({untaxed_amount_expr})
+                            ELSE 0.0
+                        END
+                    ) AS untaxed_total_sales_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_invoice' THEN COALESCE(aml.price_total_signed, 0.0)
+                            ELSE 0.0
+                        END
+                    ) AS total_sales_amount,
+                    SUM(COALESCE(aml.price_total_signed, 0.0)) AS net_total_sales_amount,
+                    SUM(
+                        CASE
                             WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
                             ELSE 0.0
                         END
@@ -308,11 +342,19 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                             ELSE 0.0
                         END
                     ) AS return_amount,
+                    SUM(
+                        CASE
+                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_total_signed, 0.0))
+                            ELSE 0.0
+                        END
+                    ) AS return_total_amount,
                     SUM({signed_cost_expr}) AS cogs_amount,
                     (
                         SUM({untaxed_amount_expr})
                         - SUM({signed_cost_expr})
                     ) AS margin_amount,
+                    NULL::double precision AS last_cost_unit,
+                    NULL::double precision AS avg_cost_unit,
                     TRUE AS cost_available
                 FROM account_move_line aml
                 JOIN account_move am
@@ -409,8 +451,12 @@ class LegacyProductMonthFact(models.Model):
 
     legacy_sales_qty = fields.Float()
     legacy_sales_amount = fields.Float()
+    legacy_untaxed_total_sales_amount = fields.Float()
+    legacy_total_sales_amount = fields.Float()
+    legacy_net_total_sales_amount = fields.Float()
     legacy_return_qty = fields.Float()
     legacy_return_amount = fields.Float()
+    legacy_return_total_amount = fields.Float()
     legacy_discount_amount = fields.Float()
     legacy_gross_sales_amount = fields.Float()
     legacy_net_sales_amount = fields.Float()
@@ -418,6 +464,8 @@ class LegacyProductMonthFact(models.Model):
     legacy_cogs_amount = fields.Float()
     legacy_margin_amount = fields.Float(string="Legacy Net Margin $")
     legacy_margin_pct = fields.Float(string="Legacy Net Margin %")
+    legacy_last_cost_unit = fields.Float()
+    legacy_avg_cost_unit = fields.Float()
     legacy_cost_available = fields.Boolean(default=False, index=True)
     legacy_cost_source = fields.Char()
     legacy_margin_comparable = fields.Boolean(default=False, index=True)
@@ -2189,16 +2237,22 @@ class LegacyCurrentProductHistory(models.Model):
     company_id = fields.Integer(readonly=True)
     product_count = fields.Integer(readonly=True)
 
-    sales_qty = fields.Float(readonly=True)
-    sales_amount = fields.Float(readonly=True, string="Net Sales Amount")
+    sales_qty = fields.Float(readonly=True, string="Net Sales Qty")
+    sales_amount = fields.Float(readonly=True, string="Net Untaxed Sales")
+    untaxed_total_sales_amount = fields.Float(readonly=True, string="Untaxed Total Sales")
+    total_sales_amount = fields.Float(readonly=True, string="Total Sales")
+    net_total_sales_amount = fields.Float(readonly=True, string="Net Total Sales")
     return_qty = fields.Float(readonly=True)
     return_amount = fields.Float(readonly=True)
+    return_total_amount = fields.Float(readonly=True, string="Return Total")
     discount_amount = fields.Float(readonly=True)
     gross_sales_amount = fields.Float(readonly=True)
     asp = fields.Float(readonly=True)
     cogs_amount = fields.Float(readonly=True)
     margin_amount = fields.Float(readonly=True, string="Net Margin $")
     margin_pct = fields.Float(readonly=True, string="Net Margin %")
+    last_cost_unit = fields.Float(readonly=True, string="Last Cost Unit")
+    avg_cost_unit = fields.Float(readonly=True, string="Avg Cost Unit")
     cost_available = fields.Boolean(readonly=True)
     margin_comparable = fields.Boolean(readonly=True)
 
@@ -2326,8 +2380,12 @@ class LegacyCurrentProductHistory(models.Model):
                     COUNT(DISTINCT lmf.source_product_id) AS product_count,
                     SUM(COALESCE(lmf.legacy_sales_qty, 0.0)) AS sales_qty,
                     SUM(COALESCE(lmf.legacy_sales_amount, 0.0)) AS sales_amount,
+                    SUM(COALESCE(lmf.legacy_untaxed_total_sales_amount, 0.0)) AS untaxed_total_sales_amount,
+                    SUM(COALESCE(lmf.legacy_total_sales_amount, 0.0)) AS total_sales_amount,
+                    SUM(COALESCE(lmf.legacy_net_total_sales_amount, 0.0)) AS net_total_sales_amount,
                     SUM(COALESCE(lmf.legacy_return_qty, 0.0)) AS return_qty,
                     SUM(COALESCE(lmf.legacy_return_amount, 0.0)) AS return_amount,
+                    SUM(COALESCE(lmf.legacy_return_total_amount, 0.0)) AS return_total_amount,
                     SUM(COALESCE(lmf.legacy_discount_amount, 0.0)) AS discount_amount,
                     SUM(COALESCE(lmf.legacy_gross_sales_amount, 0.0)) AS gross_sales_amount,
                     CASE
@@ -2353,6 +2411,20 @@ class LegacyCurrentProductHistory(models.Model):
                         ) * 100.0
                         ELSE NULL
                     END AS margin_pct,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0))) = 0 THEN NULL
+                        ELSE (
+                            SUM(COALESCE(lmf.legacy_last_cost_unit, 0.0) * ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                            / SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                        )
+                    END AS last_cost_unit,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0))) = 0 THEN NULL
+                        ELSE (
+                            SUM(COALESCE(lmf.legacy_avg_cost_unit, 0.0) * ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                            / SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                        )
+                    END AS avg_cost_unit,
                     BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE)) AS cost_available
                 FROM legacy_product_month_fact lmf
                 WHERE lmf.period_month < DATE '2026-01-01'
@@ -2408,8 +2480,12 @@ class LegacyCurrentProductHistory(models.Model):
                     COALESCE(crs.product_count, 0) AS product_count,
                     COALESCE(crs.sales_qty, 0.0) AS sales_qty,
                     COALESCE(crs.sales_amount, 0.0) AS sales_amount,
+                    COALESCE(crs.untaxed_total_sales_amount, 0.0) AS untaxed_total_sales_amount,
+                    COALESCE(crs.total_sales_amount, 0.0) AS total_sales_amount,
+                    COALESCE(crs.net_total_sales_amount, 0.0) AS net_total_sales_amount,
                     COALESCE(crs.return_qty, 0.0) AS return_qty,
                     COALESCE(crs.return_amount, 0.0) AS return_amount,
+                    COALESCE(crs.return_total_amount, 0.0) AS return_total_amount,
                     COALESCE(cle.discount_amount, 0.0) AS discount_amount,
                     COALESCE(cle.gross_sales_amount, 0.0) AS gross_sales_amount,
                     CASE
@@ -2422,6 +2498,8 @@ class LegacyCurrentProductHistory(models.Model):
                         WHEN COALESCE(crs.sales_amount, 0.0) = 0 OR crs.margin_amount IS NULL THEN NULL
                         ELSE (crs.margin_amount / crs.sales_amount) * 100.0
                     END AS margin_pct,
+                    crs.last_cost_unit,
+                    crs.avg_cost_unit,
                     COALESCE(crs.cost_available, FALSE) AS cost_available
                 FROM current_report_sales crs
                 FULL OUTER JOIN current_line_extras cle
@@ -2450,14 +2528,20 @@ class LegacyCurrentProductHistory(models.Model):
                     ls.product_count,
                     ls.sales_qty,
                     ls.sales_amount,
+                    ls.untaxed_total_sales_amount,
+                    ls.total_sales_amount,
+                    ls.net_total_sales_amount,
                     ls.return_qty,
                     ls.return_amount,
+                    ls.return_total_amount,
                     ls.discount_amount,
                     ls.gross_sales_amount,
                     ls.asp,
                     ls.cogs_amount,
                     ls.margin_amount,
                     ls.margin_pct,
+                    ls.last_cost_unit,
+                    ls.avg_cost_unit,
                     COALESCE(ls.cost_available, FALSE) AS cost_available
                 FROM legacy_sales ls
                 CROSS JOIN legacy_source_db lsd
@@ -2479,14 +2563,20 @@ class LegacyCurrentProductHistory(models.Model):
                     cs.product_count,
                     cs.sales_qty,
                     cs.sales_amount,
+                    cs.untaxed_total_sales_amount,
+                    cs.total_sales_amount,
+                    cs.net_total_sales_amount,
                     cs.return_qty,
                     cs.return_amount,
+                    cs.return_total_amount,
                     cs.discount_amount,
                     cs.gross_sales_amount,
                     cs.asp,
                     cs.cogs_amount,
                     cs.margin_amount,
                     cs.margin_pct,
+                    cs.last_cost_unit,
+                    cs.avg_cost_unit,
                     COALESCE(cs.cost_available, FALSE) AS cost_available
                 FROM current_sales cs
                 CROSS JOIN legacy_source_db lsd
@@ -2516,14 +2606,20 @@ class LegacyCurrentProductHistory(models.Model):
                 product_count,
                 sales_qty,
                 sales_amount,
+                untaxed_total_sales_amount,
+                total_sales_amount,
+                net_total_sales_amount,
                 return_qty,
                 return_amount,
+                return_total_amount,
                 discount_amount,
                 gross_sales_amount,
                 asp,
                 cogs_amount,
                 margin_amount,
                 margin_pct,
+                last_cost_unit,
+                avg_cost_unit,
                 cost_available,
                 cost_available AS margin_comparable
             FROM combined
