@@ -48,6 +48,13 @@ def _invoice_report_source(env):
     caps = {
         "margin": "price_margin_taxed" in model_fields and "inventory_value_untaxed" in model_fields,
         "dimensions": all(f in model_fields for f in ("branch_id", "team_id", "invoice_user_id", "company_id")),
+        # air.price_total is the invoice's OWN currency (accounting_customization
+        # relabels it "Total in Currency" for exactly this reason): for a USD
+        # invoice on an EGP company it stays in raw USD instead of being converted,
+        # so summing it across multi-currency rows silently mixes currencies.
+        # price_total_converted is that same accounting_customization's fix --
+        # "Total Invoice (Company Currency)" -- use it for any $ total whenever present.
+        "price_total_company_ccy": "price_total_converted" in model_fields,
     }
     try:
         table_query = air._table_query
@@ -216,6 +223,11 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             if caps["margin"]
             else "FALSE"
         )
+        # air.price_total is the invoice's own currency (raw USD on a USD invoice,
+        # never converted) -- use the company-currency-converted total whenever the
+        # column exists so multi-currency rows sum correctly; same sign convention
+        # as air.price_total (both negate out_refund), so this is a straight swap.
+        total_col = "air.price_total_converted" if caps["price_total_company_ccy"] else "air.price_total"
         branch_expr = "air.branch_id" if caps["dimensions"] else "NULL::integer"
         team_expr = "air.team_id" if caps["dimensions"] else "NULL::integer"
         user_expr = "air.invoice_user_id" if caps["dimensions"] else "NULL::integer"
@@ -251,11 +263,11 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ) AS untaxed_total_sales_amount,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_invoice' THEN COALESCE(air.price_total, 0.0)
+                            WHEN air.move_type = 'out_invoice' THEN COALESCE({total_col}, 0.0)
                             ELSE 0.0
                         END
                     ) AS total_sales_amount,
-                    SUM(COALESCE(air.price_total, 0.0)) AS net_total_sales_amount,
+                    SUM(COALESCE({total_col}, 0.0)) AS net_total_sales_amount,
                     SUM(
                         CASE
                             WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
@@ -270,7 +282,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ) AS return_amount,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_total, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE({total_col}, 0.0))
                             ELSE 0.0
                         END
                     ) AS return_total_amount,
