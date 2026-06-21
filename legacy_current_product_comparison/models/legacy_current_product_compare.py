@@ -388,18 +388,8 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ) AS return_total_amount,
                     {report_cogs_expr} AS cogs_amount,
                     {report_margin_expr} AS margin_amount,
-                    CASE
-                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
-                        ELSE
-                            SUM(COALESCE(ccu.last_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
-                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
-                    END AS last_cost_unit,
-                    CASE
-                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
-                        ELSE
-                            SUM(COALESCE(ccu.avg_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
-                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
-                    END AS avg_cost_unit,
+                    NULL::double precision AS last_cost_unit,
+                    NULL::double precision AS avg_cost_unit,
                     {report_cost_available_expr} AS cost_available
                 FROM {report_source} air
                 JOIN product_product pp
@@ -408,10 +398,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pt.id = pp.product_tmpl_id
                 LEFT JOIN product_category pc
                     ON pc.id = pt.categ_id
-                LEFT JOIN current_cost_units ccu
-                    ON ccu.product_id = air.product_id
-                   AND ccu.company_id = air.company_id
-                   AND ccu.period_month = date_trunc('month', air.invoice_date)::date
                 WHERE air.product_id IS NOT NULL
                   AND air.move_type IN ('out_invoice', 'out_refund')
                   AND air.invoice_date >= DATE '2026-01-01'
