@@ -252,33 +252,91 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                   AND am.move_type IN ('out_invoice', 'out_refund')
                   AND am.invoice_date >= DATE '2026-01-01'
             ),
+            -- Cost reference (last/avg unit cost) computed set-based. The earlier
+            -- version used two correlated LATERAL subqueries over
+            -- stock_valuation_layer per (product, company, month), which made this
+            -- view take ~30s and timed out odoo.sh builds. Here we scan SVL once
+            -- (scoped to in-play products / months), aggregate per SVL month, then
+            -- carry the last cost forward with a window (LOCF) -- same semantics.
+            svl_scoped AS (
+                SELECT
+                    svl.product_id,
+                    svl.company_id,
+                    date_trunc('month', svl.create_date)::date AS m,
+                    svl.create_date,
+                    svl.id,
+                    svl.unit_cost,
+                    svl.value,
+                    svl.quantity
+                FROM stock_valuation_layer svl
+                WHERE svl.product_id IN (SELECT product_id FROM current_cost_months)
+                  AND svl.create_date < (
+                        SELECT COALESCE(MAX(period_month), DATE '2026-01-01') + INTERVAL '1 month'
+                        FROM current_cost_months
+                  )
+            ),
+            svl_month_last AS (
+                SELECT DISTINCT ON (s.product_id, s.company_id, s.m)
+                    s.product_id,
+                    s.company_id,
+                    s.m,
+                    s.unit_cost AS last_in_month
+                FROM svl_scoped s
+                ORDER BY s.product_id, s.company_id, s.m, s.create_date DESC, s.id DESC
+            ),
+            svl_month_avg AS (
+                SELECT
+                    s.product_id,
+                    s.company_id,
+                    s.m,
+                    CASE WHEN SUM(s.quantity) = 0 THEN NULL
+                         ELSE SUM(s.value) / SUM(s.quantity) END AS avg_in_month
+                FROM svl_scoped s
+                GROUP BY s.product_id, s.company_id, s.m
+            ),
+            cost_spine AS (
+                SELECT
+                    product_id, company_id, m,
+                    MAX(last_in_month) AS last_in_month,
+                    BOOL_OR(is_sales) AS is_sales
+                FROM (
+                    SELECT product_id, company_id, period_month AS m,
+                           NULL::double precision AS last_in_month, TRUE AS is_sales
+                    FROM current_cost_months
+                    UNION ALL
+                    SELECT product_id, company_id, m, last_in_month, FALSE AS is_sales
+                    FROM svl_month_last
+                ) u
+                GROUP BY product_id, company_id, m
+            ),
+            cost_spine_grp AS (
+                SELECT
+                    product_id, company_id, m, is_sales, last_in_month,
+                    COUNT(last_in_month) OVER (
+                        PARTITION BY product_id, company_id ORDER BY m
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS grp
+                FROM cost_spine
+            ),
+            cost_carried AS (
+                SELECT
+                    product_id, company_id, m, is_sales,
+                    MAX(last_in_month) OVER (PARTITION BY product_id, company_id, grp) AS last_cost_unit
+                FROM cost_spine_grp
+            ),
             current_cost_units AS (
                 SELECT
-                    ccm.product_id,
-                    ccm.company_id,
-                    ccm.period_month,
-                    lc.last_cost_unit,
-                    ac.avg_cost_unit
-                FROM current_cost_months ccm
-                LEFT JOIN LATERAL (
-                    SELECT svl.unit_cost AS last_cost_unit
-                    FROM stock_valuation_layer svl
-                    WHERE svl.product_id = ccm.product_id
-                      AND svl.company_id = ccm.company_id
-                      AND svl.create_date < (ccm.period_month + INTERVAL '1 month')
-                    ORDER BY svl.create_date DESC, svl.id DESC
-                    LIMIT 1
-                ) lc ON TRUE
-                LEFT JOIN LATERAL (
-                    SELECT
-                        CASE WHEN SUM(svl.quantity) = 0 THEN NULL
-                             ELSE SUM(svl.value) / SUM(svl.quantity) END AS avg_cost_unit
-                    FROM stock_valuation_layer svl
-                    WHERE svl.product_id = ccm.product_id
-                      AND svl.company_id = ccm.company_id
-                      AND svl.create_date >= ccm.period_month
-                      AND svl.create_date < (ccm.period_month + INTERVAL '1 month')
-                ) ac ON TRUE
+                    cc.product_id,
+                    cc.company_id,
+                    cc.m AS period_month,
+                    cc.last_cost_unit,
+                    sma.avg_in_month AS avg_cost_unit
+                FROM cost_carried cc
+                LEFT JOIN svl_month_avg sma
+                    ON sma.product_id = cc.product_id
+                   AND sma.company_id = cc.company_id
+                   AND sma.m = cc.m
+                WHERE cc.is_sales
             ),
             current_report_sales AS (
                 SELECT
