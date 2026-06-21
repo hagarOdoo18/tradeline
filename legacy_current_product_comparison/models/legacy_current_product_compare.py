@@ -112,6 +112,19 @@ def _sql_aml_signed_untaxed_cost_expr():
     )
 
 
+def _relation_columns(cr, table_name):
+    cr.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+        """,
+        (table_name,),
+    )
+    return {row[0] for row in cr.fetchall()}
+
+
 def _sql_current_product_sales_cte(cr, report_source, caps):
     if report_source:
         report_cogs_expr = (
@@ -207,6 +220,188 @@ def _sql_current_product_sales_cte(cr, report_source, caps):
 
 
 def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, current_code_expr, report_source, caps):
+    po_cols = _relation_columns(cr, "purchase_order")
+    pol_cols = _relation_columns(cr, "purchase_order_line")
+    has_po_cost_history = {"id", "state", "company_id"}.issubset(po_cols) and {
+        "id",
+        "product_id",
+        "price_unit",
+        "order_id",
+    }.issubset(pol_cols)
+    po_date_candidates = [col for col in ("date_approve", "date_order") if col in po_cols]
+    if "date_approve" in po_cols and "date_order" in po_cols:
+        po_date_expr = "COALESCE(po.date_approve, po.date_order)"
+    elif po_date_candidates:
+        po_date_expr = f"po.{po_date_candidates[0]}"
+    else:
+        po_date_expr = None
+    if has_po_cost_history and po_date_expr:
+        po_cost_cte = f"""
+            po_scoped AS MATERIALIZED (
+                SELECT
+                    pol.product_id,
+                    po.company_id,
+                    date_trunc('month', {po_date_expr})::date AS m,
+                    {po_date_expr} AS po_date,
+                    pol.id,
+                    pol.price_unit
+                FROM purchase_order_line pol
+                JOIN purchase_order po
+                    ON po.id = pol.order_id
+                WHERE pol.product_id IN (SELECT product_id FROM current_cost_months)
+                  AND po.state IN ('purchase', 'done')
+                  AND {po_date_expr} IS NOT NULL
+                  AND {po_date_expr} < (
+                        SELECT COALESCE(MAX(period_month), DATE '2026-01-01') + INTERVAL '1 month'
+                        FROM current_cost_months
+                  )
+            ),
+            po_month_last AS (
+                SELECT DISTINCT ON (p.product_id, p.company_id, p.m)
+                    p.product_id,
+                    p.company_id,
+                    p.m,
+                    p.price_unit AS last_po_in_month
+                FROM po_scoped p
+                ORDER BY p.product_id, p.company_id, p.m, p.po_date DESC, p.id DESC
+            ),
+        """
+    else:
+        po_cost_cte = """
+            po_month_last AS (
+                SELECT
+                    NULL::integer AS product_id,
+                    NULL::integer AS company_id,
+                    NULL::date AS m,
+                    NULL::double precision AS last_po_in_month
+                WHERE FALSE
+            ),
+        """
+    cost_history_cte = f"""
+            current_cost_months AS (
+                SELECT DISTINCT
+                    aml.product_id,
+                    am.company_id,
+                    date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND COALESCE(am.invoice_date, am.date) >= DATE '2026-01-01'
+            ),
+{po_cost_cte}
+            svl_scoped AS MATERIALIZED (
+                SELECT
+                    svl.product_id,
+                    svl.company_id,
+                    date_trunc('month', svl.create_date)::date AS m,
+                    svl.create_date,
+                    svl.id,
+                    svl.value,
+                    svl.quantity
+                FROM stock_valuation_layer svl
+                WHERE svl.product_id IN (SELECT product_id FROM current_cost_months)
+                  AND svl.create_date < (
+                        SELECT COALESCE(MAX(period_month), DATE '2026-01-01') + INTERVAL '1 month'
+                        FROM current_cost_months
+                  )
+            ),
+            svl_month_totals AS (
+                SELECT
+                    s.product_id,
+                    s.company_id,
+                    s.m,
+                    SUM(COALESCE(s.value, 0.0)) AS month_value,
+                    SUM(COALESCE(s.quantity, 0.0)) AS month_qty
+                FROM svl_scoped s
+                GROUP BY s.product_id, s.company_id, s.m
+            ),
+            cost_spine AS (
+                SELECT
+                    cm.product_id,
+                    cm.company_id,
+                    cm.period_month AS m,
+                    TRUE AS is_sales,
+                    NULL::double precision AS last_po_in_month,
+                    0.0::double precision AS month_value,
+                    0.0::double precision AS month_qty
+                FROM current_cost_months cm
+                UNION ALL
+                SELECT
+                    pml.product_id,
+                    pml.company_id,
+                    pml.m,
+                    FALSE AS is_sales,
+                    pml.last_po_in_month,
+                    0.0::double precision AS month_value,
+                    0.0::double precision AS month_qty
+                FROM po_month_last pml
+                UNION ALL
+                SELECT
+                    smt.product_id,
+                    smt.company_id,
+                    smt.m,
+                    FALSE AS is_sales,
+                    NULL::double precision AS last_po_in_month,
+                    smt.month_value,
+                    smt.month_qty
+                FROM svl_month_totals smt
+            ),
+            cost_spine_agg AS (
+                SELECT
+                    cs.product_id,
+                    cs.company_id,
+                    cs.m,
+                    BOOL_OR(cs.is_sales) AS is_sales,
+                    MAX(cs.last_po_in_month) AS last_po_in_month,
+                    SUM(cs.month_value) AS month_value,
+                    SUM(cs.month_qty) AS month_qty
+                FROM cost_spine cs
+                GROUP BY cs.product_id, cs.company_id, cs.m
+            ),
+            cost_spine_enriched AS (
+                SELECT
+                    csa.product_id,
+                    csa.company_id,
+                    csa.m,
+                    csa.is_sales,
+                    csa.last_po_in_month,
+                    SUM(csa.month_value) OVER (
+                        PARTITION BY csa.product_id, csa.company_id
+                        ORDER BY csa.m
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS running_value,
+                    SUM(csa.month_qty) OVER (
+                        PARTITION BY csa.product_id, csa.company_id
+                        ORDER BY csa.m
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS running_qty,
+                    COUNT(csa.last_po_in_month) OVER (
+                        PARTITION BY csa.product_id, csa.company_id
+                        ORDER BY csa.m
+                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                    ) AS po_grp
+                FROM cost_spine_agg csa
+            ),
+            current_cost_units AS MATERIALIZED (
+                SELECT
+                    cse.product_id,
+                    cse.company_id,
+                    cse.m AS period_month,
+                    MAX(cse.last_po_in_month) OVER (
+                        PARTITION BY cse.product_id, cse.company_id, cse.po_grp
+                    ) AS last_cost_unit,
+                    CASE
+                        WHEN COALESCE(cse.running_qty, 0.0) = 0 THEN NULL
+                        ELSE cse.running_value / cse.running_qty
+                    END AS avg_cost_unit
+                FROM cost_spine_enriched cse
+                WHERE cse.is_sales
+            ),
+    """
     if report_source:
         report_cogs_expr = (
             "SUM(COALESCE(air.inventory_value_untaxed, 0.0))"
@@ -238,106 +433,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             else "NULL::integer, NULL::integer, NULL::integer, NULL::integer"
         )
         return f"""
-            current_cost_months AS (
-                SELECT DISTINCT
-                    aml.product_id,
-                    am.company_id,
-                    date_trunc('month', am.invoice_date)::date AS period_month
-                FROM account_move_line aml
-                JOIN account_move am
-                    ON am.id = aml.move_id
-                WHERE aml.product_id IS NOT NULL
-                  AND COALESCE(aml.display_type, 'product') = 'product'
-                  AND am.state = 'posted'
-                  AND am.move_type IN ('out_invoice', 'out_refund')
-                  AND am.invoice_date >= DATE '2026-01-01'
-            ),
-            -- Cost reference (last/avg unit cost) computed set-based. The earlier
-            -- version used two correlated LATERAL subqueries over
-            -- stock_valuation_layer per (product, company, month), which made this
-            -- view take ~30s and timed out odoo.sh builds. Here we scan SVL once
-            -- (scoped to in-play products / months), aggregate per SVL month, then
-            -- carry the last cost forward with a window (LOCF) -- same semantics.
-            svl_scoped AS MATERIALIZED (
-                SELECT
-                    svl.product_id,
-                    svl.company_id,
-                    date_trunc('month', svl.create_date)::date AS m,
-                    svl.create_date,
-                    svl.id,
-                    svl.unit_cost,
-                    svl.value,
-                    svl.quantity
-                FROM stock_valuation_layer svl
-                WHERE svl.product_id IN (SELECT product_id FROM current_cost_months)
-                  AND svl.create_date < (
-                        SELECT COALESCE(MAX(period_month), DATE '2026-01-01') + INTERVAL '1 month'
-                        FROM current_cost_months
-                  )
-            ),
-            svl_month_last AS (
-                SELECT DISTINCT ON (s.product_id, s.company_id, s.m)
-                    s.product_id,
-                    s.company_id,
-                    s.m,
-                    s.unit_cost AS last_in_month
-                FROM svl_scoped s
-                ORDER BY s.product_id, s.company_id, s.m, s.create_date DESC, s.id DESC
-            ),
-            svl_month_avg AS (
-                SELECT
-                    s.product_id,
-                    s.company_id,
-                    s.m,
-                    CASE WHEN SUM(s.quantity) = 0 THEN NULL
-                         ELSE SUM(s.value) / SUM(s.quantity) END AS avg_in_month
-                FROM svl_scoped s
-                GROUP BY s.product_id, s.company_id, s.m
-            ),
-            cost_spine AS (
-                SELECT
-                    product_id, company_id, m,
-                    MAX(last_in_month) AS last_in_month,
-                    BOOL_OR(is_sales) AS is_sales
-                FROM (
-                    SELECT product_id, company_id, period_month AS m,
-                           NULL::double precision AS last_in_month, TRUE AS is_sales
-                    FROM current_cost_months
-                    UNION ALL
-                    SELECT product_id, company_id, m, last_in_month, FALSE AS is_sales
-                    FROM svl_month_last
-                ) u
-                GROUP BY product_id, company_id, m
-            ),
-            cost_spine_grp AS (
-                SELECT
-                    product_id, company_id, m, is_sales, last_in_month,
-                    COUNT(last_in_month) OVER (
-                        PARTITION BY product_id, company_id ORDER BY m
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                    ) AS grp
-                FROM cost_spine
-            ),
-            cost_carried AS (
-                SELECT
-                    product_id, company_id, m, is_sales,
-                    MAX(last_in_month) OVER (PARTITION BY product_id, company_id, grp) AS last_cost_unit
-                FROM cost_spine_grp
-            ),
-            current_cost_units AS MATERIALIZED (
-                SELECT
-                    cc.product_id,
-                    cc.company_id,
-                    cc.m AS period_month,
-                    cc.last_cost_unit,
-                    sma.avg_in_month AS avg_cost_unit
-                FROM cost_carried cc
-                LEFT JOIN svl_month_avg sma
-                    ON sma.product_id = cc.product_id
-                   AND sma.company_id = cc.company_id
-                   AND sma.m = cc.m
-                WHERE cc.is_sales
-            ),
+{cost_history_cte}
             current_report_sales AS (
                 SELECT
                     date_trunc('month', air.invoice_date)::date AS period_month,
@@ -426,6 +522,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
     untaxed_amount_expr = _sql_aml_untaxed_amount_expr()
     signed_cost_expr = _sql_aml_signed_untaxed_cost_expr()
     return f"""
+{cost_history_cte}
             current_report_sales AS (
                 SELECT
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
@@ -479,8 +576,18 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                         SUM({untaxed_amount_expr})
                         - SUM({signed_cost_expr})
                     ) AS margin_amount,
-                    NULL::double precision AS last_cost_unit,
-                    NULL::double precision AS avg_cost_unit,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(aml.signed_quantity, 0.0))) = 0 THEN NULL
+                        ELSE
+                            SUM(COALESCE(ccu.last_cost_unit, 0.0) * ABS(COALESCE(aml.signed_quantity, 0.0)))
+                            / SUM(ABS(COALESCE(aml.signed_quantity, 0.0)))
+                    END AS last_cost_unit,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(aml.signed_quantity, 0.0))) = 0 THEN NULL
+                        ELSE
+                            SUM(COALESCE(ccu.avg_cost_unit, 0.0) * ABS(COALESCE(aml.signed_quantity, 0.0)))
+                            / SUM(ABS(COALESCE(aml.signed_quantity, 0.0)))
+                    END AS avg_cost_unit,
                     TRUE AS cost_available
                 FROM account_move_line aml
                 JOIN account_move am
@@ -489,6 +596,10 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pp.id = aml.product_id
                 JOIN product_template pt
                     ON pt.id = pp.product_tmpl_id
+                LEFT JOIN current_cost_units ccu
+                    ON ccu.product_id = aml.product_id
+                   AND ccu.company_id = am.company_id
+                   AND ccu.period_month = date_trunc('month', COALESCE(am.invoice_date, am.date))::date
                 LEFT JOIN uom_uom uom_line
                     ON uom_line.id = aml.product_uom_id
                 LEFT JOIN uom_uom uom_template
