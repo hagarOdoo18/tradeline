@@ -59,17 +59,18 @@ class SyncInventory(models.TransientModel):
     # helpers
     # ------------------------------------------------------------------
 
-    def _get_odoo_qty(self, product, company_id):
+    def _get_odoo_qty(self, product, company_id,location):
         """Sum on-hand quantity across all selected warehouses."""
         total = 0.0
-        for wh in self.warehouse_ids:
-            quants = self.env['stock.quant'].sudo().search([
-                ('location_id', '=', wh.lot_stock_id.id),
-                ('product_id',  '=', product.id),
-                ('lot_id',      '=', False),
-                ('company_id',  '=', company_id),
-            ])
-            total += sum(quants.mapped('quantity'))
+
+        quants = self.env['stock.quant'].sudo().search([
+            ('location_id', '=', location.id),
+            ('product_id',  '=', product.id),
+            ('company_id',  '=', company_id),
+        ])
+        print(quants.mapped('quantity'),'quants')
+        print(product.id,'product_id')
+        total += sum(quants.mapped('quantity'))
         return total
 
     def _apply_inventory_for_warehouse(self, warehouse, product, qty, company_id):
@@ -143,17 +144,24 @@ class SyncInventory(models.TransientModel):
         headers    = shopify_instance._get_shopify_headers()
         company_id = shopify_instance.company_id.id
 
-        # 1. Fetch active Shopify locations
-        loc_url = "https://%s/admin/api/%s/locations.json" % (
-            store_name, version)
-        loc_resp   = requests.get(loc_url, headers=headers)
-        locations  = loc_resp.json().get('locations', [])
-        location_ids = [loc['id'] for loc in locations if loc.get('active')]
+        # 1. Get Shopify locations mapped to the selected warehouses
+        shopify_locations = self.env['shopify.location'].sudo().search([
+            ('instance_id', '=', shopify_instance.id),
+            ('warehouse_id', 'in', self.warehouse_ids.ids),
+            ('active', '=', True),
+        ])
+        location_ids = [
+            int(loc.shopify_location_id)
+            for loc in shopify_locations
+            if loc.shopify_location_id
+        ]
+
 
         if not location_ids:
             raise ValidationError(_(
-                'No active locations found in Shopify. '
-                'Please configure at least one location.'))
+                'No Shopify location is mapped to the selected warehouse(s). '
+                'Please map the selected warehouse(s) to a Shopify location '
+                'first (use the Sync Locations wizard).'))
 
         # 2. Build variant_id → inventory_item_id map from Shopify products
         shopify_products = self._fetch_all_shopify_products(
@@ -166,7 +174,7 @@ class SyncInventory(models.TransientModel):
 
         # 3. Get all synced variants for this instance
         sync_records = self.env['shopify.sync'].sudo().search([
-            ('instance_id',       '=', shopify_instance.id),
+            ('instance_id','=', shopify_instance.id),
             ('shopify_variant_id', '!=', False),
             ('product_prod_id',   '!=', False),
         ])
@@ -181,13 +189,14 @@ class SyncInventory(models.TransientModel):
                 continue
 
             # 4. Compute total on-hand qty across selected warehouses
-            total_qty = int(self._get_odoo_qty(
-                sync.product_prod_id, company_id))
 
             # 5. Set inventory level for every active Shopify location
-            for location_id in location_ids:
+            for location in shopify_locations:
+                total_qty = int(self._get_odoo_qty(
+                    sync.product_prod_id, company_id, location.warehouse_id.lot_stock_id))
+
                 payload = json.dumps({
-                    'location_id':        location_id,
+                    'location_id':        location.shopify_location_id,
                     'inventory_item_id':  inventory_item_id,
                     'available':          total_qty,
                 })
@@ -198,7 +207,7 @@ class SyncInventory(models.TransientModel):
                             'Inventory push failed for variant %s '
                             '(location %s): %s'
                             % (sync.shopify_variant_id,
-                               location_id, resp.text)
+                               location.shopify_location_i, resp.text)
                         ),
                         'shopify_instance_id': shopify_instance.id,
                         'model': 'Stock Quantity',
@@ -274,4 +283,4 @@ class SyncInventory(models.TransientModel):
         if self.import_inventory == 'shopify':
             self._sync_to_shopify()
         else:
-            self._sync_from_shopify()
+                       self._sync_from_shopify()
