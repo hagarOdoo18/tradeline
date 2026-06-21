@@ -2524,8 +2524,12 @@ class LegacyCurrentProductHistory(models.Model):
     cogs_amount = fields.Float(readonly=True)
     margin_amount = fields.Float(readonly=True, string="Net Margin $")
     margin_pct = fields.Float(readonly=True, string="Net Margin %")
-    last_cost_unit = fields.Float(readonly=True, string="Last Cost Unit")
-    avg_cost_unit = fields.Float(readonly=True, string="Avg Cost Unit")
+    # Per-unit costs must never be SUMmed across grouped rows (default Float
+    # aggregator) -- that turns ~57k unit costs into millions when grouped by
+    # month/bucket. Use a plain average so group/total rows show a representative
+    # unit cost instead.
+    last_cost_unit = fields.Float(readonly=True, string="Last Cost Unit", aggregator="avg")
+    avg_cost_unit = fields.Float(readonly=True, string="Avg Cost Unit", aggregator="avg")
     cost_available = fields.Boolean(readonly=True)
     margin_comparable = fields.Boolean(readonly=True)
 
