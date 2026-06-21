@@ -240,7 +240,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             po_scoped AS MATERIALIZED (
                 SELECT
                     pol.product_id,
-                    po.company_id,
                     date_trunc('month', {po_date_expr})::date AS m,
                     {po_date_expr} AS po_date,
                     pol.id,
@@ -249,6 +248,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                 JOIN purchase_order po
                     ON po.id = pol.order_id
                 WHERE pol.product_id IN (SELECT product_id FROM current_cost_months)
+                  AND po.company_id = 1
                   AND po.state IN ('purchase', 'done')
                   AND {po_date_expr} IS NOT NULL
                   AND {po_date_expr} < (
@@ -257,13 +257,12 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                   )
             ),
             po_month_last AS (
-                SELECT DISTINCT ON (p.product_id, p.company_id, p.m)
+                SELECT DISTINCT ON (p.product_id, p.m)
                     p.product_id,
-                    p.company_id,
                     p.m,
                     p.price_unit AS last_po_in_month
                 FROM po_scoped p
-                ORDER BY p.product_id, p.company_id, p.m, p.po_date DESC, p.id DESC
+                ORDER BY p.product_id, p.m, p.po_date DESC, p.id DESC
             ),
         """
     else:
@@ -271,7 +270,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             po_month_last AS (
                 SELECT
                     NULL::integer AS product_id,
-                    NULL::integer AS company_id,
                     NULL::date AS m,
                     NULL::double precision AS last_po_in_month
                 WHERE FALSE
@@ -281,7 +279,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             current_cost_months AS MATERIALIZED (
                 SELECT DISTINCT
                     aml.product_id,
-                    am.company_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month
                 FROM account_move_line aml
                 JOIN account_move am
@@ -296,7 +293,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             svl_scoped AS MATERIALIZED (
                 SELECT
                     svl.product_id,
-                    svl.company_id,
                     date_trunc('month', svl.create_date)::date AS m,
                     svl.create_date,
                     svl.id,
@@ -304,6 +300,7 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     svl.quantity
                 FROM stock_valuation_layer svl
                 WHERE svl.product_id IN (SELECT product_id FROM current_cost_months)
+                  AND svl.company_id = 1
                   AND svl.create_date < (
                         SELECT COALESCE(MAX(period_month), DATE '2026-01-01') + INTERVAL '1 month'
                         FROM current_cost_months
@@ -312,17 +309,15 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             svl_month_totals AS (
                 SELECT
                     s.product_id,
-                    s.company_id,
                     s.m,
                     SUM(COALESCE(s.value, 0.0)) AS month_value,
                     SUM(COALESCE(s.quantity, 0.0)) AS month_qty
                 FROM svl_scoped s
-                GROUP BY s.product_id, s.company_id, s.m
+                GROUP BY s.product_id, s.m
             ),
             cost_spine AS (
                 SELECT
                     cm.product_id,
-                    cm.company_id,
                     cm.period_month AS m,
                     TRUE AS is_sales,
                     NULL::double precision AS last_po_in_month,
@@ -332,7 +327,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                 UNION ALL
                 SELECT
                     pml.product_id,
-                    pml.company_id,
                     pml.m,
                     FALSE AS is_sales,
                     pml.last_po_in_month,
@@ -342,7 +336,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                 UNION ALL
                 SELECT
                     smt.product_id,
-                    smt.company_id,
                     smt.m,
                     FALSE AS is_sales,
                     NULL::double precision AS last_po_in_month,
@@ -353,34 +346,32 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             cost_spine_agg AS (
                 SELECT
                     cs.product_id,
-                    cs.company_id,
                     cs.m,
                     BOOL_OR(cs.is_sales) AS is_sales,
                     MAX(cs.last_po_in_month) AS last_po_in_month,
                     SUM(cs.month_value) AS month_value,
                     SUM(cs.month_qty) AS month_qty
                 FROM cost_spine cs
-                GROUP BY cs.product_id, cs.company_id, cs.m
+                GROUP BY cs.product_id, cs.m
             ),
             cost_spine_enriched AS (
                 SELECT
                     csa.product_id,
-                    csa.company_id,
                     csa.m,
                     csa.is_sales,
                     csa.last_po_in_month,
                     SUM(csa.month_value) OVER (
-                        PARTITION BY csa.product_id, csa.company_id
+                        PARTITION BY csa.product_id
                         ORDER BY csa.m
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                     ) AS running_value,
                     SUM(csa.month_qty) OVER (
-                        PARTITION BY csa.product_id, csa.company_id
+                        PARTITION BY csa.product_id
                         ORDER BY csa.m
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                     ) AS running_qty,
                     COUNT(csa.last_po_in_month) OVER (
-                        PARTITION BY csa.product_id, csa.company_id
+                        PARTITION BY csa.product_id
                         ORDER BY csa.m
                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                     ) AS po_grp
@@ -389,10 +380,9 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             current_cost_units AS MATERIALIZED (
                 SELECT
                     cse.product_id,
-                    cse.company_id,
                     cse.m AS period_month,
                     MAX(cse.last_po_in_month) OVER (
-                        PARTITION BY cse.product_id, cse.company_id, cse.po_grp
+                        PARTITION BY cse.product_id, cse.po_grp
                     ) AS last_cost_unit,
                     CASE
                         WHEN COALESCE(cse.running_qty, 0.0) = 0 THEN NULL
@@ -506,7 +496,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pc.id = pt.categ_id
                 LEFT JOIN current_cost_units ccu
                     ON ccu.product_id = air.product_id
-                   AND ccu.company_id = air.company_id
                    AND ccu.period_month = date_trunc('month', air.invoice_date)::date
                 WHERE air.product_id IS NOT NULL
                   AND air.move_type IN ('out_invoice', 'out_refund')
@@ -598,7 +587,6 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pt.id = pp.product_tmpl_id
                 LEFT JOIN current_cost_units ccu
                     ON ccu.product_id = aml.product_id
-                   AND ccu.company_id = am.company_id
                    AND ccu.period_month = date_trunc('month', COALESCE(am.invoice_date, am.date))::date
                 LEFT JOIN uom_uom uom_line
                     ON uom_line.id = aml.product_uom_id
