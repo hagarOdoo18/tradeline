@@ -819,10 +819,18 @@ class LegacyCurrentProductCompareMonth(models.Model):
                     aml.product_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * COALESCE(aml.discount, 0.0)
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * 100.0
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
@@ -1280,10 +1288,18 @@ class LegacyCurrentProductCompareBaseline(models.Model):
                     aml.product_id,
                     date_trunc('month', COALESCE(am.invoice_date, am.date))::date AS period_month,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * COALESCE(aml.discount, 0.0)
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * 100.0
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
@@ -1853,10 +1869,18 @@ class LegacyCurrentProductCompareBucketBaseline(models.Model):
                     {current_bucket_key} AS bucket_key,
                     {current_prefix5} AS bucket_code_prefix5,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * COALESCE(aml.discount, 0.0)
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_discount_amount,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * 100.0
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS current_gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
@@ -2454,10 +2478,18 @@ class LegacyCurrentProductHistory(models.Model):
                     {extras_user_id} AS invoice_user_id,
                     {extras_company_id} AS company_id,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0) * (COALESCE(aml.discount, 0.0) / 100.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * COALESCE(aml.discount, 0.0)
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS discount_amount,
                     SUM(
-                        COALESCE(aml.price_unit, 0.0) * COALESCE(aml.signed_quantity, 0.0)
+                        COALESCE(
+                            (-COALESCE(aml.balance, 0.0)) * 100.0
+                            / NULLIF(100.0 - COALESCE(aml.discount, 0.0), 0.0),
+                            0.0
+                        )
                     ) AS gross_sales_amount
                 FROM account_move_line aml
                 JOIN account_move am
