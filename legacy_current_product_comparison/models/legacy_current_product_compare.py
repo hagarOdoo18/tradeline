@@ -238,6 +238,48 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
             else "NULL::integer, NULL::integer, NULL::integer, NULL::integer"
         )
         return f"""
+            current_cost_months AS (
+                SELECT DISTINCT
+                    aml.product_id,
+                    am.company_id,
+                    date_trunc('month', am.invoice_date)::date AS period_month
+                FROM account_move_line aml
+                JOIN account_move am
+                    ON am.id = aml.move_id
+                WHERE aml.product_id IS NOT NULL
+                  AND COALESCE(aml.display_type, 'product') = 'product'
+                  AND am.state = 'posted'
+                  AND am.move_type IN ('out_invoice', 'out_refund')
+                  AND am.invoice_date >= DATE '2026-01-01'
+            ),
+            current_cost_units AS (
+                SELECT
+                    ccm.product_id,
+                    ccm.company_id,
+                    ccm.period_month,
+                    lc.last_cost_unit,
+                    ac.avg_cost_unit
+                FROM current_cost_months ccm
+                LEFT JOIN LATERAL (
+                    SELECT svl.unit_cost AS last_cost_unit
+                    FROM stock_valuation_layer svl
+                    WHERE svl.product_id = ccm.product_id
+                      AND svl.company_id = ccm.company_id
+                      AND svl.create_date < (ccm.period_month + INTERVAL '1 month')
+                    ORDER BY svl.create_date DESC, svl.id DESC
+                    LIMIT 1
+                ) lc ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT
+                        CASE WHEN SUM(svl.quantity) = 0 THEN NULL
+                             ELSE SUM(svl.value) / SUM(svl.quantity) END AS avg_cost_unit
+                    FROM stock_valuation_layer svl
+                    WHERE svl.product_id = ccm.product_id
+                      AND svl.company_id = ccm.company_id
+                      AND svl.create_date >= ccm.period_month
+                      AND svl.create_date < (ccm.period_month + INTERVAL '1 month')
+                ) ac ON TRUE
+            ),
             current_report_sales AS (
                 SELECT
                     date_trunc('month', air.invoice_date)::date AS period_month,
@@ -288,8 +330,18 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ) AS return_total_amount,
                     {report_cogs_expr} AS cogs_amount,
                     {report_margin_expr} AS margin_amount,
-                    NULL::double precision AS last_cost_unit,
-                    NULL::double precision AS avg_cost_unit,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
+                        ELSE
+                            SUM(COALESCE(ccu.last_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
+                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
+                    END AS last_cost_unit,
+                    CASE
+                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
+                        ELSE
+                            SUM(COALESCE(ccu.avg_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
+                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
+                    END AS avg_cost_unit,
                     {report_cost_available_expr} AS cost_available
                 FROM {report_source} air
                 JOIN product_product pp
@@ -298,6 +350,10 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     ON pt.id = pp.product_tmpl_id
                 LEFT JOIN product_category pc
                     ON pc.id = pt.categ_id
+                LEFT JOIN current_cost_units ccu
+                    ON ccu.product_id = air.product_id
+                   AND ccu.company_id = air.company_id
+                   AND ccu.period_month = date_trunc('month', air.invoice_date)::date
                 WHERE air.product_id IS NOT NULL
                   AND air.move_type IN ('out_invoice', 'out_refund')
                   AND air.invoice_date >= DATE '2026-01-01'
