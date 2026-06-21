@@ -662,14 +662,11 @@
                 <field name="product_count" string="Product Count" optional="show"/>
                 <field name="sales_qty" string="Net Sales Qty"/>
                 <field name="sales_amount" string="Net Untaxed Sales"/>
-                <field name="untaxed_total_sales_amount" string="Untaxed Total Sales" optional="show"/>
-                <field name="total_sales_amount" string="Total Sales" optional="show"/>
                 <field name="net_total_sales_amount" string="Net Total Sales" optional="show"/>
                 <field name="return_qty" string="Return Qty" optional="show"/>
                 <field name="return_amount" string="Return Untaxed" optional="show"/>
                 <field name="return_total_amount" string="Return Total" optional="show"/>
                 <field name="discount_amount" string="Discount" optional="show"/>
-                <field name="gross_sales_amount" string="Gross Sales" optional="show"/>
                 <field name="asp" string="ASP" optional="hide"/>
                 <field name="cogs_amount" string="COGS" optional="show"/>
                 <field name="margin_amount" string="Net Margin $" optional="show"/>
@@ -726,14 +723,11 @@
             <pivot string="Legacy Full History">
                 <field name="sales_qty" type="measure"/>
                 <field name="sales_amount" type="measure"/>
-                <field name="untaxed_total_sales_amount" type="measure"/>
-                <field name="total_sales_amount" type="measure"/>
                 <field name="net_total_sales_amount" type="measure"/>
                 <field name="return_qty" type="measure"/>
                 <field name="return_amount" type="measure"/>
                 <field name="return_total_amount" type="measure"/>
                 <field name="discount_amount" type="measure"/>
-                <field name="gross_sales_amount" type="measure"/>
                 <field name="cogs_amount" type="measure"/>
                 <field name="margin_amount" type="measure"/>
                 <field name="margin_pct" type="measure"/>
