@@ -99,17 +99,28 @@ def detect_legacy_cost_source(ail_cols: set[str], pp_cols: set[str]) -> tuple[st
 
 
 def detect_legacy_report_total_source(conn) -> tuple[str | None, str | None]:
-    """Prefer Odoo12 invoice-analysis total columns when available.
+    """Company-currency line total from the Odoo12 invoice-analysis view.
 
-    ``account_invoice_report.amount_total`` reflects the company-currency / report
-    semantics the business sees in Odoo12. Raw ``account_invoice_line.price_total``
-    can drift on foreign-currency rows.
+    Raw ``account_invoice_line.price_total`` is in the INVOICE's currency, so it
+    undercounts foreign-currency (e.g. USD) lines -- e.g. a USD iPhone line stored
+    as 6,453.26 USD instead of ~308,768 EGP. The Odoo12 ``account_invoice_report``
+    view is one row per invoice line (its ``id`` == ``account_invoice_line.id``) and
+    carries ``currency_rate`` (company->document rate, e.g. 0.0209 for USD), so
+    ``price_total / currency_rate`` converts the line total to company currency.
+
+    Verified against live Odoo12 to reproduce the migrated invoices' "Total" to the
+    cent for MG6J4 Nov/Dec 2025 (31,632,745.77 / 22,912,129.95). Note: do NOT use
+    ``air.amount_total`` (over-counts) and do NOT join on ``air.account_line_id``
+    (a constant in this customized view, never the line id).
     """
     if not table_exists(conn, "account_invoice_report"):
         return None, None
     cols = set(get_table_columns(conn, "account_invoice_report"))
-    if {"account_line_id", "amount_total"}.issubset(cols):
-        return "air.amount_total", "account_invoice_report.amount_total"
+    if {"id", "currency_rate"}.issubset(cols):
+        return (
+            "COALESCE(ail.price_total / NULLIF(air.currency_rate, 0), ail.price_total)",
+            "account_invoice_report.price_total/currency_rate",
+        )
     return None, None
 
 
@@ -542,7 +553,7 @@ def fetch_sales_monthly(
         )
         sales_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
         discount_reason_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
-        join_air = "LEFT JOIN account_invoice_report air ON air.account_line_id = ail.id"
+        join_air = "LEFT JOIN account_invoice_report air ON air.id = ail.id"
     elif sales_total_expr:
         discount_reason_total_expr = sales_total_expr
 

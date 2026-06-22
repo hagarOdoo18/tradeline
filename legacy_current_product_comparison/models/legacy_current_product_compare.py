@@ -941,6 +941,8 @@ class LegacyProductMonthFact(models.Model):
     legacy_return_qty = fields.Float()
     legacy_return_amount = fields.Float()
     legacy_return_total_amount = fields.Float()
+    legacy_discount_reason_sales_untaxed = fields.Float()
+    legacy_discount_reason_sales_total = fields.Float()
     legacy_discount_amount = fields.Float()
     legacy_gross_sales_amount = fields.Float()
     legacy_net_sales_amount = fields.Float()
@@ -2972,8 +2974,8 @@ class LegacyCurrentProductHistory(models.Model):
                     SUM(COALESCE(lmf.legacy_return_qty, 0.0)) AS return_qty,
                     SUM(COALESCE(lmf.legacy_return_amount, 0.0)) AS return_amount,
                     SUM(COALESCE(lmf.legacy_return_total_amount, 0.0)) AS return_total_amount,
-                    NULL::double precision AS discount_reason_sales_untaxed,
-                    NULL::double precision AS discount_reason_sales_total,
+                    SUM(COALESCE(lmf.legacy_discount_reason_sales_untaxed, 0.0)) AS discount_reason_sales_untaxed,
+                    SUM(COALESCE(lmf.legacy_discount_reason_sales_total, 0.0)) AS discount_reason_sales_total,
                     SUM(COALESCE(lmf.legacy_discount_amount, 0.0)) AS discount_amount,
                     SUM(COALESCE(lmf.legacy_gross_sales_amount, 0.0)) AS gross_sales_amount,
                     CASE
