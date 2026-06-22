@@ -36,9 +36,8 @@
                 <field name="legacy_return_amount" sum="Legacy Return Amount" optional="hide"/>
                 <field name="current_return_amount" sum="Current Return Amount" optional="hide"/>
                 <field name="delta_return_amount" sum="Return Amount Delta" optional="hide"/>
-                <field name="legacy_discount_amount" sum="Legacy Discount" optional="show"/>
-                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
-                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
+                <field name="current_discount_reason_sales_untaxed" sum="Discount Reason Sales Untaxed" optional="show"/>
+                <field name="current_discount_reason_sales_total" sum="Discount Reason Sales Total" optional="show"/>
                 <field name="legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
                 <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
                 <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
@@ -173,9 +172,8 @@
                 <field name="legacy_return_amount" type="measure"/>
                 <field name="current_return_amount" type="measure"/>
                 <field name="delta_return_amount" type="measure"/>
-                <field name="legacy_discount_amount" type="measure"/>
-                <field name="current_discount_amount" type="measure"/>
-                <field name="delta_discount_amount" type="measure"/>
+                <field name="current_discount_reason_sales_untaxed" type="measure"/>
+                <field name="current_discount_reason_sales_total" type="measure"/>
                 <field name="legacy_gross_sales_amount" type="measure"/>
                 <field name="current_gross_sales_amount" type="measure"/>
                 <field name="delta_gross_sales_amount" type="measure"/>
@@ -289,9 +287,8 @@
                 <field name="current_return_amount" sum="Current Return Amount" optional="hide"/>
                 <field name="baseline_legacy_return_amount" sum="Legacy Return Amount" optional="hide"/>
                 <field name="delta_return_amount" sum="Return Amount Delta" optional="hide"/>
-                <field name="current_discount_amount" sum="Current Discount" optional="show"/>
-                <field name="baseline_legacy_discount_amount" sum="Legacy Discount" optional="show"/>
-                <field name="delta_discount_amount" sum="Discount Delta" optional="show"/>
+                <field name="current_discount_reason_sales_untaxed" sum="Discount Reason Sales Untaxed" optional="show"/>
+                <field name="current_discount_reason_sales_total" sum="Discount Reason Sales Total" optional="show"/>
                 <field name="current_gross_sales_amount" sum="Current Gross Sales" optional="show"/>
                 <field name="baseline_legacy_gross_sales_amount" sum="Legacy Gross Sales" optional="show"/>
                 <field name="delta_gross_sales_amount" sum="Gross Sales Delta" optional="show"/>
@@ -418,9 +415,8 @@
                 <field name="current_return_qty" type="measure"/>
                 <field name="baseline_legacy_return_qty" type="measure"/>
                 <field name="delta_return_qty" type="measure"/>
-                <field name="current_discount_amount" type="measure"/>
-                <field name="baseline_legacy_discount_amount" type="measure"/>
-                <field name="delta_discount_amount" type="measure"/>
+                <field name="current_discount_reason_sales_untaxed" type="measure"/>
+                <field name="current_discount_reason_sales_total" type="measure"/>
                 <field name="current_gross_sales_amount" type="measure"/>
                 <field name="baseline_legacy_gross_sales_amount" type="measure"/>
                 <field name="delta_gross_sales_amount" type="measure"/>
@@ -515,9 +511,8 @@
                 <field name="current_return_qty" string="Current Return Qty" optional="show"/>
                 <field name="baseline_legacy_return_qty" string="Baseline Return Qty" optional="show"/>
                 <field name="delta_return_qty" string="Delta Return Qty" optional="show"/>
-                <field name="current_discount_amount" string="Current Discount" optional="show"/>
-                <field name="baseline_legacy_discount_amount" string="Baseline Discount" optional="show"/>
-                <field name="delta_discount_amount" string="Delta Discount" optional="show"/>
+                <field name="current_discount_reason_sales_untaxed" string="Discount Reason Sales Untaxed" optional="show"/>
+                <field name="current_discount_reason_sales_total" string="Discount Reason Sales Total" optional="show"/>
                 <field name="current_gross_sales_amount" string="Current Gross Sales" optional="show"/>
                 <field name="baseline_legacy_gross_sales_amount" string="Baseline Gross Sales" optional="show"/>
                 <field name="delta_gross_sales_amount" string="Delta Gross Sales" optional="show"/>
@@ -598,9 +593,8 @@
                 <field name="current_return_qty" type="measure"/>
                 <field name="baseline_legacy_return_qty" type="measure"/>
                 <field name="delta_return_qty" type="measure"/>
-                <field name="current_discount_amount" type="measure"/>
-                <field name="baseline_legacy_discount_amount" type="measure"/>
-                <field name="delta_discount_amount" type="measure"/>
+                <field name="current_discount_reason_sales_untaxed" type="measure"/>
+                <field name="current_discount_reason_sales_total" type="measure"/>
                 <field name="current_gross_sales_amount" type="measure"/>
                 <field name="baseline_legacy_gross_sales_amount" type="measure"/>
                 <field name="delta_gross_sales_amount" type="measure"/>
@@ -666,7 +660,8 @@
                 <field name="return_qty" string="Return Qty" optional="show"/>
                 <field name="return_amount" string="Return Untaxed" optional="show"/>
                 <field name="return_total_amount" string="Return Total" optional="show"/>
-                <field name="discount_amount" string="Discount" optional="show"/>
+                <field name="discount_reason_sales_untaxed" string="Discount Reason Sales Untaxed" optional="show"/>
+                <field name="discount_reason_sales_total" string="Discount Reason Sales Total" optional="show"/>
                 <field name="asp" string="ASP" optional="hide"/>
                 <field name="cogs_amount" string="COGS" optional="show"/>
                 <field name="margin_amount" string="Net Margin $" optional="show"/>
@@ -727,7 +722,8 @@
                 <field name="return_qty" type="measure"/>
                 <field name="return_amount" type="measure"/>
                 <field name="return_total_amount" type="measure"/>
-                <field name="discount_amount" type="measure"/>
+                <field name="discount_reason_sales_untaxed" type="measure"/>
+                <field name="discount_reason_sales_total" type="measure"/>
                 <field name="cogs_amount" type="measure"/>
                 <field name="margin_amount" type="measure"/>
                 <field name="margin_pct" type="measure"/>
