@@ -521,7 +521,6 @@ def fetch_sales_monthly(
     sales_untaxed_total_expr = None
     total_amount_expr = None
     sales_total_expr = None
-    discount_reason_total_expr = None
     if "price_subtotal_signed" in ail_cols:
         # Match Odoo12 Invoice Analysis, which uses account_invoice_line.price_subtotal_signed.
         amount_expr = "COALESCE(ail.price_subtotal_signed, 0.0)"
@@ -552,10 +551,7 @@ def fetch_sales_monthly(
             " * CASE WHEN ai.type IN ('out_refund', 'in_refund') THEN -1 ELSE 1 END"
         )
         sales_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
-        discount_reason_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
         join_air = "LEFT JOIN account_invoice_report air ON air.id = ail.id"
-    elif sales_total_expr:
-        discount_reason_total_expr = sales_total_expr
 
     if not qty_col or not amount_expr or not sales_untaxed_total_expr or not total_amount_expr or not sales_total_expr:
         fail("Missing quantity/amount columns on account_invoice_line.")
@@ -648,15 +644,15 @@ def fetch_sales_monthly(
             ) AS legacy_return_total_amount,
             SUM(
                 CASE
-                    WHEN ai.type = 'out_invoice' AND {discount_reason_expr} IS NOT NULL
-                    THEN {sales_untaxed_total_expr}
+                    WHEN {discount_reason_expr} IS NOT NULL
+                    THEN {amount_expr}
                     ELSE 0.0
                 END
             ) AS legacy_discount_reason_sales_untaxed,
             SUM(
                 CASE
-                    WHEN ai.type = 'out_invoice' AND {discount_reason_expr} IS NOT NULL
-                    THEN {discount_reason_total_expr}
+                    WHEN {discount_reason_expr} IS NOT NULL
+                    THEN {total_amount_expr}
                     ELSE 0.0
                 END
             ) AS legacy_discount_reason_sales_total,

@@ -151,13 +151,13 @@ def _sql_current_product_sales_cte(cr, report_source, caps):
                     SUM(COALESCE(air.price_subtotal, 0.0)) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN COALESCE(air.quantity, 0.0)
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN COALESCE(air.price_subtotal, 0.0)
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
@@ -182,13 +182,13 @@ def _sql_current_product_sales_cte(cr, report_source, caps):
                     SUM({untaxed_amount_expr}) AS current_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN COALESCE(aml.signed_quantity, 0.0)
                             ELSE 0.0
                         END
                     ) AS current_return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS({untaxed_amount_expr})
+                            WHEN am.move_type = 'out_refund' THEN ({untaxed_amount_expr})
                             ELSE 0.0
                         END
                     ) AS current_return_amount,
@@ -456,35 +456,65 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     SUM(COALESCE({total_col}, 0.0)) AS net_total_sales_amount,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.quantity, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN COALESCE(air.quantity, 0.0)
                             ELSE 0.0
                         END
                     ) AS return_qty,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN COALESCE(air.price_subtotal, 0.0)
                             ELSE 0.0
                         END
                     ) AS return_amount,
                     SUM(
                         CASE
-                            WHEN air.move_type = 'out_refund' THEN ABS(COALESCE({total_col}, 0.0))
+                            WHEN air.move_type = 'out_refund' THEN COALESCE({total_col}, 0.0)
                             ELSE 0.0
                         END
                     ) AS return_total_amount,
                     {report_cogs_expr} AS cogs_amount,
                     {report_margin_expr} AS margin_amount,
                     CASE
-                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN ccu.last_cost_unit IS NOT NULL THEN ABS(COALESCE(air.quantity, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE
-                            SUM(COALESCE(ccu.last_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
-                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN ccu.last_cost_unit IS NOT NULL THEN ccu.last_cost_unit * ABS(COALESCE(air.quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN ccu.last_cost_unit IS NOT NULL THEN ABS(COALESCE(air.quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                     END AS last_cost_unit,
                     CASE
-                        WHEN SUM(ABS(COALESCE(air.quantity, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN ccu.avg_cost_unit IS NOT NULL THEN ABS(COALESCE(air.quantity, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE
-                            SUM(COALESCE(ccu.avg_cost_unit, 0.0) * ABS(COALESCE(air.quantity, 0.0)))
-                            / SUM(ABS(COALESCE(air.quantity, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN ccu.avg_cost_unit IS NOT NULL THEN ccu.avg_cost_unit * ABS(COALESCE(air.quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN ccu.avg_cost_unit IS NOT NULL THEN ABS(COALESCE(air.quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                     END AS avg_cost_unit,
                     {report_cost_available_expr} AS cost_available
                 FROM {report_source} air
@@ -544,19 +574,19 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                     SUM(COALESCE(aml.price_total_signed, 0.0)) AS net_total_sales_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN COALESCE(aml.signed_quantity, 0.0)
                             ELSE 0.0
                         END
                     ) AS return_qty,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS({untaxed_amount_expr})
+                            WHEN am.move_type = 'out_refund' THEN ({untaxed_amount_expr})
                             ELSE 0.0
                         END
                     ) AS return_amount,
                     SUM(
                         CASE
-                            WHEN am.move_type = 'out_refund' THEN ABS(COALESCE(aml.price_total_signed, 0.0))
+                            WHEN am.move_type = 'out_refund' THEN COALESCE(aml.price_total_signed, 0.0)
                             ELSE 0.0
                         END
                     ) AS return_total_amount,
@@ -566,16 +596,46 @@ def _sql_current_history_sales_cte(cr, current_bucket_key, current_prefix5, curr
                         - SUM({signed_cost_expr})
                     ) AS margin_amount,
                     CASE
-                        WHEN SUM(ABS(COALESCE(aml.signed_quantity, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN ccu.last_cost_unit IS NOT NULL THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE
-                            SUM(COALESCE(ccu.last_cost_unit, 0.0) * ABS(COALESCE(aml.signed_quantity, 0.0)))
-                            / SUM(ABS(COALESCE(aml.signed_quantity, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN ccu.last_cost_unit IS NOT NULL THEN ccu.last_cost_unit * ABS(COALESCE(aml.signed_quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN ccu.last_cost_unit IS NOT NULL THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                     END AS last_cost_unit,
                     CASE
-                        WHEN SUM(ABS(COALESCE(aml.signed_quantity, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN ccu.avg_cost_unit IS NOT NULL THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE
-                            SUM(COALESCE(ccu.avg_cost_unit, 0.0) * ABS(COALESCE(aml.signed_quantity, 0.0)))
-                            / SUM(ABS(COALESCE(aml.signed_quantity, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN ccu.avg_cost_unit IS NOT NULL THEN ccu.avg_cost_unit * ABS(COALESCE(aml.signed_quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN ccu.avg_cost_unit IS NOT NULL THEN ABS(COALESCE(aml.signed_quantity, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                     END AS avg_cost_unit,
                     TRUE AS cost_available
                 FROM account_move_line aml
@@ -3002,17 +3062,47 @@ class LegacyCurrentProductHistory(models.Model):
                         ELSE NULL
                     END AS margin_pct,
                     CASE
-                        WHEN SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE (
-                            SUM(COALESCE(lmf.legacy_last_cost_unit, 0.0) * ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
-                            / SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN lmf.legacy_last_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                         )
                     END AS last_cost_unit,
                     CASE
-                        WHEN SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0))) = 0 THEN NULL
+                        WHEN SUM(
+                            CASE
+                                WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                ELSE 0.0
+                            END
+                        ) = 0 THEN NULL
                         ELSE (
-                            SUM(COALESCE(lmf.legacy_avg_cost_unit, 0.0) * ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
-                            / SUM(ABS(COALESCE(lmf.legacy_sales_qty, 0.0)))
+                            SUM(
+                                CASE
+                                    WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN lmf.legacy_avg_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
+                            / SUM(
+                                CASE
+                                    WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    ELSE 0.0
+                                END
+                            )
                         )
                     END AS avg_cost_unit,
                     BOOL_OR(COALESCE(lmf.legacy_cost_available, FALSE)) AS cost_available
