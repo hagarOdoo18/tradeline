@@ -543,6 +543,8 @@ def fetch_sales_monthly(
         total_amount_expr = amount_expr
         sales_total_expr = sales_untaxed_total_expr
 
+    air_cols = set(get_table_columns(conn, "account_invoice_report")) if table_exists(conn, "account_invoice_report") else set()
+
     report_total_expr, report_total_source = detect_legacy_report_total_source(conn)
     join_air = ""
     if report_total_expr:
@@ -560,14 +562,21 @@ def fetch_sales_monthly(
     if "state" in ai_cols:
         state_filter_sql = "AND ai.state NOT IN ('draft', 'cancel')"
 
-    if "reason_id" in ail_cols and "reason_id" in ai_cols:
-        discount_reason_expr = "COALESCE(ail.reason_id, ai.reason_id)"
-    elif "reason_id" in ail_cols:
-        discount_reason_expr = "ail.reason_id"
-    elif "reason_id" in ai_cols:
-        discount_reason_expr = "ai.reason_id"
+    if {"reason_id", "price_total", "amount_total"}.issubset(air_cols):
+        discount_reason_expr = "air.reason_id"
+        discount_reason_untaxed_expr = "COALESCE(air.price_total, 0.0)"
+        discount_reason_total_expr = "COALESCE(air.amount_total, 0.0)"
     else:
-        discount_reason_expr = "NULL::integer"
+        if "reason_id" in ail_cols and "reason_id" in ai_cols:
+            discount_reason_expr = "COALESCE(ail.reason_id, ai.reason_id)"
+        elif "reason_id" in ail_cols:
+            discount_reason_expr = "ail.reason_id"
+        elif "reason_id" in ai_cols:
+            discount_reason_expr = "ai.reason_id"
+        else:
+            discount_reason_expr = "NULL::integer"
+        discount_reason_untaxed_expr = amount_expr
+        discount_reason_total_expr = total_amount_expr
 
     cost_expr, cost_source = detect_legacy_cost_source(ail_cols, pp_cols)
     has_line_total_cost = cost_expr == "ail.total_cost"
@@ -645,14 +654,14 @@ def fetch_sales_monthly(
             SUM(
                 CASE
                     WHEN {discount_reason_expr} IS NOT NULL
-                    THEN {amount_expr}
+                    THEN {discount_reason_untaxed_expr}
                     ELSE 0.0
                 END
             ) AS legacy_discount_reason_sales_untaxed,
             SUM(
                 CASE
                     WHEN {discount_reason_expr} IS NOT NULL
-                    THEN {total_amount_expr}
+                    THEN {discount_reason_total_expr}
                     ELSE 0.0
                 END
             ) AS legacy_discount_reason_sales_total,
