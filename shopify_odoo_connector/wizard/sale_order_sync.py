@@ -491,7 +491,9 @@ class SaleOrderSync(models.TransientModel):
                     each, shopify_instance)
                 vals['warehouse_id'] = (
                     order_warehouse.id if order_warehouse else False)
+                sales_rep= self.env['sales.rep'].search([('company_id', '=',  instance.company_id.id),('is_online','=', True)], limit=1)
                 vals['branch_id'] =  order_warehouse.branch_id.id if order_warehouse else False
+                vals['sales_rep_id'] =  sales_rep.id if sales_rep else False
                 fulfillment_status = each['fulfillment_status']
                 payment_status = each['financial_status']
                 fulfillment = 'fulfilled' \
