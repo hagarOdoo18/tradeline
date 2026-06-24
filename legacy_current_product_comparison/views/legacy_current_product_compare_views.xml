@@ -755,6 +755,7 @@
         <field name="view_mode">list,pivot,graph</field>
         <field name="search_view_id" ref="view_legacy_current_product_history_search"/>
         <field name="context">{'search_default_history_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="groups_id" eval="[(4, ref('legacy_current_product_comparison.group_legacy_current_product_history_user')), (4, ref('legacy_invoice_archive.group_legacy_invoice_archive_manager'))]"/>
     </record>
 
     <menuitem id="menu_legacy_current_product_history"
@@ -762,5 +763,5 @@
               parent="legacy_invoice_archive.menu_legacy_reporting_root"
               action="action_legacy_current_product_history"
               sequence="94"
-              groups="account.group_account_readonly"/>
+              groups="legacy_current_product_comparison.group_legacy_current_product_history_user,legacy_invoice_archive.group_legacy_invoice_archive_manager"/>
 </odoo>

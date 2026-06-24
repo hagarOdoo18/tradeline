@@ -8,6 +8,7 @@
     "license": "LGPL-3",
     "depends": ["legacy_invoice_archive", "account", "stock", "sales_invoice_lines_view", "accounting_customization"],
     "data": [
+        "security/security.xml",
         "security/ir.model.access.csv",
         "views/legacy_current_product_compare_views.xml",
     ],
