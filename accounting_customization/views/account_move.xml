@@ -86,6 +86,7 @@
        <record id="account.menu_finance_reports" model="ir.ui.menu">
                 <field name="groups_id" eval="[(6, 0, [ ref('accounting_customization.group_reporting_menu')])]"/>
             <field name="parent_id" ref=""/>
+            <field name="web_icon">accounting_customization,static/description/finance_reports_icon.png</field>
             </record>
       <record id="account.menu_board_journal_1" model="ir.ui.menu">
                 <field name="groups_id" eval="[(6, 0, [ ref('accounting_customization.group_accounting_dashboard_menu')])]"/>
