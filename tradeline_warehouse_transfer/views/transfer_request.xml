@@ -143,7 +143,7 @@
 
         </record>
 
-        <menuitem id="transfer_request_root" name="Transfer Request" sequence="2" groups="group_transfer_user"/>
+        <menuitem id="transfer_request_root" name="Transfer Request" sequence="2" groups="group_transfer_user" web_icon="tradeline_warehouse_transfer,static/description/icon.png"/>
     <menuitem id="transfer_options_request_root" parent="transfer_request_root"  name="Transfers" sequence="2" groups="group_transfer_user"/>
         <menuitem name="Transfer Request" id="transfer_request_menu" parent="transfer_options_request_root" action="transfer_request_act_window" groups="group_transfer_user" sequence="1"/>
         <menuitem name="Transfer Completed" id="transfer_completed_menu" parent="transfer_options_request_root" action="transfer_completed_act_window" groups="tradeline_warehouse_transfer.group_transfer_manger" sequence="1"/>

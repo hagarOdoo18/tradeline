@@ -11,6 +11,8 @@
 
     'category': 'Uncategorized',
     'version': '0.1',
+    'application': True,
+    'icon': '/tradeline_warehouse_transfer/static/description/icon.png',
 
     # any module necessary for this one to work correctly
     'depends': ['base','stock','account','base_tradeline'],

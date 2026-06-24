@@ -217,7 +217,7 @@ class SyncCustomer(models.TransientModel):
                     ])
                     state_id = self.env['res.country.state'].sudo().search([
                         ('name', '=', customer['addresses'][0]['province'])
-                    ])
+                    ],limit=1)
                     vals = {
                         'street': customer['addresses'][0]['address1'],
                         'street2': customer['addresses'][0]['address2'],
@@ -265,7 +265,7 @@ class SyncCustomer(models.TransientModel):
                     ])
                     state_id = self.env['res.country.state'].sudo().search([
                         ('name', '=', customer['addresses'][0]['province'])
-                    ])
+                    ],limit=1)
                     vals = {
                         'street': customer['addresses'][0]['address1'],
                         'street2': customer['addresses'][0]['address2'],
@@ -284,7 +284,7 @@ class SyncCustomer(models.TransientModel):
                         not customer['last_name'] and customer['email']):
                     vals['name'] = customer['email']
                 vals['email'] = customer['email']
-                vals['mobile'] = customer['phone']
+                vals['mobile'] = customer['phone']if customer['phone'] else '01119499107'
                 vals['shopify_customer_ref'] = customer['id']
                 vals['shopify_instance_id'] = shopify_instance.id
                 vals['synced_customer'] = True

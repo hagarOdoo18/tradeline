@@ -1351,6 +1351,56 @@ class WebHook(http.Controller):
             })
             return {'Message': 'Something went Wrong'}
 
+    def _get_shopify_order_warehouse(self, data, shopify_shop):
+        """Resolve the Odoo warehouse a Shopify order should be assigned to.
+
+        Shopify orders carry the fulfillment location either as the
+        order-level 'location_id' (often None while the order is still
+        unpaid / not yet fulfilled) or, for storefronts that let the
+        customer pick a branch/pickup location, as a '_selected_location'
+        note attribute (e.g. 'Tradeline Sodic'). Both are matched against
+        the shopify.location mapping table (warehouse <-> Shopify location)
+        for this instance. Falls back to the instance's default warehouse.
+
+            data(dict): raw Shopify order payload.
+            shopify_shop(shopify.configuration): the matched instance.
+
+            stock.warehouse: the resolved warehouse (may be an empty
+            recordset if nothing could be matched and no default is set).
+        """
+        location_model = request.env['shopify.location'].with_user(
+            SUPERUSER_ID)
+
+        location_id = data.get('location_id')
+        if location_id:
+            loc = location_model.search([
+                ('shopify_location_id', '=', str(location_id)),
+                ('instance_id', '=', shopify_shop.id),
+            ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        selected_location = False
+        for attr in data.get('note_attributes') or []:
+            if attr.get('name') == '_selected_location':
+                selected_location = attr.get('value')
+                break
+
+        if selected_location:
+            loc = location_model.search([
+                ('instance_id', '=', shopify_shop.id),
+                ('name', '=', selected_location),
+            ], limit=1)
+            if not loc:
+                loc = location_model.search([
+                    ('instance_id', '=', shopify_shop.id),
+                    ('name', 'ilike', selected_location),
+                ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        return shopify_shop.warehouse_id
+
     @http.route('/create_order', type='json', auth='none', methods=['POST'],
                 csrf=False)
     def get_webhook_create_order_url(self, *args, **kwargs):
@@ -1384,6 +1434,8 @@ class WebHook(http.Controller):
                     [
                         ('shop_name', 'like',
                          shop_name)], limit=1)
+                order_warehouse = self._get_shopify_order_warehouse(
+                    data, shopify_shop)
                 tax_name = None
                 currency = request.env['res.currency'].with_user(
                     SUPERUSER_ID).search(
@@ -1554,6 +1606,8 @@ class WebHook(http.Controller):
                              'state': 'sent',
                              'currency_id': currency.id,
                              'company_id': shopify_shop.company_id.id,
+                             'warehouse_id': order_warehouse.id
+                             if order_warehouse else False,
                              'order_line': vals,
                              }, ])
                     sale_order.shopify_sync_ids.sudo().create({
@@ -1592,6 +1646,8 @@ class WebHook(http.Controller):
                           'state': 'sent',
                           'currency_id': currency.id,
                           'company_id': shopify_shop.company_id.id,
+                          'warehouse_id': order_warehouse.id
+                          if order_warehouse else False,
                           'order_line': vals,
                           }, ])
                     sale_order.shopify_sync_ids.sudo().create({

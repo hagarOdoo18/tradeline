@@ -234,6 +234,55 @@ class SaleOrderSync(models.TransientModel):
                 if order_link and rel is not None:
                     rec += 1
 
+    def _get_shopify_order_warehouse(self, each, instance):
+        """Resolve the Odoo warehouse a Shopify order should be assigned to.
+
+        Shopify orders carry the fulfillment location either as the
+        order-level 'location_id' (often None while the order is still
+        unpaid / not yet fulfilled) or, for storefronts that let the
+        customer pick a branch/pickup location, as a '_selected_location'
+        note attribute (e.g. 'Tradeline Sodic'). Both are matched against
+        the shopify.location mapping table (warehouse <-> Shopify location)
+        for this instance. Falls back to the instance's default warehouse.
+
+            each(dict): raw Shopify order payload.
+            instance(shopify.configuration): the Shopify instance.
+
+            stock.warehouse: the resolved warehouse (may be an empty
+            recordset if nothing could be matched and no default is set).
+        """
+        location_model = self.env['shopify.location'].sudo()
+
+        location_id = each.get('location_id')
+        if location_id:
+            loc = location_model.search([
+                ('shopify_location_id', '=', str(location_id)),
+                ('instance_id', '=', instance.id),
+            ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        selected_location = False
+        for attr in each.get('note_attributes') or []:
+            if attr.get('name') == '_selected_location':
+                selected_location = attr.get('value')
+                break
+
+        if selected_location:
+            loc = location_model.search([
+                ('instance_id', '=', instance.id),
+                ('name', '=', selected_location),
+            ], limit=1)
+            if not loc:
+                loc = location_model.search([
+                    ('instance_id', '=', instance.id),
+                    ('name', 'ilike', selected_location),
+                ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        return instance.warehouse_id
+
     def import_confirmed_orders_from_shopify(self, shopify_orders, instance,
                                              ref):
         """ Method to import confirmed orders from shopify to odoo.
@@ -333,7 +382,7 @@ class SaleOrderSync(models.TransientModel):
                             state_id = self.env['res.country.state'].search([
                                 ('name', '=',
                                  each['shipping_address']['province'])
-                            ])
+                            ],limit=1)
                             shipping_child_id = self.env[
                                 'res.partner'].sudo().create([
                                 {"name": each['shipping_address'][
@@ -365,7 +414,7 @@ class SaleOrderSync(models.TransientModel):
                             state_id = self.env['res.country.state'].search([
                                 ('name', '=',
                                  each['shipping_address']['province'])
-                            ])
+                            ],limit=1)
                             billing_child_id = self.env[
                                 'res.partner'].sudo().create(
                                 [{
@@ -418,8 +467,8 @@ class SaleOrderSync(models.TransientModel):
                     tax_name = self.env[
                         'account.tax'].search(
                         [('amount', '=', taxes),
-                         ('tax_group_id', '=', tax_group),
-                         ('type_tax_use', '=', 'sale')])
+
+                         ('type_tax_use', '=', 'sale'),('company_id', '=', instance.company_id.id)],limit=1).id
                     if not tax_name:
                         tax_group_id = self.env['account.tax.group'].create(
                             {'name': tax_group})
@@ -438,6 +487,11 @@ class SaleOrderSync(models.TransientModel):
                 vals["shopify_order_ref"] = each['id']
                 vals["name"] = each['name']
                 vals['shopify_instance_id'] = shopify_instance.id
+                order_warehouse = self._get_shopify_order_warehouse(
+                    each, shopify_instance)
+                vals['warehouse_id'] = (
+                    order_warehouse.id if order_warehouse else False)
+                vals['branch_id'] =  order_warehouse.branch_id.id if order_warehouse else False
                 fulfillment_status = each['fulfillment_status']
                 payment_status = each['financial_status']
                 fulfillment = 'fulfilled' \
@@ -760,8 +814,8 @@ class SaleOrderSync(models.TransientModel):
                     tax_name = self.env[
                         'account.tax'].search(
                         [('amount', '=', taxes),
-                         ('tax_group_id', '=', tax_group),
-                         ('type_tax_use', '=', 'sale')])
+
+                         ('type_tax_use', '=', 'sale'), ('company_id', '=', instance.company_id.id)], limit=1).id
                     if not tax_name:
                         tax_group_id = self.env['account.tax.group'].create(
                             {'name': tax_group})
