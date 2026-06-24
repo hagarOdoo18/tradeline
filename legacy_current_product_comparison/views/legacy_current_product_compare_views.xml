@@ -729,7 +729,7 @@
                 <field name="margin_pct" type="measure"/>
                 <field name="last_cost_unit" type="measure"/>
                 <field name="avg_cost_unit" type="measure"/>
-                <field name="period_month" interval="month" type="col"/>
+                <field name="period_month" interval="month" type="row"/>
                 <field name="source_system" type="row"/>
                 <field name="bucket_name" type="row"/>
             </pivot>
