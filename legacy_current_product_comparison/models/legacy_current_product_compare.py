@@ -3064,20 +3064,20 @@ class LegacyCurrentProductHistory(models.Model):
                     CASE
                         WHEN SUM(
                             CASE
-                                WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                WHEN COALESCE(lmf.legacy_last_cost_unit, 0.0) > 0 THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                 ELSE 0.0
                             END
                         ) = 0 THEN NULL
                         ELSE (
                             SUM(
                                 CASE
-                                    WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN lmf.legacy_last_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    WHEN COALESCE(lmf.legacy_last_cost_unit, 0.0) > 0 THEN lmf.legacy_last_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                     ELSE 0.0
                                 END
                             )
                             / SUM(
                                 CASE
-                                    WHEN lmf.legacy_last_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    WHEN COALESCE(lmf.legacy_last_cost_unit, 0.0) > 0 THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                     ELSE 0.0
                                 END
                             )
@@ -3086,20 +3086,20 @@ class LegacyCurrentProductHistory(models.Model):
                     CASE
                         WHEN SUM(
                             CASE
-                                WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                WHEN COALESCE(lmf.legacy_avg_cost_unit, 0.0) > 0 THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                 ELSE 0.0
                             END
                         ) = 0 THEN NULL
                         ELSE (
                             SUM(
                                 CASE
-                                    WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN lmf.legacy_avg_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    WHEN COALESCE(lmf.legacy_avg_cost_unit, 0.0) > 0 THEN lmf.legacy_avg_cost_unit * ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                     ELSE 0.0
                                 END
                             )
                             / SUM(
                                 CASE
-                                    WHEN lmf.legacy_avg_cost_unit IS NOT NULL THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
+                                    WHEN COALESCE(lmf.legacy_avg_cost_unit, 0.0) > 0 THEN ABS(COALESCE(lmf.legacy_sales_qty, 0.0))
                                     ELSE 0.0
                                 END
                             )

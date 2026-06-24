@@ -269,12 +269,15 @@ def fetch_price_history_cost_units(
         cost = row.get("cost")
         if ts is None or cost is None:
             continue
+        cost_value = to_float(cost, default=0.0)
+        if cost_value <= 0:
+            continue
         ts_date = ts.date() if isinstance(ts, dt.datetime) else ts
         if not isinstance(ts_date, dt.date):
             ts_date = parse_date(str(ts)[:10])
             if not ts_date:
                 continue
-        timeline[pid].append((ts_date, to_float(cost)))
+        timeline[pid].append((ts_date, cost_value))
 
     out: dict[tuple[int, str], dict[str, float | None]] = {}
     for pid, entries in timeline.items():
@@ -429,7 +432,7 @@ def fetch_stock_move_month_end_valuation(
                 if value_on_hand < 0 and abs(value_on_hand) < 1e-4:
                     value_on_hand = 0.0
 
-            avg_cost_unit = (value_on_hand / qty_on_hand) if qty_on_hand else None
+            avg_cost_unit = (value_on_hand / qty_on_hand) if (qty_on_hand and value_on_hand > 0) else None
             out[(pid, month.isoformat())] = {
                 "legacy_stock_close_qty": qty_on_hand,
                 "legacy_stock_close_value": value_on_hand,
@@ -979,6 +982,10 @@ def main() -> None:
                     continue
                 last_cost_unit = cu.get("last_cost_unit")
                 avg_cost_unit = cu.get("avg_cost_unit")
+                if last_cost_unit is not None and float(last_cost_unit) <= 0:
+                    last_cost_unit = None
+                if avg_cost_unit is not None and float(avg_cost_unit) <= 0:
+                    avg_cost_unit = None
                 if last_cost_unit is None and avg_cost_unit is None:
                     continue
                 if last_cost_unit is None:
@@ -1020,6 +1027,10 @@ def main() -> None:
                     continue
                 last_cost_unit = cost_units.get("legacy_last_cost_unit")
                 avg_cost_unit = cost_units.get("legacy_avg_cost_unit")
+                if last_cost_unit is not None and float(last_cost_unit) <= 0:
+                    last_cost_unit = None
+                if avg_cost_unit is not None and float(avg_cost_unit) <= 0:
+                    avg_cost_unit = None
                 if last_cost_unit is None:
                     vals["legacy_avg_cost_unit"] = avg_cost_unit
                     continue
