@@ -591,6 +591,7 @@
 .tl-hdr-sales .tl-section-accent   { background: var(--tl-blue); }
 .tl-hdr-inventory .tl-section-accent { background: var(--tl-amber); }
 .tl-hdr-trend .tl-section-accent   { background: var(--tl-green); }
+.tl-hdr-collections .tl-section-accent { background: var(--tl-teal); }
 .tl-hdr-advanced .tl-section-accent{ background: var(--tl-purple); }
 
 .tl-section-title {
@@ -910,6 +911,15 @@
   font-size: 13px;
 }
 .tl-snapshot-quick strong { font-weight: 800; color: var(--tl-text-1); }
+.tl-snapshot-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tl-text-3);
+  background: #f1f5f9;
+  border: 1px solid var(--tl-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
 
 .tl-dod-badge {
   font-size: 12px;
@@ -944,6 +954,16 @@
   gap: 10px;
   margin-bottom: 14px;
   align-items: flex-end;
+}
+.tl-count-hint {
+  margin: -2px 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--tl-radius-sm);
+  background: #f8fafc;
+  border: 1px solid var(--tl-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tl-text-2);
 }
 .tl-drill-actions-row {
   display: flex;

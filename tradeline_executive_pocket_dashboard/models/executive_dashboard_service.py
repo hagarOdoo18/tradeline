@@ -40,7 +40,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "net_margin": "Net Margin",
                 "margin_pct": "Margin %",
                 "credit_note_value": "Credit Note Value",
-                "invoice_count": "Invoice Count",
+                "invoice_count": "Posted Docs Count",
             },
             "default_group": "branch",
             "default_metric": "net_revenue",
@@ -61,7 +61,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "net_margin": "Net Margin",
                 "margin_pct": "Margin %",
                 "average_basket": "Average Basket",
-                "invoice_count": "Invoice Count",
+                "invoice_count": "Invoice Count (Excl. Refunds)",
             },
             "default_group": "branch",
             "default_metric": "net_revenue",
@@ -489,18 +489,26 @@ class ExecutiveDashboardService(models.AbstractModel):
             )
             collections_total = float((self._dictfetchone() or {}).get("collections_total") or 0)
 
+        report_date = filters.get("report_date") or filters["end_date"]
+        overdue_where_sql, overdue_params = self._build_scope_clause(
+            alias="move",
+            table_name="account_move",
+            filters=filters,
+            include_sales_rep=True,
+        )
         overdue_receivables = 0.0
         self.env.cr.execute(
             f"""
             SELECT COALESCE(SUM(GREATEST(COALESCE(move.amount_residual_signed, 0), 0)), 0) AS overdue_receivables
             FROM account_move move
-            WHERE {where_sql}
+            WHERE {overdue_where_sql}
               AND move.state = 'posted'
               AND move.move_type IN ('out_invoice','out_receipt')
+              AND COALESCE(move.invoice_date, move.date) <= %s
               AND COALESCE(move.amount_residual_signed, 0) > 0
-              AND move.invoice_date_due < %s
+              AND COALESCE(move.payment_state, '') IN ('not_paid', 'partial', 'in_payment')
             """,
-            params[:-2] + [filters["end_date"]],
+            overdue_params + [report_date],
         )
         overdue_receivables = float((self._dictfetchone() or {}).get("overdue_receivables") or 0)
 
@@ -656,7 +664,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         if finance.get("net_revenue"):
             overdue_ratio = finance["overdue_receivables"] / max(finance["net_revenue"], 1)
         if overdue_ratio >= 0.35:
-            alerts.append({"severity": "high", "label": "Receivables pressure", "detail": f"Overdue AR is {overdue_ratio:.0%} of current net revenue."})
+            alerts.append({"severity": "high", "label": "Receivables pressure", "detail": f"Open unpaid AR is {overdue_ratio:.0%} of current net revenue."})
 
         if sales.get("negative_margin_invoices", 0) > 0:
             alerts.append({"severity": "high", "label": "Negative margin sales", "detail": f"{int(sales['negative_margin_invoices'])} sales lines are below margin guardrails."})
@@ -895,10 +903,10 @@ class ExecutiveDashboardService(models.AbstractModel):
         cards = [
             {"key": "net_revenue", "label": "Untaxed Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
-            {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "as of report day"},
+            {"key": "overdue_receivables", "label": "Open Unpaid AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "posted unpaid invoices as of report day"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
             {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
-            {"key": "invoice_count", "label": "Invoices", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "in selected period"},
+            {"key": "invoice_count", "label": "Invoices (Excl. Refunds)", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "posted invoices/receipts in selected period, refunds excluded"},
         ]
         if margin_status.get("available"):
             cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral", "subtext": "in selected period"})
@@ -1926,6 +1934,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "sales_by_category": self._top_sales_by_category(scope, limit, margin_status),
             "sales_by_customer": self._top_sales_by_customer(scope, limit, margin_status),
             "sales_by_product": self._top_sales_by_product(scope, limit, margin_status),
+            "payment_journals": self._top_payment_journals(scope, limit),
             "inventory_by_category": self._top_inventory_by_category(scope, limit),
             "sales_over_month": self._sales_over_month(scope),
             "attachment": attachment,
@@ -1940,6 +1949,50 @@ class ExecutiveDashboardService(models.AbstractModel):
             "company_names": company_names,
             "limit": limit,
         }
+
+    def _top_payment_journals(self, scope, limit):
+        if not self._has_table("account_payment"):
+            return []
+        where_sql, params = self._build_scope_clause(alias="payment", table_name="account_payment", filters=scope)
+        params += [scope["start_date"], scope["end_date"], limit]
+        self.env.cr.execute(
+            f"""
+            WITH journal_rows AS (
+                SELECT
+                    COALESCE(journal.name, 'Unknown Journal') AS dimension,
+                    COALESCE(SUM(COALESCE(payment.amount, 0)), 0) AS collections_total,
+                    COUNT(*) AS payment_count
+                FROM account_payment payment
+                LEFT JOIN account_journal journal ON journal.id = payment.journal_id
+                WHERE {where_sql}
+                  AND payment.state = 'posted'
+                  AND payment.partner_type = 'customer'
+                  AND payment.payment_type = 'inbound'
+                  AND payment.date BETWEEN %s AND %s
+                GROUP BY journal.id, journal.name
+            )
+            SELECT
+                dimension,
+                collections_total,
+                payment_count,
+                CASE
+                    WHEN COALESCE(SUM(collections_total) OVER (), 0) > 0
+                    THEN (collections_total / SUM(collections_total) OVER ()) * 100.0
+                    ELSE 0.0
+                END AS share_pct
+            FROM journal_rows
+            ORDER BY collections_total DESC, payment_count DESC, dimension
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = self._dictfetchall()
+        for row in rows:
+            row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+            row["collections_total"] = float(row.get("collections_total") or 0)
+            row["payment_count"] = int(row.get("payment_count") or 0)
+            row["share_pct"] = float(row.get("share_pct") or 0)
+        return rows
 
     def _top_sales_by_branch(self, scope, limit, margin_status=None):
         if not self._has_table("account_move"):

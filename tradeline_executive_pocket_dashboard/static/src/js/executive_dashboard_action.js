@@ -49,6 +49,7 @@ export class ExecutivePocketDashboard extends Component {
     get topSalesByCategory() { return this.topSections.sales_by_category || []; }
     get topSalesByCustomer() { return this.topSections.sales_by_customer || []; }
     get topSalesByProduct() { return this.topSections.sales_by_product || []; }
+    get topPaymentJournals() { return this.topSections.payment_journals || []; }
     get topInventoryByCategory() { return this.topSections.inventory_by_category || []; }
     get salesOverMonth() { return this.topSections.sales_over_month || []; }
     get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
@@ -78,6 +79,7 @@ export class ExecutivePocketDashboard extends Component {
     get dailyDonutCategorySegments() { return this._buildDonutSegments(this.dailyTopSections.sales_by_category || [], "net_revenue"); }
     get periodNetRevenue() { return this.state.bundle?.cards?.find(c => c.key === 'net_revenue')?.value || 0; }
     get periodNetMargin() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin')?.value || 0; }
+    get periodInvoiceCount() { return this.state.bundle?.cards?.find(c => c.key === 'invoice_count')?.value || 0; }
 
     // ─── KPI / meta getters ───────────────────────────────────────────────────
     get cards() { return this.state.bundle?.cards || []; }
@@ -155,6 +157,11 @@ export class ExecutivePocketDashboard extends Component {
     get availableMetrics() { return this.selectedDomainCatalog?.metrics || []; }
     get hasSort() { return Boolean(this.state.sort.column && this.state.sort.direction); }
     get selectedDomainCoverage() { return Number((this.state.bundle?.coverage || {})[this.state.selectedDomain] || 0); }
+    get drillInvoiceCountHint() {
+        if (this.state.selectedDomain === "finance") return "Count = posted sales documents, including refunds.";
+        if (this.state.selectedDomain === "sales") return "Count = customer invoices/receipts only, refunds excluded.";
+        return "";
+    }
 
     // ─── Computed chart data (cached as getters) ──────────────────────────────
     get donutCategorySegments() { return this._buildDonutSegments(this.topSalesByCategory, "net_revenue"); }
@@ -164,6 +171,7 @@ export class ExecutivePocketDashboard extends Component {
     get lineChartData() { return this._buildLineChart(this.salesOverMonth, "net_revenue"); }
     get branchBarRows() { return this._barRowsFor(this.topSalesByBranch, "net_revenue"); }
     get salespersonBarRows() { return this._barRowsFor(this.topSalesBySalesperson, "net_revenue"); }
+    get paymentJournalBarRows() { return this._barRowsFor(this.topPaymentJournals, "collections_total"); }
     get inventoryBarRows() { return this._barRowsFor(this.topInventoryByCategory, "allocated_value"); }
     get customerBarRows() { return this._barRowsFor(this.topSalesByCustomer, "net_revenue"); }
     get productBarRows() { return this._barRowsFor(this.topSalesByProduct, "net_revenue"); }
@@ -288,6 +296,10 @@ export class ExecutivePocketDashboard extends Component {
         return s.length > maxLen ? `${s.slice(0, maxLen - 1)}…` : s;
     }
     columnLabel(col) {
+        if (col === "invoice_count") {
+            if (this.state.selectedDomain === "finance") return "Posted Docs (incl. refunds)";
+            if (this.state.selectedDomain === "sales") return "Invoices (excl. refunds)";
+        }
         return String(col || "").replace(/_/g, " ").split(" ").filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
     }
     _formatDayLabel(value) {
@@ -422,9 +434,9 @@ export class ExecutivePocketDashboard extends Component {
             case "today_sales":
             case "total_invoices":
                 model = "account.move";
-                name = "Today's Invoices";
+                name = "Today's Customer Invoices/Receipts";
                 domain = [
-                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
                     ["invoice_date", "=", report]
                 ].concat(compDomain);
@@ -455,9 +467,9 @@ export class ExecutivePocketDashboard extends Component {
             case "invoice_count":
             case "total_move_count":
                 model = "account.move";
-                name = "Period Invoices";
+                name = "Period Customer Invoices/Receipts";
                 domain = [
-                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
                     ["invoice_date", ">=", start],
                     ["invoice_date", "<=", end]
@@ -486,12 +498,13 @@ export class ExecutivePocketDashboard extends Component {
                 break;
             case "overdue_receivables":
                 model = "account.move";
-                name = "Overdue Receivables";
+                name = "Open Unpaid AR";
                 domain = [
                     ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
+                    ["invoice_date", "<=", report],
                     ["amount_residual_signed", ">", 0],
-                    ["invoice_date_due", "<", end]
+                    ["payment_state", "in", ["not_paid", "partial", "in_payment"]]
                 ].concat(compDomain);
                 break;
             case "inventory_value":
@@ -643,8 +656,8 @@ export class ExecutivePocketDashboard extends Component {
     clearSort() { this.state.sort.column = ""; this.state.sort.direction = ""; }
     async onOpenNativeView() {
         const map = {
-            finance: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
-            sales: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            finance: { name: "Posted Sales Documents (incl. refunds)", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            sales: { name: "Customer Invoices/Receipts (refunds excluded)", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt"]]] },
             inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
         };
         const t = map[this.state.selectedDomain] || map.finance;

@@ -156,18 +156,18 @@
           <div class="tl-kpi-sub-text">
             <span style="margin-right: 8px;"><t t-esc="attachmentData.one_card_invoices || 0"/> with 1 card</span>
             <span><t t-esc="attachmentData.two_plus_card_invoices || 0"/> with 2+ cards</span>
-            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period</div>
+            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period, refunds excluded</div>
           </div>
-          <div class="tl-kpi-explain">Percentage of invoices that include at least one Care Card. This helps track the success rate of attaching care plans to core product sales.</div>
+          <div class="tl-kpi-explain">Percentage of posted customer invoices/receipts in the selected period that include at least one Care Card. Refunds are excluded from this rate.</div>
         </div>
       </div>
 
       <div class="tl-kpi-card" t-on-click="() => this.onCardClick('total_invoices')" style="cursor: pointer;">
         <div class="tl-kpi-icon">🧾</div>
         <div class="tl-kpi-body">
-          <div class="tl-kpi-label">Total Invoices</div>
+          <div class="tl-kpi-label">Invoices (Excl. Refunds)</div>
           <div class="tl-kpi-value"><t t-esc="_formatNumber(totalInvoices)"/></div>
-          <div class="tl-kpi-sub-text">posted on report day</div>
+          <div class="tl-kpi-sub-text">posted invoices/receipts on report day, refunds excluded</div>
         </div>
       </div>
 
@@ -192,7 +192,7 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Sales Performance</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — scrollable, always visible</span>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — invoice counts here exclude refunds</span>
         </div>
       </div>
 
@@ -222,7 +222,7 @@
                 <th class="col-rank">#</th>
                 <th>Branch</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Invoices (excl. refunds)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -278,7 +278,7 @@
                 <th class="col-rank">#</th>
                 <th>Salesperson</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Invoices (excl. refunds)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -340,7 +340,7 @@
                 <th class="col-rank">#</th>
                 <th>Category</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Invoices (excl. refunds)</th>
                 <t t-if="marginAvailableTop"><th class="col-num">Margin%</th></t>
               </tr></thead>
               <tbody>
@@ -387,7 +387,7 @@
                 <th class="col-rank">#</th>
                 <th>Customer</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Invoices (excl. refunds)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -451,7 +451,7 @@
                 <th class="col-rank">#</th>
                 <th>Product Variant</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Invoices (excl. refunds)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -598,7 +598,7 @@
                   <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
                 </div>
                 <div class="tl-tooltip-row">
-                  <span class="tl-tooltip-label">Invoices:</span>
+                  <span class="tl-tooltip-label">Invoices (excl. refunds):</span>
                   <span class="tl-tooltip-val"><t t-esc="state.activePoint.invoice_count"/></span>
                 </div>
                 <div class="tl-tooltip-hint">Click point to inspect day</div>
@@ -615,6 +615,7 @@
           <h3>7-Day Daily Snapshot</h3>
           <div class="tl-snapshot-quick">
             <span>Today: <strong><t t-esc="_formatCompactEGP(dailySnapshotStats.today_revenue || 0)"/></strong></span>
+            <span class="tl-snapshot-note">Invoice counts exclude refunds</span>
             <span t-att-class="'tl-dod-badge ' + _trendClass(dailySnapshotStats.day_over_day_pct)">
               <t t-esc="_trendIcon(dailySnapshotStats.day_over_day_pct)"/>
               <t t-esc="_formatPercentOrDash(dailySnapshotStats.day_over_day_pct)"/> DoD
@@ -629,7 +630,7 @@
                 <div class="tl-snap-fill" t-att-style="'width:' + item.pct + '%'"></div>
               </div>
               <div class="tl-snap-val"><t t-esc="_formatCompact(item.value)"/></div>
-              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv</div>
+              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv excl. refunds</div>
             </div>
           </t>
         </div>
@@ -637,12 +638,66 @@
     </div>
 
     <!-- ══════════ ADVANCED DRILLDOWN (collapsible) ══════════ -->
+    <div class="tl-section">
+      <div class="tl-section-header tl-hdr-collections">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Collections Mix</h2>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> posted customer payment journals in selected period</span>
+        </div>
+      </div>
+
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
+          <span class="tl-badge tl-badge-green">Posted Customer Payments</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No payment journal data available</div></t>
+            <t t-foreach="paymentJournalBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 26)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-green" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Journal</th>
+                <th class="col-num">Collections</th>
+                <th class="col-num">Payments</th>
+                <th class="col-num">Mix %</th>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topPaymentJournals" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.collections_total)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.payment_count)"/></td>
+                    <td class="col-num"><t t-esc="_formatPercent(row.share_pct)"/></td>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tl-section tl-advanced-section">
       <div class="tl-section-header tl-hdr-advanced tl-collapsible" t-on-click="onToggleDrilldown">
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Advanced Drilldown</h2>
-          <span class="tl-section-subtitle">Custom domain, group-by, and metric analysis</span>
+          <span class="tl-section-subtitle">Custom domain, group-by, and metric analysis. Count labels state whether refunds are included.</span>
         </div>
         <span class="tl-collapse-toggle"><t t-if="state.drilldownOpen">▲ Hide</t><t t-else="">▼ Show</t></span>
       </div>
@@ -679,6 +734,8 @@
               <button class="tl-btn-sm tl-btn-outline" t-on-click="onOpenNativeView">Open in Odoo ↗</button>
             </div>
           </div>
+
+          <div class="tl-count-hint" t-if="drillInvoiceCountHint"><t t-esc="drillInvoiceCountHint"/></div>
 
           <div class="tl-pagebar">
             <span class="tl-page-info"><t t-esc="drillPageSummary"/></span>
@@ -764,9 +821,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Total Invoices</div>
+          <div class="tl-print-kpi-label">Invoices (Excl. Refunds)</div>
           <div class="tl-print-kpi-val"><t t-esc="dailyTotalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted invoices</div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts, refunds excluded</div>
         </div>
       </div>
 
@@ -868,9 +925,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Total Invoices</div>
-          <div class="tl-print-kpi-val"><t t-esc="totalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted in period</div>
+          <div class="tl-print-kpi-label">Invoices (Excl. Refunds)</div>
+          <div class="tl-print-kpi-val"><t t-esc="periodInvoiceCount"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts in period, refunds excluded</div>
         </div>
       </div>
 
