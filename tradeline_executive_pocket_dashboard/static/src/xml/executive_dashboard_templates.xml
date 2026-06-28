@@ -200,7 +200,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Branch</h3>
-          <span class="tl-badge tl-badge-blue">Net Revenue</span>
+          <span class="tl-badge tl-badge-blue">Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -221,7 +221,7 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Branch</th>
-                <th class="col-num">Revenue</th>
+                <th class="col-num">Untaxed Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
@@ -256,7 +256,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Salesperson</h3>
-          <span class="tl-badge tl-badge-teal">Net Revenue</span>
+          <span class="tl-badge tl-badge-teal">Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -277,7 +277,7 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Salesperson</th>
-                <th class="col-num">Revenue</th>
+                <th class="col-num">Untaxed Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
@@ -339,7 +339,7 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Category</th>
-                <th class="col-num">Revenue</th>
+                <th class="col-num">Untaxed Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop"><th class="col-num">Margin%</th></t>
               </tr></thead>
@@ -365,7 +365,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> Customers</h3>
-          <span class="tl-badge tl-badge-blue">by Revenue</span>
+          <span class="tl-badge tl-badge-blue">by Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -386,7 +386,7 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Customer</th>
-                <th class="col-num">Revenue</th>
+                <th class="col-num">Untaxed Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
@@ -428,7 +428,7 @@
                 <option t-att-value="cat" t-att-selected="state.filters.product_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
               </t>
             </select>
-            <span class="tl-badge tl-badge-teal">Net Revenue</span>
+            <span class="tl-badge tl-badge-teal">Untaxed Revenue</span>
           </div>
         </div>
         <div class="tl-chart-table">
@@ -450,7 +450,7 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Product Variant</th>
-                <th class="col-num">Revenue</th>
+                <th class="col-num">Untaxed Revenue</th>
                 <th class="col-num">Invoices</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
@@ -541,14 +541,14 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Sales Trend</h2>
-          <span class="tl-section-subtitle">Daily revenue over selected period + 7-day snapshot</span>
+          <span class="tl-section-subtitle">Daily untaxed revenue over selected period + 7-day snapshot</span>
         </div>
       </div>
 
       <!-- Line Chart -->
       <div class="tl-card">
         <div class="tl-card-head">
-          <h3>Revenue Over Period</h3>
+          <h3>Untaxed Revenue Over Period</h3>
           <span class="tl-badge tl-badge-green">Daily Trend</span>
         </div>
         <t t-if="salesOverMonth.length">
@@ -594,7 +594,7 @@
               <div class="tl-chart-tooltip">
                 <div class="tl-tooltip-date"><t t-esc="_formatDayLabel(state.activePoint.date)"/></div>
                 <div class="tl-tooltip-row">
-                  <span class="tl-tooltip-label">Revenue:</span>
+                  <span class="tl-tooltip-label">Untaxed Revenue:</span>
                   <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
                 </div>
                 <div class="tl-tooltip-row">

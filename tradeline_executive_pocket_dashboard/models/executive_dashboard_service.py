@@ -33,10 +33,10 @@ class ExecutiveDashboardService(models.AbstractModel):
     DRILL_CATALOG = {
         "finance": {
             "label": "Finance",
-            "description": "Revenue, collections, receivables, and margin quality.",
+            "description": "Untaxed revenue, collections, receivables, and margin quality.",
             "groups": {"company": "Company", "branch": "Branch", "customer": "Customer", "payment_state": "Payment State"},
             "metrics": {
-                "net_revenue": "Net Revenue",
+                "net_revenue": "Untaxed Revenue",
                 "net_margin": "Net Margin",
                 "margin_pct": "Margin %",
                 "credit_note_value": "Credit Note Value",
@@ -57,7 +57,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "product": "Product",
             },
             "metrics": {
-                "net_revenue": "Net Revenue",
+                "net_revenue": "Untaxed Revenue",
                 "net_margin": "Net Margin",
                 "margin_pct": "Margin %",
                 "average_basket": "Average Basket",
@@ -118,6 +118,21 @@ class ExecutiveDashboardService(models.AbstractModel):
             (table_name, column_name),
         )
         return bool(self.env.cr.fetchone()[0])
+
+    def _has_reporting_sales_view(self) -> bool:
+        required_columns = ["move_id", "company_id", "invoice_date", "price_subtotal"]
+        return self._has_table("account_invoice_report") and all(
+            self._has_column("account_invoice_report", column_name) for column_name in required_columns
+        )
+
+    def _build_reporting_scope_clause(self, filters: dict, include_sales_rep: bool = False) -> tuple[str, list]:
+        return self._build_scope_clause(
+            alias="air",
+            table_name="account_invoice_report",
+            filters=filters,
+            include_sales_rep=include_sales_rep,
+            sales_rep_field="sales_rep_id",
+        )
 
     def _parse_date(self, value, fallback: date) -> date:
         if not value:
@@ -416,22 +431,41 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "margin_available": False,
             }
 
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
-        params += [filters["start_date"], filters["end_date"]]
-        self.env.cr.execute(
-            f"""
-            SELECT
-                COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS gross_sales,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
-            FROM account_move move
-            WHERE {where_sql}
-              AND move.state = 'posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            """,
-            params,
-        )
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(filters, include_sales_rep=True)
+            params += [filters["start_date"], filters["end_date"]]
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS credit_note_value,
+                    COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
+            params += [filters["start_date"], filters["end_date"]]
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS credit_note_value,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
+                FROM account_move move
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
         summary = self._dictfetchone()
 
         collections_total = 0.0
@@ -498,27 +532,51 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "margin_available": False,
             }
 
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
-        params += [filters["start_date"], filters["end_date"]]
-        self.env.cr.execute(
-            f"""
-            SELECT
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
-            FROM account_move move
-            WHERE {where_sql}
-              AND move.state = 'posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            """,
-            params,
-        )
-        row = self._dictfetchone()
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(filters, include_sales_rep=True)
+            params += [filters["start_date"], filters["end_date"]]
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
+            row = self._dictfetchone()
+            gross_sales = float(row.get("gross_sales") or 0)
+            invoice_count = float(row.get("invoice_count") or 0)
+            average_basket = (gross_sales / invoice_count) if invoice_count else 0.0
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=filters, include_sales_rep=True)
+            params += [filters["start_date"], filters["end_date"]]
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(AVG(ABS(move.amount_untaxed_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
+                FROM account_move move
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                """,
+                params,
+            )
+            row = self._dictfetchone()
+            average_basket = float(row.get("average_basket") or 0)
         margin = self._margin_summary(filters, margin_status=margin_status)
         output = {
             "invoice_count": float(row.get("invoice_count") or 0),
-            "average_basket": float(row.get("average_basket") or 0),
+            "average_basket": average_basket,
             "net_revenue": float(row.get("net_revenue") or 0),
             "margin_available": bool(margin.get("available")),
             "negative_margin_invoices": margin["negative_margin_lines"] if margin.get("available") else 0.0,
@@ -721,29 +779,50 @@ class ExecutiveDashboardService(models.AbstractModel):
         rows_map = {}
 
         if self._has_table("account_move"):
-            where_sql, params = self._build_scope_clause(
-                alias="move",
-                table_name="account_move",
-                filters=scope,
-                include_sales_rep=True,
-            )
-            params += [window_start, window_end]
-            self.env.cr.execute(
-                f"""
-                SELECT
-                    move.invoice_date::date AS day,
-                    COUNT(*) AS invoice_count,
-                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
-                FROM account_move move
-                WHERE {where_sql}
-                  AND move.state = 'posted'
-                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-                  AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY day
-                ORDER BY day
-                """,
-                params,
-            )
+            if self._has_reporting_sales_view():
+                where_sql, params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+                params += [window_start, window_end]
+                self.env.cr.execute(
+                    f"""
+                    SELECT
+                        air.invoice_date::date AS day,
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                        COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                    GROUP BY day
+                    ORDER BY day
+                    """,
+                    params,
+                )
+            else:
+                where_sql, params = self._build_scope_clause(
+                    alias="move",
+                    table_name="account_move",
+                    filters=scope,
+                    include_sales_rep=True,
+                )
+                params += [window_start, window_end]
+                self.env.cr.execute(
+                    f"""
+                    SELECT
+                        move.invoice_date::date AS day,
+                        COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                        COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
+                    FROM account_move move
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND move.invoice_date BETWEEN %s AND %s
+                    GROUP BY day
+                    ORDER BY day
+                    """,
+                    params,
+                )
             for rec in self._dictfetchall():
                 day = rec.get("day")
                 if day:
@@ -814,7 +893,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         filter_options = self._get_filter_options(scope)
 
         cards = [
-            {"key": "net_revenue", "label": "Net Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
+            {"key": "net_revenue", "label": "Untaxed Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "overdue_receivables", "label": "Overdue AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "as of report day"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
@@ -918,58 +997,106 @@ class ExecutiveDashboardService(models.AbstractModel):
         return result
 
     def _finance_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
-        params += [scope["start_date"], scope["end_date"], limit, offset]
         include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
-        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
-        if has_branch:
-            dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
-            joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
-        else:
-            dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
-            joins = ""
-        if group_by == "company":
-            dim_sql = "COALESCE(company.name, 'Unknown Company')"
-            joins = company_join_sql
-        elif group_by == "customer":
-            dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
-            joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
-        elif group_by == "payment_state":
-            dim_sql = "COALESCE(move.payment_state, 'unknown')"
-            joins = ""
-        if include_company_split and "res_company company" not in joins:
-            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-        company_group_by = ", company" if include_company_split else ""
-
         order_metric = metric if metric in {"invoice_count", "net_revenue", "credit_note_value"} else "net_revenue"
-        self.env.cr.execute(
-            f"""
-            SELECT
-                {dim_sql} AS dimension{company_select},
-                COUNT(*) AS invoice_count,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_total_signed, 0)) ELSE 0 END), 0) AS credit_note_value
-            FROM account_move move
-            {joins}
-            WHERE {where_sql}
-              AND move.state = 'posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension{company_group_by}
-            ORDER BY {order_metric} DESC
-            LIMIT %s OFFSET %s
-            """,
-            params,
-        )
-        rows = self._dictfetchall()
-        count_params = list(params[:-2])
-        self.env.cr.execute(
-            f"""
-            SELECT COUNT(*) AS total_count
-            FROM (
-                SELECT {dim_sql} AS dimension{company_select}
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"], limit, offset]
+            company_join_sql = "LEFT JOIN res_company company ON company.id = air.company_id"
+            branch_id_sql = "air.branch_id" if self._has_column("account_invoice_report", "branch_id") else "move.branch_id"
+            partner_id_sql = "air.partner_id" if self._has_column("account_invoice_report", "partner_id") else "move.partner_id"
+            if has_branch:
+                dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                joins = f"LEFT JOIN res_branch branch ON branch.id = {branch_id_sql}"
+            else:
+                dim_sql = f"CONCAT('Branch #', COALESCE({branch_id_sql}, 0)::text)"
+                joins = ""
+            if group_by == "company":
+                dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                joins = company_join_sql
+            elif group_by == "customer":
+                dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                joins = f"LEFT JOIN res_partner partner ON partner.id = {partner_id_sql}"
+            elif group_by == "payment_state":
+                dim_sql = "COALESCE(move.payment_state, 'unknown')"
+                joins = ""
+            if include_company_split and "res_company company" not in joins:
+                joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+            company_group_by = ", company" if include_company_split else ""
+
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    {dim_sql} AS dimension{company_select},
+                    COUNT(DISTINCT air.move_id) AS invoice_count,
+                    COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue,
+                    COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS credit_note_value
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension{company_group_by}
+                ORDER BY {order_metric} DESC
+                LIMIT %s OFFSET %s
+                """,
+                params,
+            )
+            rows = self._dictfetchall()
+            count_params = list(params[:-2])
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS total_count
+                FROM (
+                    SELECT {dim_sql} AS dimension{company_select}
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    {joins}
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                    GROUP BY dimension{company_group_by}
+                ) grouped
+                """,
+                count_params,
+            )
+            total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"], limit, offset]
+            company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
+            if has_branch:
+                dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+            else:
+                dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+                joins = ""
+            if group_by == "company":
+                dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                joins = company_join_sql
+            elif group_by == "customer":
+                dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+            elif group_by == "payment_state":
+                dim_sql = "COALESCE(move.payment_state, 'unknown')"
+                joins = ""
+            if include_company_split and "res_company company" not in joins:
+                joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+            company_group_by = ", company" if include_company_split else ""
+
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    {dim_sql} AS dimension{company_select},
+                    COUNT(DISTINCT move.id) AS invoice_count,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue,
+                    COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS credit_note_value
                 FROM account_move move
                 {joins}
                 WHERE {where_sql}
@@ -977,21 +1104,64 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension{company_group_by}
-            ) grouped
-            """,
-            count_params,
-        )
-        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+                ORDER BY {order_metric} DESC
+                LIMIT %s OFFSET %s
+                """,
+                params,
+            )
+            rows = self._dictfetchall()
+            count_params = list(params[:-2])
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS total_count
+                FROM (
+                    SELECT {dim_sql} AS dimension{company_select}
+                    FROM account_move move
+                    {joins}
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND move.invoice_date BETWEEN %s AND %s
+                    GROUP BY dimension{company_group_by}
+                ) grouped
+                """,
+                count_params,
+            )
+            total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "net_revenue", "credit_note_value"]
         if include_company_split:
             columns.insert(0, "company")
 
         if margin_status.get("available"):
-            margin_params = list(params[:-2])  # remove limit/offset
+            margin_where_sql, margin_scope_params = self._build_scope_clause(
+                alias="move",
+                table_name="account_move",
+                filters=scope,
+                include_sales_rep=True,
+            )
+            margin_params = margin_scope_params + [scope["start_date"], scope["end_date"]]
+            margin_company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
+            if has_branch:
+                margin_dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                margin_joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+            else:
+                margin_dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+                margin_joins = ""
+            if group_by == "company":
+                margin_dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                margin_joins = margin_company_join_sql
+            elif group_by == "customer":
+                margin_dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                margin_joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+            elif group_by == "payment_state":
+                margin_dim_sql = "COALESCE(move.payment_state, 'unknown')"
+                margin_joins = ""
+            if include_company_split and "res_company company" not in margin_joins:
+                margin_joins = f"{margin_joins}\n{margin_company_join_sql}" if margin_joins else margin_company_join_sql
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension{company_select},
+                    {margin_dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                         WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0
@@ -1042,8 +1212,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                   ON line.move_id = move.id
                  AND (line.display_type = 'product' OR line.display_type IS NULL)
                  AND line.total_cost IS NOT NULL
-                {joins}
-                WHERE {where_sql}
+                {margin_joins}
+                WHERE {margin_where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
@@ -1085,80 +1255,164 @@ class ExecutiveDashboardService(models.AbstractModel):
         }
 
     def _sales_drilldown(self, scope, group_by, metric, limit, offset, margin_status):
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
-        params += [scope["start_date"], scope["end_date"], limit, offset]
         include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
-        company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
         has_branch = self._has_table("res_branch")
-        if has_branch:
-            dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
-            joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
-        else:
-            dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
-            joins = ""
-        if group_by == "company":
-            dim_sql = "COALESCE(company.name, 'Unknown Company')"
-            joins = company_join_sql
-        elif group_by == "salesperson":
-            if self._has_table("sales_rep"):
-                dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
-                joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
-            else:
-                dim_sql = "CONCAT('Sales Rep #', COALESCE(move.sales_rep_id, 0)::text)"
-                joins = ""
-        elif group_by == "customer":
-            dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
-            joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
-        elif group_by == "category":
-            dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
-            joins = """
-                JOIN account_move_line line
-                  ON line.move_id = move.id
-                 AND (line.display_type = 'product' OR line.display_type IS NULL)
-                LEFT JOIN product_product product ON product.id = line.product_id
-                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
-                LEFT JOIN product_category category ON category.id = template.categ_id
-            """
-        elif group_by == "product":
-            dim_sql = "COALESCE(line.product_id, 0)"
-            joins = """
-                JOIN account_move_line line
-                  ON line.move_id = move.id
-                 AND (line.display_type = 'product' OR line.display_type IS NULL)
-                LEFT JOIN product_product product ON product.id = line.product_id
-                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
-            """
-        if include_company_split and "res_company company" not in joins:
-            joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-        company_group_by = ", company" if include_company_split else ""
         order_metric = metric if metric in {"invoice_count", "average_basket", "net_revenue"} else "net_revenue"
-        self.env.cr.execute(
-            f"""
-            SELECT
-                {dim_sql} AS dimension{company_select},
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                COALESCE(AVG(ABS(move.amount_total_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
-                COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN -ABS(COALESCE(move.amount_total_signed, 0)) ELSE ABS(COALESCE(move.amount_total_signed, 0)) END), 0) AS net_revenue
-            FROM account_move move
-            {joins}
-            WHERE {where_sql}
-              AND move.state = 'posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension{company_group_by}
-            ORDER BY {order_metric} DESC
-            LIMIT %s OFFSET %s
-            """,
-            params,
-        )
-        rows = self._dictfetchall()
-        count_params = list(params[:-2])
-        self.env.cr.execute(
-            f"""
-            SELECT COUNT(*) AS total_count
-            FROM (
-                SELECT {dim_sql} AS dimension{company_select}
+        report_has_product = self._has_column("account_invoice_report", "product_id")
+        use_reporting = self._has_reporting_sales_view() and (group_by not in {"category", "product"} or report_has_product)
+
+        if use_reporting:
+            where_sql, params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"], limit, offset]
+            company_join_sql = "LEFT JOIN res_company company ON company.id = air.company_id"
+            branch_id_sql = "air.branch_id" if self._has_column("account_invoice_report", "branch_id") else "move.branch_id"
+            partner_id_sql = "air.partner_id" if self._has_column("account_invoice_report", "partner_id") else "move.partner_id"
+            sales_rep_id_sql = "air.sales_rep_id" if self._has_column("account_invoice_report", "sales_rep_id") else "move.sales_rep_id"
+            if has_branch:
+                dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                joins = f"LEFT JOIN res_branch branch ON branch.id = {branch_id_sql}"
+            else:
+                dim_sql = f"CONCAT('Branch #', COALESCE({branch_id_sql}, 0)::text)"
+                joins = ""
+            if group_by == "company":
+                dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                joins = company_join_sql
+            elif group_by == "salesperson":
+                if self._has_table("sales_rep"):
+                    dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
+                    joins = f"LEFT JOIN sales_rep ON sales_rep.id = {sales_rep_id_sql}"
+                else:
+                    dim_sql = f"CONCAT('Sales Rep #', COALESCE({sales_rep_id_sql}, 0)::text)"
+                    joins = ""
+            elif group_by == "customer":
+                dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                joins = f"LEFT JOIN res_partner partner ON partner.id = {partner_id_sql}"
+            elif group_by == "category":
+                dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
+                joins = """
+                    LEFT JOIN product_product product ON product.id = air.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                    LEFT JOIN product_category category ON category.id = template.categ_id
+                """
+            elif group_by == "product":
+                dim_sql = "COALESCE(air.product_id, 0)"
+                joins = """
+                    LEFT JOIN product_product product ON product.id = air.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                """
+            if include_company_split and "res_company company" not in joins:
+                joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+            company_group_by = ", company" if include_company_split else ""
+
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    {dim_sql} AS dimension{company_select},
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(
+                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END)
+                        / NULLIF(COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0),
+                        0
+                    ) AS average_basket,
+                    COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                {joins}
+                WHERE {where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension{company_group_by}
+                ORDER BY {order_metric} DESC
+                LIMIT %s OFFSET %s
+                """,
+                params,
+            )
+            rows = self._dictfetchall()
+            count_params = list(params[:-2])
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS total_count
+                FROM (
+                    SELECT {dim_sql} AS dimension{company_select}
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    {joins}
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                    GROUP BY dimension{company_group_by}
+                ) grouped
+                """,
+                count_params,
+            )
+            total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"], limit, offset]
+            company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
+            if has_branch:
+                dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+            else:
+                dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+                joins = ""
+            revenue_expr = "move.amount_untaxed_signed"
+            gross_sales_expr = "COALESCE(move.amount_untaxed_signed, 0)"
+            if group_by == "company":
+                dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                joins = company_join_sql
+            elif group_by == "salesperson":
+                if self._has_table("sales_rep"):
+                    dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
+                    joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
+                else:
+                    dim_sql = "CONCAT('Sales Rep #', COALESCE(move.sales_rep_id, 0)::text)"
+                    joins = ""
+            elif group_by == "customer":
+                dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+            elif group_by == "category":
+                dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
+                revenue_expr = "line.price_subtotal"
+                gross_sales_expr = "COALESCE(line.price_subtotal, 0)"
+                joins = """
+                    JOIN account_move_line line
+                      ON line.move_id = move.id
+                     AND (line.display_type = 'product' OR line.display_type IS NULL)
+                    LEFT JOIN product_product product ON product.id = line.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                    LEFT JOIN product_category category ON category.id = template.categ_id
+                """
+            elif group_by == "product":
+                dim_sql = "COALESCE(line.product_id, 0)"
+                revenue_expr = "line.price_subtotal"
+                gross_sales_expr = "COALESCE(line.price_subtotal, 0)"
+                joins = """
+                    JOIN account_move_line line
+                      ON line.move_id = move.id
+                     AND (line.display_type = 'product' OR line.display_type IS NULL)
+                    LEFT JOIN product_product product ON product.id = line.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                """
+            if include_company_split and "res_company company" not in joins:
+                joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
+            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
+            company_group_by = ", company" if include_company_split else ""
+
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    {dim_sql} AS dimension{company_select},
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(
+                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS({gross_sales_expr}) ELSE 0 END)
+                        / NULLIF(COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0),
+                        0
+                    ) AS average_basket,
+                    COALESCE(SUM(COALESCE({revenue_expr}, 0)), 0) AS net_revenue
                 FROM account_move move
                 {joins}
                 WHERE {where_sql}
@@ -1166,27 +1420,94 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension{company_group_by}
-            ) grouped
-            """,
-            count_params,
-        )
-        total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
+                ORDER BY {order_metric} DESC
+                LIMIT %s OFFSET %s
+                """,
+                params,
+            )
+            rows = self._dictfetchall()
+            count_params = list(params[:-2])
+            self.env.cr.execute(
+                f"""
+                SELECT COUNT(*) AS total_count
+                FROM (
+                    SELECT {dim_sql} AS dimension{company_select}
+                    FROM account_move move
+                    {joins}
+                    WHERE {where_sql}
+                      AND move.state = 'posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND move.invoice_date BETWEEN %s AND %s
+                    GROUP BY dimension{company_group_by}
+                ) grouped
+                """,
+                count_params,
+            )
+            total_count = int((self._dictfetchone() or {}).get("total_count") or 0)
         columns = ["dimension", "invoice_count", "average_basket", "net_revenue"]
         if include_company_split:
             columns.insert(0, "company")
 
         if margin_status.get("available"):
-            margin_joins = joins
+            margin_where_sql, margin_scope_params = self._build_scope_clause(
+                alias="move",
+                table_name="account_move",
+                filters=scope,
+                include_sales_rep=True,
+            )
+            margin_company_join_sql = "LEFT JOIN res_company company ON company.id = move.company_id"
+            if has_branch:
+                margin_dim_sql = "COALESCE(branch.name, 'Unassigned Branch')"
+                margin_joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+            else:
+                margin_dim_sql = "CONCAT('Branch #', COALESCE(move.branch_id, 0)::text)"
+                margin_joins = ""
+            if group_by == "company":
+                margin_dim_sql = "COALESCE(company.name, 'Unknown Company')"
+                margin_joins = margin_company_join_sql
+            elif group_by == "salesperson":
+                if self._has_table("sales_rep"):
+                    margin_dim_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
+                    margin_joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
+                else:
+                    margin_dim_sql = "CONCAT('Sales Rep #', COALESCE(move.sales_rep_id, 0)::text)"
+                    margin_joins = ""
+            elif group_by == "customer":
+                margin_dim_sql = "COALESCE(partner.name, 'Unknown Customer')"
+                margin_joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+            elif group_by == "category":
+                margin_dim_sql = "COALESCE(category.complete_name, 'Unclassified')"
+                margin_joins = """
+                    JOIN account_move_line line
+                      ON line.move_id = move.id
+                     AND (line.display_type = 'product' OR line.display_type IS NULL)
+                     AND line.total_cost IS NOT NULL
+                    LEFT JOIN product_product product ON product.id = line.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                    LEFT JOIN product_category category ON category.id = template.categ_id
+                """
+            elif group_by == "product":
+                margin_dim_sql = "COALESCE(line.product_id, 0)"
+                margin_joins = """
+                    JOIN account_move_line line
+                      ON line.move_id = move.id
+                     AND (line.display_type = 'product' OR line.display_type IS NULL)
+                     AND line.total_cost IS NOT NULL
+                    LEFT JOIN product_product product ON product.id = line.product_id
+                    LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                """
+            if include_company_split and "res_company company" not in margin_joins:
+                margin_joins = f"{margin_joins}\n{margin_company_join_sql}" if margin_joins else margin_company_join_sql
+            margin_params = margin_scope_params + [scope["start_date"], scope["end_date"]]
             if group_by not in {"category", "product"}:
                 margin_joins = (
                     "JOIN account_move_line line ON line.move_id = move.id AND (line.display_type = 'product' OR line.display_type IS NULL) AND line.total_cost IS NOT NULL\n"
-                    + joins
+                    + margin_joins
                 )
-            margin_params = list(params[:-2])  # remove limit/offset
             self.env.cr.execute(
                 f"""
                 SELECT
-                    {dim_sql} AS dimension{company_select},
+                    {margin_dim_sql} AS dimension{company_select},
                     COALESCE(SUM(
                         CASE
                         WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0
@@ -1234,7 +1555,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     ), 0) AS margin_basis
                 FROM account_move move
                 {margin_joins}
-                WHERE {where_sql}
+                WHERE {margin_where_sql}
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
@@ -1553,15 +1874,26 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _single_day_sales(self, scope, target_date):
         if not self._has_table("account_move"):
             return 0.0
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope)
-        params.append(target_date)
-        self.env.cr.execute(f"""
-            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move WHERE {where_sql} AND move.state='posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date = %s
-        """, params)
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(scope)
+            params.append(target_date)
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {where_sql} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date = %s
+            """, params)
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope)
+            params.append(target_date)
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                FROM account_move move WHERE {where_sql} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date = %s
+            """, params)
         return float((self._dictfetchone() or {}).get("total") or 0.0)
 
     def _build_top_sections(self, scope, limit, margin_status=None):
@@ -1617,17 +1949,36 @@ class ExecutiveDashboardService(models.AbstractModel):
         join_sql = "LEFT JOIN res_branch branch ON branch.id = move.branch_id" if has_branch else ""
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
-        self.env.cr.execute(f"""
-            SELECT
-                {dim_sql} AS dimension,
-                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0)) ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue,
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-            FROM account_move move {join_sql}
-            WHERE {where_sql}
-              AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
-        """, base_params + [limit])
+        if self._has_reporting_sales_view() and self._has_column("account_invoice_report", "branch_id"):
+            report_dim_sql = "COALESCE(branch.name, 'Unassigned')" if has_branch else "'All'"
+            report_join_sql = "LEFT JOIN res_branch branch ON branch.id = air.branch_id" if has_branch else ""
+            report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            report_params += [scope["start_date"], scope["end_date"], limit]
+            self.env.cr.execute(f"""
+                SELECT
+                    {report_dim_sql} AS dimension,
+                    COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                {report_join_sql}
+                WHERE {report_where_sql}
+                  AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, report_params)
+        else:
+            self.env.cr.execute(f"""
+                SELECT
+                    {dim_sql} AS dimension,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_move move {join_sql}
+                WHERE {where_sql}
+                  AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, base_params + [limit])
         rows = self._dictfetchall()
         if margin_status and margin_status.get("available") and has_branch:
             self.env.cr.execute(f"""
@@ -1703,16 +2054,40 @@ class ExecutiveDashboardService(models.AbstractModel):
             join_sql = "LEFT JOIN res_users u ON u.id = move.invoice_user_id LEFT JOIN res_partner up ON up.id = u.partner_id"
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
-        self.env.cr.execute(f"""
-            SELECT
-                {dim_sql} AS dimension,
-                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0)) ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue,
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-            FROM account_move move {join_sql}
-            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
-        """, base_params + [limit])
+        if self._has_reporting_sales_view():
+            if has_sr and self._has_column("account_invoice_report", "sales_rep_id"):
+                report_dim_sql = "COALESCE(sr.name, 'Unassigned')"
+                report_join_sql = "LEFT JOIN sales_rep sr ON sr.id = air.sales_rep_id"
+                report_include_sales_rep = True
+            else:
+                report_dim_sql = "COALESCE(up.name, 'Unassigned')"
+                report_join_sql = "LEFT JOIN res_users u ON u.id = air.invoice_user_id LEFT JOIN res_partner up ON up.id = u.partner_id"
+                report_include_sales_rep = False
+            report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=report_include_sales_rep)
+            report_params += [scope["start_date"], scope["end_date"], limit]
+            self.env.cr.execute(f"""
+                SELECT
+                    {report_dim_sql} AS dimension,
+                    COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                {report_join_sql}
+                WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, report_params)
+        else:
+            self.env.cr.execute(f"""
+                SELECT
+                    {dim_sql} AS dimension,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_move move {join_sql}
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, base_params + [limit])
         rows = self._dictfetchall()
         if margin_status and margin_status.get("available"):
             self.env.cr.execute(f"""
@@ -1787,16 +2162,34 @@ class ExecutiveDashboardService(models.AbstractModel):
             LEFT JOIN product_template template ON template.id=product.product_tmpl_id
             LEFT JOIN product_category category ON category.id=template.categ_id
         """
-        self.env.cr.execute(f"""
-            SELECT
-                COALESCE(category.complete_name,'Unclassified') AS dimension,
-                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
-                COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-            FROM account_move move {cat_joins}
-            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
-        """, base_params + [limit])
+        if self._has_reporting_sales_view() and self._has_column("account_invoice_report", "product_id"):
+            report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            report_params += [scope["start_date"], scope["end_date"], limit]
+            self.env.cr.execute(f"""
+                SELECT
+                    COALESCE(category.complete_name,'Unclassified') AS dimension,
+                    COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                LEFT JOIN product_product product ON product.id=air.product_id
+                LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+                LEFT JOIN product_category category ON category.id=template.categ_id
+                WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, report_params)
+        else:
+            self.env.cr.execute(f"""
+                SELECT
+                    COALESCE(category.complete_name,'Unclassified') AS dimension,
+                    COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_move move {cat_joins}
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, base_params + [limit])
         rows = self._dictfetchall()
         if margin_status and margin_status.get("available"):
             marg_joins = """
@@ -1869,8 +2262,57 @@ class ExecutiveDashboardService(models.AbstractModel):
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
         selected_category = str(scope.get("product_category") or "all").strip() or "all"
-
-        if selected_category.lower() == "all":
+        if self._has_reporting_sales_view() and self._has_column("account_invoice_report", "product_id"):
+            report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            report_base_params = list(report_params) + [scope["start_date"], scope["end_date"]]
+            if selected_category.lower() == "all":
+                self.env.cr.execute(f"""
+                    WITH top_categories AS (
+                        SELECT
+                            template.categ_id
+                        FROM account_invoice_report air
+                        JOIN account_move move ON move.id = air.move_id
+                        LEFT JOIN product_product product ON product.id=air.product_id
+                        LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+                        WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                          AND air.invoice_date BETWEEN %s AND %s
+                          AND template.categ_id IS NOT NULL
+                        GROUP BY template.categ_id
+                        ORDER BY COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) DESC
+                        LIMIT 10
+                    )
+                    SELECT
+                        air.product_id AS product_id,
+                        COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    LEFT JOIN product_product product ON product.id=air.product_id
+                    LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+                    WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                      AND air.product_id IS NOT NULL
+                      AND template.categ_id IN (SELECT categ_id FROM top_categories)
+                    GROUP BY air.product_id ORDER BY net_revenue DESC LIMIT %s
+                """, report_base_params + report_base_params + [limit])
+            else:
+                self.env.cr.execute(f"""
+                    SELECT
+                        air.product_id AS product_id,
+                        COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    LEFT JOIN product_product product ON product.id=air.product_id
+                    LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+                    LEFT JOIN product_category category ON category.id=template.categ_id
+                    WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                      AND air.product_id IS NOT NULL
+                      AND COALESCE(category.complete_name,'Unclassified') = %s
+                    GROUP BY air.product_id ORDER BY net_revenue DESC LIMIT %s
+                """, report_base_params + [selected_category, limit])
+        elif selected_category.lower() == "all":
             # Default view stays constrained to products inside the top revenue categories.
             self.env.cr.execute(f"""
                 WITH top_categories AS (
@@ -1884,12 +2326,12 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND move.invoice_date BETWEEN %s AND %s
                       AND template.categ_id IS NOT NULL
                     GROUP BY template.categ_id
-                    ORDER BY COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) DESC
+                    ORDER BY COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) DESC
                     LIMIT 10
                 )
                 SELECT
                     product.id AS product_id,
-                    COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
+                    COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
                     COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
@@ -1905,7 +2347,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(f"""
                 SELECT
                     product.id AS product_id,
-                    COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(line.price_subtotal,0)) ELSE ABS(COALESCE(line.price_subtotal,0)) END),0) AS net_revenue,
+                    COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
                     COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
@@ -1999,17 +2441,33 @@ class ExecutiveDashboardService(models.AbstractModel):
             return []
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
-        self.env.cr.execute(f"""
-            SELECT
-                COALESCE(partner.name,'Unknown') AS dimension,
-                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0)) ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue,
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
-            FROM account_move move
-            LEFT JOIN res_partner partner ON partner.id=move.partner_id
-            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
-        """, base_params + [limit])
+        if self._has_reporting_sales_view() and self._has_column("account_invoice_report", "partner_id"):
+            report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            report_params += [scope["start_date"], scope["end_date"], limit]
+            self.env.cr.execute(f"""
+                SELECT
+                    COALESCE(partner.name,'Unknown') AS dimension,
+                    COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                LEFT JOIN res_partner partner ON partner.id=air.partner_id
+                WHERE {report_where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, report_params)
+        else:
+            self.env.cr.execute(f"""
+                SELECT
+                    COALESCE(partner.name,'Unknown') AS dimension,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                FROM account_move move
+                LEFT JOIN res_partner partner ON partner.id=move.partner_id
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+            """, base_params + [limit])
         rows = self._dictfetchall()
         if margin_status and margin_status.get("available"):
             self.env.cr.execute(f"""
@@ -2121,19 +2579,33 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _sales_over_month(self, scope):
         if not self._has_table("account_move"):
             return []
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
-        params += [scope["start_date"], scope["end_date"]]
-        self.env.cr.execute(f"""
-            SELECT
-                move.invoice_date::date AS day,
-                COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                    ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS net_revenue
-            FROM account_move move
-            WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-            GROUP BY day ORDER BY day
-        """, params)
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"]]
+            self.env.cr.execute(f"""
+                SELECT
+                    air.invoice_date::date AS day,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+                GROUP BY day ORDER BY day
+            """, params)
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
+            params += [scope["start_date"], scope["end_date"]]
+            self.env.cr.execute(f"""
+                SELECT
+                    move.invoice_date::date AS day,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue
+                FROM account_move move
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+                GROUP BY day ORDER BY day
+            """, params)
         return [
             {"date": str(r["day"]), "net_revenue": float(r.get("net_revenue") or 0), "invoice_count": int(r.get("invoice_count") or 0)}
             for r in self._dictfetchall()
@@ -2188,43 +2660,76 @@ class ExecutiveDashboardService(models.AbstractModel):
         mtd_start = end_date.replace(day=1)
         prev_end = end_date - timedelta(days=1)
         mtd_scope = dict(scope, start_date=mtd_start)
-        where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=mtd_scope)
-        params += [mtd_start, end_date]
-        self.env.cr.execute(f"""
-            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move WHERE {where_sql} AND move.state='posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-        """, params)
+        if self._has_reporting_sales_view():
+            where_sql, params = self._build_reporting_scope_clause(mtd_scope)
+            params += [mtd_start, end_date]
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {where_sql} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+            """, params)
+        else:
+            where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=mtd_scope)
+            params += [mtd_start, end_date]
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                FROM account_move move WHERE {where_sql} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+            """, params)
         acc_sales = float((self._dictfetchone() or {}).get("total") or 0)
         
         acc_prev = 0.0
         if prev_end >= mtd_start:
             prev_scope = dict(scope, start_date=mtd_start, end_date=prev_end)
-            w2, p2 = self._build_scope_clause(alias="move", table_name="account_move", filters=prev_scope)
-            p2 += [mtd_start, prev_end]
-            self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                    ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-                FROM account_move move WHERE {w2} AND move.state='posted'
-                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-                  AND move.invoice_date BETWEEN %s AND %s
-            """, p2)
+            if self._has_reporting_sales_view():
+                w2, p2 = self._build_reporting_scope_clause(prev_scope)
+                p2 += [mtd_start, prev_end]
+                self.env.cr.execute(f"""
+                    SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                    FROM account_invoice_report air
+                    JOIN account_move move ON move.id = air.move_id
+                    WHERE {w2} AND move.state='posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND air.invoice_date BETWEEN %s AND %s
+                """, p2)
+            else:
+                w2, p2 = self._build_scope_clause(alias="move", table_name="account_move", filters=prev_scope)
+                p2 += [mtd_start, prev_end]
+                self.env.cr.execute(f"""
+                    SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                    FROM account_move move WHERE {w2} AND move.state='posted'
+                      AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                      AND move.invoice_date BETWEEN %s AND %s
+                """, p2)
             acc_prev = float((self._dictfetchone() or {}).get("total") or 0)
 
         last_month_end = end_date - relativedelta(months=1)
         last_month_start = last_month_end.replace(day=1)
         last_month_scope = dict(scope, start_date=last_month_start, end_date=last_month_end)
-        w3, p3 = self._build_scope_clause(alias="move", table_name="account_move", filters=last_month_scope)
-        p3 += [last_month_start, last_month_end]
-        self.env.cr.execute(f"""
-            SELECT COALESCE(SUM(CASE WHEN move.move_type='out_refund' THEN -ABS(COALESCE(move.amount_total_signed,0))
-                ELSE ABS(COALESCE(move.amount_total_signed,0)) END),0) AS total
-            FROM account_move move WHERE {w3} AND move.state='posted'
-              AND move.move_type IN ('out_invoice','out_receipt','out_refund')
-              AND move.invoice_date BETWEEN %s AND %s
-        """, p3)
+        if self._has_reporting_sales_view():
+            w3, p3 = self._build_reporting_scope_clause(last_month_scope)
+            p3 += [last_month_start, last_month_end]
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                FROM account_invoice_report air
+                JOIN account_move move ON move.id = air.move_id
+                WHERE {w3} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND air.invoice_date BETWEEN %s AND %s
+            """, p3)
+        else:
+            w3, p3 = self._build_scope_clause(alias="move", table_name="account_move", filters=last_month_scope)
+            p3 += [last_month_start, last_month_end]
+            self.env.cr.execute(f"""
+                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                FROM account_move move WHERE {w3} AND move.state='posted'
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
+                  AND move.invoice_date BETWEEN %s AND %s
+            """, p3)
         acc_last_month = float((self._dictfetchone() or {}).get("total") or 0)
 
         return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev, "acc_sales_last_month_mtd": acc_last_month}
