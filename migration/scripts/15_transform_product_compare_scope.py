@@ -122,14 +122,18 @@ def main() -> None:
                 else None
             ),
             "legacy_last_cost_unit": (
-                to_float(row.get("legacy_last_cost_unit"), default=0.0)
-                if row.get("legacy_last_cost_unit") not in (None, "")
-                else None
+                (lambda v: v if (v is not None and v > 0) else None)(
+                    to_float(row.get("legacy_last_cost_unit"), default=0.0)
+                    if row.get("legacy_last_cost_unit") not in (None, "")
+                    else None
+                )
             ),
             "legacy_avg_cost_unit": (
-                to_float(row.get("legacy_avg_cost_unit"), default=0.0)
-                if row.get("legacy_avg_cost_unit") not in (None, "")
-                else None
+                (lambda v: v if (v is not None and v > 0) else None)(
+                    to_float(row.get("legacy_avg_cost_unit"), default=0.0)
+                    if row.get("legacy_avg_cost_unit") not in (None, "")
+                    else None
+                )
             ),
             "legacy_cost_available": to_bool(row.get("legacy_cost_available")),
             "legacy_cost_source": (row.get("legacy_cost_source") or "").strip() or None,
