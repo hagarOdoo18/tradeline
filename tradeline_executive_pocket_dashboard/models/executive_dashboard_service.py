@@ -916,14 +916,27 @@ class ExecutiveDashboardService(models.AbstractModel):
             default_domain = drill_path[1]
         default_domain, default_group = self._resolve_domain_and_group(default_domain, "")
         default_metric = self._resolve_metric(default_domain, "")
-        drilldown = self.get_drilldown(
-            default_domain,
-            metric=default_metric,
-            group_by=default_group,
-            filters=filters,
-            limit=25,
-            offset=0,
-        )
+        try:
+            drilldown = self.get_drilldown(
+                default_domain,
+                metric=default_metric,
+                group_by=default_group,
+                filters=filters,
+                limit=25,
+                offset=0,
+            )
+        except Exception:
+            _logger.exception("Executive dashboard initial drilldown failed")
+            drilldown = {
+                "domain": default_domain,
+                "group_by": default_group,
+                "metric": default_metric,
+                "columns": [],
+                "rows": [],
+                "total_count": 0,
+                "limit": 25,
+                "offset": 0,
+            }
 
         return {
             "meta": {
@@ -1031,8 +1044,9 @@ class ExecutiveDashboardService(models.AbstractModel):
                 joins = ""
             if include_company_split and "res_company company" not in joins:
                 joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-            company_group_by = ", company" if include_company_split else ""
+            company_expr = "COALESCE(company.name, 'Unknown Company')"
+            company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+            group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
             self.env.cr.execute(
                 f"""
@@ -1048,7 +1062,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND air.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
                 ORDER BY {order_metric} DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -1068,7 +1082,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND move.state = 'posted'
                       AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                       AND air.invoice_date BETWEEN %s AND %s
-                    GROUP BY dimension{company_group_by}
+                    GROUP BY {group_by_sql}
                 ) grouped
                 """,
                 count_params,
@@ -1095,8 +1109,9 @@ class ExecutiveDashboardService(models.AbstractModel):
                 joins = ""
             if include_company_split and "res_company company" not in joins:
                 joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-            company_group_by = ", company" if include_company_split else ""
+            company_expr = "COALESCE(company.name, 'Unknown Company')"
+            company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+            group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
             self.env.cr.execute(
                 f"""
@@ -1111,7 +1126,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
                 ORDER BY {order_metric} DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -1130,7 +1145,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND move.state = 'posted'
                       AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                       AND move.invoice_date BETWEEN %s AND %s
-                    GROUP BY dimension{company_group_by}
+                    GROUP BY {group_by_sql}
                 ) grouped
                 """,
                 count_params,
@@ -1166,6 +1181,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                 margin_joins = ""
             if include_company_split and "res_company company" not in margin_joins:
                 margin_joins = f"{margin_joins}\n{margin_company_join_sql}" if margin_joins else margin_company_join_sql
+            margin_company_expr = "COALESCE(company.name, 'Unknown Company')"
+            margin_group_by_sql = f"{margin_dim_sql}, {margin_company_expr}" if include_company_split else margin_dim_sql
             self.env.cr.execute(
                 f"""
                 SELECT
@@ -1226,7 +1243,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND line.total_cost IS NOT NULL
-                GROUP BY dimension{company_group_by}
+                GROUP BY {margin_group_by_sql}
                 """,
                 margin_params,
             )
@@ -1310,8 +1327,9 @@ class ExecutiveDashboardService(models.AbstractModel):
                 """
             if include_company_split and "res_company company" not in joins:
                 joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-            company_group_by = ", company" if include_company_split else ""
+            company_expr = "COALESCE(company.name, 'Unknown Company')"
+            company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+            group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
             self.env.cr.execute(
                 f"""
@@ -1331,7 +1349,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND air.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
                 ORDER BY {order_metric} DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -1351,7 +1369,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND move.state = 'posted'
                       AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                       AND air.invoice_date BETWEEN %s AND %s
-                    GROUP BY dimension{company_group_by}
+                    GROUP BY {group_by_sql}
                 ) grouped
                 """,
                 count_params,
@@ -1407,8 +1425,9 @@ class ExecutiveDashboardService(models.AbstractModel):
                 """
             if include_company_split and "res_company company" not in joins:
                 joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-            company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-            company_group_by = ", company" if include_company_split else ""
+            company_expr = "COALESCE(company.name, 'Unknown Company')"
+            company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+            group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
             self.env.cr.execute(
                 f"""
@@ -1427,7 +1446,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
                 ORDER BY {order_metric} DESC
                 LIMIT %s OFFSET %s
                 """,
@@ -1446,7 +1465,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                       AND move.state = 'posted'
                       AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                       AND move.invoice_date BETWEEN %s AND %s
-                    GROUP BY dimension{company_group_by}
+                    GROUP BY {group_by_sql}
                 ) grouped
                 """,
                 count_params,
@@ -1506,6 +1525,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                 """
             if include_company_split and "res_company company" not in margin_joins:
                 margin_joins = f"{margin_joins}\n{margin_company_join_sql}" if margin_joins else margin_company_join_sql
+            margin_company_expr = "COALESCE(company.name, 'Unknown Company')"
+            margin_group_by_sql = f"{margin_dim_sql}, {margin_company_expr}" if include_company_split else margin_dim_sql
             margin_params = margin_scope_params + [scope["start_date"], scope["end_date"]]
             if group_by not in {"category", "product"}:
                 margin_joins = (
@@ -1567,7 +1588,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.state = 'posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension{company_group_by}
+                GROUP BY {margin_group_by_sql}
                 """,
                 margin_params,
             )
@@ -1654,8 +1675,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             """
         if include_company_split and "res_company company" not in dim_join:
             dim_join = f"{dim_join}\n{company_join_sql}" if dim_join else company_join_sql
-        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-        company_group_by = ", company" if include_company_split else ""
+        company_expr = "COALESCE(company.name, 'Unknown Company')"
+        company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+        group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
         order_metric = metric if metric in {"allocated_value", "on_hand_qty", "unit_cost"} else "allocated_value"
         self.env.cr.execute(
@@ -1699,7 +1721,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 END AS unit_cost
             FROM inv
             {dim_join}
-            GROUP BY dimension{company_group_by}
+            GROUP BY {group_by_sql}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -1743,7 +1765,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT {dim_sql} AS dimension{company_select}
                 FROM inv
                 {dim_join}
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
             ) grouped
             """,
             count_params,
@@ -1824,8 +1846,9 @@ class ExecutiveDashboardService(models.AbstractModel):
                 joins = ""
         if include_company_split and "res_company company" not in joins:
             joins = f"{joins}\n{company_join_sql}" if joins else company_join_sql
-        company_select = ",\n                COALESCE(company.name, 'Unknown Company') AS company" if include_company_split else ""
-        company_group_by = ", company" if include_company_split else ""
+        company_expr = "COALESCE(company.name, 'Unknown Company')"
+        company_select = f",\n                {company_expr} AS company" if include_company_split else ""
+        group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
         order_metric = metric if metric in {"open_opportunities", "open_pipeline", "weighted_pipeline"} else "weighted_pipeline"
         self.env.cr.execute(
@@ -1838,7 +1861,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             FROM crm_lead lead
             {joins}
             WHERE {where_sql}
-            GROUP BY dimension{company_group_by}
+            GROUP BY {group_by_sql}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
             """,
@@ -1854,7 +1877,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 FROM crm_lead lead
                 {joins}
                 WHERE {where_sql}
-                GROUP BY dimension{company_group_by}
+                GROUP BY {group_by_sql}
             ) grouped
             """,
             count_params,

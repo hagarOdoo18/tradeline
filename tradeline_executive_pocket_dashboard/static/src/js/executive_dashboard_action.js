@@ -327,6 +327,16 @@ export class ExecutivePocketDashboard extends Component {
         if (!previous) return null;
         return ((current - previous) / previous) * 100;
     }
+    _extractRpcError(error) {
+        const candidates = [
+            error?.cause?.data?.message,
+            error?.cause?.message,
+            error?.data?.message,
+            error?.message,
+        ].filter(v => typeof v === "string" && v.trim());
+        const specific = candidates.find(v => !["Odoo Server Error", "RPC_ERROR"].includes(v.trim()));
+        return specific || candidates[0] || "Failed to load dashboard data.";
+    }
     sortIcon(col) {
         if (this.state.sort.column !== col) return "⇅";
         return this.state.sort.direction === "asc" ? "↑" : "↓";
@@ -353,7 +363,7 @@ export class ExecutivePocketDashboard extends Component {
             }
             await this._reloadDrilldown();
         } catch (error) {
-            this.state.error = error?.message || "Failed to load dashboard data.";
+            this.state.error = this._extractRpcError(error);
         } finally {
             this.state.loading = false;
         }
