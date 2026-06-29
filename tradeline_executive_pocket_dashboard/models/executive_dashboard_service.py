@@ -1977,46 +1977,53 @@ class ExecutiveDashboardService(models.AbstractModel):
         if not self._has_table("account_payment"):
             return []
         try:
-            where_sql, params = self._build_scope_clause(alias="payment", table_name="account_payment", filters=scope)
-            params += [scope["start_date"], scope["end_date"], limit]
-            self.env.cr.execute(
-                f"""
-                WITH journal_rows AS (
-                    SELECT
-                        COALESCE(journal.name, 'Unknown Journal') AS dimension,
-                        COALESCE(SUM(COALESCE(payment.amount, 0)), 0) AS collections_total,
-                        COUNT(*) AS payment_count
-                    FROM account_payment payment
-                    LEFT JOIN account_journal journal ON journal.id = payment.journal_id
-                    WHERE {where_sql}
-                      AND payment.state = 'posted'
-                      AND payment.partner_type = 'customer'
-                      AND payment.payment_type = 'inbound'
-                      AND payment.date BETWEEN %s AND %s
-                    GROUP BY journal.id, journal.name
+            with self.env.cr.savepoint():
+                where_sql, params = self._build_scope_clause(alias="payment", table_name="account_payment", filters=scope)
+                partner_type_sql = "AND payment.partner_type = 'customer'" if self._has_column("account_payment", "partner_type") else ""
+                signed_amount_sql = (
+                    "CASE WHEN payment.payment_type = 'inbound' THEN COALESCE(payment.amount, 0) ELSE -COALESCE(payment.amount, 0) END"
+                    if self._has_column("account_payment", "payment_type")
+                    else "COALESCE(payment.amount, 0)"
                 )
-                SELECT
-                    dimension,
-                    collections_total,
-                    payment_count,
-                    CASE
-                        WHEN COALESCE(SUM(collections_total) OVER (), 0) > 0
-                        THEN (collections_total / SUM(collections_total) OVER ()) * 100.0
-                        ELSE 0.0
-                    END AS share_pct
-                FROM journal_rows
-                ORDER BY collections_total DESC, payment_count DESC, dimension
-                LIMIT %s
-                """,
-                params,
-            )
-            rows = self._dictfetchall()
-            for row in rows:
-                row["dimension"] = self._clean_dimension_label(row.get("dimension"))
-                row["collections_total"] = float(row.get("collections_total") or 0)
-                row["payment_count"] = int(row.get("payment_count") or 0)
-                row["share_pct"] = float(row.get("share_pct") or 0)
-            return rows
+                params += [scope["start_date"], scope["end_date"], limit]
+                self.env.cr.execute(
+                    f"""
+                    WITH journal_rows AS (
+                        SELECT
+                            COALESCE(journal.name, 'Unknown Journal') AS dimension,
+                            COALESCE(SUM({signed_amount_sql}), 0) AS collections_total,
+                            COUNT(*) AS payment_count
+                        FROM account_payment payment
+                        LEFT JOIN account_journal journal ON journal.id = payment.journal_id
+                        WHERE {where_sql}
+                          AND payment.state = 'posted'
+                          {partner_type_sql}
+                          AND payment.date BETWEEN %s AND %s
+                        GROUP BY journal.id, journal.name
+                    )
+                    SELECT
+                        dimension,
+                        collections_total,
+                        payment_count,
+                        CASE
+                            WHEN COALESCE(SUM(collections_total) OVER (), 0) > 0
+                            THEN (collections_total / SUM(collections_total) OVER ()) * 100.0
+                            ELSE 0.0
+                        END AS share_pct
+                    FROM journal_rows
+                    WHERE collections_total > 0
+                    ORDER BY collections_total DESC, payment_count DESC, dimension
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                rows = self._dictfetchall()
+                for row in rows:
+                    row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+                    row["collections_total"] = float(row.get("collections_total") or 0)
+                    row["payment_count"] = int(row.get("payment_count") or 0)
+                    row["share_pct"] = float(row.get("share_pct") or 0)
+                return rows
         except Exception:
             _logger.exception("Executive dashboard payment journal mix query failed")
             return []
