@@ -134,6 +134,80 @@ class ExecutiveDashboardService(models.AbstractModel):
             sales_rep_field="sales_rep_id",
         )
 
+    def _can_use_invoice_analysis_model(self) -> bool:
+        if "account.invoice.report" not in self.env:
+            return False
+        report_model = self.env["account.invoice.report"]
+        required_fields = {"product_categ_id", "move_id", "move_type", "price_subtotal", "invoice_date", "state"}
+        return required_fields.issubset(set(report_model._fields))
+
+    def _invoice_analysis_domain(self, scope: dict, include_sales_rep: bool = True):
+        report_model = self.env["account.invoice.report"]
+        domain = [
+            ("state", "=", "posted"),
+            ("move_type", "in", ["out_invoice", "out_receipt", "out_refund"]),
+            ("invoice_date", ">=", scope["start_date"]),
+            ("invoice_date", "<=", scope["end_date"]),
+        ]
+        if scope.get("company_ids") and "company_id" in report_model._fields:
+            domain.append(("company_id", "in", scope["company_ids"]))
+        if scope.get("branch_ids") and "branch_id" in report_model._fields:
+            domain.append(("branch_id", "in", scope["branch_ids"]))
+        if include_sales_rep and scope.get("salesperson_ids") and "sales_rep_id" in report_model._fields:
+            domain.append(("sales_rep_id", "in", scope["salesperson_ids"]))
+        return domain
+
+    def _iter_search_read_batches(self, model_name: str, domain, fields_list, batch_size: int = 5000):
+        model = self.env[model_name].sudo()
+        offset = 0
+        while True:
+            rows = model.search_read(domain, fields_list, offset=offset, limit=batch_size, order="id")
+            if not rows:
+                break
+            for row in rows:
+                yield row
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+
+    def _top_sales_by_category_from_invoice_analysis(self, scope, limit):
+        if not self._can_use_invoice_analysis_model():
+            return None
+        agg = {}
+        domain = self._invoice_analysis_domain(scope, include_sales_rep=True)
+        for rec in self._iter_search_read_batches(
+            "account.invoice.report",
+            domain,
+            ["product_categ_id", "move_id", "move_type", "price_subtotal"],
+        ):
+            category = rec.get("product_categ_id")
+            dimension = category[1] if category else "Unclassified"
+            bucket = agg.setdefault(
+                dimension,
+                {"dimension": dimension, "net_revenue": 0.0, "gross_sales": 0.0, "invoice_ids": set()},
+            )
+            amount = float(rec.get("price_subtotal") or 0.0)
+            bucket["net_revenue"] += amount
+            move_type = rec.get("move_type")
+            move = rec.get("move_id")
+            move_id = move[0] if move else 0
+            if move_type in ("out_invoice", "out_receipt"):
+                bucket["gross_sales"] += abs(amount)
+                if move_id:
+                    bucket["invoice_ids"].add(move_id)
+
+        rows = []
+        for bucket in agg.values():
+            rows.append(
+                {
+                    "dimension": bucket["dimension"],
+                    "net_revenue": bucket["net_revenue"],
+                    "invoice_count": len(bucket["invoice_ids"]),
+                }
+            )
+        rows.sort(key=lambda r: float(r.get("net_revenue") or 0.0), reverse=True)
+        return rows[:limit]
+
     def _parse_date(self, value, fallback: date) -> date:
         if not value:
             return fallback
@@ -2241,6 +2315,7 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _top_sales_by_category(self, scope, limit, margin_status=None):
         if not self._has_table("account_move"):
             return []
+        report_rows = self._top_sales_by_category_from_invoice_analysis(scope, limit)
         where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope, include_sales_rep=True)
         base_params = list(params) + [scope["start_date"], scope["end_date"]]
         cat_joins = """
@@ -2249,7 +2324,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             LEFT JOIN product_template template ON template.id=product.product_tmpl_id
             LEFT JOIN product_category category ON category.id=template.categ_id
         """
-        if self._has_reporting_sales_view() and self._has_column("account_invoice_report", "product_id"):
+        if report_rows is not None:
+            rows = report_rows
+        elif self._has_reporting_sales_view() and self._has_column("account_invoice_report", "product_id"):
             report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
             report_params += [scope["start_date"], scope["end_date"], limit]
             self.env.cr.execute(f"""
@@ -2277,7 +2354,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
             """, base_params + [limit])
-        rows = self._dictfetchall()
+            rows = self._dictfetchall()
         if margin_status and margin_status.get("available"):
             marg_joins = """
                 JOIN account_move_line line ON line.move_id=move.id
@@ -2286,9 +2363,12 @@ class ExecutiveDashboardService(models.AbstractModel):
                 LEFT JOIN product_template template ON template.id=product.product_tmpl_id
                 LEFT JOIN product_category category ON category.id=template.categ_id
             """
+            margin_dim_sql = "COALESCE(category.complete_name,'Unclassified')"
+            if report_rows is not None:
+                margin_dim_sql = "COALESCE(category.name,'Unclassified')"
             self.env.cr.execute(f"""
                 SELECT
-                    COALESCE(category.complete_name,'Unclassified') AS dimension,
+                    {margin_dim_sql} AS dimension,
                     COALESCE(SUM(CASE
                         WHEN move.move_type NOT IN ('out_invoice', 'out_receipt', 'out_refund') THEN 0.0
                         WHEN move.move_type = 'out_refund' THEN 
