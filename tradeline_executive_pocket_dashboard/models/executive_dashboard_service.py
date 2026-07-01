@@ -157,6 +157,33 @@ class ExecutiveDashboardService(models.AbstractModel):
             domain.append(("sales_rep_id", "in", scope["salesperson_ids"]))
         return domain
 
+    def _open_unpaid_invoice_value_from_invoice_analysis(self, scope: dict, report_date: date) -> float | None:
+        if "account.invoice.report" not in self.env:
+            return None
+        report_model = self.env["account.invoice.report"].sudo()
+        required_fields = {"company_id", "invoice_date", "move_type", "payment_state", "price_subtotal", "state"}
+        if not required_fields.issubset(set(report_model._fields)):
+            return None
+
+        domain = [
+            ("state", "=", "posted"),
+            ("move_type", "in", ["out_invoice", "out_receipt"]),
+            ("invoice_date", ">=", scope["start_date"]),
+            ("invoice_date", "<=", report_date),
+            ("payment_state", "in", ["not_paid", "partial", "in_payment"]),
+        ]
+        if scope.get("company_ids") and "company_id" in report_model._fields:
+            domain.append(("company_id", "in", scope["company_ids"]))
+        if scope.get("branch_ids") and "branch_id" in report_model._fields:
+            domain.append(("branch_id", "in", scope["branch_ids"]))
+        if scope.get("salesperson_ids") and "sales_rep_id" in report_model._fields:
+            domain.append(("sales_rep_id", "in", scope["salesperson_ids"]))
+
+        group_data = report_model.read_group(domain, ["price_subtotal:sum"], [])
+        if not group_data:
+            return 0.0
+        return float(group_data[0].get("price_subtotal_sum") or group_data[0].get("price_subtotal") or 0.0)
+
     def _iter_search_read_batches(self, model_name: str, domain, fields_list, batch_size: int = 5000):
         model = self.env[model_name].sudo()
         offset = 0
@@ -564,27 +591,29 @@ class ExecutiveDashboardService(models.AbstractModel):
             collections_total = float((self._dictfetchone() or {}).get("collections_total") or 0)
 
         report_date = filters.get("report_date") or filters["end_date"]
-        overdue_where_sql, overdue_params = self._build_scope_clause(
-            alias="move",
-            table_name="account_move",
-            filters=filters,
-            include_sales_rep=True,
-        )
-        overdue_receivables = 0.0
-        self.env.cr.execute(
-            f"""
-            SELECT COALESCE(SUM(GREATEST(COALESCE(move.amount_residual_signed, 0), 0)), 0) AS overdue_receivables
-            FROM account_move move
-            WHERE {overdue_where_sql}
-              AND move.state = 'posted'
-              AND move.move_type IN ('out_invoice','out_receipt')
-              AND COALESCE(move.invoice_date, move.date) <= %s
-              AND COALESCE(move.amount_residual_signed, 0) > 0
-              AND COALESCE(move.payment_state, '') IN ('not_paid', 'partial', 'in_payment')
-            """,
-            overdue_params + [report_date],
-        )
-        overdue_receivables = float((self._dictfetchone() or {}).get("overdue_receivables") or 0)
+        overdue_receivables = self._open_unpaid_invoice_value_from_invoice_analysis(filters, report_date)
+        if overdue_receivables is None:
+            overdue_where_sql, overdue_params = self._build_scope_clause(
+                alias="move",
+                table_name="account_move",
+                filters=filters,
+                include_sales_rep=True,
+            )
+            overdue_receivables = 0.0
+            self.env.cr.execute(
+                f"""
+                SELECT COALESCE(SUM(GREATEST(COALESCE(move.amount_residual_signed, 0), 0)), 0) AS overdue_receivables
+                FROM account_move move
+                WHERE {overdue_where_sql}
+                  AND move.state = 'posted'
+                  AND move.move_type IN ('out_invoice','out_receipt')
+                  AND COALESCE(move.invoice_date, move.date) <= %s
+                  AND COALESCE(move.amount_residual_signed, 0) > 0
+                  AND COALESCE(move.payment_state, '') IN ('not_paid', 'partial', 'in_payment')
+                """,
+                overdue_params + [report_date],
+            )
+            overdue_receivables = float((self._dictfetchone() or {}).get("overdue_receivables") or 0)
 
         result = {
             "gross_sales": float(summary.get("gross_sales") or 0),
@@ -738,7 +767,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         if finance.get("net_revenue"):
             overdue_ratio = finance["overdue_receivables"] / max(finance["net_revenue"], 1)
         if overdue_ratio >= 0.35:
-            alerts.append({"severity": "high", "label": "Receivables pressure", "detail": f"Open unpaid AR is {overdue_ratio:.0%} of current net revenue."})
+            alerts.append({"severity": "high", "label": "Open invoice pressure", "detail": f"Selected-period unpaid invoice value is {overdue_ratio:.0%} of current net revenue."})
 
         if sales.get("negative_margin_invoices", 0) > 0:
             alerts.append({"severity": "high", "label": "Negative margin sales", "detail": f"{int(sales['negative_margin_invoices'])} sales lines are below margin guardrails."})
@@ -977,7 +1006,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         cards = [
             {"key": "net_revenue", "label": "Untaxed Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
-            {"key": "overdue_receivables", "label": "Open Unpaid AR", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "posted unpaid invoices as of report day"},
+            {"key": "overdue_receivables", "label": "Open Unpaid Invoice Value", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "invoice analysis untaxed amount for selected-period invoices still unpaid by report day"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
             {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
             {"key": "invoice_count", "label": "Invoices (Excl. Refunds)", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "posted invoices/receipts in selected period, refunds excluded"},

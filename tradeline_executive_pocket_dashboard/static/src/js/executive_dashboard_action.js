@@ -508,10 +508,11 @@ export class ExecutivePocketDashboard extends Component {
                 break;
             case "overdue_receivables":
                 model = "account.move";
-                name = "Open Unpaid AR";
+                name = "Open Unpaid Invoice Value";
                 domain = [
                     ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
                     ["invoice_date", "<=", report],
                     ["amount_residual_signed", ">", 0],
                     ["payment_state", "in", ["not_paid", "partial", "in_payment"]]
