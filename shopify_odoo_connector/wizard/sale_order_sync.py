@@ -485,7 +485,8 @@ class SaleOrderSync(models.TransientModel):
                     dateutil.parser.parse(each['created_at']).astimezone(
                         pytz.utc)))
                 vals["shopify_order_ref"] = each['id']
-                vals["name"] = each['name']
+                vals["reference_number"] = each['name']
+                # vals["name"] = each['name']
                 vals['shopify_instance_id'] = shopify_instance.id
                 order_warehouse = self._get_shopify_order_warehouse(
                     each, shopify_instance)
