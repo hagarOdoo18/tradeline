@@ -501,7 +501,7 @@
           <div class="tl-bars-col">
             <t t-if="!inventoryBarRows.length"><div class="tl-empty-mini">No inventory data available</div></t>
             <t t-foreach="inventoryBarRows" t-as="item" t-key="item_index">
-              <div class="tl-bar-row">
+              <div class="tl-bar-row" t-on-click="() => this.onInventoryRowClick(item)" style="cursor: pointer;">
                 <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
                 <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
                 <div class="tl-bar-track">
@@ -521,7 +521,58 @@
               </tr></thead>
               <tbody>
                 <t t-foreach="topInventoryByCategory" t-as="row" t-key="row_index">
-                  <tr>
+                  <tr t-on-click="() => this.onInventoryRowClick(row)" style="cursor: pointer;">
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.on_hand_qty)"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.allocated_value)"/></td>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product Variant (Inventory Exposure) -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="tl-select" t-on-change="onInventoryCategoryChange" style="padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; background: #fffbeb; border-color: #fde68a; color: #b45309; cursor: pointer;">
+              <option value="all">All (Top 10 Categories)</option>
+              <t t-foreach="inventoryCategoryOptions" t-as="cat" t-key="cat">
+                <option t-att-value="cat" t-att-selected="state.filters.inventory_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
+              </t>
+            </select>
+            <span class="tl-badge tl-badge-amber">Allocated Cost EGP</span>
+          </div>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!inventoryProductBarRows.length"><div class="tl-empty-mini">No product variant data available</div></t>
+            <t t-foreach="inventoryProductBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row" t-on-click="() => this.onInventoryRowClick(item)" style="cursor: pointer;">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-amber" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Product Variant</th>
+                <th class="col-num">On-Hand Qty</th>
+                <th class="col-num">Allocated Value</th>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topInventoryByProduct" t-as="row" t-key="row_index">
+                  <tr t-on-click="() => this.onInventoryRowClick(row)" style="cursor: pointer;">
                     <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
                     <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
                     <td class="col-num"><t t-esc="_formatNumber(row.on_hand_qty)"/></td>
@@ -734,6 +785,14 @@
               <button class="tl-btn-sm tl-btn-outline" t-on-click="onOpenNativeView">Open in Odoo ↗</button>
             </div>
           </div>
+          <t t-if="state.filters.inventory_category and state.filters.inventory_category !== 'all'">
+            <div class="tl-drill-active-filters" style="margin-left: 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+              <span class="tl-badge tl-badge-amber">Category: <t t-esc="state.filters.inventory_category"/></span>
+              <button class="btn btn-link btn-sm text-danger p-0" t-on-click="clearCategoryFilter" style="font-size: 0.85em; text-decoration: none;">
+                Clear Filter ✖
+              </button>
+            </div>
+          </t>
 
           <div class="tl-count-hint" t-if="drillInvoiceCountHint"><t t-esc="drillInvoiceCountHint"/></div>
 

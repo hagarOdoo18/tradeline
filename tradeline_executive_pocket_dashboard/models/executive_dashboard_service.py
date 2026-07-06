@@ -300,6 +300,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         branch_ids = [int(x) for x in (filters.get("branch_ids") or []) if x]
         salesperson_ids = [int(x) for x in (filters.get("salesperson_ids") or []) if x]
         product_category = str(filters.get("product_category") or "all").strip() or "all"
+        inventory_category = str(filters.get("inventory_category") or "all").strip() or "all"
 
         user_company_ids = self.env.user.company_ids.ids
         if not company_ids:
@@ -325,6 +326,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "branch_ids": branch_ids,
             "salesperson_ids": salesperson_ids,
             "product_category": product_category,
+            "inventory_category": inventory_category,
         }
 
     def _build_scope_clause(
@@ -1759,7 +1761,6 @@ class ExecutiveDashboardService(models.AbstractModel):
     def _inventory_drilldown(self, scope, group_by, metric, limit, offset):
         quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
         svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
-        params = quant_params + svl_params + [limit, offset]
         include_company_split = len(scope.get("company_ids") or []) > 1 and group_by != "company"
         company_join_sql = "LEFT JOIN res_company company ON company.id = inv.company_id"
 
@@ -1782,6 +1783,23 @@ class ExecutiveDashboardService(models.AbstractModel):
         company_select = f",\n                {company_expr} AS company" if include_company_split else ""
         group_by_sql = f"{dim_sql}, {company_expr}" if include_company_split else dim_sql
 
+        filter_join = ""
+        filter_where = "1=1"
+        filter_params = []
+        selected_category = scope.get("inventory_category")
+        if selected_category and selected_category != "all":
+            filter_join = """
+                JOIN product_product p_filter ON p_filter.id = inv.product_id
+                JOIN product_template t_filter ON t_filter.id = p_filter.product_tmpl_id
+                JOIN product_category c_filter ON c_filter.id = t_filter.categ_id
+            """
+            if selected_category == "Unclassified":
+                filter_where = "c_filter.complete_name IS NULL"
+            else:
+                filter_where = "c_filter.complete_name = %s"
+                filter_params = [selected_category]
+
+        params = quant_params + svl_params + filter_params + [limit, offset]
         order_metric = metric if metric in {"allocated_value", "on_hand_qty", "unit_cost"} else "allocated_value"
         self.env.cr.execute(
             f"""
@@ -1824,6 +1842,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                 END AS unit_cost
             FROM inv
             {dim_join}
+            {filter_join}
+            WHERE {filter_where}
             GROUP BY {group_by_sql}
             ORDER BY {order_metric} DESC
             LIMIT %s OFFSET %s
@@ -1831,7 +1851,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             params,
         )
         rows = self._dictfetchall()
-        count_params = quant_params + svl_params
+        count_params = quant_params + svl_params + filter_params
         self.env.cr.execute(
             f"""
             WITH quant_agg AS (
@@ -1868,6 +1888,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT {dim_sql} AS dimension{company_select}
                 FROM inv
                 {dim_join}
+                {filter_join}
+                WHERE {filter_where}
                 GROUP BY {group_by_sql}
             ) grouped
             """,
@@ -2063,6 +2085,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "sales_by_product": self._top_sales_by_product(scope, limit, margin_status),
             "payment_journals": self._top_payment_journals(scope, limit),
             "inventory_by_category": self._top_inventory_by_category(scope, limit),
+            "inventory_by_product": self._top_inventory_by_product(scope, limit),
             "sales_over_month": self._sales_over_month(scope),
             "attachment": attachment,
             "attachment_rate": attachment["rate"],
@@ -2769,6 +2792,78 @@ class ExecutiveDashboardService(models.AbstractModel):
         """, quant_params + svl_params + [limit])
         rows = self._dictfetchall()
         for row in rows:
+            row["on_hand_qty"] = float(row.get("on_hand_qty") or 0)
+            row["allocated_value"] = float(row.get("allocated_value") or 0)
+        return rows
+
+    def _top_inventory_by_product(self, scope, limit):
+        if not (self._has_table("stock_quant") and self._has_table("stock_valuation_layer")):
+            return []
+        quant_where, quant_params = self._build_scope_clause(alias="quant", table_name="stock_quant", filters=scope)
+        svl_where, svl_params = self._build_scope_clause(alias="svl", table_name="stock_valuation_layer", filters=scope)
+        
+        selected_category = str(scope.get("inventory_category") or "all").strip() or "all"
+        
+        category_where = "1=1"
+        category_params = []
+        if selected_category.lower() != "all":
+            if selected_category == "Unclassified":
+                category_where = "category.complete_name IS NULL"
+            else:
+                category_where = "COALESCE(category.complete_name, '') = %s"
+                category_params = [selected_category]
+                
+        params = quant_params + svl_params + category_params + [limit]
+        self.env.cr.execute(f"""
+            WITH quant_agg AS (
+                SELECT quant.product_id, quant.company_id, SUM(COALESCE(quant.quantity,0)) AS on_hand_qty
+                FROM stock_quant quant
+                JOIN stock_location location ON location.id=quant.location_id
+                WHERE {quant_where} AND location.usage='internal'
+                GROUP BY quant.product_id, quant.company_id
+            ),
+            svl_agg AS (
+                SELECT svl.product_id, svl.company_id,
+                    SUM(COALESCE(svl.quantity,0)) AS svl_qty, SUM(COALESCE(svl.value,0)) AS svl_value
+                FROM stock_valuation_layer svl WHERE {svl_where}
+                GROUP BY svl.product_id, svl.company_id
+            ),
+            inv AS (
+                SELECT
+                    COALESCE(q.product_id,s.product_id) AS product_id,
+                    COALESCE(q.company_id,s.company_id) AS company_id,
+                    COALESCE(q.on_hand_qty,0) AS on_hand_qty,
+                    CASE WHEN COALESCE(s.svl_qty,0)=0 THEN 0
+                         ELSE COALESCE(q.on_hand_qty,0)*(COALESCE(s.svl_value,0)/NULLIF(s.svl_qty,0))
+                    END AS allocated_value
+                FROM quant_agg q FULL OUTER JOIN svl_agg s ON s.product_id=q.product_id AND s.company_id=q.company_id
+            )
+            SELECT
+                inv.product_id AS product_id,
+                COALESCE(SUM(inv.on_hand_qty),0) AS on_hand_qty,
+                COALESCE(SUM(inv.allocated_value),0) AS allocated_value
+            FROM inv
+            LEFT JOIN product_product product ON product.id=inv.product_id
+            LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+            LEFT JOIN product_category category ON category.id=template.categ_id
+            WHERE {category_where}
+            GROUP BY inv.product_id
+            ORDER BY allocated_value DESC LIMIT %s
+        """, params)
+        rows = self._dictfetchall()
+        if not rows:
+            return []
+            
+        product_ids = [r["product_id"] for r in rows if r.get("product_id")]
+        name_map = {}
+        if product_ids:
+            products = self.env["product.product"].sudo().with_context(lang=self.env.user.lang or "en_US").browse(product_ids).exists()
+            for p in products:
+                name_map[p.id] = p.display_name or p.name or f"Product #{p.id}"
+                
+        for row in rows:
+            p_id = row.get("product_id")
+            row["dimension"] = name_map.get(p_id, f"Product #{p_id}")
             row["on_hand_qty"] = float(row.get("on_hand_qty") or 0)
             row["allocated_value"] = float(row.get("allocated_value") or 0)
         return rows

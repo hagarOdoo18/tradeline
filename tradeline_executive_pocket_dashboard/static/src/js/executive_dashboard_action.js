@@ -27,6 +27,7 @@ export class ExecutivePocketDashboard extends Component {
                 branch_ids: [],
                 salesperson_ids: [],
                 product_category: "all",
+                inventory_category: "all",
             },
             activePoint: null,
             selectedDomain: "finance",
@@ -51,6 +52,9 @@ export class ExecutivePocketDashboard extends Component {
     get topSalesByProduct() { return this.topSections.sales_by_product || []; }
     get topPaymentJournals() { return this.topSections.payment_journals || []; }
     get topInventoryByCategory() { return this.topSections.inventory_by_category || []; }
+    get topInventoryByProduct() { return this.topSections.inventory_by_product || []; }
+    get inventoryProductBarRows() { return this._barRowsFor(this.topInventoryByProduct, "allocated_value"); }
+    get inventoryCategoryOptions() { return this.topInventoryByCategory.map(c => c.dimension).filter(Boolean); }
     get salesOverMonth() { return this.topSections.sales_over_month || []; }
     get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
     get totalInvoices() { return Number(this.topSections.total_invoices || 0); }
@@ -358,7 +362,10 @@ export class ExecutivePocketDashboard extends Component {
             }
             this._syncCompanyDraft();
             this._syncSelectionFromBundle();
-            if (this._ensureValidProductCategory()) {
+            let reloadTop = false;
+            if (this._ensureValidProductCategory()) reloadTop = true;
+            if (this._ensureValidInventoryCategory()) reloadTop = true;
+            if (reloadTop) {
                 await this._loadTopSections();
             }
             await this._reloadDrilldown();
@@ -377,7 +384,10 @@ export class ExecutivePocketDashboard extends Component {
                 [this.state.filters, this.state.topN]
             );
             if (this.state.bundle) this.state.bundle.top_sections = topSections;
-            if (this._ensureValidProductCategory()) {
+            let reloadTop = false;
+            if (this._ensureValidProductCategory()) reloadTop = true;
+            if (this._ensureValidInventoryCategory()) reloadTop = true;
+            if (reloadTop) {
                 await this._loadTopSections();
             }
         } catch {
@@ -417,6 +427,13 @@ export class ExecutivePocketDashboard extends Component {
         this.state.filters.product_category = "all";
         return true;
     }
+    _ensureValidInventoryCategory() {
+        const selected = this.state.filters.inventory_category || "all";
+        if (selected === "all") return false;
+        if (this.inventoryCategoryOptions.includes(selected)) return false;
+        this.state.filters.inventory_category = "all";
+        return true;
+    }
 
     // ─── Event handlers ───────────────────────────────────────────────────────
     async onTopNChange(ev) {
@@ -426,6 +443,29 @@ export class ExecutivePocketDashboard extends Component {
     async onProductCategoryChange(ev) {
         this.state.filters.product_category = ev.target.value || "all";
         await this._loadTopSections();
+    }
+    async onInventoryCategoryChange(ev) {
+        this.state.filters.inventory_category = ev.target.value || "all";
+        await this._loadTopSections();
+    }
+    async onInventoryRowClick(row) {
+        this.state.selectedDomain = "inventory";
+        this.state.selectedGroupBy = "product";
+        this.state.selectedMetric = "allocated_value";
+        this.state.filters.inventory_category = row.dimension;
+        this.state.drilldownOpen = true;
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
+        
+        const el = document.querySelector(".tl-advanced-section");
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth" });
+        }
+    }
+    async clearCategoryFilter() {
+        this.state.filters.inventory_category = "all";
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
     }
     async onCardClick(key) {
         const filters = this.state.filters;
@@ -647,7 +687,13 @@ export class ExecutivePocketDashboard extends Component {
         await this._loadBundle();
     }
     onToggleDrilldown() { this.state.drilldownOpen = !this.state.drilldownOpen; }
-    async onDomainChange(ev) { this.state.selectedDomain = ev.target.value; this.state.pagination.offset = 0; this._syncSelectionFromBundle(); await this._reloadDrilldown(); }
+    async onDomainChange(ev) { 
+        this.state.selectedDomain = ev.target.value; 
+        this.state.pagination.offset = 0; 
+        this.state.filters.inventory_category = "all";
+        this._syncSelectionFromBundle(); 
+        await this._reloadDrilldown(); 
+    }
     async onGroupChange(ev) { this.state.selectedGroupBy = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
     async onMetricChange(ev) { this.state.selectedMetric = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
     async onPageSizeChange(ev) {
