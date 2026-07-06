@@ -159,7 +159,7 @@ export class ExecutivePocketDashboard extends Component {
     get selectedDomainCoverage() { return Number((this.state.bundle?.coverage || {})[this.state.selectedDomain] || 0); }
     get drillInvoiceCountHint() {
         if (this.state.selectedDomain === "finance") return "Count = posted sales documents, including refunds.";
-        if (this.state.selectedDomain === "sales") return "Count = customer invoices/receipts only, refunds excluded.";
+        if (this.state.selectedDomain === "sales") return "Count = customer invoices/receipts/credit notes.";
         return "";
     }
 
@@ -668,7 +668,7 @@ export class ExecutivePocketDashboard extends Component {
     async onOpenNativeView() {
         const map = {
             finance: { name: "Posted Sales Documents (incl. refunds)", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
-            sales: { name: "Customer Invoices/Receipts (refunds excluded)", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt"]]] },
+            sales: { name: "Customer Invoices/Receipts/Refunds", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
             inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
         };
         const t = map[this.state.selectedDomain] || map.finance;

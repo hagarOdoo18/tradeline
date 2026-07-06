@@ -165,9 +165,9 @@
       <div class="tl-kpi-card" t-on-click="() => this.onCardClick('total_invoices')" style="cursor: pointer;">
         <div class="tl-kpi-icon">🧾</div>
         <div class="tl-kpi-body">
-          <div class="tl-kpi-label">Invoices (Excl. Refunds)</div>
+          <div class="tl-kpi-label">Invoices (Incl. Credit Notes)</div>
           <div class="tl-kpi-value"><t t-esc="_formatNumber(totalInvoices)"/></div>
-          <div class="tl-kpi-sub-text">posted invoices/receipts on report day, refunds excluded</div>
+          <div class="tl-kpi-sub-text">posted invoices/receipts/credit notes on report day</div>
         </div>
       </div>
 
@@ -192,7 +192,7 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Sales Performance</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — invoice counts here exclude refunds</span>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — invoice counts include credit notes</span>
         </div>
       </div>
 
@@ -222,7 +222,7 @@
                 <th class="col-rank">#</th>
                 <th>Branch</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices (excl. refunds)</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -278,7 +278,7 @@
                 <th class="col-rank">#</th>
                 <th>Salesperson</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices (excl. refunds)</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -340,7 +340,7 @@
                 <th class="col-rank">#</th>
                 <th>Category</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices (excl. refunds)</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop"><th class="col-num">Margin%</th></t>
               </tr></thead>
               <tbody>
@@ -387,7 +387,7 @@
                 <th class="col-rank">#</th>
                 <th>Customer</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices (excl. refunds)</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -451,7 +451,7 @@
                 <th class="col-rank">#</th>
                 <th>Product Variant</th>
                 <th class="col-num">Untaxed Revenue</th>
-                <th class="col-num">Invoices (excl. refunds)</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
                     Margin
@@ -598,7 +598,7 @@
                   <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
                 </div>
                 <div class="tl-tooltip-row">
-                  <span class="tl-tooltip-label">Invoices (excl. refunds):</span>
+                  <span class="tl-tooltip-label">Invoices (incl. credit notes):</span>
                   <span class="tl-tooltip-val"><t t-esc="state.activePoint.invoice_count"/></span>
                 </div>
                 <div class="tl-tooltip-hint">Click point to inspect day</div>
@@ -615,7 +615,7 @@
           <h3>7-Day Daily Snapshot</h3>
           <div class="tl-snapshot-quick">
             <span>Today: <strong><t t-esc="_formatCompactEGP(dailySnapshotStats.today_revenue || 0)"/></strong></span>
-            <span class="tl-snapshot-note">Invoice counts exclude refunds</span>
+            <span class="tl-snapshot-note">Invoice counts include credit notes</span>
             <span t-att-class="'tl-dod-badge ' + _trendClass(dailySnapshotStats.day_over_day_pct)">
               <t t-esc="_trendIcon(dailySnapshotStats.day_over_day_pct)"/>
               <t t-esc="_formatPercentOrDash(dailySnapshotStats.day_over_day_pct)"/> DoD
@@ -630,7 +630,7 @@
                 <div class="tl-snap-fill" t-att-style="'width:' + item.pct + '%'"></div>
               </div>
               <div class="tl-snap-val"><t t-esc="_formatCompact(item.value)"/></div>
-              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv excl. refunds</div>
+              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv incl. credit notes</div>
             </div>
           </t>
         </div>
@@ -821,9 +821,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Invoices (Excl. Refunds)</div>
+          <div class="tl-print-kpi-label">Invoices (Incl. Credit Notes)</div>
           <div class="tl-print-kpi-val"><t t-esc="dailyTotalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts, refunds excluded</div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts/credit notes</div>
         </div>
       </div>
 
@@ -925,9 +925,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Invoices (Excl. Refunds)</div>
+          <div class="tl-print-kpi-label">Invoices (Incl. Credit Notes)</div>
           <div class="tl-print-kpi-val"><t t-esc="periodInvoiceCount"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts in period, refunds excluded</div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts/credit notes in period</div>
         </div>
       </div>
 

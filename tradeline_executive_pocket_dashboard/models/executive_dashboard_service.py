@@ -538,7 +538,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt','out_refund') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
                     COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS credit_note_value,
                     COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
                 FROM account_invoice_report air
@@ -556,7 +556,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt','out_refund') THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS gross_sales,
                     COALESCE(SUM(CASE WHEN move.move_type = 'out_refund' THEN ABS(COALESCE(move.amount_untaxed_signed, 0)) ELSE 0 END), 0) AS credit_note_value,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
                 FROM account_move move
@@ -606,7 +606,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 FROM account_move move
                 WHERE {overdue_where_sql}
                   AND move.state = 'posted'
-                  AND move.move_type IN ('out_invoice','out_receipt')
+                  AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND COALESCE(move.invoice_date, move.date) <= %s
                   AND COALESCE(move.amount_residual_signed, 0) > 0
                   AND COALESCE(move.payment_state, '') IN ('not_paid', 'partial', 'in_payment')
@@ -649,8 +649,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
+                    COALESCE(SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt','out_refund') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END), 0) AS gross_sales,
                     COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
@@ -671,8 +671,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(
                 f"""
                 SELECT
-                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
-                    COALESCE(AVG(ABS(move.amount_untaxed_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0) AS average_basket,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
+                    COALESCE(AVG(ABS(move.amount_untaxed_signed)) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')), 0) AS average_basket,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
                 FROM account_move move
                 WHERE {where_sql}
@@ -897,7 +897,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     f"""
                     SELECT
                         air.invoice_date::date AS day,
-                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                         COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
                     FROM account_invoice_report air
                     JOIN account_move move ON move.id = air.move_id
@@ -922,7 +922,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     f"""
                     SELECT
                         move.invoice_date::date AS day,
-                        COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                        COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                         COALESCE(SUM(COALESCE(move.amount_untaxed_signed, 0)), 0) AS net_revenue
                     FROM account_move move
                     WHERE {where_sql}
@@ -1009,7 +1009,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             {"key": "overdue_receivables", "label": "Open Unpaid Invoice Value", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "invoice analysis untaxed amount for selected-period invoices still unpaid by report day"},
             {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
             {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
-            {"key": "invoice_count", "label": "Invoices (Excl. Refunds)", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "posted invoices/receipts in selected period, refunds excluded"},
+            {"key": "invoice_count", "label": "Invoices (Incl. Credit Notes)", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "posted invoices/receipts/credit notes in selected period"},
         ]
         if margin_status.get("available"):
             cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral", "subtext": "in selected period"})
@@ -1438,10 +1438,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                 f"""
                 SELECT
                     {dim_sql} AS dimension{company_select},
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                     COALESCE(
-                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END)
-                        / NULLIF(COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0),
+                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt','out_refund') THEN ABS(COALESCE(air.price_subtotal, 0)) ELSE 0 END)
+                        / NULLIF(COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')), 0),
                         0
                     ) AS average_basket,
                     COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS net_revenue
@@ -1536,10 +1536,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                 f"""
                 SELECT
                     {dim_sql} AS dimension{company_select},
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                     COALESCE(
-                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt') THEN ABS({gross_sales_expr}) ELSE 0 END)
-                        / NULLIF(COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')), 0),
+                        SUM(CASE WHEN move.move_type IN ('out_invoice','out_receipt','out_refund') THEN ABS({gross_sales_expr}) ELSE 0 END)
+                        / NULLIF(COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')), 0),
                         0
                     ) AS average_basket,
                     COALESCE(SUM(COALESCE({revenue_expr}, 0)), 0) AS net_revenue
@@ -2011,8 +2011,9 @@ class ExecutiveDashboardService(models.AbstractModel):
         if self._has_reporting_sales_view():
             where_sql, params = self._build_reporting_scope_clause(scope)
             params.append(target_date)
+            col = "price_total_converted" if self._has_column("account_invoice_report", "price_total_converted") else "price_total"
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(air.{col},0)),0) AS total
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 WHERE {where_sql} AND move.state='posted'
@@ -2023,7 +2024,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=scope)
             params.append(target_date)
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(move.amount_total_signed,0)),0) AS total
                 FROM account_move move WHERE {where_sql} AND move.state='posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date = %s
@@ -2148,7 +2149,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     {report_dim_sql} AS dimension,
                     COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 {report_join_sql}
@@ -2162,7 +2163,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     {dim_sql} AS dimension,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
-                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move {join_sql}
                 WHERE {where_sql}
                   AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -2259,7 +2260,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     {report_dim_sql} AS dimension,
                     COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 {report_join_sql}
@@ -2272,7 +2273,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     {dim_sql} AS dimension,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
-                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move {join_sql}
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
@@ -2362,7 +2363,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     COALESCE(category.complete_name,'Unclassified') AS dimension,
                     COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 LEFT JOIN product_product product ON product.id=air.product_id
@@ -2377,7 +2378,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     COALESCE(category.complete_name,'Unclassified') AS dimension,
                     COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move {cat_joins}
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
@@ -2480,7 +2481,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     SELECT
                         air.product_id AS product_id,
                         COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                     FROM account_invoice_report air
                     JOIN account_move move ON move.id = air.move_id
                     LEFT JOIN product_product product ON product.id=air.product_id
@@ -2496,7 +2497,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     SELECT
                         air.product_id AS product_id,
                         COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                        COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                     FROM account_invoice_report air
                     JOIN account_move move ON move.id = air.move_id
                     LEFT JOIN product_product product ON product.id=air.product_id
@@ -2528,7 +2529,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     product.id AS product_id,
                     COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
                 LEFT JOIN product_product product ON product.id=line.product_id
@@ -2544,7 +2545,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     product.id AS product_id,
                     COALESCE(SUM(COALESCE(line.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT move.id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move
                 JOIN account_move_line line ON line.move_id=move.id AND (line.display_type='product' OR line.display_type IS NULL)
                 LEFT JOIN product_product product ON product.id=line.product_id
@@ -2644,7 +2645,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     COALESCE(partner.name,'Unknown') AS dimension,
                     COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue,
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 LEFT JOIN res_partner partner ON partner.id=air.partner_id
@@ -2657,7 +2658,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 SELECT
                     COALESCE(partner.name,'Unknown') AS dimension,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue,
-                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count
                 FROM account_move move
                 LEFT JOIN res_partner partner ON partner.id=move.partner_id
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -2781,7 +2782,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(f"""
                 SELECT
                     air.invoice_date::date AS day,
-                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COUNT(DISTINCT air.move_id) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                     COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS net_revenue
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
@@ -2795,7 +2796,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             self.env.cr.execute(f"""
                 SELECT
                     move.invoice_date::date AS day,
-                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt')) AS invoice_count,
+                    COUNT(*) FILTER (WHERE move.move_type IN ('out_invoice','out_receipt','out_refund')) AS invoice_count,
                     COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS net_revenue
                 FROM account_move move
                 WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
@@ -2825,7 +2826,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     ), 0) AS care_card_count
                 FROM account_move move
                 LEFT JOIN account_move_line line ON line.move_id=move.id
-                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt')
+                WHERE {where_sql} AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
                 GROUP BY move.id
             )
@@ -2859,8 +2860,9 @@ class ExecutiveDashboardService(models.AbstractModel):
         if self._has_reporting_sales_view():
             where_sql, params = self._build_reporting_scope_clause(mtd_scope)
             params += [mtd_start, end_date]
+            col = "price_total_converted" if self._has_column("account_invoice_report", "price_total_converted") else "price_total"
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(air.{col},0)),0) AS total
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 WHERE {where_sql} AND move.state='posted'
@@ -2871,7 +2873,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             where_sql, params = self._build_scope_clause(alias="move", table_name="account_move", filters=mtd_scope)
             params += [mtd_start, end_date]
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(move.amount_total_signed,0)),0) AS total
                 FROM account_move move WHERE {where_sql} AND move.state='posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
@@ -2884,8 +2886,9 @@ class ExecutiveDashboardService(models.AbstractModel):
             if self._has_reporting_sales_view():
                 w2, p2 = self._build_reporting_scope_clause(prev_scope)
                 p2 += [mtd_start, prev_end]
+                col = "price_total_converted" if self._has_column("account_invoice_report", "price_total_converted") else "price_total"
                 self.env.cr.execute(f"""
-                    SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                    SELECT COALESCE(SUM(COALESCE(air.{col},0)),0) AS total
                     FROM account_invoice_report air
                     JOIN account_move move ON move.id = air.move_id
                     WHERE {w2} AND move.state='posted'
@@ -2896,7 +2899,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 w2, p2 = self._build_scope_clause(alias="move", table_name="account_move", filters=prev_scope)
                 p2 += [mtd_start, prev_end]
                 self.env.cr.execute(f"""
-                    SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                    SELECT COALESCE(SUM(COALESCE(move.amount_total_signed,0)),0) AS total
                     FROM account_move move WHERE {w2} AND move.state='posted'
                       AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                       AND move.invoice_date BETWEEN %s AND %s
@@ -2909,8 +2912,9 @@ class ExecutiveDashboardService(models.AbstractModel):
         if self._has_reporting_sales_view():
             w3, p3 = self._build_reporting_scope_clause(last_month_scope)
             p3 += [last_month_start, last_month_end]
+            col = "price_total_converted" if self._has_column("account_invoice_report", "price_total_converted") else "price_total"
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(air.price_subtotal,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(air.{col},0)),0) AS total
                 FROM account_invoice_report air
                 JOIN account_move move ON move.id = air.move_id
                 WHERE {w3} AND move.state='posted'
@@ -2921,7 +2925,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             w3, p3 = self._build_scope_clause(alias="move", table_name="account_move", filters=last_month_scope)
             p3 += [last_month_start, last_month_end]
             self.env.cr.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(move.amount_untaxed_signed,0)),0) AS total
+                SELECT COALESCE(SUM(COALESCE(move.amount_total_signed,0)),0) AS total
                 FROM account_move move WHERE {w3} AND move.state='posted'
                   AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
