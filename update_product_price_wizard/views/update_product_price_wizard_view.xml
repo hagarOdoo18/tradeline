@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Wizard form view
+    ════════════════════════════════════════════════════════════════════ -->
+    <record id="view_update_product_price_wizard_form" model="ir.ui.view">
+        <field name="name">update.product.price.wizard.form</field>
+        <field name="model">update.product.price.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Update Product Prices">
+
+                <!-- ── Draft state ─────────────────────────────────────── -->
+                <group invisible="state != 'draft'">
+                    <group>
+                        <field name="import_file"
+                               filename="import_file_name"
+                               widget="binary"
+                               string="Excel File (.xlsx / .xls)"/>
+                        <field name="import_file_name" invisible="1"/>
+                        <field name="state" invisible="1"/>
+                    </group>
+                    <group>
+                        <div class="text-muted">
+                            <p>Upload an Excel file with the following columns:</p>
+                            <ul>
+                                <li><b>Item Code</b> – product internal reference or barcode</li>
+                                <li><b>New Price</b> – new sales price</li>
+                            </ul>
+                        </div>
+                    </group>
+                </group>
+
+                <!-- ── Preview / Done state ───────────────────────────── -->
+                <group invisible="state == 'draft'">
+                    <field name="import_summary"
+                           readonly="1"
+                           string="Summary"/>
+                    <field name="state" invisible="1"/>
+                </group>
+
+                <field name="line_ids"
+                       invisible="state == 'draft'"
+                       readonly="1"
+                       nolabel="1">
+                    <list string="Preview" decoration-danger="status == 'error'"
+                          decoration-success="status == 'ok'">
+                        <field name="item_code" string="Item Code"/>
+                        <field name="product_name" string="Product Name"/>
+                        <field name="old_price" string="Current Price"/>
+                        <field name="new_price" string="New Price"/>
+                        <field name="status" string="Status"
+                               widget="badge"
+                               decoration-danger="status == 'error'"
+                               decoration-success="status == 'ok'"/>
+                    </list>
+                </field>
+
+                <!-- ── Footer buttons ─────────────────────────────────── -->
+                <footer>
+                    <!-- Draft -->
+                    <button name="action_preview"
+                            string="Preview"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'draft'"/>
+
+                    <!-- Preview -->
+                    <button name="action_apply"
+                            string="Update Prices"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'preview'"
+                            confirm="This will overwrite the current sales price for all
+ready products. Continue?"/>
+                    <button name="action_reset"
+                            string="Reset"
+                            type="object"
+                            invisible="state not in ('preview', 'done')"/>
+
+                    <!-- Done -->
+                    <button name="action_close"
+                            string="Close"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'done'"/>
+
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"
+                            invisible="state == 'done'"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Action
+    ════════════════════════════════════════════════════════════════════ -->
+    <record id="action_update_product_price_wizard" model="ir.actions.act_window">
+        <field name="name">Update Product Prices</field>
+        <field name="res_model">update.product.price.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         Menu entry  (Inventory ▶ Operations ▶ Update Product Prices)
+    ════════════════════════════════════════════════════════════════════ -->
+    <menuitem id="menu_update_product_price_wizard"
+              name="Update Product Prices"
+              parent="stock.menu_stock_inventory_control"
+              action="action_update_product_price_wizard"
+              sequence="99"/>
+
+</odoo>
