@@ -211,9 +211,13 @@ class AccountInvoiceWizard(models.TransientModel):
                     JOIN account_journal aj ON aj.id = ppm.journal_id
                     WHERE inv.id = ANY(%s)
                 """, (inv_ids,))
+                # Snapshot BEFORE appending: invoices that already have
+                # reconciled payments. Checking pay_map inside the loop
+                # dropped every POS payment after the first one.
+                reconciled_ids = set(pay_map)
                 for inv_id, jname, amount in cr.fetchall():
                     # Only use POS payments as fallback (no reconciled payment found)
-                    if inv_id not in pay_map:
+                    if inv_id not in reconciled_ids:
                         pay_map.setdefault(inv_id, []).append((jname, float(amount or 0)))
             except Exception:
                 cr.rollback()
