@@ -79,19 +79,20 @@ class ExecutiveReportSchedule(models.Model):
     @api.model
     def _ensure_default_schedules(self):
         companies = self.env["res.company"].sudo().search([])
+        existing = self.sudo().with_context(active_test=False)
         recipient = self.env["res.partner"].sudo().search([
             "|", ("name", "ilike", "Mosta"), ("name", "ilike", "Medhat"), ("email", "!=", False),
         ], limit=1)
         if not recipient or not recipient.email:
             recipient = self.env.user.partner_id
         for company in companies:
-            if not self.sudo().search_count([("company_id", "=", company.id)]):
+            if not existing.search_count([("company_id", "=", company.id)]):
                 email = recipient.email or ""
-                self.sudo().create({
+                existing.create({
                     "name": "%s Daily Executive Report" % company.name,
                     "company_id": company.id,
                     "recipient_emails": email,
-                    "active": bool(email),
+                    "active": False,
                     "send_hour": 8,
                     "timezone": "Africa/Cairo",
                     "top_n": 10,
@@ -101,7 +102,7 @@ class ExecutiveReportSchedule(models.Model):
     def get_dashboard_config(self):
         self.env["tradeline.executive.dashboard.service"]._ensure_exec_admin()
         self._ensure_default_schedules()
-        schedules = self.sudo().search([], order="company_id")
+        schedules = self.sudo().with_context(active_test=False).search([], order="company_id")
         histories = self.env["tradeline.executive.report.history"].sudo().search([], order="create_date desc", limit=30)
         return {
             "schedules": [record._dashboard_values() for record in schedules],
