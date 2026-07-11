@@ -21,7 +21,8 @@
   backdrop-filter: blur(5px);
 }
 .tl-automation-modal {
-  width: min(1120px, 96vw);
+  width: 96vw;
+  max-width: 1120px;
   max-height: 92vh;
   overflow: auto;
   border-radius: 22px;
