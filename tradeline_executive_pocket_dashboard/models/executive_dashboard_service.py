@@ -2152,7 +2152,7 @@ class ExecutiveDashboardService(models.AbstractModel):
 
                 std_query = f"""
                     SELECT
-                        COALESCE(journal.name, 'Unknown Journal') AS journal_name,
+                        COALESCE(journal.name::text, 'Unknown Journal') AS journal_name,
                         {company_col} AS company_id,
                         {branch_col} AS branch_id,
                         {date_col} AS payment_date,
@@ -2175,7 +2175,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                         UNION ALL
 
                         SELECT
-                            COALESCE(pm.name, 'Unknown POS Method') AS journal_name,
+                            COALESCE(pm.name::text, 'Unknown POS Method') AS journal_name,
                             po.company_id,
                             {pos_branch} AS branch_id,
                             CAST(pp.payment_date AS date) AS payment_date,
