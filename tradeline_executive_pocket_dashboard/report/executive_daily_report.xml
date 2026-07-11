@@ -169,9 +169,9 @@
                     <div class="section-kicker">Page 4 | Customers and journals</div><div class="section-title">Concentration and accounting mix</div>
                     <div class="grid-two">
                         <div class="grid-cell"><t t-set="title" t-value="'Top customers'"/><t t-set="rows" t-value="top.get('sales_by_customer', [])"/><t t-set="dimension_label" t-value="'Customer'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                        <div class="grid-cell"><t t-set="title" t-value="'Top journals from Invoice Analysis'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="value_label" t-value="'Untaxed amount'"/><t t-set="value_key" t-value="'collections_total'"/><t t-set="count_label" t-value="'Posted docs'"/><t t-set="count_key" t-value="'payment_count'"/><t t-set="show_margin" t-value="False"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
+                        <div class="grid-cell"><t t-set="title" t-value="'Top payment journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="value_label" t-value="'Collections'"/><t t-set="value_key" t-value="'collections_total'"/><t t-set="count_label" t-value="'Payments'"/><t t-set="count_key" t-value="'payment_count'"/><t t-set="show_margin" t-value="False"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
                     </div>
-                    <div class="source-card"><strong>Journal definition:</strong> This is the Journal grouping in Odoo Invoice Analysis, not bank-cash collection timing. Amounts are untaxed and document counts are distinct posted invoices, receipts, and credit notes.</div>
+                    <div class="source-card"><strong>Journal definition:</strong> This is the payment journal used for collections (e.g. Bank, Cash). Amounts are customer payments/receipts in the selected period.</div>
                     <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 4 of 6</span></div>
                 </div>
 

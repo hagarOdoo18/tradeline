@@ -737,19 +737,19 @@
       <div class="tl-section-header tl-hdr-collections">
         <div class="tl-section-accent"></div>
         <div>
-          <h2 class="tl-section-title">Invoice Journal Mix</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> journals from Odoo Invoice Analysis, using untaxed signed amounts</span>
+          <h2 class="tl-section-title">Collections Mix</h2>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> posted customer payment journals in selected period</span>
         </div>
       </div>
 
       <div class="tl-card">
         <div class="tl-card-head">
-          <h3>Top <t t-esc="state.topN"/> Reporting Journals</h3>
-          <span class="tl-badge tl-badge-green">Invoice Analysis</span>
+          <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
+          <span class="tl-badge tl-badge-green">Posted Customer Payments</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
-            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No journal data in Invoice Analysis for this period</div></t>
+            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No payment journal data available</div></t>
             <t t-foreach="paymentJournalBarRows" t-as="item" t-key="item_index">
               <div class="tl-bar-row">
                 <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
@@ -766,8 +766,8 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Journal</th>
-                <th class="col-num">Untaxed Amount</th>
-                <th class="col-num">Posted Docs</th>
+                <th class="col-num">Collections</th>
+                <th class="col-num">Payments</th>
                 <th class="col-num">Mix %</th>
               </tr></thead>
               <tbody>

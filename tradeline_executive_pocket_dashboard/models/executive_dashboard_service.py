@@ -2101,28 +2101,72 @@ class ExecutiveDashboardService(models.AbstractModel):
         }
 
     def _top_payment_journals(self, scope, limit):
-        """Group posted sales documents by journal from Odoo Invoice Analysis."""
-        if not self._has_reporting_sales_view() or not self._has_column("account_invoice_report", "journal_id"):
+        if not self._has_table("account_payment"):
             return []
         try:
             with self.env.cr.savepoint():
-                where_sql, params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
-                params += [scope["start_date"], scope["end_date"], limit]
-                self.env.cr.execute(
-                    f"""
-                    WITH journal_rows AS (
+                where_sql, params = self._build_scope_clause(alias="p", table_name="account_payment", filters=scope)
+                partner_type_sql = "AND payment.partner_type = 'customer'" if self._has_column("account_payment", "partner_type") else ""
+                signed_amount_sql = (
+                    "CASE WHEN payment.payment_type = 'inbound' THEN COALESCE(payment.amount, 0) ELSE -COALESCE(payment.amount, 0) END"
+                    if self._has_column("account_payment", "payment_type")
+                    else "COALESCE(payment.amount, 0)"
+                )
+                
+                has_pos = self._has_table("pos_payment") and self._has_table("pos_payment_method") and self._has_table("pos_order")
+                if has_pos:
+                    union_query = f"""
                         SELECT
-                            COALESCE(journal.name, 'Unassigned Journal') AS dimension,
-                            COALESCE(SUM(COALESCE(air.price_subtotal, 0)), 0) AS collections_total,
-                            COUNT(DISTINCT air.move_id) AS payment_count
-                        FROM account_invoice_report air
-                        JOIN account_move move ON move.id = air.move_id
-                        LEFT JOIN account_journal journal ON journal.id = air.journal_id
+                            COALESCE(journal.name, 'Unknown Journal') AS journal_name,
+                            payment.company_id,
+                            payment.branch_id,
+                            payment.date AS payment_date,
+                            {signed_amount_sql} AS amount
+                        FROM account_payment payment
+                        LEFT JOIN account_journal journal ON journal.id = payment.journal_id
+                        WHERE payment.state = 'posted'
+                          {partner_type_sql}
+                        
+                        UNION ALL
+                        
+                        SELECT
+                            COALESCE(method.name, 'Unknown POS Method') AS journal_name,
+                            pos_order.company_id,
+                            pos_order.branch_id,
+                            CAST(pos_payment.payment_date AS date) AS payment_date,
+                            COALESCE(pos_payment.amount, 0) AS amount
+                        FROM pos_payment
+                        JOIN pos_payment_method method ON method.id = pos_payment.payment_method_id
+                        JOIN pos_order ON pos_order.id = pos_payment.pos_order_id
+                        WHERE pos_order.state IN ('paid', 'done', 'invoiced')
+                    """
+                else:
+                    union_query = f"""
+                        SELECT
+                            COALESCE(journal.name, 'Unknown Journal') AS journal_name,
+                            payment.company_id,
+                            payment.branch_id,
+                            payment.date AS payment_date,
+                            {signed_amount_sql} AS amount
+                        FROM account_payment payment
+                        LEFT JOIN account_journal journal ON journal.id = payment.journal_id
+                        WHERE payment.state = 'posted'
+                          {partner_type_sql}
+                    """
+                
+                query = f"""
+                    WITH combined_payments AS (
+                        {union_query}
+                    ),
+                    journal_rows AS (
+                        SELECT
+                            journal_name AS dimension,
+                            COALESCE(SUM(amount), 0) AS collections_total,
+                            COUNT(*) AS payment_count
+                        FROM combined_payments p
                         WHERE {where_sql}
-                          AND move.state = 'posted'
-                          AND move.move_type IN ('out_invoice', 'out_receipt', 'out_refund')
-                          AND air.invoice_date BETWEEN %s AND %s
-                        GROUP BY journal.id, journal.name
+                          AND p.payment_date BETWEEN %s AND %s
+                        GROUP BY journal_name
                     )
                     SELECT
                         dimension,
@@ -2137,9 +2181,11 @@ class ExecutiveDashboardService(models.AbstractModel):
                     WHERE collections_total > 0
                     ORDER BY collections_total DESC, payment_count DESC, dimension
                     LIMIT %s
-                    """,
-                    params,
-                )
+                """
+                
+                params += [scope["start_date"], scope["end_date"], limit]
+                self.env.cr.execute(query, params)
+                
                 rows = self._dictfetchall()
                 for row in rows:
                     row["dimension"] = self._clean_dimension_label(row.get("dimension"))
@@ -2148,7 +2194,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     row["share_pct"] = float(row.get("share_pct") or 0)
                 return rows
         except Exception:
-            _logger.exception("Executive dashboard Invoice Analysis journal mix query failed")
+            _logger.exception("Executive dashboard payment journal mix query failed")
             return []
 
     def _top_sales_by_branch(self, scope, limit, margin_status=None):
