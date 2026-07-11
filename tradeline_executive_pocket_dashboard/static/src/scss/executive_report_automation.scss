@@ -1,0 +1,79 @@
+.tl-btn-automation {
+  border: 1px solid #c8d9d0;
+  border-radius: 10px;
+  background: #fff;
+  color: #174b39;
+  font-weight: 800;
+  padding: 10px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tl-btn-automation:hover { background: #eff8f3; border-color: #75b897; }
+.tl-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 28, 20, .62);
+  backdrop-filter: blur(5px);
+}
+.tl-automation-modal {
+  width: min(1120px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border-radius: 22px;
+  background: #f5f8f6;
+  box-shadow: 0 30px 90px rgba(3, 22, 14, .35);
+  padding: 24px;
+}
+.tl-modal-head, .tl-history-head, .tl-schedule-title-row, .tl-schedule-actions, .tl-schedule-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tl-modal-head { margin-bottom: 20px; }
+.tl-modal-head h2, .tl-history-head h3 { margin: 2px 0 4px; color: #10231a; }
+.tl-modal-head p, .tl-history-head p { margin: 0; color: #65756d; }
+.tl-modal-kicker { color: #16815b; font-weight: 900; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.tl-modal-close { border: 0; border-radius: 999px; padding: 9px 15px; background: #e3ebe7; color: #294a3b; font-weight: 800; cursor: pointer; }
+.tl-automation-loading { padding: 60px; text-align: center; color: #64756d; }
+.tl-schedule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tl-schedule-card { border: 1px solid #d8e4de; border-radius: 16px; background: #fff; padding: 18px; box-shadow: 0 5px 18px rgba(15, 61, 42, .06); }
+.tl-schedule-company { display: block; color: #123f2f; font-size: 18px; font-weight: 900; }
+.tl-schedule-caption { display: block; color: #7a8982; font-size: 11px; margin-top: 2px; }
+.tl-switch-label { display: flex; align-items: center; gap: 7px; font-weight: 800; color: #245642; }
+.tl-switch-label input { width: 18px; height: 18px; accent-color: #16815b; }
+.tl-automation-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tl-automation-field > span { color: #65756d; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.tl-automation-field input, .tl-automation-field select { width: 100%; min-height: 40px; border: 1px solid #cfddd6; border-radius: 9px; background: #fbfdfc; padding: 8px 10px; color: #15261e; }
+.tl-field-wide { margin: 16px 0 12px; }
+.tl-schedule-fields { display: grid; grid-template-columns: 1fr 1.5fr .8fr; gap: 10px; }
+.tl-schedule-status { align-items: flex-start; margin: 14px 0; color: #687870; font-size: 11px; }
+.tl-schedule-status span { display: flex; flex-direction: column; gap: 2px; }
+.tl-schedule-status strong { color: #29483a; }
+.tl-btn-preview, .tl-btn-save-schedule, .tl-history-download { border: 0; border-radius: 9px; padding: 9px 13px; font-weight: 800; cursor: pointer; }
+.tl-btn-preview { background: #e5f3ec; color: #13613f; }
+.tl-btn-save-schedule { background: #167550; color: #fff; }
+.tl-history-head { margin: 26px 0 10px; }
+.tl-history-table-wrap { overflow-x: auto; border: 1px solid #d8e4de; border-radius: 14px; background: #fff; }
+.tl-history-table { width: 100%; min-width: 850px; border-collapse: collapse; }
+.tl-history-table th { padding: 11px 12px; text-align: left; background: #edf4f0; color: #64756d; font-size: 10px; text-transform: uppercase; }
+.tl-history-table td { padding: 11px 12px; border-top: 1px solid #e6ede9; color: #283a31; vertical-align: top; }
+.tl-history-state { display: inline-block; border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.tl-history-state.is-sent { background: #dcf7e8; color: #0b6b3e; }
+.tl-history-state.is-failed { background: #fde5e2; color: #9b2d24; }
+.tl-history-state.is-preview { background: #e6eefc; color: #28529a; }
+.tl-history-error { max-width: 240px; margin-top: 5px; color: #a13a30; font-size: 10px; white-space: normal; }
+.tl-history-download { padding: 6px 9px; background: #edf5f1; color: #16603f; }
+.tl-history-empty { padding: 30px !important; text-align: center; color: #819088 !important; }
+@media (max-width: 800px) {
+  .tl-modal-backdrop { padding: 8px; }
+  .tl-automation-modal { width: 100%; max-height: 96vh; padding: 16px; border-radius: 16px; }
+  .tl-schedule-grid { grid-template-columns: 1fr; }
+  .tl-schedule-fields { grid-template-columns: 1fr; }
+  .tl-modal-head { align-items: flex-start; }
+}

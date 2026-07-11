@@ -72,6 +72,7 @@
       <button class="tl-btn-export" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
         <span class="tl-btn-icon">📊</span> Export Period Report
       </button>
+      <button class="tl-btn-automation" t-on-click="onOpenReportAutomation">Daily Email Reports</button>
     </div>
 
     <!-- Scope chips + margin badge -->
@@ -88,6 +89,49 @@
   </div>
 
   <!-- ══════════ LOADING / ERROR ══════════ -->
+  <t t-if="state.automation.open">
+    <div class="tl-modal-backdrop" t-on-click.self="onCloseReportAutomation">
+      <div class="tl-automation-modal">
+        <div class="tl-modal-head">
+          <div><div class="tl-modal-kicker">Executive delivery center</div><h2>Daily PDF Reports</h2><p>One detailed landscape report per company, sent the morning after the report day.</p></div>
+          <button class="tl-modal-close" t-on-click="onCloseReportAutomation">Close</button>
+        </div>
+        <t t-if="state.automation.loading"><div class="tl-automation-loading">Loading schedules and delivery history...</div></t>
+        <t t-else="">
+          <div class="tl-schedule-grid">
+            <div class="tl-schedule-card" t-foreach="reportSchedules" t-as="schedule" t-key="schedule.id">
+              <div class="tl-schedule-title-row">
+                <div><span class="tl-schedule-company" t-esc="schedule.company_name"/><span class="tl-schedule-caption">Separate company PDF</span></div>
+                <label class="tl-switch-label"><input type="checkbox" t-model="schedule.active"/><span>Active</span></label>
+              </div>
+              <label class="tl-automation-field tl-field-wide"><span>Recipient emails</span><input type="text" t-model="schedule.recipient_emails" placeholder="mostafa@example.com"/></label>
+              <div class="tl-schedule-fields">
+                <label class="tl-automation-field"><span>Send hour</span><select t-model="schedule.send_hour"><option t-foreach="[6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]" t-as="hour" t-key="hour" t-att-value="hour"><t t-esc="hour"/>:00</option></select></label>
+                <label class="tl-automation-field"><span>Timezone</span><select t-model="schedule.timezone"><option value="Africa/Cairo">Africa/Cairo</option><option value="UTC">UTC</option></select></label>
+                <label class="tl-automation-field"><span>Top rows</span><select t-model="schedule.top_n"><option t-foreach="[5,10,15,20]" t-as="top" t-key="top" t-att-value="top"><t t-esc="top"/></option></select></label>
+              </div>
+              <div class="tl-schedule-status"><span>Last sent: <strong t-esc="schedule.last_sent_on || 'Not yet sent'"/></span><span>Next run: <strong t-esc="schedule.next_run_at || 'Inactive'"/></span></div>
+              <div class="tl-schedule-actions"><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule)">Download preview</button><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
+            </div>
+          </div>
+          <div class="tl-history-head"><div><h3>Delivery History</h3><p>Sent emails, previews, attachments, and errors are retained here.</p></div><button class="tl-btn-sm" t-on-click="_loadReportAutomation">Refresh</button></div>
+          <div class="tl-history-table-wrap"><table class="tl-history-table">
+            <thead><tr><th>Company</th><th>Report day</th><th>Type</th><th>Status</th><th>Recipients</th><th>Sent at</th><th>PDF</th></tr></thead>
+            <tbody>
+              <tr t-foreach="reportHistory" t-as="history" t-key="history.id">
+                <td t-esc="history.company_name"/><td t-esc="history.report_date"/><td t-esc="history.delivery_type"/>
+                <td><span t-att-class="'tl-history-state ' + reportHistoryClass(history.state)" t-esc="history.state"/><div class="tl-history-error" t-if="history.error_message" t-esc="history.error_message"/></td>
+                <td t-esc="history.recipient_emails || '-'"/><td t-esc="history.sent_at || '-'"/>
+                <td><button t-if="history.download_url" class="tl-history-download" t-on-click="() => this.onDownloadReportHistory(history)">Download</button><span t-else="">-</span></td>
+              </tr>
+              <tr t-if="!reportHistory.length"><td colspan="7" class="tl-history-empty">No reports generated yet.</td></tr>
+            </tbody>
+          </table></div>
+        </t>
+      </div>
+    </div>
+  </t>
+
   <t t-if="state.loading">
     <div class="tl-loading-state">
       <div class="tl-spinner"></div>
@@ -693,19 +737,19 @@
       <div class="tl-section-header tl-hdr-collections">
         <div class="tl-section-accent"></div>
         <div>
-          <h2 class="tl-section-title">Collections Mix</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> posted customer payment journals in selected period</span>
+          <h2 class="tl-section-title">Invoice Journal Mix</h2>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> journals from Odoo Invoice Analysis, using untaxed signed amounts</span>
         </div>
       </div>
 
       <div class="tl-card">
         <div class="tl-card-head">
-          <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
-          <span class="tl-badge tl-badge-green">Posted Customer Payments</span>
+          <h3>Top <t t-esc="state.topN"/> Reporting Journals</h3>
+          <span class="tl-badge tl-badge-green">Invoice Analysis</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
-            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No payment journal data available</div></t>
+            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No journal data in Invoice Analysis for this period</div></t>
             <t t-foreach="paymentJournalBarRows" t-as="item" t-key="item_index">
               <div class="tl-bar-row">
                 <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
@@ -722,8 +766,8 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Journal</th>
-                <th class="col-num">Collections</th>
-                <th class="col-num">Payments</th>
+                <th class="col-num">Untaxed Amount</th>
+                <th class="col-num">Posted Docs</th>
                 <th class="col-num">Mix %</th>
               </tr></thead>
               <tbody>

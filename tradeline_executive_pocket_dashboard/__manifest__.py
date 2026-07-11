@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Executive Pocket Dashboard",
     "summary": "Standalone executive dashboard with granular drilldowns and live FX watch",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.1.0",
     "category": "Reporting",
     "author": "Tradeline",
     "license": "LGPL-3",
@@ -12,12 +12,15 @@
         "sale_management",
         "stock",
         "crm",
+        "mail",
     ],
     "data": [
         "security/security.xml",
         "security/ir.model.access.csv",
         "data/ir_cron_data.xml",
+        "report/executive_daily_report.xml",
         "views/executive_dashboard_views.xml",
+        "views/executive_report_automation_views.xml",
         "views/executive_fx_rate_views.xml",
     ],
     "assets": {
@@ -25,6 +28,7 @@
             "tradeline_executive_pocket_dashboard/static/src/js/executive_dashboard_action.js",
             "tradeline_executive_pocket_dashboard/static/src/xml/executive_dashboard_templates.xml",
             "tradeline_executive_pocket_dashboard/static/src/scss/executive_dashboard.scss",
+            "tradeline_executive_pocket_dashboard/static/src/scss/executive_report_automation.scss",
         ],
     },
     "installable": True,

@@ -38,6 +38,7 @@ export class ExecutivePocketDashboard extends Component {
             lens: "overview",
             bundle: null,
             error: "",
+            automation: { open: false, loading: false, schedules: [], history: [] },
         });
 
         onWillStart(async () => { await this._loadBundle(); });
@@ -66,6 +67,8 @@ export class ExecutivePocketDashboard extends Component {
     get yesterdaySales() { return Number(this.topSections.yesterday_sales || 0); }
     get marginAvailableTop() { return Boolean(this.topSections.margin_available); }
     get companyNamesForReport() { return this.topSections.company_names || []; }
+    get reportSchedules() { return this.state.automation.schedules || []; }
+    get reportHistory() { return this.state.automation.history || []; }
 
     // ─── Daily top sections getters ──────────────────────────────────────────
     get dailyTopSections() { return this.state.bundle?.daily_top_sections || {}; }
@@ -630,6 +633,68 @@ export class ExecutivePocketDashboard extends Component {
         document.body.classList.add('tl-print-mode-period');
         document.body.classList.remove('tl-print-mode-daily');
         window.print();
+    }
+    async onOpenReportAutomation() {
+        this.state.automation.open = true;
+        await this._loadReportAutomation();
+    }
+    onCloseReportAutomation() { this.state.automation.open = false; }
+    async _loadReportAutomation() {
+        this.state.automation.loading = true;
+        try {
+            const config = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "get_dashboard_config",
+                []
+            );
+            this.state.automation.schedules = config?.schedules || [];
+            this.state.automation.history = config?.history || [];
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        } finally {
+            this.state.automation.loading = false;
+        }
+    }
+    async onSaveReportSchedule(schedule) {
+        try {
+            const saved = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "save_dashboard_config",
+                [schedule.id, {
+                    active: Boolean(schedule.active),
+                    recipient_emails: schedule.recipient_emails || "",
+                    send_hour: Number(schedule.send_hour || 0),
+                    timezone: schedule.timezone || "Africa/Cairo",
+                    top_n: Number(schedule.top_n || 10),
+                }]
+            );
+            const index = this.state.automation.schedules.findIndex(item => item.id === saved.id);
+            if (index >= 0) this.state.automation.schedules[index] = saved;
+            this.notification.add(`${saved.company_name} schedule saved`, { type: "success" });
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        }
+    }
+    async onPreviewScheduledReport(schedule) {
+        try {
+            const action = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "action_preview_pdf",
+                [[schedule.id], this.state.filters.report_date]
+            );
+            await this.action.doAction(action);
+            await this._loadReportAutomation();
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        }
+    }
+    onDownloadReportHistory(history) {
+        if (history?.download_url) window.location.assign(history.download_url);
+    }
+    reportHistoryClass(state) {
+        if (state === "sent") return "is-sent";
+        if (state === "failed") return "is-failed";
+        return "is-preview";
     }
     onChartMouseMove(ev) {
         const svg = ev.currentTarget;
