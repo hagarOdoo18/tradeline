@@ -2105,55 +2105,89 @@ class ExecutiveDashboardService(models.AbstractModel):
             return []
         try:
             with self.env.cr.savepoint():
-                where_sql, params = self._build_scope_clause(alias="p", table_name="account_payment", filters=scope)
-                partner_type_sql = "AND payment.partner_type = 'customer'" if self._has_column("account_payment", "partner_type") else ""
-                signed_amount_sql = (
-                    "CASE WHEN payment.payment_type = 'inbound' THEN COALESCE(payment.amount, 0) ELSE -COALESCE(payment.amount, 0) END"
-                    if self._has_column("account_payment", "payment_type")
-                    else "COALESCE(payment.amount, 0)"
+                # Determine which table holds company_id/branch_id for scope filtering.
+                # In Odoo 18 account_payment _inherits account_move, so those
+                # columns live on account_move.  We alias the CTE output as "p"
+                # so _build_scope_clause generates  p.company_id / p.branch_id.
+                where_sql, params = self._build_scope_clause(
+                    alias="p", table_name="account_move", filters=scope
                 )
-                
-                has_pos = self._has_table("pos_payment") and self._has_table("pos_payment_method") and self._has_table("pos_order")
+
+                # Build the inner payment query.  We always join account_move
+                # because journal_id, state, date, company_id, branch_id are
+                # on account_move (the parent table via _inherits).
+                has_move_id = self._has_column("account_payment", "move_id")
+                if has_move_id:
+                    pay_join = (
+                        "FROM account_payment ap "
+                        "JOIN account_move move ON move.id = ap.move_id "
+                        "LEFT JOIN account_journal journal ON journal.id = move.journal_id"
+                    )
+                    state_col = "move.state"
+                    date_col = "move.date"
+                    company_col = "move.company_id"
+                    branch_col = "move.branch_id" if self._has_column("account_move", "branch_id") else "NULL::int"
+                else:
+                    # Fallback: columns directly on account_payment (unlikely in Odoo 18)
+                    pay_join = (
+                        "FROM account_payment ap "
+                        "LEFT JOIN account_journal journal ON journal.id = ap.journal_id"
+                    )
+                    state_col = "ap.state"
+                    date_col = "ap.date"
+                    company_col = "ap.company_id"
+                    branch_col = "ap.branch_id" if self._has_column("account_payment", "branch_id") else "NULL::int"
+
+                partner_type_sql = (
+                    "AND ap.partner_type = 'customer'"
+                    if self._has_column("account_payment", "partner_type") else ""
+                )
+                signed_amount_sql = (
+                    "CASE WHEN ap.payment_type = 'inbound' "
+                    "THEN COALESCE(ap.amount, 0) "
+                    "ELSE -COALESCE(ap.amount, 0) END"
+                    if self._has_column("account_payment", "payment_type")
+                    else "COALESCE(ap.amount, 0)"
+                )
+
+                std_query = f"""
+                    SELECT
+                        COALESCE(journal.name, 'Unknown Journal') AS journal_name,
+                        {company_col} AS company_id,
+                        {branch_col} AS branch_id,
+                        {date_col} AS payment_date,
+                        {signed_amount_sql} AS amount
+                    {pay_join}
+                    WHERE {state_col} = 'posted'
+                      {partner_type_sql}
+                """
+
+                has_pos = (
+                    self._has_table("pos_payment")
+                    and self._has_table("pos_payment_method")
+                    and self._has_table("pos_order")
+                )
                 if has_pos:
+                    pos_branch = "po.branch_id" if self._has_column("pos_order", "branch_id") else "NULL::int"
                     union_query = f"""
-                        SELECT
-                            COALESCE(journal.name, 'Unknown Journal') AS journal_name,
-                            payment.company_id,
-                            payment.branch_id,
-                            payment.date AS payment_date,
-                            {signed_amount_sql} AS amount
-                        FROM account_payment payment
-                        LEFT JOIN account_journal journal ON journal.id = payment.journal_id
-                        WHERE payment.state = 'posted'
-                          {partner_type_sql}
-                        
+                        {std_query}
+
                         UNION ALL
-                        
+
                         SELECT
-                            COALESCE(method.name, 'Unknown POS Method') AS journal_name,
-                            pos_order.company_id,
-                            pos_order.branch_id,
-                            CAST(pos_payment.payment_date AS date) AS payment_date,
-                            COALESCE(pos_payment.amount, 0) AS amount
-                        FROM pos_payment
-                        JOIN pos_payment_method method ON method.id = pos_payment.payment_method_id
-                        JOIN pos_order ON pos_order.id = pos_payment.pos_order_id
-                        WHERE pos_order.state IN ('paid', 'done', 'invoiced')
+                            COALESCE(pm.name, 'Unknown POS Method') AS journal_name,
+                            po.company_id,
+                            {pos_branch} AS branch_id,
+                            CAST(pp.payment_date AS date) AS payment_date,
+                            COALESCE(pp.amount, 0) AS amount
+                        FROM pos_payment pp
+                        JOIN pos_payment_method pm ON pm.id = pp.payment_method_id
+                        JOIN pos_order po ON po.id = pp.pos_order_id
+                        WHERE po.state IN ('paid', 'done', 'invoiced')
                     """
                 else:
-                    union_query = f"""
-                        SELECT
-                            COALESCE(journal.name, 'Unknown Journal') AS journal_name,
-                            payment.company_id,
-                            payment.branch_id,
-                            payment.date AS payment_date,
-                            {signed_amount_sql} AS amount
-                        FROM account_payment payment
-                        LEFT JOIN account_journal journal ON journal.id = payment.journal_id
-                        WHERE payment.state = 'posted'
-                          {partner_type_sql}
-                    """
-                
+                    union_query = std_query
+
                 query = f"""
                     WITH combined_payments AS (
                         {union_query}
@@ -2182,10 +2216,10 @@ class ExecutiveDashboardService(models.AbstractModel):
                     ORDER BY collections_total DESC, payment_count DESC, dimension
                     LIMIT %s
                 """
-                
+
                 params += [scope["start_date"], scope["end_date"], limit]
                 self.env.cr.execute(query, params)
-                
+
                 rows = self._dictfetchall()
                 for row in rows:
                     row["dimension"] = self._clean_dimension_label(row.get("dimension"))
