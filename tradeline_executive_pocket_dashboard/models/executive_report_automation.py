@@ -78,19 +78,20 @@ class ExecutiveReportSchedule(models.Model):
 
     @api.model
     def _ensure_default_schedules(self):
-        companies = self.env["res.company"].sudo().search([
-            "|", ("name", "=ilike", "Tradeline"), ("name", "=ilike", "XPRS"),
-        ])
+        companies = self.env["res.company"].sudo().search([])
         recipient = self.env["res.partner"].sudo().search([
-            ("name", "ilike", "Mosta"), ("name", "ilike", "Medhat"), ("email", "!=", False),
+            "|", ("name", "ilike", "Mosta"), ("name", "ilike", "Medhat"), ("email", "!=", False),
         ], limit=1)
+        if not recipient or not recipient.email:
+            recipient = self.env.user.partner_id
         for company in companies:
             if not self.sudo().search_count([("company_id", "=", company.id)]):
+                email = recipient.email or ""
                 self.sudo().create({
                     "name": "%s Daily Executive Report" % company.name,
                     "company_id": company.id,
-                    "recipient_emails": recipient.email or "",
-                    "active": bool(recipient.email),
+                    "recipient_emails": email,
+                    "active": bool(email),
                     "send_hour": 8,
                     "timezone": "Africa/Cairo",
                     "top_n": 10,
