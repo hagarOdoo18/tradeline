@@ -741,14 +741,14 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Collections Mix</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> posted customer payment journals in selected period</span>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> journals from Reporting / Payment Excel Report in selected period</span>
         </div>
       </div>
 
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
-          <span class="tl-badge tl-badge-green">Posted Customer Payments</span>
+          <span class="tl-badge tl-badge-green">Payment Excel Report Source</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">

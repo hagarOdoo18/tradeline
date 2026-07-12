@@ -2101,134 +2101,46 @@ class ExecutiveDashboardService(models.AbstractModel):
         }
 
     def _top_payment_journals(self, scope, limit):
-        if not self._has_table("account_payment"):
-            return []
         try:
             with self.env.cr.savepoint():
-                # Determine which table holds company_id/branch_id for scope filtering.
-                # In Odoo 18 account_payment _inherits account_move, so those
-                # columns live on account_move.  We alias the CTE output as "p"
-                # so _build_scope_clause generates  p.company_id / p.branch_id.
-                where_sql, params = self._build_scope_clause(
-                    alias="p", table_name="account_move", filters=scope
-                )
+                company_ids = [int(company_id) for company_id in (scope.get("company_ids") or [])]
+                branch_domain = [("company_id", "in", company_ids)]
+                if scope.get("branch_ids"):
+                    branch_domain.append(("id", "in", scope["branch_ids"]))
+                branches = self.env["res.branch"].sudo().search(branch_domain)
+                if not branches:
+                    return []
 
-                # Build the inner payment query.  We always join account_move
-                # because journal_id, state, date, company_id, branch_id are
-                # on account_move (the parent table via _inherits).
-                has_move_id = self._has_column("account_payment", "move_id")
-                if has_move_id:
-                    pay_join = (
-                        "FROM account_payment ap "
-                        "JOIN account_move move ON move.id = ap.move_id "
-                        "LEFT JOIN account_journal journal ON journal.id = move.journal_id"
-                    )
-                    state_col = "move.state"
-                    date_col = "move.date"
-                    company_col = "move.company_id"
-                    branch_col = "move.branch_id" if self._has_column("account_move", "branch_id") else "NULL::int"
-                else:
-                    # Fallback: columns directly on account_payment (unlikely in Odoo 18)
-                    pay_join = (
-                        "FROM account_payment ap "
-                        "LEFT JOIN account_journal journal ON journal.id = ap.journal_id"
-                    )
-                    state_col = "ap.state"
-                    date_col = "ap.date"
-                    company_col = "ap.company_id"
-                    branch_col = "ap.branch_id" if self._has_column("account_payment", "branch_id") else "NULL::int"
+                report_wizard = self.env["account.branch.report.wizard"].sudo().with_context(
+                    allowed_company_ids=company_ids,
+                ).new({
+                    "date_from": scope["start_date"],
+                    "date_to": scope["end_date"],
+                })
+                totals = {}
+                for branch in branches:
+                    for payment_row in report_wizard._get_payment_report_rows(branch):
+                        journal = self._clean_dimension_label(payment_row.get("journal_name"))
+                        bucket = totals.setdefault(journal, {
+                            "dimension": journal,
+                            "collections_total": 0.0,
+                            "payment_count": 0,
+                        })
+                        bucket["collections_total"] += float(payment_row.get("amount") or 0)
+                        bucket["payment_count"] += 1
 
-                partner_type_sql = (
-                    "AND ap.partner_type = 'customer'"
-                    if self._has_column("account_payment", "partner_type") else ""
-                )
-                signed_amount_sql = (
-                    "CASE WHEN ap.payment_type = 'inbound' "
-                    "THEN COALESCE(ap.amount, 0) "
-                    "ELSE -COALESCE(ap.amount, 0) END"
-                    if self._has_column("account_payment", "payment_type")
-                    else "COALESCE(ap.amount, 0)"
-                )
-
-                std_query = f"""
-                    SELECT
-                        COALESCE(journal.name::text, 'Unknown Journal') AS journal_name,
-                        {company_col} AS company_id,
-                        {branch_col} AS branch_id,
-                        {date_col} AS payment_date,
-                        {signed_amount_sql} AS amount
-                    {pay_join}
-                    WHERE {state_col} = 'posted'
-                      {partner_type_sql}
-                """
-
-                has_pos = (
-                    self._has_table("pos_payment")
-                    and self._has_table("pos_payment_method")
-                    and self._has_table("pos_order")
-                )
-                if has_pos:
-                    pos_branch = "po.branch_id" if self._has_column("pos_order", "branch_id") else "NULL::int"
-                    union_query = f"""
-                        {std_query}
-
-                        UNION ALL
-
-                        SELECT
-                            COALESCE(pm.name::text, 'Unknown POS Method') AS journal_name,
-                            po.company_id,
-                            {pos_branch} AS branch_id,
-                            CAST(pp.payment_date AS date) AS payment_date,
-                            COALESCE(pp.amount, 0) AS amount
-                        FROM pos_payment pp
-                        JOIN pos_payment_method pm ON pm.id = pp.payment_method_id
-                        JOIN pos_order po ON po.id = pp.pos_order_id
-                        WHERE po.state IN ('paid', 'done', 'invoiced')
-                    """
-                else:
-                    union_query = std_query
-
-                query = f"""
-                    WITH combined_payments AS (
-                        {union_query}
-                    ),
-                    journal_rows AS (
-                        SELECT
-                            journal_name AS dimension,
-                            COALESCE(SUM(amount), 0) AS collections_total,
-                            COUNT(*) AS payment_count
-                        FROM combined_payments p
-                        WHERE {where_sql}
-                          AND p.payment_date BETWEEN %s AND %s
-                        GROUP BY journal_name
-                    )
-                    SELECT
-                        dimension,
-                        collections_total,
-                        payment_count,
-                        CASE
-                            WHEN COALESCE(SUM(collections_total) OVER (), 0) > 0
-                            THEN (collections_total / SUM(collections_total) OVER ()) * 100.0
-                            ELSE 0.0
-                        END AS share_pct
-                    FROM journal_rows
-                    WHERE collections_total > 0
-                    ORDER BY collections_total DESC, payment_count DESC, dimension
-                    LIMIT %s
-                """
-
-                params += [scope["start_date"], scope["end_date"], limit]
-                self.env.cr.execute(query, params)
-
-                rows = self._dictfetchall()
+                rows = [row for row in totals.values() if row["collections_total"] > 0]
+                rows.sort(key=lambda row: (
+                    -row["collections_total"], -row["payment_count"], row["dimension"],
+                ))
+                positive_total = sum(row["collections_total"] for row in rows)
                 for row in rows:
-                    row["dimension"] = self._clean_dimension_label(row.get("dimension"))
-                    row["collections_total"] = float(row.get("collections_total") or 0)
-                    row["payment_count"] = int(row.get("payment_count") or 0)
-                    row["share_pct"] = float(row.get("share_pct") or 0)
-                return rows
+                    row["share_pct"] = (
+                        row["collections_total"] / positive_total * 100.0 if positive_total else 0.0
+                    )
+                return rows[:limit]
         except Exception:
-            _logger.exception("Executive dashboard payment journal mix query failed")
+            _logger.exception("Executive dashboard Payment Excel Report aggregation failed")
             return []
 
     def _top_sales_by_branch(self, scope, limit, margin_status=None):

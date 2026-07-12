@@ -197,6 +197,12 @@ class ExecutiveReportSchedule(models.Model):
         bundle = self.env["tradeline.executive.dashboard.service"].get_dashboard_bundle(
             filters, "overview", None, 10,
         )
+        # Both report variants use a complete month-to-date calendar trend.
+        service = self.env["tradeline.executive.dashboard.service"]
+        trend_filters = dict(filters)
+        trend_filters["start_date"] = fields.Date.to_string(report_date.replace(day=1))
+        trend_scope = service._resolve_filter_scope(trend_filters)
+        bundle.setdefault("top_sections", {})["sales_over_month"] = service._sales_over_month(trend_scope)
         return self.env["tradeline.executive.report.history"].sudo().create({
             "schedule_id": self.id,
             "company_id": self.company_id.id,
@@ -225,7 +231,7 @@ class ExecutiveReportSchedule(models.Model):
                         "<p>Please find attached the <strong>%s Daily Executive Brief</strong> and "
                         "<strong>MTD Executive Report</strong> for %s.</p>"
                         "<p>Both reports include "
-                        "sales, margin, customers, journals, inventory, FX, and source definitions.</p>"
+                        "sales, margin, customers, journals, inventory, and source definitions.</p>"
                     ) % (self.company_id.name, report_date),
                     "attachment_ids": [(4, attachment.id) for attachment in attachments],
                     "auto_delete": False,
@@ -371,29 +377,70 @@ class ExecutiveReportHistory(models.Model):
 
     def report_trend_chart(self, rows):
         self.ensure_one()
-        rows = list(rows or [])[-14:]
-        if not rows:
-            return {"line": "", "area": "", "points": [], "first": "", "middle": "", "last": ""}
-        width, height, pad_x, pad_y = 520.0, 105.0, 8.0, 8.0
-        values = [float(row.get("net_revenue") or 0) for row in rows]
+        source_rows = {
+            str(row.get("date")): row for row in (rows or []) if row.get("date")
+        }
+        start_date = self.report_date.replace(day=1)
+        calendar_rows = []
+        current_date = start_date
+        while current_date <= self.report_date:
+            date_key = fields.Date.to_string(current_date)
+            source = source_rows.get(date_key, {})
+            calendar_rows.append({
+                "date": date_key,
+                "net_revenue": float(source.get("net_revenue") or 0),
+            })
+            current_date += timedelta(days=1)
+        if not calendar_rows:
+            return {"line": "", "area": "", "points": [], "x_ticks": [], "y_ticks": []}
+
+        left, right, top, bottom = 58.0, 510.0, 10.0, 121.0
+        values = [row["net_revenue"] for row in calendar_rows]
         low, high = min(values), max(values)
-        spread = high - low or max(abs(high), 1.0)
+        axis_low, axis_high = min(0.0, low), max(0.0, high)
+        if axis_high == axis_low:
+            axis_high = axis_low + max(abs(axis_low), 1.0)
+        spread = axis_high - axis_low
         points = []
-        for index, (row, value) in enumerate(zip(rows, values)):
-            x = pad_x if len(rows) == 1 else pad_x + index * ((width - 2 * pad_x) / (len(rows) - 1))
-            y = pad_y + (1.0 - ((value - low) / spread)) * (height - 2 * pad_y)
+        for index, (row, value) in enumerate(zip(calendar_rows, values)):
+            x = left if len(calendar_rows) == 1 else left + index * ((right - left) / (len(calendar_rows) - 1))
+            y = top + (1.0 - ((value - axis_low) / spread)) * (bottom - top)
             points.append({"x": round(x, 2), "y": round(y, 2), "date": row.get("date"), "value": value})
         line = " ".join(("M" if index == 0 else "L") + " %.2f %.2f" % (point["x"], point["y"]) for index, point in enumerate(points))
+        zero_y = top + (1.0 - ((0.0 - axis_low) / spread)) * (bottom - top)
         area = "%s L %.2f %.2f L %.2f %.2f Z" % (
-            line, points[-1]["x"], height - pad_y, points[0]["x"], height - pad_y,
+            line, points[-1]["x"], zero_y, points[0]["x"], zero_y,
         )
+
+        y_ticks = []
+        for index in range(5):
+            value = axis_low + (spread * index / 4.0)
+            y = top + (1.0 - ((value - axis_low) / spread)) * (bottom - top)
+            y_ticks.append({"y": round(y, 2), "label": self.report_compact(value, "EGP ")})
+
+        tick_count = min(6, len(points))
+        tick_indexes = sorted({
+            round(index * (len(points) - 1) / max(tick_count - 1, 1))
+            for index in range(tick_count)
+        })
+        x_ticks = []
+        for position, index in enumerate(tick_indexes):
+            point = points[index]
+            label = datetime.strptime(point["date"], "%Y-%m-%d").strftime("%d %b")
+            anchor = "start" if position == 0 else ("end" if position == len(tick_indexes) - 1 else "middle")
+            x_ticks.append({"x": point["x"], "label": label, "anchor": anchor})
         return {
             "line": line,
             "area": area,
             "points": points,
-            "first": rows[0].get("date") or "",
-            "middle": rows[len(rows) // 2].get("date") or "",
-            "last": rows[-1].get("date") or "",
+            "x_ticks": x_ticks,
+            "y_ticks": y_ticks,
+            "axis_left": left,
+            "axis_right": right,
+            "axis_top": top,
+            "axis_bottom": bottom,
+            "zero_y": round(zero_y, 2),
             "high": high,
             "low": low,
+            "total": sum(values),
         }

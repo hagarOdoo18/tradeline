@@ -154,15 +154,8 @@
                 .er-negative { color:#b43b32; }
                 .er-empty { text-align:center; color:#66756e; padding:7mm !important; }
                 .er-trend-card { border:1px solid #d9e1dd; padding:3mm; margin-bottom:4mm; }
-                .er-trend-chart { width:100%; height:31mm; display:block; margin-top:2mm; }
-                .er-trend-axis { display:table; width:100%; color:#66756e; font-size:5.7px; }
-                .er-trend-axis span { display:table-cell; width:33.33%; }
-                .er-trend-axis span:nth-child(2) { text-align:center; }
-                .er-trend-axis span:last-child { text-align:right; }
+                .er-trend-chart { width:100%; height:43mm; display:block; margin-top:2mm; }
                 .er-trend-summary { color:#66756e; font-size:6px; margin-top:1.5mm; }
-                .er-fx-table td:first-child { font-weight:700; color:#0b4a32; }
-                .er-fx-stale { color:#b66816; font-weight:700; }
-                .er-fx-fresh { color:#137b50; font-weight:700; }
                 .er-definition { border-left:2px solid #0b4a32; background:#f3f7f5; color:#596a62; padding:2.5mm 3mm; font-size:6.3px; line-height:1.45; margin-top:3mm; }
                 @media screen {
                     .er-report-stack { padding:24px 0; }
@@ -185,7 +178,7 @@
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading"><span t-esc="o.report_title()"/></h1>
                         <div class="er-heading-rule"></div>
-                        <div class="er-page-intro">A concise view of sales, commercial performance, inventory exposure, collections, and currency movement.</div>
+                        <div class="er-page-intro">A concise view of sales, commercial performance, inventory exposure, and collections.</div>
                         <div class="er-hero-grid">
                             <div class="er-hero-metric"><div class="er-metric-label">Today's Sales</div><div class="er-metric-value" t-esc="o.report_compact(top.get('today_sales'), 'EGP ')"/><div class="er-metric-note">Sales on selected Daily Report Day</div></div>
                             <div class="er-hero-metric"><div class="er-metric-label">Acc. Sales (MTD)</div><div class="er-metric-value" t-esc="o.report_compact(top.get('acc_sales'), 'EGP ')"/><div class="er-metric-note">Month Day 1 through report day</div></div>
@@ -242,29 +235,30 @@
                         <h1 class="er-page-heading">Sales Trend</h1><div class="er-heading-rule"></div>
                         <t t-set="trend_chart" t-value="o.report_trend_chart(top.get('sales_over_month', []))"/>
                         <section class="er-trend-card">
-                            <div class="er-table-title">Untaxed Revenue Over Period<span class="er-table-source">Daily Trend</span></div>
+                            <div class="er-table-title">Untaxed Revenue MTD<span class="er-table-source">Month-to-Date Daily Trend</span></div>
                             <t t-if="trend_chart.get('line')">
-                                <svg class="er-trend-chart" viewBox="0 0 520 105" preserveAspectRatio="none">
+                                <svg class="er-trend-chart" viewBox="0 0 520 145" preserveAspectRatio="xMidYMid meet">
                                     <defs><linearGradient id="erTrendArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#137b50" stop-opacity="0.24"/><stop offset="100%" stop-color="#137b50" stop-opacity="0.02"/></linearGradient></defs>
-                                    <line x1="8" y1="97" x2="512" y2="97" stroke="#d9e1dd" stroke-width="1"/>
+                                    <g t-foreach="trend_chart.get('y_ticks')" t-as="tick">
+                                        <line t-att-x1="trend_chart.get('axis_left')" t-att-y1="tick.get('y')" t-att-x2="trend_chart.get('axis_right')" t-att-y2="tick.get('y')" stroke="#d9e1dd" stroke-width="0.7"/>
+                                        <text x="53" t-att-y="tick.get('y') + 2" text-anchor="end" fill="#66756e" font-size="6.5"><t t-esc="tick.get('label')"/></text>
+                                    </g>
+                                    <g t-foreach="trend_chart.get('x_ticks')" t-as="tick">
+                                        <line t-att-x1="tick.get('x')" t-att-y1="trend_chart.get('axis_top')" t-att-x2="tick.get('x')" t-att-y2="trend_chart.get('axis_bottom')" stroke="#edf1ef" stroke-width="0.6"/>
+                                        <text t-att-x="tick.get('x')" y="139" t-att-text-anchor="tick.get('anchor')" fill="#66756e" font-size="6.5"><t t-esc="tick.get('label')"/></text>
+                                    </g>
+                                    <line t-att-x1="trend_chart.get('axis_left')" t-att-y1="trend_chart.get('zero_y')" t-att-x2="trend_chart.get('axis_right')" t-att-y2="trend_chart.get('zero_y')" stroke="#9bada4" stroke-width="1"/>
                                     <path t-att-d="trend_chart.get('area')" fill="url(#erTrendArea)" stroke="none"/>
                                     <path t-att-d="trend_chart.get('line')" fill="none" stroke="#0b4a32" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round"/>
                                     <circle t-foreach="trend_chart.get('points')" t-as="point" t-att-cx="point.get('x')" t-att-cy="point.get('y')" r="2.5" fill="#0b4a32" stroke="#ffffff" stroke-width="1"/>
                                 </svg>
-                                <div class="er-trend-axis"><span t-esc="trend_chart.get('first')"/><span t-esc="trend_chart.get('middle')"/><span t-esc="trend_chart.get('last')"/></div>
-                                <div class="er-trend-summary">Range: <span t-esc="o.report_compact(trend_chart.get('low'), 'EGP ')"/> to <span t-esc="o.report_compact(trend_chart.get('high'), 'EGP ')"/></div>
+                                <div class="er-trend-summary">MTD total: <strong t-esc="o.report_compact(trend_chart.get('total'), 'EGP ')"/>. Daily range: <span t-esc="o.report_compact(trend_chart.get('low'), 'EGP ')"/> to <span t-esc="o.report_compact(trend_chart.get('high'), 'EGP ')"/>. Missing activity days are plotted as zero.</div>
                             </t>
-                            <div t-else="" class="er-empty">No daily trend data available for this report scope.</div>
+                            <div t-else="" class="er-empty">No month-to-date trend data available.</div>
                         </section>
                         <div class="er-subhead">Collections Mix</div>
-                        <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Posted Customer Payments'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
-                        <section class="er-section-block">
-                            <div class="er-table-title">Currencies to Watch<span class="er-table-source">Refreshes every 5 minutes</span></div>
-                            <table class="er-table er-fx-table"><thead><tr><th>Currency</th><th class="er-num">Rate</th><th class="er-num">1D</th><th class="er-num">1M</th><th class="er-num">3M</th><th class="er-num">6M</th><th class="er-num">1Y</th><th>Status</th></tr></thead><tbody>
-                                <tr t-foreach="payload.get('fx_watch', {}).get('cards', [])" t-as="fx"><td t-esc="fx.get('display_label') or fx.get('pair')"/><td class="er-num" t-esc="'{:,.4f}'.format(float(fx.get('rate') or 0))"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1D') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('3M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('6M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1Y') or 0)"/><td t-att-class="'er-fx-stale' if fx.get('is_stale') else 'er-fx-fresh'" t-esc="'Stale' if fx.get('is_stale') else 'Fresh'"/></tr>
-                            </tbody></table>
-                        </section>
-                        <div class="er-definition">Open Unpaid Invoice Value follows Invoice Analysis untaxed amounts for selected-period invoices still unpaid on the report day. Collections use posted customer payment journals. FX preserves the last good quote when the live source is stale.</div>
+                        <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Reporting / Payment Excel Report'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <div class="er-definition">Open Unpaid Invoice Value follows Invoice Analysis untaxed amounts for selected-period invoices still unpaid on the report day. Collections follow the Reporting Payment Excel Report transaction source: reconciled invoice payments, POS payment fallbacks, credit notes, and sale-order payments, scoped by company, branch, and date.</div>
                         <t t-set="page_number" t-value="5"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
                 </t>

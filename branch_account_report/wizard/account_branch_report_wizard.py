@@ -53,6 +53,74 @@ class AccountBranchReportWizard(models.TransientModel):
         ])
         return invoices, credits, order_payments
 
+    def _get_payment_report_rows(self, branch):
+        """Return the payment rows used by both list and downstream reports."""
+        invoices, credits, order_payments = self._get_branch_data(branch)
+        rows = []
+
+        for inv in invoices:
+            payments = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    rows.append({
+                        'branch_name': branch.name,
+                        'date': pmt.date,
+                        'invoice_name': inv.name,
+                        'partner_name': inv.partner_id.name,
+                        'journal_name': pmt.journal_id.name,
+                        'source_type': 'invoice',
+                        'amount': pmt.amount,
+                    })
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    rows.append({
+                        'branch_name': branch.name,
+                        'date': pmt.pos_order_id.date_order.date(),
+                        'invoice_name': inv.name,
+                        'partner_name': inv.partner_id.name,
+                        'journal_name': pmt.payment_method_id.name,
+                        'source_type': 'invoice_pos',
+                        'amount': pmt.amount,
+                    })
+
+        for inv in credits:
+            payments = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    rows.append({
+                        'branch_name': branch.name,
+                        'date': pmt.date,
+                        'invoice_name': inv.name,
+                        'partner_name': inv.partner_id.name,
+                        'journal_name': pmt.journal_id.name,
+                        'source_type': 'credit',
+                        'amount': -pmt.amount,
+                    })
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    rows.append({
+                        'branch_name': branch.name,
+                        'date': pmt.pos_order_id.date_order.date(),
+                        'invoice_name': inv.name,
+                        'partner_name': inv.partner_id.name,
+                        'journal_name': pmt.payment_method_id.name,
+                        'source_type': 'credit_pos',
+                        'amount': pmt.amount,
+                    })
+
+        for pmt in order_payments:
+            signed = -pmt.amount if pmt.payment_type == 'outbound' else pmt.amount
+            rows.append({
+                'branch_name': branch.name,
+                'date': pmt.date,
+                'sale_order_name': pmt.sale_order_id.name,
+                'partner_name': pmt.sale_order_id.partner_id.name,
+                'journal_name': pmt.journal_id.name,
+                'source_type': 'order_payment',
+                'amount': signed,
+            })
+        return rows
+
     # ------------------------------------------------------------------
     # View Payment Report  (creates transient lines then opens list)
     # ------------------------------------------------------------------
@@ -68,77 +136,8 @@ class AccountBranchReportWizard(models.TransientModel):
         lines = []
 
         for branch in self.branches_ids:
-            invoices, credits, order_payments = self._get_branch_data(branch)
-
-            # ---- invoices ------------------------------------------------
-            for inv in invoices:
-                payments = inv._get_reconciled_payments()
-                if payments:
-                    for pmt in payments:
-                        lines.append({
-                            'wizard_id':    self.id,
-                            'branch_name':  branch.name,
-                            'date':         pmt.date,
-                            'invoice_name': inv.name,
-                            'partner_name': inv.partner_id.name,
-                            'journal_name': pmt.journal_id.name,
-                            'source_type':  'invoice',
-                            'amount':        pmt.amount,
-                        })
-                else:
-                    for pmt in inv.pos_order_ids.payment_ids:
-                        lines.append({
-                            'wizard_id':    self.id,
-                            'branch_name':  branch.name,
-                            'date':         pmt.pos_order_id.date_order.date(),
-                            'invoice_name': inv.name,
-                            'partner_name': inv.partner_id.name,
-                            'journal_name': pmt.payment_method_id.name,
-                            'source_type':  'invoice_pos',
-                            'amount':        pmt.amount,
-                        })
-
-            # ---- credit notes --------------------------------------------
-            for inv in credits:
-                payments = inv._get_reconciled_payments()
-                if payments:
-                    for pmt in payments:
-                        lines.append({
-                            'wizard_id':    self.id,
-                            'branch_name':  branch.name,
-                            'date':         pmt.date,
-                            'invoice_name': inv.name,
-                            'partner_name': inv.partner_id.name,
-                            'journal_name': pmt.journal_id.name,
-                            'source_type':  'credit',
-                            'amount':       -pmt.amount,
-                        })
-                else:
-                    for pmt in inv.pos_order_ids.payment_ids:
-                        lines.append({
-                            'wizard_id':    self.id,
-                            'branch_name':  branch.name,
-                            'date':         pmt.pos_order_id.date_order.date(),
-                            'invoice_name': inv.name,
-                            'partner_name': inv.partner_id.name,
-                            'journal_name': pmt.payment_method_id.name,
-                            'source_type':  'credit_pos',
-                            'amount':        pmt.amount,
-                        })
-
-            # ---- sale-order payments -------------------------------------
-            for pmt in order_payments:
-                signed = -pmt.amount if pmt.payment_type == 'outbound' else pmt.amount
-                lines.append({
-                    'wizard_id':        self.id,
-                    'branch_name':      branch.name,
-                    'date':             pmt.date,
-                    'sale_order_name':  pmt.sale_order_id.name,
-                    'partner_name':     pmt.sale_order_id.partner_id.name,
-                    'journal_name':     pmt.journal_id.name,
-                    'source_type':      'order_payment',
-                    'amount':            signed,
-                })
+            for row in self._get_payment_report_rows(branch):
+                lines.append(dict(row, wizard_id=self.id))
 
         self.env['payment.report'].create(lines)
 
