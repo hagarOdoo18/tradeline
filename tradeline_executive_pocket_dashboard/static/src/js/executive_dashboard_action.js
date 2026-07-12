@@ -86,6 +86,7 @@ export class ExecutivePocketDashboard extends Component {
     get dailyDonutCategorySegments() { return this._buildDonutSegments(this.dailyTopSections.sales_by_category || [], "net_revenue"); }
     get periodNetRevenue() { return this.state.bundle?.cards?.find(c => c.key === 'net_revenue')?.value || 0; }
     get periodNetMargin() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin')?.value || 0; }
+    get periodMostafaMargin() { return this.state.bundle?.cards?.find(c => c.key === 'mostafa_margin')?.value || 0; }
     get periodInvoiceCount() { return this.state.bundle?.cards?.find(c => c.key === 'invoice_count')?.value || 0; }
 
     // ─── KPI / meta getters ───────────────────────────────────────────────────
@@ -96,6 +97,9 @@ export class ExecutivePocketDashboard extends Component {
     get marginCoveragePct() { return Number(this.marginStatus.coverage_pct || 0).toFixed(1); }
     get marginStatusClass() { return this.marginStatus.available ? "is-good" : "is-warn"; }
     get marginStatusLabel() { return this.marginStatus.available ? "✓ Real COGS margin" : "⚠ Margin approx."; }
+    get mostafaMarginMeta() { return this.state.bundle?.meta?.mostafa_margin || { enabled: false, reasons: [] }; }
+    get mostafaMarginEnabled() { return Boolean(this.mostafaMarginMeta.enabled); }
+    get mostafaMarginDisclosure() { return this.mostafaMarginMeta.disclosure || ""; }
 
     // ─── Daily snapshot ───────────────────────────────────────────────────────
     get dailySnapshot() { return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} }; }
@@ -303,6 +307,7 @@ export class ExecutivePocketDashboard extends Component {
         return s.length > maxLen ? `${s.slice(0, maxLen - 1)}…` : s;
     }
     columnLabel(col) {
+        if (col === "mostafa_margin") return "Mostafa Margin";
         if (col === "invoice_count") {
             if (this.state.selectedDomain === "finance") return "Posted Docs (incl. refunds)";
             if (this.state.selectedDomain === "sales") return "Invoices (excl. refunds)";
@@ -514,6 +519,17 @@ export class ExecutivePocketDashboard extends Component {
                     ["state", "=", "posted"],
                     ["invoice_date", ">=", start],
                     ["invoice_date", "<=", end]
+                ].concat(compDomain);
+                break;
+            case "mostafa_margin":
+                model = "account.invoice.report";
+                name = "XPRS Mostafa Margin Source";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", end],
+                    ["discount_id", "!=", false]
                 ].concat(compDomain);
                 break;
             case "net_revenue":

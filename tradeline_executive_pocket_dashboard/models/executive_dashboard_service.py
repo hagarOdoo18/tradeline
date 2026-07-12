@@ -520,6 +520,235 @@ class ExecutiveDashboardService(models.AbstractModel):
         data["available"] = True
         return data
 
+    def _mostafa_margin_enabled(self, scope: dict, margin_status: dict | None = None) -> bool:
+        margin_status = margin_status or self._real_margin_availability(scope)
+        if not margin_status.get("available"):
+            return False
+        company_ids = [int(company_id) for company_id in (scope.get("company_ids") or [])]
+        if len(company_ids) != 1:
+            return False
+        company = self.env["res.company"].sudo().browse(company_ids[0]).exists()
+        return bool(
+            company
+            and (company.name or "").strip().casefold() == "xprs"
+            and self._has_column("account_move", "discount_id")
+            and self._has_column("account_move_line", "discount")
+        )
+
+    @staticmethod
+    def _mostafa_discount_sql() -> str:
+        # line.balance is untaxed and already converted to company currency.
+        return """
+            CASE
+                WHEN move.discount_id IS NULL OR COALESCE(line.discount, 0.0) <= 0.0 THEN 0.0
+                WHEN COALESCE(line.discount, 0.0) >= 100.0 THEN 0.0
+                ELSE
+                    (CASE WHEN move.move_type = 'out_refund' THEN -1.0 ELSE 1.0 END)
+                    * ABS(COALESCE(line.balance, 0.0))
+                    * COALESCE(line.discount, 0.0)
+                    / NULLIF(100.0 - COALESCE(line.discount, 0.0), 0.0)
+            END
+        """
+
+    def _mostafa_margin_meta(
+        self,
+        scope: dict,
+        net_margin: float = 0.0,
+        margin_status: dict | None = None,
+    ) -> dict:
+        result = {
+            "enabled": False,
+            "net_margin": float(net_margin or 0.0),
+            "discount_adjustment": 0.0,
+            "mostafa_margin": float(net_margin or 0.0),
+            "reason_count": 0,
+            "reasons": [],
+            "unresolved_full_discount_lines": 0,
+            "disclosure": "",
+        }
+        if not self._mostafa_margin_enabled(scope, margin_status):
+            return result
+
+        where_sql, params = self._build_scope_clause(
+            alias="move",
+            table_name="account_move",
+            filters=scope,
+            include_sales_rep=True,
+        )
+        params += [scope["start_date"], scope["end_date"]]
+        discount_sql = self._mostafa_discount_sql()
+        self.env.cr.execute(
+            f"""
+            SELECT
+                reason.name AS reason_name,
+                COUNT(*) FILTER (WHERE COALESCE(line.discount, 0.0) > 0.0) AS line_count,
+                COUNT(*) FILTER (WHERE COALESCE(line.discount, 0.0) >= 100.0) AS unresolved_count,
+                COALESCE(SUM({discount_sql}), 0.0) AS discount_adjustment
+            FROM account_move move
+            JOIN account_move_line line
+              ON line.move_id = move.id
+             AND (line.display_type = 'product' OR line.display_type IS NULL)
+             AND line.product_id IS NOT NULL
+            JOIN discount_reason reason ON reason.id = move.discount_id
+            WHERE {where_sql}
+              AND move.state = 'posted'
+              AND move.move_type IN ('out_invoice', 'out_receipt', 'out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+              AND COALESCE(line.discount, 0.0) > 0.0
+            GROUP BY reason.id, reason.name
+            ORDER BY ABS(COALESCE(SUM({discount_sql}), 0.0)) DESC, reason.name
+            """,
+            params,
+        )
+        reason_rows = []
+        unresolved_count = 0
+        for row in self._dictfetchall():
+            adjustment = float(row.get("discount_adjustment") or 0.0)
+            unresolved_count += int(row.get("unresolved_count") or 0)
+            if abs(adjustment) < 0.005:
+                continue
+            reason_rows.append({
+                "name": self._clean_dimension_label(row.get("reason_name")),
+                "line_count": int(row.get("line_count") or 0),
+                "discount_adjustment": adjustment,
+            })
+
+        adjustment = sum(row["discount_adjustment"] for row in reason_rows)
+        names = [row["name"] for row in reason_rows]
+        shown_names = names[:6]
+        reasons_text = ", ".join(shown_names) if shown_names else "no qualifying reasons"
+        if len(names) > len(shown_names):
+            reasons_text += " (+%s more)" % (len(names) - len(shown_names))
+        disclosure = (
+            "Mostafa Margin = real COGS Net Margin + EGP {:,.0f} signed untaxed "
+            "reason discount. Reasons: {}. Refunds reverse the add-back. "
+            "Executive view only; accounting margin is unchanged."
+        ).format(adjustment, reasons_text)
+        if unresolved_count:
+            disclosure += " %s line(s) at 100%% discount are excluded as not reconstructible." % unresolved_count
+
+        result.update({
+            "enabled": True,
+            "discount_adjustment": adjustment,
+            "mostafa_margin": float(net_margin or 0.0) + adjustment,
+            "reason_count": len(reason_rows),
+            "reasons": reason_rows,
+            "unresolved_full_discount_lines": unresolved_count,
+            "disclosure": disclosure,
+        })
+        return result
+
+    def _mostafa_dimension_query(
+        self,
+        scope: dict,
+        group_by: str,
+        margin_status: dict | None = None,
+    ) -> dict:
+        if not self._mostafa_margin_enabled(scope, margin_status):
+            return {}
+
+        joins = ""
+        dimension_sql = "'XPRS'"
+        if group_by == "branch":
+            dimension_sql = "COALESCE(branch.name, 'Unassigned')"
+            joins = "LEFT JOIN res_branch branch ON branch.id = move.branch_id"
+        elif group_by == "salesperson":
+            if self._has_table("sales_rep"):
+                dimension_sql = "COALESCE(sales_rep.name, 'Unknown Sales Rep')"
+                joins = "LEFT JOIN sales_rep ON sales_rep.id = move.sales_rep_id"
+            else:
+                dimension_sql = "CONCAT('Sales Rep #', COALESCE(move.sales_rep_id, 0)::text)"
+        elif group_by == "customer":
+            dimension_sql = "COALESCE(partner.name, 'Unknown Customer')"
+            joins = "LEFT JOIN res_partner partner ON partner.id = move.partner_id"
+        elif group_by == "category":
+            dimension_sql = "COALESCE(category.complete_name, 'Unclassified')"
+            joins = """
+                LEFT JOIN product_product product ON product.id = line.product_id
+                LEFT JOIN product_template template ON template.id = product.product_tmpl_id
+                LEFT JOIN product_category category ON category.id = template.categ_id
+            """
+        elif group_by == "product":
+            dimension_sql = "line.product_id"
+        elif group_by == "payment_state":
+            dimension_sql = "COALESCE(move.payment_state, 'unknown')"
+        elif group_by == "company":
+            dimension_sql = "'XPRS'"
+
+        where_sql, params = self._build_scope_clause(
+            alias="move",
+            table_name="account_move",
+            filters=scope,
+            include_sales_rep=True,
+        )
+        params += [scope["start_date"], scope["end_date"]]
+        discount_sql = self._mostafa_discount_sql()
+        self.env.cr.execute(
+            f"""
+            SELECT
+                {dimension_sql} AS dimension,
+                COALESCE(SUM({discount_sql}), 0.0) AS discount_adjustment
+            FROM account_move move
+            JOIN account_move_line line
+              ON line.move_id = move.id
+             AND (line.display_type = 'product' OR line.display_type IS NULL)
+             AND line.product_id IS NOT NULL
+            {joins}
+            WHERE {where_sql}
+              AND move.state = 'posted'
+              AND move.move_type IN ('out_invoice', 'out_receipt', 'out_refund')
+              AND move.invoice_date BETWEEN %s AND %s
+              AND move.discount_id IS NOT NULL
+              AND COALESCE(line.discount, 0.0) > 0.0
+            GROUP BY {dimension_sql}
+            """,
+            params,
+        )
+        grouped = self._dictfetchall()
+        if group_by == "product":
+            product_ids = [int(row["dimension"]) for row in grouped if row.get("dimension")]
+            products = (
+                self.env["product.product"]
+                .sudo()
+                .with_context(lang=self.env.user.lang or "en_US")
+                .browse(product_ids)
+                .exists()
+            )
+            names = {
+                product.id: product.display_name or product.name or "Product #%s" % product.id
+                for product in products
+            }
+            return {
+                names.get(int(row["dimension"]), "Product #%s" % row["dimension"]):
+                float(row.get("discount_adjustment") or 0.0)
+                for row in grouped if row.get("dimension")
+            }
+        return {
+            self._clean_dimension_label(row.get("dimension")):
+            float(row.get("discount_adjustment") or 0.0)
+            for row in grouped
+        }
+
+    def _apply_mostafa_margin(
+        self,
+        rows: list,
+        scope: dict,
+        group_by: str,
+        margin_status: dict | None = None,
+    ) -> bool:
+        if not rows or not self._mostafa_margin_enabled(scope, margin_status):
+            return False
+        adjustments = self._mostafa_dimension_query(scope, group_by, margin_status)
+        for row in rows:
+            key = self._clean_dimension_label(row.get("dimension"))
+            adjustment = adjustments.get(key)
+            if adjustment is None and key == "Unassigned Branch":
+                adjustment = adjustments.get("Unassigned")
+            adjustment = float(adjustment or 0.0)
+            row["mostafa_discount_adjustment"] = adjustment
+            row["mostafa_margin"] = float(row.get("net_margin") or 0.0) + adjustment
+        return True
+
     def _finance_summary(self, filters: dict, margin_status: dict | None = None) -> dict:
         if not self._has_table("account_move"):
             return {
@@ -630,6 +859,15 @@ class ExecutiveDashboardService(models.AbstractModel):
         if margin.get("available"):
             result["net_margin"] = margin["net_margin"]
             result["margin_pct"] = margin["margin_pct"]
+        mostafa_meta = self._mostafa_margin_meta(
+            filters,
+            net_margin=margin.get("net_margin", 0.0),
+            margin_status=margin_status,
+        )
+        result["mostafa_margin_meta"] = mostafa_meta
+        if mostafa_meta.get("enabled"):
+            result["mostafa_margin"] = mostafa_meta["mostafa_margin"]
+            result["mostafa_discount_adjustment"] = mostafa_meta["discount_adjustment"]
         result["margin_source"] = margin["source"]
         return result
 
@@ -989,6 +1227,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         scope = self._resolve_filter_scope(filters)
         margin_status = self._real_margin_availability(scope)
         finance = self._finance_summary(scope, margin_status=margin_status)
+        mostafa_meta = finance.get("mostafa_margin_meta") or {"enabled": False}
         sales = self._sales_summary(scope, margin_status=margin_status)
         inventory = self._inventory_summary(scope)
         daily_snapshot = self._daily_sales_snapshot(scope)
@@ -1015,6 +1254,17 @@ class ExecutiveDashboardService(models.AbstractModel):
         ]
         if margin_status.get("available"):
             cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral", "subtext": "in selected period"})
+            if mostafa_meta.get("enabled"):
+                cards.insert(2, {
+                    "key": "mostafa_margin",
+                    "label": "Mostafa Margin",
+                    "value": mostafa_meta.get("mostafa_margin", 0),
+                    "unit": "EGP",
+                    "tone": "positive" if mostafa_meta.get("mostafa_margin", 0) >= 0 else "warning",
+                    "subtext": "Net Margin + EGP {:,.0f} reason discounts".format(
+                        mostafa_meta.get("discount_adjustment", 0)
+                    ),
+                })
 
         default_domain = "finance"
         if drill_path and len(drill_path) > 1:
@@ -1056,6 +1306,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "salesperson_ids": scope["salesperson_ids"],
                 },
                 "margin_status": margin_status,
+                "mostafa_margin": mostafa_meta,
             },
             "cards": cards,
             "alerts": alerts,
@@ -1117,6 +1368,14 @@ class ExecutiveDashboardService(models.AbstractModel):
 
         for row in result.get("rows", []):
             row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+        if domain in {"finance", "sales"} and self._apply_mostafa_margin(
+            result.get("rows", []), scope, group_by, margin_status
+        ):
+            columns = result.setdefault("columns", [])
+            if "mostafa_margin" not in columns:
+                insert_at = columns.index("net_margin") + 1 if "net_margin" in columns else len(columns)
+                columns.insert(insert_at, "mostafa_margin")
+            result["mostafa_margin_enabled"] = True
         result.setdefault("total_count", len(result.get("rows", [])))
         result.setdefault("limit", limit)
         result.setdefault("offset", offset)
@@ -2077,7 +2336,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         
         company_ids = scope.get("company_ids") or []
         company_names = [c.name for c in self.env["res.company"].sudo().browse(company_ids) if c.name]
-        return {
+        top_sections = {
             "sales_by_branch": self._top_sales_by_branch(scope, limit, margin_status),
             "sales_by_salesperson": self._top_sales_by_salesperson(scope, limit, margin_status),
             "sales_by_category": self._top_sales_by_category(scope, limit, margin_status),
@@ -2099,6 +2358,21 @@ class ExecutiveDashboardService(models.AbstractModel):
             "company_names": company_names,
             "limit": limit,
         }
+        mostafa_enabled = self._mostafa_margin_enabled(scope, margin_status)
+        if mostafa_enabled:
+            grouped_sections = {
+                "sales_by_branch": "branch",
+                "sales_by_salesperson": "salesperson",
+                "sales_by_category": "category",
+                "sales_by_customer": "customer",
+                "sales_by_product": "product",
+            }
+            for section_key, group_by in grouped_sections.items():
+                self._apply_mostafa_margin(
+                    top_sections.get(section_key, []), scope, group_by, margin_status
+                )
+        top_sections["mostafa_margin_enabled"] = mostafa_enabled
+        return top_sections
 
     def _top_payment_journals(self, scope, limit):
         try:

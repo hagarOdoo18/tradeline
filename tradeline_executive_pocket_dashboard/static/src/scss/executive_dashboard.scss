@@ -295,6 +295,31 @@
 }
 .tl-margin-badge.is-good { background: var(--tl-green-lt); color: #065f46; border-color: #6ee7b7; }
 .tl-margin-badge.is-warn { background: var(--tl-amber-lt); color: #92400e; border-color: #fcd34d; }
+.tl-mostafa-badge {
+  margin-left: 8px;
+  padding: 3px 10px;
+  border: 1px solid #86d5b2;
+  border-radius: 999px;
+  background: #effaf5;
+  color: #07593b;
+  font-size: 11px;
+  font-weight: 800;
+}
+.tl-mostafa-disclosure {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #0d8a60;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #edf9f4 0%, #f8fbf9 100%);
+  color: #38564a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.tl-mostafa-disclosure strong { color: #07593b; white-space: nowrap; }
+.tl-mostafa-col { background: #f0faf5 !important; color: #07593b !important; font-weight: 750; }
 
 /* Utility buttons */
 .tl-btn-sm {
