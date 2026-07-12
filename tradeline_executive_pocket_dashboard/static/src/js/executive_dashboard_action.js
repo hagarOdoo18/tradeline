@@ -675,12 +675,12 @@ export class ExecutivePocketDashboard extends Component {
             this.notification.add(this._extractRpcError(error), { type: "danger" });
         }
     }
-    async onPreviewScheduledReport(schedule) {
+    async onPreviewScheduledReport(schedule, reportScope, outputFormat) {
         try {
             const action = await this.orm.call(
                 "tradeline.executive.report.schedule",
-                "action_preview_pdf",
-                [[schedule.id], this.state.filters.report_date]
+                "action_preview_report",
+                [[schedule.id], reportScope, this.state.filters.report_date, outputFormat]
             );
             await this.action.doAction(action);
             await this._loadReportAutomation();

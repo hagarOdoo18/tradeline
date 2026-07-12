@@ -93,7 +93,7 @@
     <div class="tl-modal-backdrop" t-on-click.self="onCloseReportAutomation">
       <div class="tl-automation-modal">
         <div class="tl-modal-head">
-          <div><div class="tl-modal-kicker">Executive delivery center</div><h2>Daily PDF Reports</h2><p>One detailed landscape report per company, sent the morning after the report day.</p></div>
+          <div><div class="tl-modal-kicker">Executive delivery center</div><h2>Daily + MTD Reports</h2><p>Each company receives two portrait reports: a Daily Executive Brief and a separate MTD Executive Report.</p></div>
           <button class="tl-modal-close" t-on-click="onCloseReportAutomation">Close</button>
         </div>
         <t t-if="state.automation.loading"><div class="tl-automation-loading">Loading schedules and delivery history...</div></t>
@@ -101,30 +101,33 @@
           <div class="tl-schedule-grid">
             <div class="tl-schedule-card" t-foreach="reportSchedules" t-as="schedule" t-key="schedule.id">
               <div class="tl-schedule-title-row">
-                <div><span class="tl-schedule-company" t-esc="schedule.company_name"/><span class="tl-schedule-caption">Separate company PDF</span></div>
+                <div><span class="tl-schedule-company" t-esc="schedule.company_name"/><span class="tl-schedule-caption">2 branded portrait PDFs per scheduled email</span></div>
                 <label class="tl-switch-label"><input type="checkbox" t-model="schedule.active"/><span>Active</span></label>
               </div>
               <label class="tl-automation-field tl-field-wide"><span>Recipient emails</span><input type="text" t-model="schedule.recipient_emails" placeholder="mostafa@example.com"/></label>
-              <div class="tl-schedule-fields">
+              <div class="tl-schedule-fields tl-schedule-fields-two">
                 <label class="tl-automation-field"><span>Send hour</span><select t-model="schedule.send_hour"><option t-foreach="[6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]" t-as="hour" t-key="hour" t-att-value="hour"><t t-esc="hour"/>:00</option></select></label>
                 <label class="tl-automation-field"><span>Timezone</span><select t-model="schedule.timezone"><option value="Africa/Cairo">Africa/Cairo</option><option value="UTC">UTC</option></select></label>
-                <label class="tl-automation-field"><span>Top rows</span><select t-model="schedule.top_n"><option t-foreach="[5,10,15,20]" t-as="top" t-key="top" t-att-value="top"><t t-esc="top"/></option></select></label>
               </div>
               <div class="tl-schedule-status"><span>Last sent: <strong t-esc="schedule.last_sent_on || 'Not yet sent'"/></span><span>Next run: <strong t-esc="schedule.next_run_at || 'Inactive'"/></span></div>
-              <div class="tl-schedule-actions"><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule)">Download preview</button><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
+              <div class="tl-report-preview-grid">
+                <div class="tl-report-preview-card"><strong>Daily Executive Brief</strong><span>Report-day performance</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'pdf')">PDF</button></div></div>
+                <div class="tl-report-preview-card"><strong>MTD Executive Report</strong><span>Month start through report day</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'pdf')">PDF</button></div></div>
+              </div>
+              <div class="tl-schedule-actions"><span class="tl-schedule-help">Every report contains the dashboard Top 10 sections. Advanced Drilldown is excluded.</span><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
             </div>
           </div>
           <div class="tl-history-head"><div><h3>Delivery History</h3><p>Sent emails, previews, attachments, and errors are retained here.</p></div><button class="tl-btn-sm" t-on-click="_loadReportAutomation">Refresh</button></div>
           <div class="tl-history-table-wrap"><table class="tl-history-table">
-            <thead><tr><th>Company</th><th>Report day</th><th>Type</th><th>Status</th><th>Recipients</th><th>Sent at</th><th>PDF</th></tr></thead>
+            <thead><tr><th>Company</th><th>Report day</th><th>Scope</th><th>Type</th><th>Status</th><th>Recipients</th><th>Sent at</th><th>PDF</th></tr></thead>
             <tbody>
               <tr t-foreach="reportHistory" t-as="history" t-key="history.id">
-                <td t-esc="history.company_name"/><td t-esc="history.report_date"/><td t-esc="history.delivery_type"/>
+                <td t-esc="history.company_name"/><td t-esc="history.report_date"/><td t-esc="history.report_scope_label || history.report_scope"/><td t-esc="history.delivery_type"/>
                 <td><span t-att-class="'tl-history-state ' + reportHistoryClass(history.state)" t-esc="history.state"/><div class="tl-history-error" t-if="history.error_message" t-esc="history.error_message"/></td>
                 <td t-esc="history.recipient_emails || '-'"/><td t-esc="history.sent_at || '-'"/>
                 <td><button t-if="history.download_url" class="tl-history-download" t-on-click="() => this.onDownloadReportHistory(history)">Download</button><span t-else="">-</span></td>
               </tr>
-              <tr t-if="!reportHistory.length"><td colspan="7" class="tl-history-empty">No reports generated yet.</td></tr>
+              <tr t-if="!reportHistory.length"><td colspan="8" class="tl-history-empty">No reports generated yet.</td></tr>
             </tbody>
           </table></div>
         </t>

@@ -1,214 +1,274 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="paperformat_executive_daily_landscape" model="report.paperformat">
-        <field name="name">Executive Daily Report Landscape</field>
+        <field name="name">Executive Report Portrait</field>
         <field name="default" eval="False"/>
         <field name="format">A4</field>
-        <field name="orientation">Landscape</field>
+        <field name="orientation">Portrait</field>
         <field name="margin_top">8</field>
         <field name="margin_bottom">8</field>
-        <field name="margin_left">8</field>
-        <field name="margin_right">8</field>
+        <field name="margin_left">9</field>
+        <field name="margin_right">9</field>
         <field name="header_line" eval="False"/>
         <field name="header_spacing">0</field>
         <field name="dpi">96</field>
     </record>
 
     <record id="action_report_executive_daily_pdf" model="ir.actions.report">
-        <field name="name">Executive Daily Report</field>
+        <field name="name">Executive Report</field>
         <field name="model">tradeline.executive.report.history</field>
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">tradeline_executive_pocket_dashboard.report_executive_daily_document</field>
         <field name="report_file">tradeline_executive_pocket_dashboard.report_executive_daily_document</field>
         <field name="paperformat_id" ref="paperformat_executive_daily_landscape"/>
-        <field name="print_report_name">'%s Executive Report - %s' % (object.company_id.name, object.report_date)</field>
+        <field name="print_report_name">'%s %s - %s' % (object.company_id.name, object.report_title(), object.report_date)</field>
     </record>
 
+    <template id="report_executive_header">
+        <div class="er-header">
+            <div class="er-brand">
+                <img t-if="'xprs' in (o.company_id.name or '').lower()" class="er-logo er-logo-xprs" src="/tradeline_executive_pocket_dashboard/static/description/xprs_logo.png"/>
+                <img t-else="" class="er-logo er-logo-tradeline" src="/tradeline_executive_pocket_dashboard/static/description/tradeline_mark.png"/>
+                <div class="er-brand-copy">
+                    <div class="er-product">Executive Pocket</div>
+                    <div class="er-company"><span t-esc="o.company_id.name"/></div>
+                </div>
+            </div>
+            <div class="er-report-meta">
+                <div class="er-report-type"><span t-esc="o.report_title()"/></div>
+                <div class="er-report-period"><span t-esc="o.report_period_label()"/></div>
+            </div>
+        </div>
+    </template>
+
+    <template id="report_executive_footer">
+        <div class="er-footer">
+            <span>Confidential - generated from Odoo 18 reporting data</span>
+            <span>Page <span t-esc="page_number"/> of 5</span>
+        </div>
+    </template>
+
     <template id="report_executive_table">
-        <div class="exec-table-card">
-            <div class="exec-card-title"><span t-esc="title"/></div>
-            <table class="exec-table">
+        <section class="er-section-block">
+            <div class="er-table-title"><span t-esc="title"/><span class="er-table-source" t-esc="source_label"/></div>
+            <table class="er-table">
                 <thead>
-                    <tr>
-                        <th class="rank">#</th>
-                        <th><span t-esc="dimension_label"/></th>
-                        <th class="num"><span t-esc="value_label"/></th>
-                        <th class="num"><span t-esc="count_label"/></th>
-                        <th t-if="show_margin" class="num">Margin</th>
-                        <th t-if="show_margin" class="num">Margin %</th>
+                    <tr t-if="table_kind == 'sales'">
+                        <th class="er-rank">#</th><th class="er-dimension"><span t-esc="dimension_label"/></th>
+                        <th class="er-num">Untaxed Revenue</th><th class="er-num">Invoices (incl. credit notes)</th>
+                        <th t-if="margin_available" class="er-num">Margin</th><th t-if="margin_available" class="er-num">Margin%</th>
+                    </tr>
+                    <tr t-elif="table_kind == 'inventory'">
+                        <th class="er-rank">#</th><th class="er-dimension"><span t-esc="dimension_label"/></th>
+                        <th class="er-num">On-Hand Qty</th><th class="er-num">Allocated Value</th>
+                    </tr>
+                    <tr t-else="">
+                        <th class="er-rank">#</th><th class="er-dimension">Journal</th>
+                        <th class="er-num">Collections</th><th class="er-num">Payments</th><th class="er-num">Mix %</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr t-foreach="rows" t-as="row">
-                        <td class="rank"><span t-esc="row_index + 1"/></td>
-                        <td><span t-esc="row.get('dimension') or 'Unassigned'"/></td>
-                        <td class="num"><span t-esc="o.report_currency(row.get(value_key, 0))"/></td>
-                        <td class="num"><span t-esc="o.report_number(row.get(count_key, 0))"/></td>
-                        <td t-if="show_margin" class="num"><span t-esc="o.report_currency(row.get('net_margin', 0))"/></td>
-                        <td t-if="show_margin" class="num"><span t-esc="o.report_percent(row.get('margin_pct', 0))"/></td>
+                    <tr t-foreach="rows[:10]" t-as="row">
+                        <td class="er-rank"><span t-esc="row_index + 1"/></td>
+                        <td class="er-dimension">
+                            <span t-esc="row.get('dimension') or 'Unassigned'"/>
+                            <div class="er-inline-bar"><span t-att-style="'width:' + o.report_bar_width(row.get(value_key, 0), rows, value_key)"/></div>
+                        </td>
+                        <t t-if="table_kind == 'sales'">
+                            <td class="er-num"><span t-esc="o.report_currency(row.get('net_revenue', 0))"/></td>
+                            <td class="er-num"><span t-esc="o.report_number(row.get('invoice_count', 0))"/></td>
+                            <td t-if="margin_available" class="er-num"><span t-esc="o.report_currency(row.get('net_margin', 0))"/></td>
+                            <td t-if="margin_available" t-att-class="'er-num ' + ('er-negative' if (row.get('margin_pct') or 0) &lt; 0 else 'er-positive')"><span t-esc="o.report_percent(row.get('margin_pct', 0))"/></td>
+                        </t>
+                        <t t-elif="table_kind == 'inventory'">
+                            <td class="er-num"><span t-esc="o.report_number(row.get('on_hand_qty', 0))"/></td>
+                            <td class="er-num"><span t-esc="o.report_currency(row.get('allocated_value', 0))"/></td>
+                        </t>
+                        <t t-else="">
+                            <td class="er-num"><span t-esc="o.report_currency(row.get('collections_total', 0))"/></td>
+                            <td class="er-num"><span t-esc="o.report_number(row.get('payment_count', 0))"/></td>
+                            <td class="er-num"><span t-esc="o.report_percent(row.get('share_pct', 0))"/></td>
+                        </t>
                     </tr>
-                    <tr t-if="not rows"><td colspan="6" class="empty">No reporting data for this period.</td></tr>
+                    <tr t-if="not rows"><td colspan="6" class="er-empty">No data available for this report scope.</td></tr>
                 </tbody>
             </table>
-        </div>
+        </section>
     </template>
 
     <template id="report_executive_daily_document">
         <t t-call="web.html_container">
-            <t t-foreach="docs" t-as="o">
-                <t t-set="payload" t-value="o.get_report_payload()"/>
-                <t t-set="top" t-value="payload.get('top_sections', {})"/>
-                <t t-set="cards" t-value="payload.get('cards', [])"/>
-                <t t-set="snapshot" t-value="payload.get('sections', {}).get('daily_snapshot', {}).get('rows', [])"/>
-                <t t-set="margin_available" t-value="payload.get('meta', {}).get('margin_status', {}).get('available', False)"/>
-                <style>
-                    body { font-family: DejaVu Sans, Arial, sans-serif; color: #10231a; font-size: 9px; }
-                    .page { position: relative; padding: 2mm 1mm 0; page-break-after: always; }
-                    .page:last-child { page-break-after: auto; }
-                    .exec-header { border-bottom: 3px solid #16815b; padding: 0 0 4mm; margin-bottom: 4mm; display: table; width: 100%; }
-                    .exec-brand, .exec-meta { display: table-cell; vertical-align: middle; }
-                    .exec-meta { text-align: right; color: #52645b; }
-                    .exec-logo { width: 12mm; height: 12mm; object-fit: contain; vertical-align: middle; margin-right: 3mm; }
-                    .exec-title { display: inline-block; vertical-align: middle; font-size: 22px; font-weight: 800; color: #0d5138; }
-                    .exec-subtitle { font-size: 10px; color: #60736a; margin-top: 1mm; }
-                    .section-kicker { color: #16815b; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; font-size: 8px; }
-                    .section-title { font-size: 18px; font-weight: 800; margin: 1mm 0 4mm; }
-                    .kpi-grid { width: 100%; border-spacing: 3mm; margin: -3mm 0 2mm; }
-                    .kpi { width: 25%; border: 1px solid #dce7e1; border-top: 3px solid #16815b; border-radius: 4px; padding: 3mm; background: #f8fbf9; }
-                    .kpi-label { color: #64756d; font-size: 8px; font-weight: 700; text-transform: uppercase; }
-                    .kpi-value { font-size: 17px; font-weight: 800; margin: 1mm 0; }
-                    .kpi-note { color: #778981; font-size: 7px; }
-                    .alert { display: inline-block; padding: 2mm 3mm; margin: 0 2mm 2mm 0; border-radius: 10px; background: #fff4da; color: #7a4b00; }
-                    .grid-two { display: table; width: 100%; table-layout: fixed; border-spacing: 3mm; margin: -3mm; }
-                    .grid-cell { display: table-cell; width: 50%; vertical-align: top; }
-                    .exec-table-card { border: 1px solid #dce7e1; border-radius: 5px; overflow: hidden; margin-bottom: 4mm; }
-                    .exec-card-title { background: #eef7f2; color: #124d38; font-size: 11px; font-weight: 800; padding: 2.5mm 3mm; border-bottom: 1px solid #dce7e1; }
-                    .exec-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-                    .exec-table th { background: #f6f8f7; color: #5e7068; font-size: 7px; text-transform: uppercase; text-align: left; padding: 2mm; border-bottom: 1px solid #dce7e1; }
-                    .exec-table td { padding: 2mm; border-bottom: 1px solid #edf1ef; overflow-wrap: anywhere; }
-                    .exec-table tr:nth-child(even) td { background: #fbfcfb; }
-                    .exec-table .num { text-align: right; width: 18%; }
-                    .exec-table .rank { width: 5%; color: #7b8b84; text-align: center; }
-                    .exec-table .empty { text-align: center; color: #8b9993; padding: 8mm; }
-                    .snapshot-table td:first-child { font-weight: 700; }
-                    .source-card { border-left: 4px solid #16815b; background: #f5faf7; padding: 3mm 4mm; margin-bottom: 3mm; }
-                    .source-card strong { color: #0d5138; }
-                    .status-good { color: #0a7a4d; font-weight: 800; }
-                    .status-warn { color: #a15c00; font-weight: 800; }
-                    .page-footer { position: absolute; bottom: 0; left: 1mm; right: 1mm; border-top: 1px solid #dce7e1; padding-top: 1.5mm; color: #7b8b84; font-size: 7px; }
-                    .page-footer .right { float: right; }
-                </style>
+            <style>
+                body { margin:0; background:#edf1ef; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:8px; }
+                .er-report-stack { width:100%; }
+                .page { position:relative; box-sizing:border-box; background:#fff; padding:0 2mm 9mm; page-break-after:always; }
+                .page:last-child { page-break-after:auto; }
+                .er-header { display:table; width:100%; box-sizing:border-box; border-bottom:1.5px solid #0b4a32; padding:1mm 0 3mm; margin-bottom:5mm; }
+                .er-brand,.er-report-meta { display:table-cell; vertical-align:middle; }
+                .er-report-meta { text-align:right; }
+                .er-logo { vertical-align:middle; height:auto; }
+                .er-logo-xprs { width:34mm; max-height:12mm; }
+                .er-logo-tradeline { width:12mm; max-height:12mm; }
+                .er-brand-copy { display:inline-block; vertical-align:middle; padding-left:2.5mm; }
+                .er-product { font-family:DejaVu Serif, Georgia, serif; color:#0b4a32; font-size:15px; font-weight:700; line-height:1; }
+                .er-company { color:#66756e; font-size:7px; letter-spacing:.08em; text-transform:uppercase; margin-top:1.2mm; }
+                .er-report-type { color:#0b4a32; font-size:10px; font-weight:700; }
+                .er-report-period { color:#66756e; font-size:7px; margin-top:1mm; }
+                .er-page-heading { font-family:DejaVu Serif, Georgia, serif; color:#101d17; font-size:25px; line-height:1.05; margin:0 0 2mm; font-weight:700; }
+                .er-page-intro { color:#66756e; font-size:8px; margin-bottom:5mm; }
+                .er-heading-rule { width:14mm; height:2px; background:#0b4a32; margin:3mm 0 4mm; }
+                .er-footer { position:absolute; left:2mm; right:2mm; bottom:0; display:table; width:100%; box-sizing:border-box; border-top:1px solid #d9e1dd; padding-top:1.8mm; color:#74827b; font-size:6px; }
+                .er-footer span:last-child { float:right; }
+                .er-hero-grid { display:table; width:100%; table-layout:fixed; border-spacing:2mm; margin-left:-2mm; margin-bottom:2mm; }
+                .er-hero-metric { display:table-cell; width:25%; border-top:2px solid #0b4a32; background:#f3f7f5; padding:3mm; }
+                .er-metric-label { color:#66756e; font-size:6px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+                .er-metric-value { color:#101d17; font-size:17px; line-height:1.1; font-weight:700; margin:2mm 0 1mm; }
+                .er-metric-note { color:#66756e; font-size:6px; line-height:1.35; }
+                .er-kpi-grid { display:table; width:100%; table-layout:fixed; border-spacing:1.5mm; margin-left:-1.5mm; }
+                .er-kpi-row { display:table-row; }
+                .er-kpi { display:table-cell; width:25%; border:1px solid #d9e1dd; padding:2.5mm; vertical-align:top; }
+                .er-kpi .er-metric-value { font-size:13px; }
+                .er-subhead { font-family:DejaVu Serif, Georgia, serif; font-size:11px; color:#0b4a32; margin:4mm 0 2mm; font-weight:700; }
+                .er-alerts { border:1px solid #ead8bf; background:#fffaf2; padding:2.5mm 3mm; }
+                .er-alert { display:inline-block; width:31%; vertical-align:top; color:#714313; margin-right:2%; }
+                .er-alert strong { display:block; font-size:7px; margin-bottom:.7mm; }
+                .er-snapshot { width:100%; border-collapse:collapse; table-layout:fixed; }
+                .er-snapshot td { border-right:1px solid #d9e1dd; padding:2.2mm; vertical-align:top; }
+                .er-snapshot td:last-child { border-right:0; background:#edf6f1; }
+                .er-snapshot-date { color:#66756e; font-size:6px; }
+                .er-snapshot-value { color:#101d17; font-size:10px; font-weight:700; margin-top:1.5mm; }
+                .er-snapshot-count { color:#66756e; font-size:6px; margin-top:.7mm; }
+                .er-section-block { margin-bottom:4mm; page-break-inside:avoid; }
+                .er-table-title { font-family:DejaVu Serif, Georgia, serif; color:#0b4a32; font-size:11px; font-weight:700; border-bottom:1.5px solid #0b4a32; padding:0 0 2mm; margin-bottom:0; }
+                .er-table-source { float:right; font-family:DejaVu Sans, Arial, sans-serif; color:#66756e; font-size:6px; font-weight:400; padding-top:1.2mm; }
+                .er-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+                .er-table th { background:#f3f7f5; color:#4f6158; font-size:5.8px; text-align:left; text-transform:uppercase; letter-spacing:.04em; padding:1.5mm 1.2mm; border-bottom:1px solid #d9e1dd; }
+                .er-table td { padding:1.3mm 1.2mm; border-bottom:1px solid #e8eeeb; font-size:6.3px; line-height:1.2; vertical-align:middle; }
+                .er-table tbody tr:nth-child(even) td { background:#fbfcfb; }
+                .er-table .er-rank { width:5%; text-align:center; color:#78877f; }
+                .er-table .er-dimension { width:39%; word-wrap:break-word; }
+                .er-table .er-num { text-align:right; }
+                .er-inline-bar { height:1.1px; width:100%; background:#e6ece9; margin-top:.8mm; }
+                .er-inline-bar span { display:block; height:100%; background:#137b50; }
+                .er-positive { color:#137347; }
+                .er-negative { color:#b43b32; }
+                .er-empty { text-align:center; color:#66756e; padding:7mm !important; }
+                .er-trend-card { border:1px solid #d9e1dd; padding:3mm; margin-bottom:4mm; }
+                .er-trend-chart { width:100%; height:31mm; display:block; margin-top:2mm; }
+                .er-trend-axis { display:table; width:100%; color:#66756e; font-size:5.7px; }
+                .er-trend-axis span { display:table-cell; width:33.33%; }
+                .er-trend-axis span:nth-child(2) { text-align:center; }
+                .er-trend-axis span:last-child { text-align:right; }
+                .er-trend-summary { color:#66756e; font-size:6px; margin-top:1.5mm; }
+                .er-fx-table td:first-child { font-weight:700; color:#0b4a32; }
+                .er-fx-stale { color:#b66816; font-weight:700; }
+                .er-fx-fresh { color:#137b50; font-weight:700; }
+                .er-definition { border-left:2px solid #0b4a32; background:#f3f7f5; color:#596a62; padding:2.5mm 3mm; font-size:6.3px; line-height:1.45; margin-top:3mm; }
+                @media screen {
+                    .er-report-stack { padding:24px 0; }
+                    .page { width:210mm; min-height:297mm; margin:0 auto 24px; padding:8mm 11mm 14mm; box-shadow:0 14px 45px rgba(13,45,31,.16); }
+                }
+                @media print {
+                    body { background:#fff; }
+                    .page { min-height:279mm; }
+                }
+            </style>
+            <div class="er-report-stack">
+                <t t-foreach="docs" t-as="o">
+                    <t t-set="payload" t-value="o.get_report_payload()"/>
+                    <t t-set="top" t-value="payload.get('top_sections', {})"/>
+                    <t t-set="cards" t-value="payload.get('cards', [])"/>
+                    <t t-set="snapshot" t-value="payload.get('sections', {}).get('daily_snapshot', {}).get('rows', [])"/>
+                    <t t-set="margin_available" t-value="payload.get('meta', {}).get('margin_status', {}).get('available', False)"/>
 
-                <div class="page">
-                    <div class="exec-header">
-                        <div class="exec-brand">
-                            <img class="exec-logo" src="/tradeline_executive_pocket_dashboard/static/description/favicon.png"/>
-                            <div class="exec-title"><span t-esc="o.company_id.name"/> Executive Brief</div>
-                            <div class="exec-subtitle">Month-to-date through <span t-esc="o.report_date"/> | Generated from live Odoo reporting data</div>
+                    <div class="page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading"><span t-esc="o.report_title()"/></h1>
+                        <div class="er-heading-rule"></div>
+                        <div class="er-page-intro">A concise view of sales, commercial performance, inventory exposure, collections, and currency movement.</div>
+                        <div class="er-hero-grid">
+                            <div class="er-hero-metric"><div class="er-metric-label">Today's Sales</div><div class="er-metric-value" t-esc="o.report_compact(top.get('today_sales'), 'EGP ')"/><div class="er-metric-note">Sales on selected Daily Report Day</div></div>
+                            <div class="er-hero-metric"><div class="er-metric-label">Acc. Sales (MTD)</div><div class="er-metric-value" t-esc="o.report_compact(top.get('acc_sales'), 'EGP ')"/><div class="er-metric-note">Month Day 1 through report day</div></div>
+                            <div class="er-hero-metric"><div class="er-metric-label">Care Cards Rate</div><div class="er-metric-value" t-esc="o.report_percent(top.get('attachment_rate'))"/><div class="er-metric-note">Selected period, refunds excluded</div></div>
+                            <div class="er-hero-metric"><div class="er-metric-label">Invoices (Incl. Credit Notes)</div><div class="er-metric-value" t-esc="o.report_number(top.get('total_invoices'))"/><div class="er-metric-note">Posted on report day</div></div>
                         </div>
-                        <div class="exec-meta">Confidential<br/>Report period: <span t-esc="o.period_start"/> to <span t-esc="o.period_end"/></div>
-                    </div>
-                    <div class="section-kicker">Page 1 | Executive summary</div>
-                    <div class="section-title">Business pulse at a glance</div>
-                    <table class="kpi-grid"><tbody>
-                        <tr>
-                            <td class="kpi" t-foreach="cards[:4]" t-as="card">
-                                <div class="kpi-label"><span t-esc="card.get('label')"/></div>
-                                <div class="kpi-value">
-                                    <span t-if="card.get('unit') == 'EGP'" t-esc="o.report_currency(card.get('value'))"/>
-                                    <span t-else="" t-esc="o.report_number(card.get('value'))"/>
-                                </div>
-                                <div class="kpi-note"><span t-esc="card.get('subtext') or ''"/></div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="kpi" t-foreach="cards[4:8]" t-as="card">
-                                <div class="kpi-label"><span t-esc="card.get('label')"/></div>
-                                <div class="kpi-value">
-                                    <span t-if="card.get('unit') == 'EGP'" t-esc="o.report_currency(card.get('value'))"/>
-                                    <span t-else="" t-esc="o.report_number(card.get('value'))"/>
-                                </div>
-                                <div class="kpi-note"><span t-esc="card.get('subtext') or ''"/></div>
-                            </td>
-                        </tr>
-                    </tbody></table>
-                    <div class="exec-card-title">Executive alerts</div>
-                    <div style="padding: 3mm 0 4mm;">
-                        <span class="alert" t-foreach="payload.get('alerts', [])" t-as="alert"><strong t-esc="alert.get('label')"/> <span t-esc="alert.get('detail')"/></span>
-                        <span t-if="not payload.get('alerts')" class="status-good">No threshold alerts for this scope.</span>
-                    </div>
-                    <div class="exec-table-card">
-                        <div class="exec-card-title">7-day daily snapshot - untaxed revenue and posted documents including credit notes</div>
-                        <table class="exec-table snapshot-table"><thead><tr><th>Date</th><th class="num">Untaxed revenue</th><th class="num">Posted documents</th></tr></thead><tbody>
-                            <tr t-foreach="snapshot" t-as="row"><td t-esc="row.get('date')"/><td class="num" t-esc="o.report_currency(row.get('net_revenue'))"/><td class="num" t-esc="o.report_number(row.get('invoice_count'))"/></tr>
-                        </tbody></table>
-                    </div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 1 of 6</span></div>
-                </div>
-
-                <div class="page">
-                    <div class="section-kicker">Page 2 | Sales organization</div><div class="section-title">Where revenue is being generated</div>
-                    <div class="grid-two">
-                        <div class="grid-cell"><t t-set="title" t-value="'Top branches'"/><t t-set="rows" t-value="top.get('sales_by_branch', [])"/><t t-set="dimension_label" t-value="'Branch'"/><t t-set="value_label" t-value="'Untaxed revenue'"/><t t-set="value_key" t-value="'net_revenue'"/><t t-set="count_label" t-value="'Posted docs'"/><t t-set="count_key" t-value="'invoice_count'"/><t t-set="show_margin" t-value="margin_available"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                        <div class="grid-cell"><t t-set="title" t-value="'Top salespeople'"/><t t-set="rows" t-value="top.get('sales_by_salesperson', [])"/><t t-set="dimension_label" t-value="'Salesperson'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                    </div>
-                    <div class="source-card"><strong>Definition:</strong> Revenue is untaxed `price_subtotal` from Odoo Invoice Analysis for posted customer invoices, receipts, and credit notes. Margin is shown only when real stock valuation COGS coverage is available.</div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 2 of 6</span></div>
-                </div>
-
-                <div class="page">
-                    <div class="section-kicker">Page 3 | Commercial mix</div><div class="section-title">What customers are buying</div>
-                    <div class="grid-two">
-                        <div class="grid-cell"><t t-set="title" t-value="'Top categories'"/><t t-set="rows" t-value="top.get('sales_by_category', [])"/><t t-set="dimension_label" t-value="'Product category'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                        <div class="grid-cell"><t t-set="title" t-value="'Top product variants'"/><t t-set="rows" t-value="top.get('sales_by_product', [])"/><t t-set="dimension_label" t-value="'Product variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                    </div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 3 of 6</span></div>
-                </div>
-
-                <div class="page">
-                    <div class="section-kicker">Page 4 | Customers and journals</div><div class="section-title">Concentration and accounting mix</div>
-                    <div class="grid-two">
-                        <div class="grid-cell"><t t-set="title" t-value="'Top customers'"/><t t-set="rows" t-value="top.get('sales_by_customer', [])"/><t t-set="dimension_label" t-value="'Customer'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                        <div class="grid-cell"><t t-set="title" t-value="'Top payment journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="value_label" t-value="'Collections'"/><t t-set="value_key" t-value="'collections_total'"/><t t-set="count_label" t-value="'Payments'"/><t t-set="count_key" t-value="'payment_count'"/><t t-set="show_margin" t-value="False"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                    </div>
-                    <div class="source-card"><strong>Journal definition:</strong> This is the payment journal used for collections (e.g. Bank, Cash). Amounts are customer payments/receipts in the selected period.</div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 4 of 6</span></div>
-                </div>
-
-                <div class="page">
-                    <div class="section-kicker">Page 5 | Inventory exposure</div><div class="section-title">Capital tied up in stock</div>
-                    <div class="grid-two">
-                        <div class="grid-cell"><t t-set="title" t-value="'Top inventory categories'"/><t t-set="rows" t-value="top.get('inventory_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-set="value_label" t-value="'Allocated cost'"/><t t-set="value_key" t-value="'allocated_value'"/><t t-set="count_label" t-value="'On hand qty'"/><t t-set="count_key" t-value="'on_hand_qty'"/><t t-set="show_margin" t-value="False"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                        <div class="grid-cell"><t t-set="title" t-value="'Top inventory product variants'"/><t t-set="rows" t-value="top.get('inventory_by_product', [])"/><t t-set="dimension_label" t-value="'Product variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/></div>
-                    </div>
-                    <div class="source-card"><strong>Definition:</strong> Inventory uses internal-location stock quants as of the report day and Odoo allocated valuation cost. Product rows are variants, not merged templates.</div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 5 of 6</span></div>
-                </div>
-
-                <div class="page">
-                    <div class="section-kicker">Page 6 | FX and governance</div><div class="section-title">Currencies, definitions, and audit trail</div>
-                    <div class="grid-two">
-                        <div class="grid-cell">
-                            <div class="exec-table-card"><div class="exec-card-title">Currencies to watch</div><table class="exec-table"><thead><tr><th>Pair</th><th class="num">Rate</th><th class="num">1 day</th><th>Status</th></tr></thead><tbody>
-                                <tr t-foreach="payload.get('fx_watch', {}).get('cards', [])" t-as="fx"><td>1 <span t-esc="fx.get('base_currency') or fx.get('pair', '').split('/')[0]"/> = EGP</td><td class="num" t-esc="'{:,.4f}'.format(float(fx.get('rate') or 0))"/><td class="num" t-esc="o.report_percent(fx.get('change_24h') or 0)"/><td><span t-att-class="'status-warn' if fx.get('stale') else 'status-good'" t-esc="'Stale' if fx.get('stale') else 'Fresh'"/></td></tr>
-                            </tbody></table></div>
+                        <div class="er-subhead">Executive KPI Summary</div>
+                        <div class="er-kpi-grid">
+                            <div class="er-kpi-row">
+                                <div class="er-kpi" t-foreach="cards[:4]" t-as="card"><div class="er-metric-label" t-esc="card.get('label')"/><div class="er-metric-value" t-esc="o.report_card_value(card)"/><div class="er-metric-note" t-esc="card.get('subtext') or ''"/></div>
+                            </div>
+                            <div class="er-kpi-row">
+                                <div class="er-kpi" t-foreach="cards[4:8]" t-as="card"><div class="er-metric-label" t-esc="card.get('label')"/><div class="er-metric-value" t-esc="o.report_card_value(card)"/><div class="er-metric-note" t-esc="card.get('subtext') or ''"/></div>
+                            </div>
                         </div>
-                        <div class="grid-cell">
-                            <div class="source-card"><strong>Sales and category:</strong> `account.invoice.report`, posted customer sales documents, untaxed subtotal, including credit notes as signed values.</div>
-                            <div class="source-card"><strong>Invoice counts:</strong> Distinct posted documents. Labels state whether credit notes are included.</div>
-                            <div class="source-card"><strong>Open unpaid invoice value:</strong> Invoice Analysis untaxed amount for selected-period invoices still unpaid on the report day.</div>
-                            <div class="source-card"><strong>Margin:</strong> Invoice-line revenue less real stock valuation layer COGS where valuation linkage is available.</div>
-                            <div class="source-card"><strong>FX:</strong> Yahoo Finance quote cache refreshed every five minutes; stale rates retain the last good value.</div>
-                        </div>
+                        <div class="er-subhead">7-Day Daily Snapshot</div>
+                        <table class="er-snapshot"><tbody><tr>
+                            <td t-foreach="snapshot[-7:]" t-as="row"><div class="er-snapshot-date" t-esc="row.get('date')"/><div class="er-snapshot-value" t-esc="o.report_compact(row.get('net_revenue'), 'EGP ')"/><div class="er-snapshot-count"><span t-esc="o.report_number(row.get('invoice_count'))"/> docs incl. credit notes</div></td>
+                        </tr></tbody></table>
+                        <div class="er-subhead" t-if="payload.get('alerts')">Alerts</div>
+                        <div class="er-alerts" t-if="payload.get('alerts')"><div class="er-alert" t-foreach="payload.get('alerts', [])[:3]" t-as="alert"><strong t-esc="alert.get('label')"/><span t-esc="alert.get('detail')"/></div></div>
+                        <t t-set="page_number" t-value="1"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
-                    <div class="exec-table-card"><div class="exec-card-title">Delivery audit</div><table class="exec-table"><tbody>
-                        <tr><td>Company</td><td t-esc="o.company_id.name"/><td>Report date</td><td t-esc="o.report_date"/></tr>
-                        <tr><td>Recipients</td><td t-esc="o.recipient_emails or 'Preview only'"/><td>Generation record</td><td t-esc="o.id"/></tr>
-                        <tr><td>COGS status</td><td t-esc="'Real COGS available' if margin_available else 'Margin unavailable or partial'"/><td>Source system</td><td>Odoo 18 production database</td></tr>
-                    </tbody></table></div>
-                    <div class="page-footer">Executive Pocket Dashboard <span class="right">Page 6 of 6</span></div>
-                </div>
-            </t>
+
+                    <div class="page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading">Sales Performance</h1><div class="er-heading-rule"></div>
+                        <t t-set="title" t-value="'Top 10 by Branch'"/><t t-set="rows" t-value="top.get('sales_by_branch', [])"/><t t-set="dimension_label" t-value="'Branch'"/><t t-set="source_label" t-value="'Untaxed Revenue'"/><t t-set="table_kind" t-value="'sales'"/><t t-set="value_key" t-value="'net_revenue'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="title" t-value="'Top 10 by Salesperson'"/><t t-set="rows" t-value="top.get('sales_by_salesperson', [])"/><t t-set="dimension_label" t-value="'Salesperson'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <div class="er-definition">Invoice counts include posted customer invoices, receipts, and credit notes. Revenue is untaxed. Margin is shown only where real stock valuation COGS is available.</div>
+                        <t t-set="page_number" t-value="2"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                    </div>
+
+                    <div class="page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading">Commercial Mix</h1><div class="er-heading-rule"></div>
+                        <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('sales_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="title" t-value="'Top 10 Customers'"/><t t-set="rows" t-value="top.get('sales_by_customer', [])"/><t t-set="dimension_label" t-value="'Customer'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="title" t-value="'Top 10 by Product Variant'"/><t t-set="rows" t-value="top.get('sales_by_product', [])"/><t t-set="dimension_label" t-value="'Product Variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="page_number" t-value="3"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                    </div>
+
+                    <div class="page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading">Inventory Exposure</h1><div class="er-heading-rule"></div>
+                        <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('inventory_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-set="source_label" t-value="'Allocated Cost (SVL Method)'"/><t t-set="table_kind" t-value="'inventory'"/><t t-set="value_key" t-value="'allocated_value'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="title" t-value="'Top 10 by Product Variant'"/><t t-set="rows" t-value="top.get('inventory_by_product', [])"/><t t-set="dimension_label" t-value="'Product Variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <div class="er-definition">Inventory uses internal-location stock quantities and allocated stock valuation layer cost as of the report day. Product rows remain at variant level.</div>
+                        <t t-set="page_number" t-value="4"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                    </div>
+
+                    <div class="page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading">Sales Trend</h1><div class="er-heading-rule"></div>
+                        <t t-set="trend_chart" t-value="o.report_trend_chart(top.get('sales_over_month', []))"/>
+                        <section class="er-trend-card">
+                            <div class="er-table-title">Untaxed Revenue Over Period<span class="er-table-source">Daily Trend</span></div>
+                            <t t-if="trend_chart.get('line')">
+                                <svg class="er-trend-chart" viewBox="0 0 520 105" preserveAspectRatio="none">
+                                    <defs><linearGradient id="erTrendArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#137b50" stop-opacity="0.24"/><stop offset="100%" stop-color="#137b50" stop-opacity="0.02"/></linearGradient></defs>
+                                    <line x1="8" y1="97" x2="512" y2="97" stroke="#d9e1dd" stroke-width="1"/>
+                                    <path t-att-d="trend_chart.get('area')" fill="url(#erTrendArea)" stroke="none"/>
+                                    <path t-att-d="trend_chart.get('line')" fill="none" stroke="#0b4a32" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round"/>
+                                    <circle t-foreach="trend_chart.get('points')" t-as="point" t-att-cx="point.get('x')" t-att-cy="point.get('y')" r="2.5" fill="#0b4a32" stroke="#ffffff" stroke-width="1"/>
+                                </svg>
+                                <div class="er-trend-axis"><span t-esc="trend_chart.get('first')"/><span t-esc="trend_chart.get('middle')"/><span t-esc="trend_chart.get('last')"/></div>
+                                <div class="er-trend-summary">Range: <span t-esc="o.report_compact(trend_chart.get('low'), 'EGP ')"/> to <span t-esc="o.report_compact(trend_chart.get('high'), 'EGP ')"/></div>
+                            </t>
+                            <div t-else="" class="er-empty">No daily trend data available for this report scope.</div>
+                        </section>
+                        <div class="er-subhead">Collections Mix</div>
+                        <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Posted Customer Payments'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <section class="er-section-block">
+                            <div class="er-table-title">Currencies to Watch<span class="er-table-source">Refreshes every 5 minutes</span></div>
+                            <table class="er-table er-fx-table"><thead><tr><th>Currency</th><th class="er-num">Rate</th><th class="er-num">1D</th><th class="er-num">1M</th><th class="er-num">3M</th><th class="er-num">6M</th><th class="er-num">1Y</th><th>Status</th></tr></thead><tbody>
+                                <tr t-foreach="payload.get('fx_watch', {}).get('cards', [])" t-as="fx"><td t-esc="fx.get('display_label') or fx.get('pair')"/><td class="er-num" t-esc="'{:,.4f}'.format(float(fx.get('rate') or 0))"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1D') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('3M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('6M') or 0)"/><td class="er-num" t-esc="o.report_percent(fx.get('period_changes', {}).get('1Y') or 0)"/><td t-att-class="'er-fx-stale' if fx.get('is_stale') else 'er-fx-fresh'" t-esc="'Stale' if fx.get('is_stale') else 'Fresh'"/></tr>
+                            </tbody></table>
+                        </section>
+                        <div class="er-definition">Open Unpaid Invoice Value follows Invoice Analysis untaxed amounts for selected-period invoices still unpaid on the report day. Collections use posted customer payment journals. FX preserves the last good quote when the live source is stale.</div>
+                        <t t-set="page_number" t-value="5"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                    </div>
+                </t>
+            </div>
         </t>
     </template>
 </odoo>

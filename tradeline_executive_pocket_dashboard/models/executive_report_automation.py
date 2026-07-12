@@ -16,7 +16,7 @@ _logger = logging.getLogger(__name__)
 
 class ExecutiveReportSchedule(models.Model):
     _name = "tradeline.executive.report.schedule"
-    _description = "Executive Daily Report Schedule"
+    _description = "Executive Daily and MTD Report Schedule"
     _order = "company_id"
 
     name = fields.Char(required=True)
@@ -77,8 +77,15 @@ class ExecutiveReportSchedule(models.Model):
             record.next_run_at = local_target.astimezone(pytz.utc).replace(tzinfo=None)
 
     @api.model
+    def _target_companies(self):
+        companies = self.env["res.company"].sudo().search([
+            "|", ("name", "=ilike", "Tradeline"), ("name", "=ilike", "XPRS"),
+        ], order="name")
+        return companies or self.env.companies.sudo()
+
+    @api.model
     def _ensure_default_schedules(self):
-        companies = self.env["res.company"].sudo().search([])
+        companies = self._target_companies()
         existing = self.sudo().with_context(active_test=False)
         recipient = self.env["res.partner"].sudo().search([
             "|", ("name", "ilike", "Mosta"), ("name", "ilike", "Medhat"), ("email", "!=", False),
@@ -89,7 +96,7 @@ class ExecutiveReportSchedule(models.Model):
             if not existing.search_count([("company_id", "=", company.id)]):
                 email = recipient.email or ""
                 existing.create({
-                    "name": "%s Daily Executive Report" % company.name,
+                    "name": "%s Daily + MTD Executive Reports" % company.name,
                     "company_id": company.id,
                     "recipient_emails": email,
                     "active": False,
@@ -102,8 +109,13 @@ class ExecutiveReportSchedule(models.Model):
     def get_dashboard_config(self):
         self.env["tradeline.executive.dashboard.service"]._ensure_exec_admin()
         self._ensure_default_schedules()
-        schedules = self.sudo().with_context(active_test=False).search([], order="company_id")
-        histories = self.env["tradeline.executive.report.history"].sudo().search([], order="create_date desc", limit=30)
+        company_ids = self._target_companies().ids
+        schedules = self.sudo().with_context(active_test=False).search(
+            [("company_id", "in", company_ids)], order="company_id"
+        )
+        histories = self.env["tradeline.executive.report.history"].sudo().search(
+            [("company_id", "in", company_ids)], order="create_date desc", limit=40
+        )
         return {
             "schedules": [record._dashboard_values() for record in schedules],
             "history": [record._dashboard_values() for record in histories],
@@ -143,11 +155,21 @@ class ExecutiveReportSchedule(models.Model):
         record.write(clean)
         return record._dashboard_values()
 
-    def action_preview_pdf(self, report_date=None):
+    def action_preview_report(self, report_scope="daily", report_date=None, output_format="html"):
         self.env["tradeline.executive.dashboard.service"]._ensure_exec_admin()
         self.ensure_one()
+        if report_scope not in {"daily", "mtd"}:
+            raise ValidationError("Report scope must be Daily or MTD.")
+        if output_format not in {"html", "pdf"}:
+            raise ValidationError("Preview format must be HTML or PDF.")
         target_date = fields.Date.to_date(report_date) if report_date else fields.Date.context_today(self)
-        history = self._create_report_history(target_date, delivery_type="preview")
+        history = self._create_report_history(target_date, delivery_type="preview", report_scope=report_scope)
+        if output_format == "html":
+            return {
+                "type": "ir.actions.act_url",
+                "url": "/report/html/tradeline_executive_pocket_dashboard.report_executive_daily_document/%s" % history.id,
+                "target": "new",
+            }
         attachment = history._render_and_attach_pdf()
         return {
             "type": "ir.actions.act_url",
@@ -155,9 +177,13 @@ class ExecutiveReportSchedule(models.Model):
             "target": "self",
         }
 
-    def _create_report_history(self, report_date, delivery_type="scheduled"):
+    def action_preview_pdf(self, report_date=None):
+        """Backward-compatible Daily PDF preview for older cached assets."""
+        return self.action_preview_report("daily", report_date, "pdf")
+
+    def _create_report_history(self, report_date, delivery_type="scheduled", report_scope="daily"):
         self.ensure_one()
-        period_start = report_date.replace(day=1)
+        period_start = report_date if report_scope == "daily" else report_date.replace(day=1)
         filters = {
             "company_ids": [self.company_id.id],
             "branch_ids": [],
@@ -169,13 +195,14 @@ class ExecutiveReportSchedule(models.Model):
             "inventory_category": "all",
         }
         bundle = self.env["tradeline.executive.dashboard.service"].get_dashboard_bundle(
-            filters, "overview", None, self.top_n,
+            filters, "overview", None, 10,
         )
         return self.env["tradeline.executive.report.history"].sudo().create({
             "schedule_id": self.id,
             "company_id": self.company_id.id,
             "recipient_emails": self.recipient_emails or "",
             "delivery_type": delivery_type,
+            "report_scope": report_scope,
             "report_date": report_date,
             "period_start": period_start,
             "period_end": report_date,
@@ -185,34 +212,41 @@ class ExecutiveReportSchedule(models.Model):
 
     def _send_for_date(self, report_date):
         self.ensure_one()
-        history = self._create_report_history(report_date)
+        daily_history = self._create_report_history(report_date, report_scope="daily")
+        mtd_history = self._create_report_history(report_date, report_scope="mtd")
+        histories = daily_history | mtd_history
         try:
             with self.env.cr.savepoint():
-                attachment = history._render_and_attach_pdf()
+                attachments = histories.mapped(lambda history: history._render_and_attach_pdf())
                 mail = self.env["mail.mail"].sudo().create({
-                    "subject": "%s - Daily Executive Report - %s" % (self.company_id.name, report_date),
+                    "subject": "%s - Daily + MTD Executive Reports - %s" % (self.company_id.name, report_date),
                     "email_to": ",".join(self._email_list()),
                     "body_html": (
-                        "<p>Please find attached the <strong>%s</strong> executive report for %s.</p>"
-                        "<p>The report covers month-to-date performance through the report day and includes "
+                        "<p>Please find attached the <strong>%s Daily Executive Brief</strong> and "
+                        "<strong>MTD Executive Report</strong> for %s.</p>"
+                        "<p>Both reports include "
                         "sales, margin, customers, journals, inventory, FX, and source definitions.</p>"
                     ) % (self.company_id.name, report_date),
-                    "attachment_ids": [(4, attachment.id)],
+                    "attachment_ids": [(4, attachment.id) for attachment in attachments],
                     "auto_delete": False,
                 })
                 mail.send(raise_exception=True)
-                history.write({"state": "sent", "sent_at": fields.Datetime.now(), "mail_id": mail.id})
+                histories.write({"state": "sent", "sent_at": fields.Datetime.now(), "mail_id": mail.id})
                 self.write({"last_run_at": fields.Datetime.now(), "last_sent_on": report_date})
         except Exception as exc:
-            history.write({"state": "failed", "error_message": str(exc), "sent_at": fields.Datetime.now()})
+            if histories:
+                histories.write({"state": "failed", "error_message": str(exc), "sent_at": fields.Datetime.now()})
             self.write({"last_run_at": fields.Datetime.now()})
             _logger.exception("Executive report delivery failed for %s", self.company_id.name)
-        return history
+        return histories
 
     @api.model
     def _cron_send_due_reports(self):
         self._ensure_default_schedules()
-        for schedule in self.sudo().search([("active", "=", True)]):
+        target_company_ids = self._target_companies().ids
+        for schedule in self.sudo().search([
+            ("active", "=", True), ("company_id", "in", target_company_ids),
+        ]):
             local_now = schedule._local_now()
             if local_now.hour < schedule.send_hour or schedule.last_sent_on == local_now.date():
                 continue
@@ -234,6 +268,9 @@ class ExecutiveReportHistory(models.Model):
     company_id = fields.Many2one("res.company", required=True, index=True)
     recipient_emails = fields.Char()
     delivery_type = fields.Selection([("scheduled", "Scheduled"), ("preview", "Preview")], required=True)
+    report_scope = fields.Selection(
+        [("daily", "Daily"), ("mtd", "Month to Date")], required=True, default="mtd", index=True,
+    )
     report_date = fields.Date(required=True, index=True)
     period_start = fields.Date(required=True)
     period_end = fields.Date(required=True)
@@ -256,8 +293,9 @@ class ExecutiveReportHistory(models.Model):
             return self.attachment_id
         action = self.env.ref("tradeline_executive_pocket_dashboard.action_report_executive_daily_pdf")
         pdf_content, _ = action._render_qweb_pdf(action.report_name, res_ids=self.ids)
-        filename = "%s_Executive_Report_%s.pdf" % (
+        filename = "%s_%s_Executive_Report_%s.pdf" % (
             re.sub(r"[^A-Za-z0-9_-]+", "_", self.company_id.name or "Company"),
+            self.report_scope.upper(),
             self.report_date,
         )
         attachment = self.env["ir.attachment"].sudo().create({
@@ -278,6 +316,8 @@ class ExecutiveReportHistory(models.Model):
             "company_name": self.company_id.name,
             "report_date": fields.Date.to_string(self.report_date),
             "delivery_type": self.delivery_type,
+            "report_scope": self.report_scope,
+            "report_scope_label": dict(self._fields["report_scope"].selection).get(self.report_scope),
             "state": self.state,
             "recipient_emails": self.recipient_emails or "",
             "sent_at": fields.Datetime.to_string(self.sent_at) if self.sent_at else "",
@@ -288,8 +328,72 @@ class ExecutiveReportHistory(models.Model):
     def report_currency(self, value):
         return "EGP {:,.0f}".format(float(value or 0))
 
+    def report_compact(self, value, prefix=""):
+        number = float(value or 0)
+        absolute = abs(number)
+        sign = "-" if number < 0 else ""
+        if absolute >= 1_000_000_000:
+            text = "{:.1f}B".format(absolute / 1_000_000_000)
+        elif absolute >= 1_000_000:
+            text = "{:.1f}M".format(absolute / 1_000_000)
+        elif absolute >= 1_000:
+            text = "{:.1f}K".format(absolute / 1_000)
+        else:
+            text = "{:,.0f}".format(absolute)
+        return "%s%s%s" % (prefix, sign, text)
+
     def report_number(self, value):
         return "{:,.0f}".format(float(value or 0))
 
     def report_percent(self, value):
         return "{:.1f}%".format(float(value or 0))
+
+    def report_bar_width(self, value, rows, key):
+        maximum = max([abs(float(row.get(key) or 0)) for row in (rows or [])] or [1.0])
+        width = (abs(float(value or 0)) / maximum) * 100 if maximum else 0
+        return "%.1f%%" % max(2.0, min(width, 100.0))
+
+    def report_period_label(self):
+        self.ensure_one()
+        if self.report_scope == "daily":
+            return self.report_date.strftime("%d %B %Y")
+        return "%s - %s" % (self.period_start.strftime("%d %B"), self.period_end.strftime("%d %B %Y"))
+
+    def report_title(self):
+        self.ensure_one()
+        return "Daily Executive Brief" if self.report_scope == "daily" else "MTD Executive Report"
+
+    def report_card_value(self, card):
+        self.ensure_one()
+        if card.get("unit") == "EGP":
+            return self.report_compact(card.get("value"), "EGP ")
+        return self.report_compact(card.get("value"))
+
+    def report_trend_chart(self, rows):
+        self.ensure_one()
+        rows = list(rows or [])[-14:]
+        if not rows:
+            return {"line": "", "area": "", "points": [], "first": "", "middle": "", "last": ""}
+        width, height, pad_x, pad_y = 520.0, 105.0, 8.0, 8.0
+        values = [float(row.get("net_revenue") or 0) for row in rows]
+        low, high = min(values), max(values)
+        spread = high - low or max(abs(high), 1.0)
+        points = []
+        for index, (row, value) in enumerate(zip(rows, values)):
+            x = pad_x if len(rows) == 1 else pad_x + index * ((width - 2 * pad_x) / (len(rows) - 1))
+            y = pad_y + (1.0 - ((value - low) / spread)) * (height - 2 * pad_y)
+            points.append({"x": round(x, 2), "y": round(y, 2), "date": row.get("date"), "value": value})
+        line = " ".join(("M" if index == 0 else "L") + " %.2f %.2f" % (point["x"], point["y"]) for index, point in enumerate(points))
+        area = "%s L %.2f %.2f L %.2f %.2f Z" % (
+            line, points[-1]["x"], height - pad_y, points[0]["x"], height - pad_y,
+        )
+        return {
+            "line": line,
+            "area": area,
+            "points": points,
+            "first": rows[0].get("date") or "",
+            "middle": rows[len(rows) // 2].get("date") or "",
+            "last": rows[-1].get("date") or "",
+            "high": high,
+            "low": low,
+        }
