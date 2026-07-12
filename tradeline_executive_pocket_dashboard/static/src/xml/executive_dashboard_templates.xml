@@ -1057,7 +1057,7 @@
           <div class="tl-print-kpi">
             <div class="tl-print-kpi-label">Net Margin % (Period)</div>
             <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodNetMarginPct)"/></div>
-            <div class="tl-print-kpi-vs tl-neutral">Net Margin / untaxed revenue</div>
+            <div class="tl-print-kpi-vs tl-neutral">Net Margin / Odoo COGS margin revenue basis</div>
           </div>
         </t>
         <t t-if="mostafaMarginEnabled">
@@ -1069,7 +1069,7 @@
           <div class="tl-print-kpi">
             <div class="tl-print-kpi-label">Mostafa Margin % (XPRS)</div>
             <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodMostafaMarginPct)"/></div>
-            <div class="tl-print-kpi-vs tl-neutral">Mostafa Margin / untaxed revenue</div>
+            <div class="tl-print-kpi-vs tl-neutral">Mostafa Margin / same Odoo COGS margin revenue basis</div>
           </div>
         </t>
         <div class="tl-print-kpi">

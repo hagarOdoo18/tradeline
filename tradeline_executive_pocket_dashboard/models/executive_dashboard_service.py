@@ -628,7 +628,8 @@ class ExecutiveDashboardService(models.AbstractModel):
         disclosure = (
             "Mostafa Margin = real COGS Net Margin + EGP {:,.0f} signed untaxed "
             "reason discount. Reasons: {}. Refunds reverse the add-back. "
-            "Net Margin % and Mostafa Margin % each divide their named margin by signed untaxed revenue. "
+            "Net Margin % and Mostafa Margin % each divide their named margin by the same signed "
+            "untaxed revenue basis used by Odoo's real COGS margin analysis. "
             "Executive view only; accounting margin is unchanged."
         ).format(adjustment, reasons_text)
         if unresolved_count:
@@ -756,7 +757,12 @@ class ExecutiveDashboardService(models.AbstractModel):
             adjustment = float(adjustment or 0.0)
             row["mostafa_discount_adjustment"] = adjustment
             row["mostafa_margin"] = float(row.get("net_margin") or 0.0) + adjustment
-            margin_basis = float(row.get("net_revenue") or 0.0)
+            margin_basis_value = (
+                row.get("_margin_basis")
+                if "_margin_basis" in row
+                else row.get("net_revenue")
+            )
+            margin_basis = float(margin_basis_value or 0.0)
             row["mostafa_margin_pct"] = (
                 row["mostafa_margin"] / margin_basis * 100.0
                 if margin_basis else 0.0
@@ -1275,7 +1281,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 "value": finance.get("margin_pct", 0),
                 "unit": "%",
                 "tone": "positive" if finance.get("margin_pct", 0) >= 0 else "warning",
-                "subtext": "Net Margin / untaxed revenue",
+                "subtext": "Net Margin / Odoo COGS margin revenue basis",
             })
             if mostafa_meta.get("enabled"):
                 cards.insert(3, {
@@ -1294,7 +1300,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "value": mostafa_meta.get("mostafa_margin_pct", 0),
                     "unit": "%",
                     "tone": "positive" if mostafa_meta.get("mostafa_margin_pct", 0) >= 0 else "warning",
-                    "subtext": "Mostafa Margin / untaxed revenue",
+                    "subtext": "Mostafa Margin / same Odoo COGS margin revenue basis",
                 })
 
         default_domain = "finance"
@@ -1658,6 +1664,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
+                row["_margin_basis"] = margin_basis
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "net_revenue", "net_margin", "margin_pct", "credit_note_value"]
             if include_company_split:
@@ -2003,6 +2010,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 net_margin = float(margin_row.get("net_margin") or 0.0)
                 margin_basis = float(margin_row.get("margin_basis") or 0.0)
                 row["net_margin"] = net_margin
+                row["_margin_basis"] = margin_basis
                 row["margin_pct"] = (net_margin / margin_basis * 100.0) if margin_basis else 0.0
             columns = ["dimension", "invoice_count", "average_basket", "net_revenue", "net_margin", "margin_pct"]
             if include_company_split:
@@ -2544,6 +2552,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 m = mmap.get(row.get("dimension")) or {}
                 row["net_margin"] = float(m.get("net_margin") or 0)
                 mb = float(m.get("margin_basis") or 0)
+                row["_margin_basis"] = mb
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
         for row in rows:
             row["net_revenue"] = float(row.get("net_revenue") or 0)
@@ -2653,6 +2662,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 m = mmap.get(row.get("dimension")) or {}
                 row["net_margin"] = float(m.get("net_margin") or 0)
                 mb = float(m.get("margin_basis") or 0)
+                row["_margin_basis"] = mb
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
         for row in rows:
             row["net_revenue"] = float(row.get("net_revenue") or 0)
@@ -2765,6 +2775,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 m = mmap.get(row.get("dimension")) or {}
                 row["net_margin"] = float(m.get("net_margin") or 0)
                 mb = float(m.get("margin_basis") or 0)
+                row["_margin_basis"] = mb
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
         for row in rows:
             row["net_revenue"] = float(row.get("net_revenue") or 0)
@@ -2942,6 +2953,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 m = mmap.get(p_id) or {}
                 row["net_margin"] = float(m.get("net_margin") or 0)
                 mb = float(m.get("margin_basis") or 0)
+                row["_margin_basis"] = mb
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
                 
         for row in rows:
@@ -3039,6 +3051,7 @@ class ExecutiveDashboardService(models.AbstractModel):
                 m = mmap.get(row.get("dimension")) or {}
                 row["net_margin"] = float(m.get("net_margin") or 0)
                 mb = float(m.get("margin_basis") or 0)
+                row["_margin_basis"] = mb
                 row["margin_pct"] = (row["net_margin"] / mb * 100) if mb else 0.0
         for row in rows:
             row["net_revenue"] = float(row.get("net_revenue") or 0)
