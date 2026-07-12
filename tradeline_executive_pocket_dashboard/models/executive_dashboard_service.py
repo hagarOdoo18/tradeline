@@ -38,7 +38,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metrics": {
                 "net_revenue": "Untaxed Revenue",
                 "net_margin": "Net Margin",
-                "margin_pct": "Margin %",
+                "margin_pct": "Net Margin %",
                 "credit_note_value": "Credit Note Value",
                 "invoice_count": "Posted Docs Count",
             },
@@ -59,7 +59,7 @@ class ExecutiveDashboardService(models.AbstractModel):
             "metrics": {
                 "net_revenue": "Untaxed Revenue",
                 "net_margin": "Net Margin",
-                "margin_pct": "Margin %",
+                "margin_pct": "Net Margin %",
                 "average_basket": "Average Basket",
                 "invoice_count": "Invoice Count (Excl. Refunds)",
             },
@@ -554,13 +554,19 @@ class ExecutiveDashboardService(models.AbstractModel):
         self,
         scope: dict,
         net_margin: float = 0.0,
+        margin_basis: float = 0.0,
         margin_status: dict | None = None,
     ) -> dict:
+        margin_basis = float(margin_basis or 0.0)
+        net_margin = float(net_margin or 0.0)
         result = {
             "enabled": False,
-            "net_margin": float(net_margin or 0.0),
+            "net_margin": net_margin,
+            "net_margin_pct": (net_margin / margin_basis * 100.0) if margin_basis else 0.0,
+            "margin_basis": margin_basis,
             "discount_adjustment": 0.0,
-            "mostafa_margin": float(net_margin or 0.0),
+            "mostafa_margin": net_margin,
+            "mostafa_margin_pct": (net_margin / margin_basis * 100.0) if margin_basis else 0.0,
             "reason_count": 0,
             "reasons": [],
             "unresolved_full_discount_lines": 0,
@@ -622,15 +628,18 @@ class ExecutiveDashboardService(models.AbstractModel):
         disclosure = (
             "Mostafa Margin = real COGS Net Margin + EGP {:,.0f} signed untaxed "
             "reason discount. Reasons: {}. Refunds reverse the add-back. "
+            "Net Margin % and Mostafa Margin % each divide their named margin by signed untaxed revenue. "
             "Executive view only; accounting margin is unchanged."
         ).format(adjustment, reasons_text)
         if unresolved_count:
             disclosure += " %s line(s) at 100%% discount are excluded as not reconstructible." % unresolved_count
 
+        mostafa_margin = net_margin + adjustment
         result.update({
             "enabled": True,
             "discount_adjustment": adjustment,
-            "mostafa_margin": float(net_margin or 0.0) + adjustment,
+            "mostafa_margin": mostafa_margin,
+            "mostafa_margin_pct": (mostafa_margin / margin_basis * 100.0) if margin_basis else 0.0,
             "reason_count": len(reason_rows),
             "reasons": reason_rows,
             "unresolved_full_discount_lines": unresolved_count,
@@ -747,6 +756,11 @@ class ExecutiveDashboardService(models.AbstractModel):
             adjustment = float(adjustment or 0.0)
             row["mostafa_discount_adjustment"] = adjustment
             row["mostafa_margin"] = float(row.get("net_margin") or 0.0) + adjustment
+            margin_basis = float(row.get("net_revenue") or 0.0)
+            row["mostafa_margin_pct"] = (
+                row["mostafa_margin"] / margin_basis * 100.0
+                if margin_basis else 0.0
+            )
         return True
 
     def _finance_summary(self, filters: dict, margin_status: dict | None = None) -> dict:
@@ -862,6 +876,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         mostafa_meta = self._mostafa_margin_meta(
             filters,
             net_margin=margin.get("net_margin", 0.0),
+            margin_basis=margin.get("untaxed_revenue", 0.0),
             margin_status=margin_status,
         )
         result["mostafa_margin_meta"] = mostafa_meta
@@ -1254,8 +1269,16 @@ class ExecutiveDashboardService(models.AbstractModel):
         ]
         if margin_status.get("available"):
             cards.insert(1, {"key": "net_margin", "label": "Net Margin", "value": finance.get("net_margin", 0), "unit": "EGP", "tone": "neutral", "subtext": "in selected period"})
+            cards.insert(2, {
+                "key": "net_margin_pct",
+                "label": "Net Margin %",
+                "value": finance.get("margin_pct", 0),
+                "unit": "%",
+                "tone": "positive" if finance.get("margin_pct", 0) >= 0 else "warning",
+                "subtext": "Net Margin / untaxed revenue",
+            })
             if mostafa_meta.get("enabled"):
-                cards.insert(2, {
+                cards.insert(3, {
                     "key": "mostafa_margin",
                     "label": "Mostafa Margin",
                     "value": mostafa_meta.get("mostafa_margin", 0),
@@ -1264,6 +1287,14 @@ class ExecutiveDashboardService(models.AbstractModel):
                     "subtext": "Net Margin + EGP {:,.0f} reason discounts".format(
                         mostafa_meta.get("discount_adjustment", 0)
                     ),
+                })
+                cards.insert(4, {
+                    "key": "mostafa_margin_pct",
+                    "label": "Mostafa Margin %",
+                    "value": mostafa_meta.get("mostafa_margin_pct", 0),
+                    "unit": "%",
+                    "tone": "positive" if mostafa_meta.get("mostafa_margin_pct", 0) >= 0 else "warning",
+                    "subtext": "Mostafa Margin / untaxed revenue",
                 })
 
         default_domain = "finance"
@@ -1372,9 +1403,11 @@ class ExecutiveDashboardService(models.AbstractModel):
             result.get("rows", []), scope, group_by, margin_status
         ):
             columns = result.setdefault("columns", [])
-            if "mostafa_margin" not in columns:
-                insert_at = columns.index("net_margin") + 1 if "net_margin" in columns else len(columns)
-                columns.insert(insert_at, "mostafa_margin")
+            for column in ("margin_pct", "mostafa_margin", "mostafa_margin_pct"):
+                if column in columns:
+                    columns.remove(column)
+            insert_at = columns.index("net_margin") + 1 if "net_margin" in columns else len(columns)
+            columns[insert_at:insert_at] = ["margin_pct", "mostafa_margin", "mostafa_margin_pct"]
             result["mostafa_margin_enabled"] = True
         result.setdefault("total_count", len(result.get("rows", [])))
         result.setdefault("limit", limit)

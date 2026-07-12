@@ -63,8 +63,9 @@
                         <th class="er-rank">#</th><th class="er-dimension"><span t-esc="dimension_label"/></th>
                         <th class="er-num">Untaxed Revenue</th><th class="er-num">Invoices (incl. credit notes)</th>
                         <th t-if="margin_available" class="er-num">Net Margin</th>
+                        <th t-if="margin_available" class="er-num">Net Margin %</th>
                         <th t-if="margin_available and mostafa_enabled" class="er-num er-mostafa-cell">Mostafa Margin</th>
-                        <th t-if="margin_available" class="er-num">Margin%</th>
+                        <th t-if="margin_available and mostafa_enabled" class="er-num er-mostafa-cell">Mostafa Margin %</th>
                     </tr>
                     <tr t-elif="table_kind == 'inventory'">
                         <th class="er-rank">#</th><th class="er-dimension"><span t-esc="dimension_label"/></th>
@@ -86,8 +87,9 @@
                             <td class="er-num"><span t-esc="o.report_currency(row.get('net_revenue', 0))"/></td>
                             <td class="er-num"><span t-esc="o.report_number(row.get('invoice_count', 0))"/></td>
                             <td t-if="margin_available" class="er-num"><span t-esc="o.report_currency(row.get('net_margin', 0))"/></td>
-                            <td t-if="margin_available and mostafa_enabled" class="er-num er-mostafa-cell"><span t-esc="o.report_currency(row.get('mostafa_margin', 0))"/></td>
                             <td t-if="margin_available" t-att-class="'er-num ' + ('er-negative' if (row.get('margin_pct') or 0) &lt; 0 else 'er-positive')"><span t-esc="o.report_percent(row.get('margin_pct', 0))"/></td>
+                            <td t-if="margin_available and mostafa_enabled" class="er-num er-mostafa-cell"><span t-esc="o.report_currency(row.get('mostafa_margin', 0))"/></td>
+                            <td t-if="margin_available and mostafa_enabled" t-att-class="'er-num er-mostafa-cell ' + ('er-negative' if (row.get('mostafa_margin_pct') or 0) &lt; 0 else 'er-positive')"><span t-esc="o.report_percent(row.get('mostafa_margin_pct', 0))"/></td>
                         </t>
                         <t t-elif="table_kind == 'inventory'">
                             <td class="er-num"><span t-esc="o.report_number(row.get('on_hand_qty', 0))"/></td>
@@ -208,6 +210,9 @@
                             <div class="er-kpi-row">
                                 <div class="er-kpi" t-foreach="cards[4:8]" t-as="card"><div class="er-metric-label" t-esc="card.get('label')"/><div class="er-metric-value" t-esc="o.report_card_value(card)"/><div class="er-metric-note" t-esc="card.get('subtext') or ''"/></div>
                             </div>
+                            <div class="er-kpi-row" t-if="cards[8:12]">
+                                <div class="er-kpi" t-foreach="cards[8:12]" t-as="card"><div class="er-metric-label" t-esc="card.get('label')"/><div class="er-metric-value" t-esc="o.report_card_value(card)"/><div class="er-metric-note" t-esc="card.get('subtext') or ''"/></div>
+                            </div>
                         </div>
                         <div class="er-subhead">7-Day Daily Snapshot</div>
                         <table class="er-snapshot"><tbody><tr>
@@ -223,7 +228,7 @@
                         <h1 class="er-page-heading">Sales Performance</h1><div class="er-heading-rule"></div>
                         <t t-set="title" t-value="'Top 10 by Branch'"/><t t-set="rows" t-value="top.get('sales_by_branch', [])"/><t t-set="dimension_label" t-value="'Branch'"/><t t-set="source_label" t-value="'Untaxed Revenue'"/><t t-set="table_kind" t-value="'sales'"/><t t-set="value_key" t-value="'net_revenue'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <t t-set="title" t-value="'Top 10 by Salesperson'"/><t t-set="rows" t-value="top.get('sales_by_salesperson', [])"/><t t-set="dimension_label" t-value="'Salesperson'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
-                        <div class="er-definition">Invoice counts include posted customer invoices, receipts, and credit notes. Revenue is untaxed. Net Margin uses real stock valuation COGS. <span t-if="mostafa_enabled">Mostafa Margin is an XPRS-only executive adjustment that adds back actual reason-tagged untaxed discounts; it does not alter Odoo accounting margin.</span></div>
+                        <div class="er-definition">Invoice counts include posted customer invoices, receipts, and credit notes. Revenue is untaxed. Net Margin uses real stock valuation COGS; Net Margin % is Net Margin divided by signed untaxed revenue. <span t-if="mostafa_enabled">Mostafa Margin is an XPRS-only executive adjustment that adds back actual reason-tagged untaxed discounts; Mostafa Margin % is Mostafa Margin divided by the same signed untaxed revenue. It does not alter Odoo accounting margin.</span></div>
                         <t t-set="page_number" t-value="2"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 

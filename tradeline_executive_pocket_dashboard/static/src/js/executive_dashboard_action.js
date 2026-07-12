@@ -86,7 +86,9 @@ export class ExecutivePocketDashboard extends Component {
     get dailyDonutCategorySegments() { return this._buildDonutSegments(this.dailyTopSections.sales_by_category || [], "net_revenue"); }
     get periodNetRevenue() { return this.state.bundle?.cards?.find(c => c.key === 'net_revenue')?.value || 0; }
     get periodNetMargin() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin')?.value || 0; }
+    get periodNetMarginPct() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin_pct')?.value || 0; }
     get periodMostafaMargin() { return this.state.bundle?.cards?.find(c => c.key === 'mostafa_margin')?.value || 0; }
+    get periodMostafaMarginPct() { return this.state.bundle?.cards?.find(c => c.key === 'mostafa_margin_pct')?.value || 0; }
     get periodInvoiceCount() { return this.state.bundle?.cards?.find(c => c.key === 'invoice_count')?.value || 0; }
 
     // ─── KPI / meta getters ───────────────────────────────────────────────────
@@ -307,7 +309,9 @@ export class ExecutivePocketDashboard extends Component {
         return s.length > maxLen ? `${s.slice(0, maxLen - 1)}…` : s;
     }
     columnLabel(col) {
+        if (col === "margin_pct") return "Net Margin %";
         if (col === "mostafa_margin") return "Mostafa Margin";
+        if (col === "mostafa_margin_pct") return "Mostafa Margin %";
         if (col === "invoice_count") {
             if (this.state.selectedDomain === "finance") return "Posted Docs (incl. refunds)";
             if (this.state.selectedDomain === "sales") return "Invoices (excl. refunds)";
@@ -512,6 +516,7 @@ export class ExecutivePocketDashboard extends Component {
                 ].concat(compDomain);
                 break;
             case "net_margin":
+            case "net_margin_pct":
                 model = "account.invoice.report";
                 name = "Margin Analysis";
                 domain = [
@@ -522,6 +527,7 @@ export class ExecutivePocketDashboard extends Component {
                 ].concat(compDomain);
                 break;
             case "mostafa_margin":
+            case "mostafa_margin_pct":
                 model = "account.invoice.report";
                 name = "XPRS Mostafa Margin Source";
                 domain = [

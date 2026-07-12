@@ -373,6 +373,8 @@ class ExecutiveReportHistory(models.Model):
         self.ensure_one()
         if card.get("unit") == "EGP":
             return self.report_compact(card.get("value"), "EGP ")
+        if card.get("unit") == "%":
+            return self.report_percent(card.get("value"))
         return self.report_compact(card.get("value"))
 
     def report_trend_chart(self, rows):

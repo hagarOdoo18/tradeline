@@ -225,6 +225,7 @@
             <div class="tl-kpi-label"><t t-esc="card.label"/></div>
             <div class="tl-kpi-value">
               <t t-if="card.unit === 'EGP'"><t t-esc="_formatCompactEGP(card.value)"/></t>
+              <t t-elif="card.unit === '%'"><t t-esc="_formatPercent(card.value)"/></t>
               <t t-else=""><t t-esc="_formatNumber(card.value)"/></t>
             </div>
             <div class="tl-kpi-sub-text" t-if="card.subtext" style="margin-top: 4px; font-size: 0.9em;"><t t-esc="card.subtext"/></div>
@@ -277,13 +278,14 @@
                 <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
+                  <th class="col-num">Net Margin %</th>
                   <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
-                  <th class="col-num">Margin%</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -295,8 +297,9 @@
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
-                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -335,13 +338,14 @@
                 <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
+                  <th class="col-num">Net Margin %</th>
                   <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
-                  <th class="col-num">Margin%</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -353,8 +357,9 @@
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
-                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -399,8 +404,9 @@
                 <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num">Net Margin</th>
+                  <th class="col-num">Net Margin %</th>
                   <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
-                  <th class="col-num">Margin%</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -412,8 +418,9 @@
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
-                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -452,13 +459,14 @@
                 <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
+                  <th class="col-num">Net Margin %</th>
                   <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
-                  <th class="col-num">Margin%</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -470,8 +478,9 @@
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
-                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -518,13 +527,14 @@
                 <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
+                  <th class="col-num">Net Margin %</th>
                   <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
-                  <th class="col-num">Margin%</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -536,8 +546,9 @@
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
-                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -1043,12 +1054,22 @@
             <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetMargin)"/></div>
             <div class="tl-print-kpi-vs tl-neutral">net margin in period</div>
           </div>
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Net Margin % (Period)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodNetMarginPct)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">Net Margin / untaxed revenue</div>
+          </div>
         </t>
         <t t-if="mostafaMarginEnabled">
           <div class="tl-print-kpi">
             <div class="tl-print-kpi-label">Mostafa Margin (XPRS)</div>
             <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodMostafaMargin)"/></div>
             <div class="tl-print-kpi-vs tl-neutral">net margin + reason discounts</div>
+          </div>
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Mostafa Margin % (XPRS)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodMostafaMarginPct)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">Mostafa Margin / untaxed revenue</div>
           </div>
         </t>
         <div class="tl-print-kpi">
