@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -351,13 +352,21 @@ class ExecutiveReportHistory(models.Model):
         return "data:image/png;base64,%s" % encoded
 
     def report_dimension_label(self, value):
-        """Emit non-ASCII labels as numeric entities for wkhtmltopdf's legacy parser."""
+        """Keep Unicode labels out of wkhtmltopdf's broken HTML charset path."""
         text = self.env["tradeline.executive.dashboard.service"]._repair_mojibake(
             str(value or "Unassigned")
         )
-        escaped = str(escape(text))
-        entity_text = escaped.encode("ascii", "xmlcharrefreplace").decode("ascii")
-        return Markup(entity_text)
+        if text.isascii():
+            return escape(text)
+
+        # QWeb resolves HTML entities before wkhtmltopdf receives the document.
+        # CSS escapes remain ASCII until Qt's renderer constructs the glyphs.
+        css_text = "".join("\\%x " % ord(character) for character in text)
+        css_class = "o_pdf_label_%s" % hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+        return Markup(
+            '<span class="%s" dir="auto"></span>'
+            '<style>.%s:before { content: "%s"; }</style>'
+        ) % (css_class, css_class, css_text)
 
     def report_compact(self, value, prefix=""):
         number = float(value or 0)
