@@ -5,6 +5,7 @@ import re
 from datetime import datetime, time, timedelta
 
 import pytz
+from markupsafe import Markup, escape
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -348,6 +349,15 @@ class ExecutiveReportHistory(models.Model):
             _logger.exception("Executive report logo could not be loaded: %s", filename)
             return ""
         return "data:image/png;base64,%s" % encoded
+
+    def report_dimension_label(self, value):
+        """Emit non-ASCII labels as numeric entities for wkhtmltopdf's legacy parser."""
+        text = self.env["tradeline.executive.dashboard.service"]._repair_mojibake(
+            str(value or "Unassigned")
+        )
+        escaped = str(escape(text))
+        entity_text = escaped.encode("ascii", "xmlcharrefreplace").decode("ascii")
+        return Markup(entity_text)
 
     def report_compact(self, value, prefix=""):
         number = float(value or 0)

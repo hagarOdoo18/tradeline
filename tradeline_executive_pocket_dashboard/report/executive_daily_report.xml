@@ -79,7 +79,7 @@
                     <tr t-foreach="rows[:10]" t-as="row">
                         <td class="er-rank"><span t-esc="row_index + 1"/></td>
                         <td class="er-dimension">
-                            <span dir="auto" t-esc="row.get('dimension') or 'Unassigned'"/>
+                            <span dir="auto" t-out="o.report_dimension_label(row.get('dimension'))"/>
                             <div class="er-inline-bar"><span t-att-style="'width:' + o.report_bar_width(row.get(value_key, 0), rows, value_key)"/></div>
                         </td>
                         <t t-if="table_kind == 'sales'">
