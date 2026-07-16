@@ -27,8 +27,7 @@
     <template id="report_executive_header">
         <div class="er-header">
             <div class="er-brand">
-                <img t-if="'xprs' in (o.company_id.name or '').lower()" class="er-logo er-logo-xprs" src="/tradeline_executive_pocket_dashboard/static/description/xprs_logo.png"/>
-                <img t-else="" class="er-logo er-logo-tradeline" src="/tradeline_executive_pocket_dashboard/static/description/tradeline_mark.png"/>
+                <img t-att-class="'er-logo er-logo-xprs' if 'xprs' in (o.company_id.name or '').lower() else 'er-logo er-logo-tradeline'" t-att-src="o.report_logo_data_uri()"/>
                 <div class="er-brand-copy">
                     <div class="er-product">Executive Pocket</div>
                     <div class="er-company"><span t-esc="o.company_id.name"/></div>
@@ -44,7 +43,7 @@
     <template id="report_executive_footer">
         <div class="er-footer">
             <div t-if="mostafa_enabled and page_number in (2, 3)" class="er-footer-mostafa">
-                <strong>Mostafa Margin · XPRS executive adjustment:</strong>
+                <strong>Mostafa Margin - XPRS executive adjustment:</strong>
                 <span t-esc="mostafa_meta.get('disclosure')"/>
             </div>
             <div class="er-footer-row">
@@ -80,7 +79,7 @@
                     <tr t-foreach="rows[:10]" t-as="row">
                         <td class="er-rank"><span t-esc="row_index + 1"/></td>
                         <td class="er-dimension">
-                            <span t-esc="row.get('dimension') or 'Unassigned'"/>
+                            <span dir="auto" t-esc="row.get('dimension') or 'Unassigned'"/>
                             <div class="er-inline-bar"><span t-att-style="'width:' + o.report_bar_width(row.get(value_key, 0), rows, value_key)"/></div>
                         </td>
                         <t t-if="table_kind == 'sales'">
@@ -255,7 +254,7 @@
                         <h1 class="er-page-heading">Sales Trend</h1><div class="er-heading-rule"></div>
                         <t t-set="trend_chart" t-value="o.report_trend_chart(top.get('sales_over_month', []))"/>
                         <section class="er-trend-card">
-                            <div class="er-table-title">Untaxed Revenue MTD (EGP)<span class="er-table-source">K = thousand · M = million · B = billion</span></div>
+                            <div class="er-table-title">Untaxed Revenue MTD (EGP)<span class="er-table-source">K = thousand - M = million - B = billion</span></div>
                             <t t-if="trend_chart.get('line')">
                                 <svg class="er-trend-chart" viewBox="0 0 520 145" preserveAspectRatio="xMidYMid meet">
                                     <defs><linearGradient id="erTrendArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#137b50" stop-opacity="0.24"/><stop offset="100%" stop-color="#137b50" stop-opacity="0.02"/></linearGradient></defs>
@@ -277,7 +276,7 @@
                             <div t-else="" class="er-empty">No month-to-date trend data available.</div>
                         </section>
                         <div class="er-subhead">Collections Mix</div>
-                        <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Exact EGP · Reporting Payment Excel Report'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Exact EGP - Reporting Payment Excel Report'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <div class="er-definition">Open Unpaid Invoice Value follows Invoice Analysis untaxed amounts for selected-period invoices still unpaid on the report day. Collections follow the Reporting Payment Excel Report transaction source: reconciled invoice payments, POS payment fallbacks, credit notes, and sale-order payments, scoped by company, branch, and date.</div>
                         <t t-set="page_number" t-value="5"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>

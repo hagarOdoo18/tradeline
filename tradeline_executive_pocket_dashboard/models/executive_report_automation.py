@@ -8,6 +8,7 @@ import pytz
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
+from odoo.tools.misc import file_path
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -333,6 +334,20 @@ class ExecutiveReportHistory(models.Model):
 
     def report_currency(self, value):
         return "EGP {:,.0f}".format(float(value or 0))
+
+    def report_logo_data_uri(self):
+        self.ensure_one()
+        filename = "xprs_logo.png" if "xprs" in (self.company_id.name or "").lower() else "tradeline_mark.png"
+        try:
+            path = file_path(
+                "tradeline_executive_pocket_dashboard/static/description/%s" % filename
+            )
+            with open(path, "rb") as logo_file:
+                encoded = base64.b64encode(logo_file.read()).decode("ascii")
+        except (OSError, ValueError):
+            _logger.exception("Executive report logo could not be loaded: %s", filename)
+            return ""
+        return "data:image/png;base64,%s" % encoded
 
     def report_compact(self, value, prefix=""):
         number = float(value or 0)

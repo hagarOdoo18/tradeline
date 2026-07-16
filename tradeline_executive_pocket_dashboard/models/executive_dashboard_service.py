@@ -262,23 +262,50 @@ class ExecutiveDashboardService(models.AbstractModel):
                 return value.strip()
         return ""
 
+    @staticmethod
+    def _repair_mojibake(value: str) -> str:
+        """Repair UTF-8 text that was decoded as a Western single-byte encoding."""
+        markers = ("Ã", "Â", "â", "Ø", "Ù", "Ð", "Ñ", "�")
+
+        def corruption_score(text):
+            return sum(text.count(marker) for marker in markers)
+
+        best = value
+        for _attempt in range(3):
+            current_score = corruption_score(best)
+            if not current_score:
+                break
+            candidates = []
+            for encoding in ("cp1252", "latin1"):
+                try:
+                    candidates.append(best.encode(encoding).decode("utf-8"))
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    continue
+            if not candidates:
+                break
+            candidate = min(candidates, key=corruption_score)
+            if corruption_score(candidate) >= current_score:
+                break
+            best = candidate
+        return best
+
     def _clean_dimension_label(self, value):
         if value is None:
             return "Unspecified"
         if isinstance(value, dict):
             cleaned = self._pick_translated_value(value)
-            return cleaned or "Unspecified"
+            return self._repair_mojibake(cleaned) if cleaned else "Unspecified"
         if isinstance(value, str):
             stripped = value.strip()
             if stripped.startswith("{") and stripped.endswith("}"):
                 try:
                     parsed = json.loads(stripped)
                 except Exception:
-                    return value
+                    return self._repair_mojibake(stripped)
                 if isinstance(parsed, dict):
                     cleaned = self._pick_translated_value(parsed)
-                    return cleaned or value
-            return value
+                    return self._repair_mojibake(cleaned or stripped)
+            return self._repair_mojibake(stripped)
         return value
 
     def _ensure_exec_admin(self):
