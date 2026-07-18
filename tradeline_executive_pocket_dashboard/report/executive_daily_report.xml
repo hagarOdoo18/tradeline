@@ -5,10 +5,10 @@
         <field name="default" eval="False"/>
         <field name="format">A4</field>
         <field name="orientation">Portrait</field>
-        <field name="margin_top">8</field>
-        <field name="margin_bottom">8</field>
-        <field name="margin_left">9</field>
-        <field name="margin_right">9</field>
+        <field name="margin_top">4</field>
+        <field name="margin_bottom">4</field>
+        <field name="margin_left">4</field>
+        <field name="margin_right">4</field>
         <field name="header_line" eval="False"/>
         <field name="header_spacing">0</field>
         <field name="dpi">96</field>
@@ -111,7 +111,7 @@
             <style>
                 body { margin:0; background:#edf1ef; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:8px; }
                 .er-report-stack { width:100%; }
-                .page { position:relative; box-sizing:border-box; background:#fff; padding:0 2mm 13mm; page-break-after:always; }
+                .page { position:relative; box-sizing:border-box; background:#fff; padding:0 1mm 10mm; page-break-after:always; }
                 .page:last-child { page-break-after:auto; }
                 .er-header { display:table; width:100%; box-sizing:border-box; border-bottom:1.5px solid #0b4a32; padding:1mm 0 3mm; margin-bottom:5mm; }
                 .er-brand,.er-report-meta { display:table-cell; vertical-align:middle; }
@@ -127,7 +127,7 @@
                 .er-page-heading { font-family:DejaVu Serif, Georgia, serif; color:#101d17; font-size:25px; line-height:1.05; margin:0 0 2mm; font-weight:700; }
                 .er-page-intro { color:#66756e; font-size:8px; margin-bottom:5mm; }
                 .er-heading-rule { width:14mm; height:2px; background:#0b4a32; margin:3mm 0 4mm; }
-                .er-footer { position:absolute; left:2mm; right:2mm; bottom:0; width:100%; box-sizing:border-box; border-top:1px solid #d9e1dd; padding-top:1.2mm; color:#74827b; font-size:6px; }
+                .er-footer { position:absolute; left:1mm; right:1mm; bottom:0; width:100%; box-sizing:border-box; border-top:1px solid #d9e1dd; padding-top:1.2mm; color:#74827b; font-size:6px; }
                 .er-footer-row { display:table; width:100%; }
                 .er-footer-row > span:last-child { float:right; }
                 .er-footer-mostafa { color:#315f4d; font-size:4.8px; line-height:1.25; margin-bottom:1mm; }
@@ -172,12 +172,12 @@
                 .er-trend-summary { color:#66756e; font-size:6px; margin-top:1.5mm; }
                 .er-definition { border-left:2px solid #0b4a32; background:#f3f7f5; color:#596a62; padding:2.5mm 3mm; font-size:6.3px; line-height:1.45; margin-top:3mm; }
                 @media screen {
-                    .er-report-stack { padding:24px 0; }
-                    .page { width:210mm; min-height:297mm; margin:0 auto 24px; padding:8mm 11mm 14mm; box-shadow:0 14px 45px rgba(13,45,31,.16); }
+                    .er-report-stack { padding:8px 0; }
+                    .page { width:210mm; min-height:297mm; margin:0 auto 12px; padding:5mm 5mm 10mm; box-shadow:0 10px 32px rgba(13,45,31,.14); }
                 }
                 @media print {
                     body { background:#fff; }
-                    .page { min-height:279mm; }
+                    .page { min-height:289mm; }
                 }
             </style>
             <div class="er-report-stack">

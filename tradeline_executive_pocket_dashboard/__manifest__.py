@@ -2,7 +2,7 @@
 {
     "name": "Tradeline Executive Pocket Dashboard",
     "summary": "Standalone executive dashboard with granular drilldowns and live FX watch",
-    "version": "18.0.1.3.6",
+    "version": "18.0.1.3.7",
     "category": "Reporting",
     "author": "Tradeline",
     "license": "LGPL-3",
