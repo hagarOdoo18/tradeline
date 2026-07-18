@@ -19,19 +19,19 @@ class ConfigurationMonth(models.Model):
 
     year = fields.Selection(get_years(), string='Year', default=str(datetime.now().year),readonly=True)
     percentage = fields.Float(
-        string='Percentage', track_visibility='onchange',
+        string='Percentage', tracking=True,
         required=False)
     is_created = fields.Boolean(
         string='Is_created',
         readonly=False)
     total_month = fields.Float(
-        string='Total month',track_visibility='onchange',
+        string='Total month', tracking=True,
         required=True)
     total_day = fields.Float(
-        string='Total day',track_visibility='onchange',
+        string='Total day', tracking=True,
         required=True,readonly=True,compute="_onchange_month_selection_and_total_month")
     min_invoice_amount = fields.Float(
-        string='Min Invoice Amount',track_visibility='onchange',
+        string='Min Invoice Amount', tracking=True,
         required=True)
     branch_id = fields.Many2one('res.branch', 'branch', index=True, required=True)
     send_per_invoice = fields.Boolean(

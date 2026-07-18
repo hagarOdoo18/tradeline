@@ -8,8 +8,8 @@ class TransferMakers(models.Model):
     _name = 'transfer.makers'
     _rec_name = 'name'
 
-    code = fields.Char(string='Code',track_visibility='always',)
-    name = fields.Char(string='Name',track_visibility='always',)
+    code = fields.Char(string='Code')
+    name = fields.Char(string='Name')
     transfer_line_ids = fields.One2many(
         comodel_name='transfer.makers.line',
         inverse_name='transfer_maker_id',

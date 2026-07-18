@@ -67,7 +67,8 @@
 
                         <group string="Signature" invisible="config_version != '1.0'">
                             <group>
-                                <field name="signature_tool" options="{'horizontal': true}" widget="radio"/>
+                                <field name="signature_tool" options="{'horizontal': true}"
+                                       widget="radio" invisible="1"/>
                                 <field name="signature_url" widget="url" invisible="signature_tool != 'python'"/>
                                 <field name="signature_serializer" widget="url" invisible="signature_tool != 'c#'"/>
                                 <field name="signature_hash" widget="url" invisible="signature_tool != 'c#'"/>

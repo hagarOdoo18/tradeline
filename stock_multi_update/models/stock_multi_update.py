@@ -28,7 +28,6 @@ class StockMultiUpdate(models.Model):
         domain=[('usage', 'in', ['internal', 'transit'])],
         default=lambda self: self.env.ref('stock.stock_location_stock', raise_if_not_found=False),
         tracking=True,
-        states={'done': [('readonly', True)], 'cancelled': [('readonly', True)]},
     )
     notes = fields.Text(string='Notes')
     state = fields.Selection([
@@ -41,7 +40,6 @@ class StockMultiUpdate(models.Model):
         'stock.multi.update.line',
         'update_id',
         string='Products',
-        states={'done': [('readonly', True)], 'cancelled': [('readonly', True)]},
         copy=True,
     )
 

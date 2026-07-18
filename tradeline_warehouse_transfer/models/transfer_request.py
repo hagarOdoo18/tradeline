@@ -158,7 +158,7 @@ class TransferRequest(models.Model):
         required=False)
 
     state = fields.Selection(
-        string='State',copy=False,track_visibility='onchange',
+        string='State', copy=False, tracking=True,
         selection=[('draft', 'Draft'),
                    ('approved', 'Approved'),('create','Created'),('in_progress', 'In Progress'),('received', 'Received'),('completed', 'Transfer Completed'), ('cancel', 'Canceled'), ],
         required=False, default='draft')

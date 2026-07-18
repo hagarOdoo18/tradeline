@@ -75,11 +75,15 @@ class CrmLead(models.Model):
     order_line = fields.One2many(comodel_name="crm.lead.line",
                                  inverse_name="order_id",copy=False)
 
-    amount_untaxed = fields.Float(string='Untaxed Amount', store=True, readonly=True, compute='_amount_all', track_visibility='onchange', track_sequence=5)
+    amount_untaxed = fields.Float(
+        string='Untaxed Amount', store=True, readonly=True,
+        compute='_amount_all', tracking=True)
 
     amount_tax = fields.Float(string='Taxes', store=True, readonly=True, compute='_amount_all')
 
-    amount_total = fields.Float(string='Total', store=True, readonly=True, compute='_amount_all', track_visibility='always', track_sequence=6)
+    amount_total = fields.Float(
+        string='Total', store=True, readonly=True,
+        compute='_amount_all', tracking=True)
 
     @api.depends('order_line.price_total')
     def _amount_all(self):
