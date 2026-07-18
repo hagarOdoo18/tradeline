@@ -111,7 +111,7 @@
             <style>
                 body { margin:0; background:#fff; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:9px; }
                 .er-report-stack { width:100%; padding:0; }
-                .page { position:relative; box-sizing:border-box; width:auto; min-height:289mm; margin:0; background:#fff; padding:0 1mm 10mm; page-break-after:always; }
+                .page { position:relative; box-sizing:border-box; width:auto; min-height:286mm; margin:0; background:#fff; padding:0 1mm 10mm; page-break-after:always; }
                 .page:last-child { page-break-after:auto; }
                 .er-header { display:table; width:100%; box-sizing:border-box; border-bottom:1.5px solid #0b4a32; padding:1mm 0 3mm; margin-bottom:5mm; }
                 .er-brand,.er-report-meta { display:table-cell; vertical-align:middle; }
@@ -209,11 +209,11 @@
                 .er-trend-page .er-subhead { font-size:15px; margin:6mm 0 3mm; }
                 @media screen {
                     .er-report-stack { padding:0; }
-                    .page { width:auto; min-height:289mm; margin:0; padding:0 1mm 10mm; box-shadow:none; }
+                    .page { width:auto; min-height:286mm; margin:0; padding:0 1mm 10mm; box-shadow:none; }
                 }
                 @media print {
                     body { background:#fff; }
-                    .page { min-height:289mm; }
+                    .page { min-height:286mm; }
                 }
             </style>
             <div class="er-report-stack">
