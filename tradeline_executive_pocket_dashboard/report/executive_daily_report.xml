@@ -171,6 +171,37 @@
                 .er-trend-chart { width:100%; height:43mm; display:block; margin-top:2mm; }
                 .er-trend-summary { color:#66756e; font-size:6px; margin-top:1.5mm; }
                 .er-definition { border-left:2px solid #0b4a32; background:#f3f7f5; color:#596a62; padding:2.5mm 3mm; font-size:6.3px; line-height:1.45; margin-top:3mm; }
+                .er-summary-page .er-header { margin-bottom:8mm; }
+                .er-summary-page .er-page-heading { font-size:31px; margin-bottom:3mm; }
+                .er-summary-page .er-page-intro { font-size:9px; line-height:1.5; margin-bottom:8mm; }
+                .er-summary-page .er-hero-grid { margin-bottom:7mm; }
+                .er-summary-page .er-hero-metric { padding:5mm 4mm; }
+                .er-summary-page .er-metric-label { font-size:7px; }
+                .er-summary-page .er-hero-metric .er-metric-value { font-size:21px; margin:3mm 0 2mm; }
+                .er-summary-page .er-metric-note { font-size:7px; line-height:1.5; }
+                .er-summary-page .er-subhead { font-size:14px; margin:7mm 0 3mm; }
+                .er-summary-page .er-kpi { padding:4.5mm 3.5mm; }
+                .er-summary-page .er-kpi .er-metric-value { font-size:17px; margin:2.5mm 0 1.5mm; }
+                .er-summary-page .er-snapshot td { padding:4mm 3mm; }
+                .er-summary-page .er-snapshot-date { font-size:7px; }
+                .er-summary-page .er-snapshot-value { font-size:13px; margin-top:2mm; }
+                .er-summary-page .er-snapshot-count { font-size:7px; margin-top:1.2mm; }
+                .er-summary-page .er-alerts { padding:4mm; }
+                .er-summary-page .er-alert { font-size:8px; line-height:1.45; }
+                .er-summary-page .er-alert strong { font-size:8px; }
+                .er-data-page .er-header { margin-bottom:6mm; }
+                .er-data-page .er-page-heading { font-size:29px; }
+                .er-data-page .er-heading-rule { margin-bottom:5mm; }
+                .er-data-page .er-section-block { margin-bottom:6mm; }
+                .er-data-page .er-table-title { font-size:13px; padding-bottom:2.5mm; }
+                .er-data-page .er-table th { font-size:6.6px; padding:2mm 1.4mm; }
+                .er-data-page .er-table td { font-size:7.3px; line-height:1.3; padding:2mm 1.4mm; }
+                .er-data-page .er-definition { font-size:7.2px; line-height:1.55; padding:4mm; margin-top:5mm; }
+                .er-sales-page .er-table td,
+                .er-inventory-page .er-table td { padding-top:2.6mm; padding-bottom:2.6mm; }
+                .er-trend-page .er-trend-chart { height:72mm; }
+                .er-trend-page .er-trend-card { padding:4mm; margin-bottom:7mm; }
+                .er-trend-page .er-subhead { font-size:14px; margin:6mm 0 3mm; }
                 @media screen {
                     .er-report-stack { padding:8px 0; }
                     .page { width:210mm; min-height:297mm; margin:0 auto 12px; padding:5mm 5mm 10mm; box-shadow:0 10px 32px rgba(13,45,31,.14); }
@@ -190,7 +221,7 @@
                     <t t-set="mostafa_meta" t-value="payload.get('meta', {}).get('mostafa_margin', {})"/>
                     <t t-set="mostafa_enabled" t-value="mostafa_meta.get('enabled', False)"/>
 
-                    <div class="page">
+                    <div class="page er-summary-page">
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading"><span t-esc="o.report_title()"/></h1>
                         <div class="er-heading-rule"></div>
@@ -222,7 +253,7 @@
                         <t t-set="page_number" t-value="1"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
-                    <div class="page">
+                    <div class="page er-data-page er-sales-page">
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading">Sales Performance</h1><div class="er-heading-rule"></div>
                         <t t-set="title" t-value="'Top 10 by Branch'"/><t t-set="rows" t-value="top.get('sales_by_branch', [])"/><t t-set="dimension_label" t-value="'Branch'"/><t t-set="source_label" t-value="'Exact amounts in EGP'"/><t t-set="table_kind" t-value="'sales'"/><t t-set="value_key" t-value="'net_revenue'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
@@ -231,7 +262,7 @@
                         <t t-set="page_number" t-value="2"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
-                    <div class="page">
+                    <div class="page er-data-page er-commercial-page">
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading">Commercial Mix</h1><div class="er-heading-rule"></div>
                         <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('sales_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
@@ -240,7 +271,7 @@
                         <t t-set="page_number" t-value="3"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
-                    <div class="page">
+                    <div class="page er-data-page er-inventory-page">
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading">Inventory Exposure</h1><div class="er-heading-rule"></div>
                         <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('inventory_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-set="source_label" t-value="'Allocated cost in EGP (SVL method)'"/><t t-set="table_kind" t-value="'inventory'"/><t t-set="value_key" t-value="'allocated_value'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
@@ -249,7 +280,7 @@
                         <t t-set="page_number" t-value="4"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
-                    <div class="page">
+                    <div class="page er-data-page er-trend-page">
                         <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
                         <h1 class="er-page-heading">Sales Trend</h1><div class="er-heading-rule"></div>
                         <t t-set="trend_chart" t-value="o.report_trend_chart(top.get('sales_over_month', []))"/>
