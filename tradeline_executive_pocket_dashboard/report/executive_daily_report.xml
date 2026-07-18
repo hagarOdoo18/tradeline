@@ -109,7 +109,7 @@
     <template id="report_executive_daily_document">
         <t t-call="web.html_container">
             <style>
-                body { margin:0; background:#fff; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:8px; }
+                body { margin:0; background:#fff; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:9px; }
                 .er-report-stack { width:100%; padding:0; }
                 .page { position:relative; box-sizing:border-box; width:auto; min-height:289mm; margin:0; background:#fff; padding:0 1mm 10mm; page-break-after:always; }
                 .page:last-child { page-break-after:auto; }
@@ -120,17 +120,17 @@
                 .er-logo-xprs { width:34mm; max-height:12mm; }
                 .er-logo-tradeline { width:12mm; max-height:12mm; }
                 .er-brand-copy { display:inline-block; vertical-align:middle; padding-left:2.5mm; }
-                .er-product { font-family:DejaVu Serif, Georgia, serif; color:#0b4a32; font-size:15px; font-weight:700; line-height:1; }
-                .er-company { color:#66756e; font-size:7px; letter-spacing:.08em; text-transform:uppercase; margin-top:1.2mm; }
-                .er-report-type { color:#0b4a32; font-size:10px; font-weight:700; }
-                .er-report-period { color:#66756e; font-size:7px; margin-top:1mm; }
+                .er-product { font-family:DejaVu Serif, Georgia, serif; color:#0b4a32; font-size:17px; font-weight:700; line-height:1; }
+                .er-company { color:#66756e; font-size:8px; letter-spacing:.08em; text-transform:uppercase; margin-top:1.2mm; }
+                .er-report-type { color:#0b4a32; font-size:11px; font-weight:700; }
+                .er-report-period { color:#66756e; font-size:8px; margin-top:1mm; }
                 .er-page-heading { font-family:DejaVu Serif, Georgia, serif; color:#101d17; font-size:25px; line-height:1.05; margin:0 0 2mm; font-weight:700; }
                 .er-page-intro { color:#66756e; font-size:8px; margin-bottom:5mm; }
                 .er-heading-rule { width:14mm; height:2px; background:#0b4a32; margin:3mm 0 4mm; }
-                .er-footer { position:absolute; left:2mm; right:2mm; bottom:0; width:auto; box-sizing:border-box; border-top:1px solid #d9e1dd; padding-top:1.2mm; color:#74827b; font-size:6px; }
+                .er-footer { position:absolute; left:2mm; right:2mm; bottom:0; width:auto; box-sizing:border-box; border-top:1px solid #d9e1dd; padding-top:1.2mm; color:#74827b; font-size:6.6px; }
                 .er-footer-row { display:table; width:100%; }
                 .er-footer-row > span:last-child { float:right; }
-                .er-footer-mostafa { color:#315f4d; font-size:4.8px; line-height:1.25; margin-bottom:1mm; }
+                .er-footer-mostafa { color:#315f4d; font-size:5.3px; line-height:1.25; margin-bottom:1mm; }
                 .er-footer-mostafa strong { color:#0b4a32; }
                 .er-hero-grid { display:table; width:100%; table-layout:fixed; border-spacing:2mm; margin-left:-2mm; margin-bottom:2mm; }
                 .er-hero-metric { display:table-cell; width:25%; border-top:2px solid #0b4a32; background:#f3f7f5; padding:3mm; }
@@ -172,40 +172,41 @@
                 .er-trend-summary { color:#66756e; font-size:6px; margin-top:1.5mm; }
                 .er-definition { border-left:2px solid #0b4a32; background:#f3f7f5; color:#596a62; padding:2.5mm 3mm; font-size:6.3px; line-height:1.45; margin-top:3mm; }
                 .er-summary-page .er-header { margin-bottom:8mm; }
-                .er-summary-page .er-page-heading { font-size:31px; margin-bottom:3mm; }
-                .er-summary-page .er-page-intro { font-size:9px; line-height:1.5; margin-bottom:8mm; }
+                .er-summary-page .er-page-heading { font-size:34px; margin-bottom:3mm; }
+                .er-summary-page .er-page-intro { font-size:10px; line-height:1.5; margin-bottom:8mm; }
                 .er-summary-page .er-hero-grid { margin-bottom:7mm; }
                 .er-summary-page .er-hero-metric { padding:5mm 4mm; }
-                .er-summary-page .er-metric-label { font-size:7px; }
-                .er-summary-page .er-hero-metric .er-metric-value { font-size:21px; margin:3mm 0 2mm; }
-                .er-summary-page .er-metric-note { font-size:7px; line-height:1.5; }
-                .er-summary-page .er-subhead { font-size:14px; margin:7mm 0 3mm; }
+                .er-summary-page .er-metric-label { font-size:8px; }
+                .er-summary-page .er-hero-metric .er-metric-value { font-size:23px; margin:3mm 0 2mm; }
+                .er-summary-page .er-metric-note { font-size:8px; line-height:1.45; }
+                .er-summary-page .er-subhead { font-size:15px; margin:7mm 0 3mm; }
                 .er-summary-page .er-kpi { padding:4.5mm 3.5mm; }
-                .er-summary-page .er-kpi .er-metric-value { font-size:17px; margin:2.5mm 0 1.5mm; }
+                .er-summary-page .er-kpi .er-metric-value { font-size:19px; margin:2.5mm 0 1.5mm; }
                 .er-summary-page .er-snapshot td { padding:4mm 3mm; }
-                .er-summary-page .er-snapshot-date { font-size:7px; }
-                .er-summary-page .er-snapshot-value { font-size:13px; margin-top:2mm; }
-                .er-summary-page .er-snapshot-count { font-size:7px; margin-top:1.2mm; }
+                .er-summary-page .er-snapshot-date { font-size:8px; }
+                .er-summary-page .er-snapshot-value { font-size:14px; margin-top:2mm; }
+                .er-summary-page .er-snapshot-count { font-size:8px; margin-top:1.2mm; }
                 .er-summary-page .er-alerts { padding:4mm; }
-                .er-summary-page .er-alert { font-size:8px; line-height:1.45; }
-                .er-summary-page .er-alert strong { font-size:8px; }
+                .er-summary-page .er-alert { font-size:9px; line-height:1.4; }
+                .er-summary-page .er-alert strong { font-size:9px; }
                 .er-data-page .er-header { margin-bottom:6mm; }
-                .er-data-page .er-page-heading { font-size:29px; }
+                .er-data-page .er-page-heading { font-size:32px; }
                 .er-data-page .er-heading-rule { margin-bottom:5mm; }
                 .er-data-page .er-section-block { margin-bottom:6mm; }
-                .er-data-page .er-table-title { font-size:13px; padding-bottom:2.5mm; }
-                .er-data-page .er-table th { font-size:6.6px; padding:2mm 1.4mm; }
-                .er-data-page .er-table td { font-size:7.3px; line-height:1.3; padding:2mm 1.4mm; }
-                .er-data-page .er-definition { font-size:7.2px; line-height:1.55; padding:4mm; margin-top:5mm; }
+                .er-data-page .er-table-title { font-size:14px; padding-bottom:2.5mm; }
+                .er-data-page .er-table-source { font-size:7px; }
+                .er-data-page .er-table th { font-size:7.2px; padding:2mm 1.4mm; }
+                .er-data-page .er-table td { font-size:8.2px; line-height:1.25; padding:2mm 1.4mm; }
+                .er-data-page .er-definition { font-size:8px; line-height:1.45; padding:4mm; margin-top:5mm; }
                 .er-commercial-page .er-section-block { margin-bottom:4.5mm; }
-                .er-commercial-page .er-table-title { font-size:12px; padding-bottom:2mm; }
-                .er-commercial-page .er-table th { font-size:6.2px; padding:1.7mm 1.3mm; }
-                .er-commercial-page .er-table td { font-size:7px; padding:1.6mm 1.3mm; }
+                .er-commercial-page .er-table-title { font-size:13.5px; padding-bottom:2mm; }
+                .er-commercial-page .er-table th { font-size:6.9px; padding:1.6mm 1.2mm; }
+                .er-commercial-page .er-table td { font-size:7.8px; line-height:1.2; padding:1.45mm 1.2mm; }
                 .er-sales-page .er-table td,
                 .er-inventory-page .er-table td { padding-top:2.6mm; padding-bottom:2.6mm; }
                 .er-trend-page .er-trend-chart { height:72mm; }
                 .er-trend-page .er-trend-card { padding:4mm; margin-bottom:7mm; }
-                .er-trend-page .er-subhead { font-size:14px; margin:6mm 0 3mm; }
+                .er-trend-page .er-subhead { font-size:15px; margin:6mm 0 3mm; }
                 @media screen {
                     .er-report-stack { padding:0; }
                     .page { width:auto; min-height:289mm; margin:0; padding:0 1mm 10mm; box-shadow:none; }
@@ -295,11 +296,11 @@
                                     <defs><linearGradient id="erTrendArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#137b50" stop-opacity="0.24"/><stop offset="100%" stop-color="#137b50" stop-opacity="0.02"/></linearGradient></defs>
                                     <g t-foreach="trend_chart.get('y_ticks')" t-as="tick">
                                         <line t-att-x1="trend_chart.get('axis_left')" t-att-y1="tick.get('y')" t-att-x2="trend_chart.get('axis_right')" t-att-y2="tick.get('y')" stroke="#d9e1dd" stroke-width="0.7"/>
-                                        <text x="53" t-att-y="tick.get('y') + 2" text-anchor="end" fill="#66756e" font-size="6.5"><t t-esc="tick.get('label')"/></text>
+                                        <text x="53" t-att-y="tick.get('y') + 2" text-anchor="end" fill="#66756e" font-size="7.5"><t t-esc="tick.get('label')"/></text>
                                     </g>
                                     <g t-foreach="trend_chart.get('x_ticks')" t-as="tick">
                                         <line t-att-x1="tick.get('x')" t-att-y1="trend_chart.get('axis_top')" t-att-x2="tick.get('x')" t-att-y2="trend_chart.get('axis_bottom')" stroke="#edf1ef" stroke-width="0.6"/>
-                                        <text t-att-x="tick.get('x')" y="139" t-att-text-anchor="tick.get('anchor')" fill="#66756e" font-size="6.5"><t t-esc="tick.get('label')"/></text>
+                                        <text t-att-x="tick.get('x')" y="139" t-att-text-anchor="tick.get('anchor')" fill="#66756e" font-size="7.5"><t t-esc="tick.get('label')"/></text>
                                     </g>
                                     <line t-att-x1="trend_chart.get('axis_left')" t-att-y1="trend_chart.get('zero_y')" t-att-x2="trend_chart.get('axis_right')" t-att-y2="trend_chart.get('zero_y')" stroke="#9bada4" stroke-width="1"/>
                                     <path t-att-d="trend_chart.get('area')" fill="url(#erTrendArea)" stroke="none"/>
