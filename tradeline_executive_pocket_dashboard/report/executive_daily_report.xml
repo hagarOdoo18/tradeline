@@ -111,8 +111,8 @@
             <style>
                 body { margin:0; background:#fff; color:#101d17; font-family:DejaVu Sans, Arial, sans-serif; font-size:9px; }
                 .er-report-stack { width:100%; padding:0; }
-                .page { position:relative; box-sizing:border-box; width:auto; min-height:286mm; margin:0; background:#fff; padding:0 1mm 10mm; page-break-after:always; }
-                .page:last-child { page-break-after:auto; }
+                .page { position:relative; box-sizing:border-box; width:auto; min-height:286mm; margin:0; background:#fff; padding:0 1mm 10mm; page-break-after:auto; }
+                .er-data-page { page-break-before:always; }
                 .er-header { display:table; width:100%; box-sizing:border-box; border-bottom:1.5px solid #0b4a32; padding:1mm 0 3mm; margin-bottom:5mm; }
                 .er-brand,.er-report-meta { display:table-cell; vertical-align:middle; }
                 .er-report-meta { text-align:right; }
