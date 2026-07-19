@@ -278,11 +278,12 @@ class ExecutiveReportSchedule(models.Model):
             ("active", "=", True), ("company_id", "in", target_company_ids),
         ]):
             local_now = schedule._local_now()
-            if local_now.hour < schedule.send_hour or schedule.last_sent_on == local_now.date():
+            report_date = local_now.date() - timedelta(days=1)
+            if local_now.hour < schedule.send_hour or schedule.last_sent_on == report_date:
                 continue
             try:
                 with self.env.cr.savepoint():
-                    schedule._send_for_date(local_now.date() - timedelta(days=1))
+                    schedule._send_for_date(report_date)
             except Exception:
                 # Isolate a pre-history data failure so remaining companies run.
                 _logger.exception("Executive report delivery failed for %s", schedule.company_id.name)

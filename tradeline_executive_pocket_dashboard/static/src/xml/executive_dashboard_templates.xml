@@ -107,7 +107,7 @@
               </div>
               <label class="tl-automation-field tl-field-wide"><span>Recipient emails</span><input type="text" t-model="schedule.recipient_emails" placeholder="mostafa@example.com"/></label>
               <div class="tl-schedule-fields tl-schedule-fields-two">
-                <label class="tl-automation-field"><span>Send hour</span><select t-model="schedule.send_hour"><option t-foreach="[6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]" t-as="hour" t-key="hour" t-att-value="hour"><t t-esc="hour"/>:00</option></select></label>
+                <label class="tl-automation-field"><span>Send hour</span><select t-model="schedule.send_hour"><option t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" t-as="hour" t-key="hour" t-att-value="hour"><t t-esc="hour &lt; 10 ? '0' + hour : hour"/>:00</option></select></label>
                 <label class="tl-automation-field"><span>Timezone</span><select t-model="schedule.timezone"><option value="Africa/Cairo">Africa/Cairo</option><option value="UTC">UTC</option></select></label>
               </div>
               <div class="tl-schedule-status"><span>Last sent: <strong t-esc="schedule.last_sent_on || 'Not yet sent'"/></span><span>Next run: <strong t-esc="schedule.next_run_at || 'Inactive'"/></span></div>
@@ -115,7 +115,7 @@
                 <div class="tl-report-preview-card"><strong>Daily Executive Brief</strong><span>Report-day performance</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'pdf')">PDF</button></div></div>
                 <div class="tl-report-preview-card"><strong>MTD Executive Report</strong><span>Month start through report day</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'pdf')">PDF</button></div></div>
               </div>
-              <div class="tl-schedule-actions"><span class="tl-schedule-help">Every report contains the dashboard Top 10 sections. Advanced Drilldown is excluded.</span><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
+              <div class="tl-schedule-actions"><span class="tl-schedule-help">Sends the completed previous-day Daily report plus MTD through that day. Midnight is 00:00. Advanced Drilldown is excluded.</span><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
             </div>
           </div>
           <div class="tl-history-head"><div><h3>Delivery History</h3><p>Sent emails, previews, attachments, and errors are retained here.</p></div><button class="tl-btn-sm" t-on-click="_loadReportAutomation">Refresh</button></div>
