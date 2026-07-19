@@ -42,7 +42,7 @@
 
     <template id="report_executive_footer">
         <div class="er-footer">
-            <div t-if="mostafa_enabled and page_number &gt; 1 and page_number &lt;= (3 + branch_page_count)" class="er-footer-mostafa">
+            <div t-if="mostafa_enabled and page_number &gt; 1 and page_number &lt;= (4 + branch_page_count)" class="er-footer-mostafa">
                 <strong>Mostafa Margin - XPRS executive adjustment:</strong>
                 <span t-esc="mostafa_meta.get('disclosure')"/>
             </div>
@@ -228,7 +228,7 @@
                     <t t-set="mostafa_enabled" t-value="mostafa_meta.get('enabled', False)"/>
                     <t t-set="branch_pages" t-value="top.get('sales_by_branch_pages') or [top.get('sales_by_branch', [])]"/>
                     <t t-set="branch_page_count" t-value="len(branch_pages)"/>
-                    <t t-set="report_page_count" t-value="6 + branch_page_count"/>
+                    <t t-set="report_page_count" t-value="7 + branch_page_count"/>
                     <t t-set="row_offset" t-value="0"/>
                     <t t-set="row_limit" t-value="10"/>
 
@@ -287,8 +287,17 @@
                         <t t-set="row_offset" t-value="0"/><t t-set="row_limit" t-value="10"/><t t-set="source_label" t-value="'Exact amounts in EGP'"/>
                         <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('sales_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <t t-set="title" t-value="'Top 10 Customers'"/><t t-set="rows" t-value="top.get('sales_by_customer', [])"/><t t-set="dimension_label" t-value="'Customer'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
-                        <t t-set="title" t-value="'Top 10 by Product Variant'"/><t t-set="rows" t-value="top.get('sales_by_product', [])"/><t t-set="dimension_label" t-value="'Product Variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <t t-set="page_number" t-value="3 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                    </div>
+
+                    <div class="page er-data-page er-commercial-page">
+                        <t t-call="tradeline_executive_pocket_dashboard.report_executive_header"/>
+                        <h1 class="er-page-heading">Product Sales Detail</h1><div class="er-heading-rule"></div>
+                        <t t-set="row_offset" t-value="0"/><t t-set="row_limit" t-value="10"/><t t-set="source_label" t-value="'Exact amounts in EGP'"/>
+                        <t t-set="table_kind" t-value="'sales'"/><t t-set="value_key" t-value="'net_revenue'"/>
+                        <t t-set="title" t-value="'Top 10 by Product Variant'"/><t t-set="rows" t-value="top.get('sales_by_product', [])"/><t t-set="dimension_label" t-value="'Product Variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
+                        <div class="er-definition">Product rows remain at variant level. Revenue is untaxed; invoice counts include posted customer invoices, receipts, and credit notes.</div>
+                        <t t-set="page_number" t-value="4 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
                     <div class="page er-data-page er-inventory-page">
@@ -298,7 +307,7 @@
                         <t t-set="title" t-value="'Top 10 by Category'"/><t t-set="rows" t-value="top.get('inventory_by_category', [])"/><t t-set="dimension_label" t-value="'Category'"/><t t-set="source_label" t-value="'Allocated cost in EGP (SVL method)'"/><t t-set="table_kind" t-value="'inventory'"/><t t-set="value_key" t-value="'allocated_value'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <t t-set="title" t-value="'Top 10 by Product Family'"/><t t-set="rows" t-value="top.get('inventory_by_family', [])"/><t t-set="dimension_label" t-value="'Product Family'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <div class="er-definition">Inventory uses internal-location stock quantities and allocated stock valuation layer cost as of the report day. Product Family comes from the native Odoo product family assigned to each product template.</div>
-                        <t t-set="page_number" t-value="4 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                        <t t-set="page_number" t-value="5 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
                     <div class="page er-data-page er-inventory-page">
@@ -308,7 +317,7 @@
                         <t t-set="source_label" t-value="'Allocated cost in EGP (SVL method)'"/><t t-set="table_kind" t-value="'inventory'"/><t t-set="value_key" t-value="'allocated_value'"/>
                         <t t-set="title" t-value="'Top 10 by Product Variant'"/><t t-set="rows" t-value="top.get('inventory_by_product', [])"/><t t-set="dimension_label" t-value="'Product Variant'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <div class="er-definition">Inventory uses internal-location stock quantities and allocated stock valuation layer cost as of the report day. Product rows remain at variant level.</div>
-                        <t t-set="page_number" t-value="5 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                        <t t-set="page_number" t-value="6 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
 
                     <div class="page er-data-page er-trend-page">
@@ -341,7 +350,7 @@
                         <div class="er-subhead">Collections Mix</div>
                         <t t-set="title" t-value="'Top 10 Payment Journals'"/><t t-set="rows" t-value="top.get('payment_journals', [])"/><t t-set="dimension_label" t-value="'Journal'"/><t t-set="source_label" t-value="'Exact EGP - Reporting Payment Excel Report'"/><t t-set="table_kind" t-value="'journals'"/><t t-set="value_key" t-value="'collections_total'"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_table"/>
                         <div class="er-definition">Open Unpaid Invoice Value follows Invoice Analysis untaxed amounts for selected-period invoices still unpaid on the report day. Collections follow the Reporting Payment Excel Report transaction source: reconciled invoice payments, POS payment fallbacks, credit notes, and sale-order payments, scoped by company, branch, and date.</div>
-                        <t t-set="page_number" t-value="6 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
+                        <t t-set="page_number" t-value="7 + branch_page_count"/><t t-call="tradeline_executive_pocket_dashboard.report_executive_footer"/>
                     </div>
                 </t>
             </div>
