@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "TLS Integration CRM",
+    'license': 'LGPL-3',
 
 
 

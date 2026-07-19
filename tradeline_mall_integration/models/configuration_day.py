@@ -10,6 +10,7 @@ from odoo.exceptions import ValidationError, UserError
 import requests
 class ConfigurationDay(models.Model):
     _name = 'config.day'
+    _description = "Config Day"
 
     x_css = fields.Html(
         string='CSS',

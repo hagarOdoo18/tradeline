@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Partern customization",
+    'license': 'LGPL-3',
 
     'summary': """
         custom Partber customization""",

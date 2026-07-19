@@ -9,6 +9,7 @@ from io import BytesIO
 
 class ProductPointWizard (models.TransientModel) :
     _name = 'product.point.wizard'
+    _description = "Product Point Wizard"
 
     date_from = fields.Date(
         string='From',

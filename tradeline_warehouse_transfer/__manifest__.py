@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Tradeline Transfer Request",
+    'license': 'LGPL-3',
 
     'summary': """
         Tradeline Transfer Request""",

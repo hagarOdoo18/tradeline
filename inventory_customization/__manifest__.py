@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Inventory customization",
+    'license': 'LGPL-3',
 
     'summary': """
         custom Inventory customization""",

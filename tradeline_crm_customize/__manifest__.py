@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "tradeline_crm_customize",
+    'license': 'LGPL-3',
     'author': "Centione",
     'website': "http://www.centione.com",
     'category': 'CRM',

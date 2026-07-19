@@ -1,5 +1,6 @@
 {
     "name": "Stock Quant Custom List",
+    "license": "LGPL-3",
     "version": "1.0.0",
     "summary": "Custom list view for stock.quant with related product fields and restricted menu group",
     "author": "Ezzat",

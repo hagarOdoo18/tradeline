@@ -6,6 +6,7 @@ from odoo import api, fields, models,_
 class CrmLeadLost(models.TransientModel):
     _inherit = 'crm.lead.lost'
     _name = 'crm.lead.lost'
+    _description = "Crm Lead Lost"
 
 
     def action_lost_reason_apply(self):

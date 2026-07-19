@@ -8,6 +8,7 @@ def get_years():
 
 class ConfigurationMonth(models.Model):
     _name = 'config.month'
+    _description = "Config Month"
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _rec_name = 'month_selection'
 

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "tradeline Update Product QTY",
+    'license': 'LGPL-3',
 
 
     'author': "Tradeline",

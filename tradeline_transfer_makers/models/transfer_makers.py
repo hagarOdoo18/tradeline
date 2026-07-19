@@ -6,6 +6,7 @@ from datetime import datetime
 
 class TransferMakers(models.Model):
     _name = 'transfer.makers'
+    _description = "Transfer Makers"
     _rec_name = 'name'
 
     code = fields.Char(string='Code')
@@ -41,6 +42,7 @@ class TransferMakers(models.Model):
 
 class TransferMakersLine(models.Model):
     _name = 'transfer.makers.line'
+    _description = "Transfer Makers Line"
 
     transfer_maker_id = fields.Many2one(
         comodel_name='transfer.makers',

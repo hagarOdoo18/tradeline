@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Customization Prodcut Code",
+    'license': 'LGPL-3',
 
 
 

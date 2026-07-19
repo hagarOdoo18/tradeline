@@ -4,6 +4,7 @@ from odoo.exceptions import ValidationError
 
 class PaymentDateWizard(models.TransientModel):
     _name = 'payment.data.wizard'
+    _description = "Payment Data Wizard"
 
     start_date = fields.Date(string="Start Date")
     end_date = fields.Date(string="End Date")

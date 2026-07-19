@@ -5,6 +5,7 @@ from odoo import fields, models, api
 
 class BaseTransfer(models.AbstractModel):
     _name = 'base.transfer'
+    _description = "Base Transfer"
 
 
     def create_enter(self):

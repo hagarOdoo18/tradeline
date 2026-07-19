@@ -1,5 +1,6 @@
 {
     "name": "Apple Stock Report Wizard",
+    "license": "LGPL-3",
     "version": "1.0",
     "depends": ["stock",'stock_user_location_domain'],
     "data": [

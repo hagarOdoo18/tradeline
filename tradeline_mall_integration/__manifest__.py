@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Mall Integration",
+    'license': 'LGPL-3',
 
 
 

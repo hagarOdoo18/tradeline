@@ -7,6 +7,7 @@ from datetime import datetime
 
 class TransferLine(models.Model):
     _name = 'transfer.request.line'
+    _description = "Transfer Request Line"
 
     product_id = fields.Many2one(
         comodel_name='product.product',

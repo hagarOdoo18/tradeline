@@ -112,6 +112,7 @@ class VendorReceivedDocument(models.Model):
 
 class VendorReceivedDocumentLine(models.Model):
 	_name = 'vendor.received.document.line'
+	_description = "Vendor Received Document Line"
 	
 	document_id = fields.Many2one('vendor.received.document', "Document")
 	name = fields.Char("Product Name", required=True)

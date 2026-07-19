@@ -1069,6 +1069,7 @@ class SaleOrderLine(models.Model):
 class saleadvancepaymentinv(models.TransientModel):
     _inherit = 'sale.advance.payment.inv'
     _name = 'sale.advance.payment.inv'
+    _description = "Sale Advance Payment Inv"
 
     advance_payment_method = fields.Selection(
         selection=[

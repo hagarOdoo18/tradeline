@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Base Tradeline",
+    'license': 'LGPL-3',
 
     'summary': """
         custom Base Models""",

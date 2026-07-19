@@ -8,6 +8,7 @@ import xlsxwriter
 
 class StockQuantInherit(models.TransientModel):
     _name = 'stock.abm.report.wizard'
+    _description = "Stock Abm Report Wizard"
 
     gentextfile = fields.Binary('Click On Save As Button To Download File', readonly=True)
 

@@ -1,5 +1,6 @@
 {
     'name': 'Stock Serial Upload (Serial Column Only)',
+    'license': 'LGPL-3',
     'version': '1.0.0',
     'summary': 'Upload serial numbers (one-column Excel) to internal transfers',
     'description': 'Wizard to import serial numbers (single "serial" column) and create/attach lots and move lines on internal stock pickings.',

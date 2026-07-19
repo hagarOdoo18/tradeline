@@ -1,5 +1,6 @@
 {
     'name': 'Serial Import Wizard',
+    'license': 'LGPL-3',
     'version': '1.0',
     'summary': 'Import Serials from Wizard with custom naming',
     'category': 'Inventory',

@@ -3,6 +3,7 @@ from odoo import fields, models, api
 
 class ConfigurationDayLine(models.Model):
     _name = 'config.day.line'
+    _description = "Config Day Line"
 
     date = fields.Date(
         string='Date',

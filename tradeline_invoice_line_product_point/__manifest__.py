@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Tradeline Compute Product Point",
+    'license': 'LGPL-3',
 
 
     'author': "Tradeline",
