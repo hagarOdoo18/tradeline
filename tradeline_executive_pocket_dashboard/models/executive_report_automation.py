@@ -197,7 +197,11 @@ class ExecutiveReportSchedule(models.Model):
             "product_category": "all",
             "inventory_category": "all",
         }
-        service = self.env["tradeline.executive.dashboard.service"]
+        # Company-level executive PDFs must not inherit the scheduler user's
+        # personal branch assignments; the dashboard itself keeps that behavior.
+        service = self.env["tradeline.executive.dashboard.service"].with_context(
+            exec_report_all_branches=True
+        )
         bundle = service.get_dashboard_bundle(
             filters, "overview", None, 10,
         )

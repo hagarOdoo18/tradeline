@@ -342,7 +342,11 @@ class ExecutiveDashboardService(models.AbstractModel):
             "tradeline_executive_pocket_dashboard.group_exec_admin"
         ):
             branch_ids = [x for x in branch_ids if x in user_branch_ids]
-        elif not branch_ids and user_branch_ids:
+        elif (
+            not branch_ids
+            and user_branch_ids
+            and not self.env.context.get("exec_report_all_branches")
+        ):
             branch_ids = user_branch_ids
 
         return {
