@@ -109,6 +109,21 @@ class ExecutiveReportSchedule(models.Model):
                 })
 
     @api.model
+    def _configure_delivery_cron(self):
+        """Keep delivery checks frequent without making report generation recurrent."""
+        cron = self.env.ref(
+            "tradeline_executive_pocket_dashboard.ir_cron_send_executive_daily_reports",
+            raise_if_not_found=False,
+        )
+        if cron:
+            cron.sudo().write({
+                "interval_number": 5,
+                "interval_type": "minutes",
+                "nextcall": fields.Datetime.now() + timedelta(minutes=1),
+            })
+        return True
+
+    @api.model
     def get_dashboard_config(self):
         self.env["tradeline.executive.dashboard.service"]._ensure_exec_admin()
         self._ensure_default_schedules()
@@ -281,6 +296,19 @@ class ExecutiveReportSchedule(models.Model):
             report_date = local_now.date() - timedelta(days=1)
             if local_now.hour < schedule.send_hour or schedule.last_sent_on == report_date:
                 continue
+
+            # A schedule enabled after today's target time starts tomorrow; it
+            # must not immediately backfill an older report before midnight.
+            schedule_write = fields.Datetime.to_datetime(schedule.write_date)
+            if schedule_write:
+                if schedule_write.tzinfo is None:
+                    schedule_write = pytz.utc.localize(schedule_write)
+                local_write = schedule_write.astimezone(pytz.timezone(schedule.timezone))
+                local_target = pytz.timezone(schedule.timezone).localize(
+                    datetime.combine(local_now.date(), time(schedule.send_hour))
+                )
+                if local_write > local_target:
+                    continue
             try:
                 with self.env.cr.savepoint():
                     schedule._send_for_date(report_date)
