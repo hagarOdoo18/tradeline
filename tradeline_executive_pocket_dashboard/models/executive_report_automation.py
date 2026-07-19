@@ -197,11 +197,27 @@ class ExecutiveReportSchedule(models.Model):
             "product_category": "all",
             "inventory_category": "all",
         }
-        bundle = self.env["tradeline.executive.dashboard.service"].get_dashboard_bundle(
+        service = self.env["tradeline.executive.dashboard.service"]
+        bundle = service.get_dashboard_bundle(
             filters, "overview", None, 10,
         )
+        report_scope_data = service._resolve_filter_scope(filters)
+        margin_status = service._real_margin_availability(report_scope_data)
+        top_sections = bundle.setdefault("top_sections", {})
+        branch_rows = service._all_sales_by_branch(report_scope_data, margin_status)
+        if service._mostafa_margin_enabled(report_scope_data, margin_status):
+            service._apply_mostafa_margin(
+                branch_rows, report_scope_data, "branch", margin_status
+            )
+        top_sections["sales_by_branch"] = branch_rows
+        top_sections["sales_by_branch_pages"] = [
+            branch_rows[index:index + 18]
+            for index in range(0, len(branch_rows), 18)
+        ] or [[]]
+        top_sections["inventory_by_family"] = service._top_inventory_by_family(
+            report_scope_data, 10
+        )
         # Both report variants use a complete month-to-date calendar trend.
-        service = self.env["tradeline.executive.dashboard.service"]
         trend_filters = dict(filters)
         trend_filters["start_date"] = fields.Date.to_string(report_date.replace(day=1))
         trend_scope = service._resolve_filter_scope(trend_filters)
@@ -233,8 +249,9 @@ class ExecutiveReportSchedule(models.Model):
                     "body_html": (
                         "<p>Please find attached the <strong>%s Daily Executive Brief</strong> and "
                         "<strong>MTD Executive Report</strong> for %s.</p>"
-                        "<p>Both reports include "
-                        "sales, margin, customers, journals, inventory, and source definitions.</p>"
+                        "<p>Both reports include all branches, untaxed sales, margin, customers, "
+                        "payment journals, inventory by category, product family and product "
+                        "variant, plus source definitions.</p>"
                     ) % (self.company_id.name, report_date),
                     "attachment_ids": [(4, attachment.id) for attachment in attachments],
                     "auto_delete": False,

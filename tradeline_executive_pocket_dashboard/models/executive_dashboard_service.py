@@ -2497,7 +2497,10 @@ class ExecutiveDashboardService(models.AbstractModel):
             report_dim_sql = "COALESCE(branch.name, 'Unassigned')" if has_branch else "'All'"
             report_join_sql = "LEFT JOIN res_branch branch ON branch.id = air.branch_id" if has_branch else ""
             report_where_sql, report_params = self._build_reporting_scope_clause(scope, include_sales_rep=True)
-            report_params += [scope["start_date"], scope["end_date"], limit]
+            report_params += [scope["start_date"], scope["end_date"]]
+            limit_sql = " LIMIT %s" if limit else ""
+            if limit:
+                report_params.append(limit)
             self.env.cr.execute(f"""
                 SELECT
                     {report_dim_sql} AS dimension,
@@ -2509,9 +2512,11 @@ class ExecutiveDashboardService(models.AbstractModel):
                 WHERE {report_where_sql}
                   AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND air.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
+                GROUP BY dimension ORDER BY net_revenue DESC{limit_sql}
             """, report_params)
         else:
+            limit_sql = " LIMIT %s" if limit else ""
+            query_params = base_params + ([limit] if limit else [])
             self.env.cr.execute(f"""
                 SELECT
                     {dim_sql} AS dimension,
@@ -2521,8 +2526,8 @@ class ExecutiveDashboardService(models.AbstractModel):
                 WHERE {where_sql}
                   AND move.state='posted' AND move.move_type IN ('out_invoice','out_receipt','out_refund')
                   AND move.invoice_date BETWEEN %s AND %s
-                GROUP BY dimension ORDER BY net_revenue DESC LIMIT %s
-            """, base_params + [limit])
+                GROUP BY dimension ORDER BY net_revenue DESC{limit_sql}
+            """, query_params)
         rows = self._dictfetchall()
         if margin_status and margin_status.get("available") and has_branch:
             self.env.cr.execute(f"""
@@ -2585,6 +2590,32 @@ class ExecutiveDashboardService(models.AbstractModel):
             row["net_revenue"] = float(row.get("net_revenue") or 0)
             row["invoice_count"] = int(row.get("invoice_count") or 0)
             row["dimension"] = self._clean_dimension_label(row.get("dimension"))
+        return rows
+
+    def _all_sales_by_branch(self, scope, margin_status=None):
+        """Return every selected branch, including branches with no period activity."""
+        rows = self._top_sales_by_branch(scope, None, margin_status)
+        if not self._has_table("res_branch"):
+            return rows
+
+        branch_domain = [("company_id", "in", scope.get("company_ids") or [])]
+        if scope.get("branch_ids"):
+            branch_domain.append(("id", "in", scope["branch_ids"]))
+        branches = self.env["res.branch"].sudo().search(branch_domain)
+        existing = {(row.get("dimension") or "").strip().casefold() for row in rows}
+        for branch in branches:
+            branch_name = self._clean_dimension_label(branch.name or "Unassigned")
+            if branch_name.strip().casefold() in existing:
+                continue
+            rows.append({
+                "dimension": branch_name,
+                "net_revenue": 0.0,
+                "invoice_count": 0,
+                "net_margin": 0.0,
+                "margin_pct": 0.0,
+                "_margin_basis": 0.0,
+            })
+        rows.sort(key=lambda row: (-float(row.get("net_revenue") or 0), row.get("dimension") or ""))
         return rows
 
     def _top_sales_by_salesperson(self, scope, limit, margin_status=None):
@@ -3127,6 +3158,72 @@ class ExecutiveDashboardService(models.AbstractModel):
         """, quant_params + svl_params + [limit])
         rows = self._dictfetchall()
         for row in rows:
+            row["on_hand_qty"] = float(row.get("on_hand_qty") or 0)
+            row["allocated_value"] = float(row.get("allocated_value") or 0)
+        return rows
+
+    def _top_inventory_by_family(self, scope, limit):
+        if not (
+            self._has_table("stock_quant")
+            and self._has_table("stock_valuation_layer")
+            and self._has_column("product_template", "family_id")
+        ):
+            return []
+        quant_where, quant_params = self._build_scope_clause(
+            alias="quant", table_name="stock_quant", filters=scope
+        )
+        svl_where, svl_params = self._build_scope_clause(
+            alias="svl", table_name="stock_valuation_layer", filters=scope
+        )
+        self.env.cr.execute(f"""
+            WITH quant_agg AS (
+                SELECT quant.product_id, quant.company_id,
+                    SUM(COALESCE(quant.quantity,0)) AS on_hand_qty
+                FROM stock_quant quant
+                JOIN stock_location location ON location.id=quant.location_id
+                WHERE {quant_where} AND location.usage='internal'
+                GROUP BY quant.product_id, quant.company_id
+            ),
+            svl_agg AS (
+                SELECT svl.product_id, svl.company_id,
+                    SUM(COALESCE(svl.quantity,0)) AS svl_qty,
+                    SUM(COALESCE(svl.value,0)) AS svl_value
+                FROM stock_valuation_layer svl WHERE {svl_where}
+                GROUP BY svl.product_id, svl.company_id
+            ),
+            inv AS (
+                SELECT
+                    COALESCE(q.product_id,s.product_id) AS product_id,
+                    COALESCE(q.on_hand_qty,0) AS on_hand_qty,
+                    CASE WHEN COALESCE(s.svl_qty,0)=0 THEN 0
+                         ELSE COALESCE(q.on_hand_qty,0)
+                            *(COALESCE(s.svl_value,0)/NULLIF(s.svl_qty,0))
+                    END AS allocated_value
+                FROM quant_agg q
+                FULL OUTER JOIN svl_agg s
+                  ON s.product_id=q.product_id AND s.company_id=q.company_id
+            )
+            SELECT
+                template.family_id AS family_id,
+                COALESCE(SUM(inv.on_hand_qty),0) AS on_hand_qty,
+                COALESCE(SUM(inv.allocated_value),0) AS allocated_value
+            FROM inv
+            LEFT JOIN product_product product ON product.id=inv.product_id
+            LEFT JOIN product_template template ON template.id=product.product_tmpl_id
+            GROUP BY template.family_id
+            ORDER BY allocated_value DESC LIMIT %s
+        """, quant_params + svl_params + [limit])
+        rows = self._dictfetchall()
+        family_ids = [row["family_id"] for row in rows if row.get("family_id")]
+        family_names = {}
+        if self.env.registry.get("product.family"):
+            family_names = {
+                family.id: family.display_name
+                for family in self.env["product.family"].sudo().browse(family_ids).exists()
+            }
+        for row in rows:
+            family_id = row.get("family_id")
+            row["dimension"] = family_names.get(family_id, "Unassigned Product Family")
             row["on_hand_qty"] = float(row.get("on_hand_qty") or 0)
             row["allocated_value"] = float(row.get("allocated_value") or 0)
         return rows
