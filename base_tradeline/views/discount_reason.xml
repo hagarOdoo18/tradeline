@@ -25,6 +25,7 @@
                             <group>
                                 <field name="company_ids" widget="many2many_tags" readonly="state != 'new'"/>
                                 <field name="discount_type" readonly="state != 'new'"/>
+                                <field name="shopify_discount" readonly="state != 'new'"/>
                                 <field name="discount_percentage" readonly="state != 'new'" invisible="discount_type != 'percentage'"/>
                                 <field name="fixed_discount_amount" readonly="state != 'new'" invisible="discount_type != 'fixed_amount'"/>
                             </group>

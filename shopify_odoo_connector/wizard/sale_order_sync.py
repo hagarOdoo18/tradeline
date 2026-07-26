@@ -27,7 +27,7 @@ import pytz
 import re
 import requests
 import odoo
-from odoo import models, fields, _
+from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
@@ -112,6 +112,31 @@ class SaleOrderSync(models.TransientModel):
                 elif self.type_order == 'confirmed':
                     self.sync_confirmed_orders(self.shopify_instance_id,
                                                self.id)
+
+    @api.model
+    def _cron_sync_confirmed_orders(self):
+        """Scheduled action to import confirmed orders from Shopify for all
+        active connected instances. Mirrors the manual 'From Shopify ->
+        Confirmed Orders' wizard flow: for each instance a transient
+        sale.order.sync record is created and sync_confirmed_orders is
+        called, which queues import_confirmed_orders_from_shopify job.cron
+        records that _do_job then processes."""
+        instances = self.env['shopify.configuration'].sudo().search([
+            ('active', '=', True),
+            ('state', '=', 'sync'),
+        ])
+        for instance in instances:
+            try:
+                wizard = self.sudo().create({
+                    'import_orders': 'odoo',
+                    'shopify_instance_id': instance.id,
+                    'type_order': 'confirmed',
+                })
+                wizard.sync_confirmed_orders(instance, wizard.id)
+            except Exception as error:
+                _logger.error(
+                    'Failed to queue confirmed orders sync for Shopify '
+                    'instance %s: %s', instance.name, str(error))
 
     def sync_confirmed_orders(self, instance, ref):
         """Method to create  jobs for importing confirmed orders."""
@@ -406,7 +431,8 @@ class SaleOrderSync(models.TransientModel):
                                  "type": 'delivery',
                                  }]).id
                             vals['partner_shipping_id'] = shipping_child_id
-                        if each['billing_address']:
+                        if each['billing_address'] and each['shipping_address'] :
+
                             county_id = self.env['res.country'].search([
                                 ('name', '=',
                                  each['shipping_address']['country'])
@@ -633,9 +659,9 @@ class SaleOrderSync(models.TransientModel):
                         'product_uom_qty': line['quantity'],
                         'currency_id': currency.id,
                         'discount': (
-                            float(discount) /
-                            ((price * 0.86) * float(line['quantity']))
-                            * 100
+                            float(discount) * 100 /
+                            ((price))
+
                             if price and float(line['quantity'])
                             else 0
                         ) if discount else 0,
@@ -685,7 +711,6 @@ class SaleOrderSync(models.TransientModel):
                             'product_uom_qty': 1,
                             'shopify_line_ref': line['id'],
                             'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
-
                             'order_id': so.id,
                             'shopify_instance_id': shopify_instance.id,
                             'company_id': shopify_instance.company_id.id,
@@ -703,10 +728,19 @@ class SaleOrderSync(models.TransientModel):
                         'tax_id': None,
                         'order_id': so.id,
                     }
-                    line_vals_list.append(discount_dict)
+                    # line_vals_list.append(discount_dict)
+
+                    discount_code = each['discount_codes'][0]['code']
+
+                    discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
+                    so.discount_id = discount_reason.id
                 if line_vals_list:
-                    new_lines = self.env['sale.order.line'].sudo().create(
-                        line_vals_list)
+                    try:
+                        new_lines = self.env['sale.order.line'].sudo().create(
+                            line_vals_list)
+                    except Exception as e:
+                        print('ezzat')
+                        print(e)
                 else:
                     new_lines = self.env['sale.order.line'].browse()
                 # if not wizard.draft:

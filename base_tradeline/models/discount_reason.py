@@ -44,7 +44,9 @@ class DiscountReason (models.Model):
         selection=[('new', 'New'),
                    ('run', 'Running'),('stopped','Stopped') ],default='new', tracking=True,
         required=False, )
-
+    shopify_discount = fields.Char(
+        string='Shopify discount',
+        required=False)
 
     def action_run(self):
         self.state = 'run'

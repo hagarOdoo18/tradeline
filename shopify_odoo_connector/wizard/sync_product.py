@@ -24,7 +24,7 @@ import base64
 import json
 import logging
 import requests
-from odoo import models, fields, _
+from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
@@ -64,6 +64,30 @@ class SyncProduct(models.TransientModel):
                 barcode, existing.display_name)
             return None
         return barcode
+
+    @api.model
+    def _cron_import_products_from_shopify(self):
+        """Scheduled action to import products from Shopify for all active
+        connected instances. For each instance a transient sync.product
+        record is created in the 'From Shopify' direction and
+        action_sync_products is called, which fetches the products
+        (paginated) and queues import_products_from_shopify job.cron records
+        that _do_job then processes."""
+        instances = self.env['shopify.configuration'].sudo().search([
+            ('active', '=', True),
+            ('state', '=', 'sync'),
+        ])
+        for instance in instances:
+            try:
+                wizard = self.sudo().create({
+                    'import_products': 'odoo',
+                    'shopify_instance_id': instance.id,
+                })
+                wizard.action_sync_products()
+            except Exception as error:
+                _logger.error(
+                    'Failed to queue product import for Shopify instance '
+                    '%s: %s', instance.name, str(error))
 
     def action_sync_products(self):
         """Method to create queue jobs for exporting and importing data."""
@@ -177,7 +201,6 @@ class SyncProduct(models.TransientModel):
             product_id.shopify_sync_ids.sudo().create({
                 'instance_id': shopify_instance.id,
                 'shopify_product': product['id'],
-
                 'product_id': product_id.id,
             })
 

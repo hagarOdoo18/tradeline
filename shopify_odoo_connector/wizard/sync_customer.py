@@ -24,7 +24,7 @@ import json
 import logging
 import re
 import requests
-from odoo import models, fields, _
+from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
@@ -55,6 +55,30 @@ class SyncCustomer(models.TransientModel):
                                           string="Shopify Instance",
                                           required=True,
                                           help='Id of shopify instance')
+
+    @api.model
+    def _cron_import_customers_from_shopify(self):
+        """Scheduled action to import customers from Shopify for all active
+        connected instances. For each instance a transient sync.customer
+        record is created in the 'From Shopify' direction and sync_customers
+        is called, which fetches the customers (paginated) and queues
+        import_customers_from_shopify job.cron records that _do_job then
+        processes."""
+        instances = self.env['shopify.configuration'].sudo().search([
+            ('active', '=', True),
+            ('state', '=', 'sync'),
+        ])
+        for instance in instances:
+            try:
+                wizard = self.sudo().create({
+                    'import_customers': 'odoo',
+                    'shopify_instance_id': instance.id,
+                })
+                wizard.sync_customers()
+            except Exception as error:
+                _logger.error(
+                    'Failed to queue customer import for Shopify instance '
+                    '%s: %s', instance.name, str(error))
 
     def sync_customers(self):
         """Method to create queue jobs for exporting and importing data."""

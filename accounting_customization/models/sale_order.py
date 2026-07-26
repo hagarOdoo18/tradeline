@@ -862,6 +862,12 @@ class SaleOrderLine(models.Model):
         string='Warranty',
         required=False)
 
+    discount = fields.Float(
+        string="Discount (%)",
+        compute='_compute_discount',
+        digits=(16, 6),
+        store=True, readonly=False, precompute=True)
+
     item_code = fields.Char(
         string='Item Code',
         required=False)
