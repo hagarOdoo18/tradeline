@@ -138,6 +138,7 @@ class SyncProduct(models.TransientModel):
                 ('instance_id', '=', shopify_instance.id)
             ])
             if exist_products:
+
                 continue
 
             # ١. جمع كل SKUs من variants المنتج
@@ -153,6 +154,7 @@ class SyncProduct(models.TransientModel):
                     ('barcode', 'in', shopify_skus)
                 ], limit=1)
                 if matching_variant:
+
                     product_id = matching_variant.product_tmpl_id
 
             # ٣. لو ما لقيناش منتج مطابق → skip (أو ممكن تغيرها لـ create حسب رغبتك)
@@ -175,6 +177,7 @@ class SyncProduct(models.TransientModel):
             product_id.shopify_sync_ids.sudo().create({
                 'instance_id': shopify_instance.id,
                 'shopify_product': product['id'],
+
                 'product_id': product_id.id,
             })
 
@@ -213,7 +216,10 @@ class SyncProduct(models.TransientModel):
                 odoo_variant.shopify_sync_ids.sudo().create({
                     'instance_id': shopify_instance.id,
                     'shopify_product': shopify_var['id'],
+                    'shopify_variant_id': shopify_var['id'],
                     'product_prod_id': odoo_variant.id,
+                    'product_id': product_id.id,
+
                 })
 
             # ٧. حساب price_extra لكل variant

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Add inter-company indicator column to sale order lines -->
+    <record id="sale_order_line_intercompany_tax_view" model="ir.ui.view">
+        <field name="name">sale.order.line.intercompany.tax</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Add IC Tax badge column after the Taxes column in the order lines list -->
+            <xpath expr="//field[@name='order_line']/list//field[@name='tax_id']" position="after">
+                <field name="is_intercompany_line"
+                       optional="show"
+                       string="IC Tax"
+                       readonly="1"/>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

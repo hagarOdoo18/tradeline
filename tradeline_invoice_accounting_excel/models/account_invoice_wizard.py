@@ -47,7 +47,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.state = 'posted'
               AND am.move_type = 'out_invoice'
               AND am.amount_residual_signed > 1
-            ORDER BY am.invoice_date
+            ORDER BY rb.name, am.invoice_date
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_open_credit(self, date_from, date_to):
@@ -61,7 +61,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.state = 'posted'
               AND am.move_type = 'out_refund'
               AND am.amount_residual_signed < -1
-            ORDER BY am.invoice_date
+            ORDER BY rb.name, am.invoice_date
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_paid_invoice(self, date_from, date_to):
@@ -75,6 +75,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.move_type = 'out_invoice'
               AND am.amount_residual_signed <= 1
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_paid_credit(self, date_from, date_to):
@@ -88,6 +89,7 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
               AND am.move_type = 'out_refund'
               AND am.amount_residual_signed >= -1
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
     def _get_sql_total_sro(self, date_from, date_to):
@@ -95,139 +97,118 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             SELECT rb.name, SUM(so.amount_total)
             FROM sale_order so
             LEFT JOIN res_branch rb ON rb.id = so.branch_id
-            WHERE so.create_date >= '{df}'
-              AND so.create_date <= '{dt}'
+            WHERE so.date_order::date >= '{df}'
+              AND so.date_order::date <= '{dt}'
               AND so.state = 'sale'
               AND so.inv_type = 'sro'
             GROUP BY rb.name
+            ORDER BY rb.name
         """.format(df=date_from, dt=date_to)
 
-    def _get_sql_total_payment(self, date_from, date_to):
-        reconciled_subq = """
-            SELECT DISTINCT aml_r.move_id
-            FROM account_move_line aml_r
-            JOIN account_account aa_r
-                ON aa_r.id = aml_r.account_id AND aa_r.reconcile = TRUE
-            JOIN account_partial_reconcile apr_r
-                ON apr_r.credit_move_id = aml_r.id
-                OR apr_r.debit_move_id  = aml_r.id
-            JOIN account_move_line aml_r2
-                ON aml_r2.id = CASE
-                    WHEN apr_r.credit_move_id = aml_r.id THEN apr_r.debit_move_id
-                    ELSE apr_r.credit_move_id END
-            JOIN account_payment ap_r ON ap_r.move_id = aml_r2.move_id
-        """
+    def _get_sql_total_invoices(self, date_from, date_to):
         return """
-            -- 1. Invoices reconciled with account.payment
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(ap.amount)           AS amount,
-                'invoice'::text          AS source_type
+            SELECT rb.name,
+                   SUM(am.amount_total_signed)                                                     AS total,
+                   SUM(CASE WHEN am.amount_residual_signed >  1 THEN am.amount_total_signed ELSE 0 END) AS not_paid,
+                   SUM(CASE WHEN am.amount_residual_signed <= 1 THEN am.amount_total_signed ELSE 0 END) AS paid
             FROM account_move am
             LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN account_move_line aml ON aml.move_id = am.id
-            JOIN account_account aa
-                ON aa.id = aml.account_id AND aa.reconcile = TRUE
-            JOIN account_partial_reconcile apr
-                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
-            JOIN account_move_line aml2
-                ON aml2.id = CASE
-                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
-                    ELSE apr.credit_move_id END
-            JOIN account_payment ap ON ap.move_id = aml2.move_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE am.move_type = 'out_invoice'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
+            WHERE am.invoice_date >= '{df}'
               AND am.invoice_date <= '{dt}'
-            GROUP BY aj.name, rb.name
-
-            UNION ALL
-
-            -- 2. Invoices paid via POS (no reconciled account.payment)
-            SELECT
-                ppm.name                 AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(pp.amount)           AS amount,
-                'invoice_pos'::text      AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN pos_order po ON po.account_move = am.id
-            JOIN pos_payment pp ON pp.pos_order_id = po.id
-            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
-            WHERE am.move_type = 'out_invoice'
               AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-              AND am.id NOT IN ({reconciled_subq})
-            GROUP BY ppm.name, rb.name
+              AND am.move_type in ( 'out_invoice','out_refund')
+            GROUP BY rb.name
+            ORDER BY rb.name
+        """.format(df=date_from, dt=date_to)
 
-            UNION ALL
+    def _get_payment_lines(self, date_from, date_to):
+        """Return list of (journal_name, branch_name, amount, source_type) tuples.
 
-            -- 3. Credit notes reconciled with account.payment (negative)
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(-ap.amount)          AS amount,
-                'credit'::text           AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN account_move_line aml ON aml.move_id = am.id
-            JOIN account_account aa
-                ON aa.id = aml.account_id AND aa.reconcile = TRUE
-            JOIN account_partial_reconcile apr
-                ON apr.credit_move_id = aml.id OR apr.debit_move_id = aml.id
-            JOIN account_move_line aml2
-                ON aml2.id = CASE
-                    WHEN apr.credit_move_id = aml.id THEN apr.debit_move_id
-                    ELSE apr.credit_move_id END
-            JOIN account_payment ap ON ap.move_id = aml2.move_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE am.move_type = 'out_refund'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-            GROUP BY aj.name, rb.name
+        ORM-based implementation that mirrors the logic of
+        ``action_view_payment_report`` in the branch_account_report wizard:
+          * invoices  -> reconciled account.payment, else POS payments
+          * credits   -> reconciled account.payment (negated), else POS payments
+          * sale-order payments (signed by payment_type)
+        """
+        ctx = {'allowed_company_ids': self.env.companies.ids}
+        AccountMove    = self.env['account.move'].with_context(**ctx)
+        AccountPayment = self.env['account.payment'].with_context(**ctx)
 
-            UNION ALL
+        invoices = AccountMove.search([
+            ('move_type',    '=',  'out_invoice'),
+            ('state',        '=',  'posted'),
+            ('invoice_date', '>=', date_from),
+            ('invoice_date', '<=', date_to),
+        ])
+        credits = AccountMove.search([
+            ('move_type',    '=',  'out_refund'),
+            ('state',        '=',  'posted'),
+            ('invoice_date', '>=', date_from),
+            ('invoice_date', '<=', date_to),
+        ])
+        order_payments = AccountPayment.search([
+            ('sale_order_id', '!=', False),
+            ('state',         '=',  'paid'),
+            ('date',          '>=', date_from),
+            ('date',          '<=', date_to),
+        ])
 
-            -- 4. Credit notes paid via POS (no reconciled account.payment)
-            SELECT
-                ppm.name                 AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(pp.amount)           AS amount,
-                'credit_pos'::text       AS source_type
-            FROM account_move am
-            LEFT JOIN res_branch rb ON rb.id = am.branch_id
-            JOIN pos_order po ON po.account_move = am.id
-            JOIN pos_payment pp ON pp.pos_order_id = po.id
-            LEFT JOIN pos_payment_method ppm ON ppm.id = pp.payment_method_id
-            WHERE am.move_type = 'out_refund'
-              AND am.state = 'posted'
-              AND am.invoice_date >= '{df}'
-              AND am.invoice_date <= '{dt}'
-              AND am.id NOT IN ({reconciled_subq})
-            GROUP BY ppm.name, rb.name
+        lines = []
 
-            UNION ALL
+        # ---- invoices ------------------------------------------------
+        for inv in invoices:
+            branch_name = inv.branch_id.name or ''
+            payments    = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    lines.append((
+                        pmt.journal_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        pmt.journal_id.payment_type,
+                    ))
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    lines.append((
+                        pmt.payment_method_id.journal_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        pmt.payment_method_id.journal_id.payment_type,
+                    ))
 
-            -- 5. Sale-order payments (signed by payment_type)
-            SELECT
-                aj.name                  AS journal_name,
-                rb.name                  AS branch_name,
-                SUM(CASE WHEN ap.payment_type = 'outbound'
-                         THEN -ap.amount ELSE ap.amount END) AS amount,
-                'order_payment'::text    AS source_type
-            FROM account_payment ap
-            LEFT JOIN res_branch rb ON rb.id = ap.branch_id
-            JOIN account_journal aj ON aj.id = ap.journal_id
-            WHERE ap.sale_order_id IS NOT NULL
-              AND ap.state = 'paid'
-              AND ap.date >= '{df}'
-              AND ap.date <= '{dt}'
-            GROUP BY aj.name, rb.name
-        """.format(df=date_from, dt=date_to, reconciled_subq=reconciled_subq)
+        # ---- credit notes --------------------------------------------
+        for inv in credits:
+            branch_name = inv.branch_id.name or ''
+            payments    = inv._get_reconciled_payments()
+            if payments:
+                for pmt in payments:
+                    lines.append((
+                        pmt.journal_id.name or '',
+                        branch_name,
+                        -pmt.amount,
+                        pmt.journal_id.payment_type,
+                    ))
+            else:
+                for pmt in inv.pos_order_ids.payment_ids:
+                    lines.append((
+                        pmt.payment_method_id.journal_id.name or '',
+                        branch_name,
+                        pmt.amount,
+                        pmt.payment_method_id.journal_id.payment_type,
+                    ))
+
+        # ---- sale-order payments -------------------------------------
+        for pmt in order_payments:
+            signed = -pmt.amount if pmt.payment_type == 'outbound' else pmt.amount
+            lines.append((
+                pmt.journal_id.name or '',
+                pmt.branch_id.name or '',
+                signed,
+                pmt.journal_id.payment_type,
+            ))
+
+        lines.sort(key=lambda l: (str(l[3] or '').casefold(), str(l[1] or '').casefold()))
+        return lines
 
     # ------------------------------------------------------------------
     # Main action
@@ -259,15 +240,19 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
         workbook = self._generate_excel_sro(sro_orders, workbook)
 
-        cr.execute(self._get_sql_total_payment(df, dt))
-        payments = cr.fetchall()
+        payments = self._get_payment_lines(df, dt)
 
         workbook = self._generate_excel_payment(payments, workbook)
         workbook = self._generate_excel_type_payment(payments, workbook)
+
+        cr.execute(self._get_sql_total_invoices(df, dt))
+        total_invoices = cr.fetchall()
+
+        workbook = self._generate_excel_total_invoices(total_invoices, workbook)
         workbook = self._generate_excel_all(
             open_invoices, open_credit,
             paid_invoices, paid_credits,
-            sro_orders, payments, workbook)
+            sro_orders, payments, total_invoices, workbook)
 
         workbook.close()
         output.seek(0)
@@ -344,10 +329,10 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             store[key] = store.get(key, 0) + float(line[1] or 0)
 
         col = 1
-        total = 0
-        for key, value in store.items():
-            sheet.set_column(0, col, 30)
-            sheet.write(0, col, key, header)
+        total = 0.0
+        for key, value in sorted(store.items(), key=lambda x: x[0].casefold()):
+            sheet.set_column(col, col, 30)
+            sheet.write(0, col, key,   header)
             sheet.write(1, col, value, cell)
             total += value
             col   += 1
@@ -377,42 +362,156 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         sheet.write(1, col, total, header)
         return workbook
 
+    def _generate_excel_total_invoices(self, lines, workbook, start_row=0, sheet=None):
+        """Matrix: rows = Total / Not Paid / Paid, cols = branches A-Z.
+
+        Creates a new 'Total Invoices' sheet when sheet is None.
+        Can also embed the table starting at start_row in an existing sheet.
+        Returns (workbook, rows_used).
+        """
+        own_sheet = sheet is None
+        if own_sheet:
+            sheet = workbook.add_worksheet('Total Invoices')
+        bold, cell, header = self._fmt(workbook)
+
+        # Normalise
+        norm = [(self._s(l[0]), float(l[1] or 0), float(l[2] or 0), float(l[3] or 0))
+                for l in lines]
+
+        branches = sorted({r[0] for r in norm if r[0]})
+        data = {r[0]: (r[1], r[2], r[3]) for r in norm if r[0]}
+
+        total_col = len(branches) + 1
+
+        # Column widths
+        sheet.set_column(start_row, 0, 18)          # label col
+        for c in range(1, total_col + 1):
+            sheet.set_column(c, c, 22)
+
+        r = start_row
+        # Header row
+        sheet.write(r, 0, '', header)
+        for c, branch in enumerate(branches, start=1):
+            sheet.write(r, c, branch, header)
+        sheet.write(r, total_col, 'Grand Total', header)
+        sheet.set_row(r, 28); r += 1
+
+        # Row: Total
+        sheet.write(r, 0, 'Total', header)
+        grand_total = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[0]
+            sheet.write(r, c, val, cell)
+            grand_total += val
+        sheet.write(r, total_col, grand_total, header)
+        sheet.set_row(r, 22); r += 1
+
+        # Row: Not Paid
+        sheet.write(r, 0, 'Not Paid', header)
+        grand_not_paid = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[1]
+            sheet.write(r, c, val, cell)
+            grand_not_paid += val
+        sheet.write(r, total_col, grand_not_paid, header)
+        sheet.set_row(r, 22); r += 1
+
+        # Row: Paid
+        sheet.write(r, 0, 'Paid', header)
+        grand_paid = 0.0
+        for c, branch in enumerate(branches, start=1):
+            val = data.get(branch, (0, 0, 0))[2]
+            sheet.write(r, c, val, cell)
+            grand_paid += val
+        sheet.write(r, total_col, grand_paid, header)
+        sheet.set_row(r, 22); r += 1
+
+        return workbook
+
     def _generate_excel_payment(self, lines, workbook):
+        """Matrix sheet: rows = payment journals, cols = branches, cells = SUM.
+
+        Aggregates every (journal, branch) pair so duplicates are added
+        together rather than overwriting. Adds a Total row (per branch) and
+        a Total column (per journal), plus a grand total in the corner.
+        """
         sheet = workbook.add_worksheet('Branches Payments')
         bold, cell, header = self._fmt(workbook)
 
-        # Normalise all values up front so grouping keys are plain strings
+        # Normalise to plain strings/floats
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in lines]
 
-        row = 1
-        payment_dic = {}
-        for _src, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
-                                key=lambda x: x[3]):
-            for journal, _grp2 in igrp(list(grp1), key=lambda x: x[0]):
-                sheet.set_column(row, 0, 30)
-                if journal not in payment_dic:
-                    payment_dic[journal] = row
-                    sheet.write(row, 0, journal, header)
-                    row += 1
+        # Build unique journal/branch axes and (journal, branch) -> sum map
+        matrix     = {}
+        journals   = []
+        branches   = []
+        j_seen     = set()
+        b_seen     = set()
+        for journal, branch, amount, _src in norm:
+            if not journal or not branch:
+                continue
+            if journal not in j_seen:
+                j_seen.add(journal)
+                journals.append(journal)
+            if branch not in b_seen:
+                b_seen.add(branch)
+                branches.append(branch)
+            key = (journal, branch)
+            matrix[key] = matrix.get(key, 0) + amount
 
-        col = 1
-        for branch, grp in igrp(sorted(norm, key=lambda x: x[1]),
-                                  key=lambda x: x[1]):
-            row = 0
-            sheet.set_column(0, col, 30)
-            if branch != 'None':
-                sheet.write(row, col, branch, header)
-                for line in grp:
-                    p_row = payment_dic.get(line[0])
-                    if p_row is not None:
-                        sheet.write(p_row, col, line[2], cell)
-                col += 1
+        # Stable sort: journals containing نقدا first, then A-Z; branches A-Z
+        journals.sort(key=lambda j: (0 if 'نقدا' in j else 1, j.casefold()))
+        branches.sort()
+
+        # Header row: leave (0,0) blank, then branch names, then 'Total'
+        sheet.set_column(0, 0, 30)
+        sheet.write(0, 0, '', header)
+        for c, branch in enumerate(branches, start=1):
+            sheet.set_column(c, c, 22)
+            sheet.write(0, c, branch, header)
+        total_col = len(branches) + 1
+        sheet.set_column(total_col, total_col, 22)
+        sheet.write(0, total_col, 'Total', header)
+        sheet.set_row(0, 28)
+
+        # Body rows
+        branch_totals = [0.0] * len(branches)
+        grand_total   = 0.0
+        for r, journal in enumerate(journals, start=1):
+            sheet.write(r, 0, journal, header)
+            row_total = 0.0
+            for c, branch in enumerate(branches, start=1):
+                amount = matrix.get((journal, branch), 0)
+                sheet.write(r, c, amount, cell)
+                row_total            += amount
+                branch_totals[c - 1] += amount
+            sheet.write(r, total_col, row_total, header)
+            grand_total += row_total
+            sheet.set_row(r, 22)
+
+        # Footer Total row
+        footer_row = len(journals) + 1
+        sheet.write(footer_row, 0, 'Total', header)
+        for c, btot in enumerate(branch_totals, start=1):
+            sheet.write(footer_row, c, btot, header)
+        sheet.write(footer_row, total_col, grand_total, header)
+        sheet.set_row(footer_row, 24)
+
         return workbook
 
     def _generate_excel_type_payment(self, lines, workbook):
         sheet = workbook.add_worksheet('Payments Type')
         bold, cell, header = self._fmt(workbook)
+
+        subtotal_fmt = workbook.add_format({
+            'bold': 1, 'border': 1, 'bg_color': '#D5E8D4',
+            'font_size': 10, 'align': 'center', 'valign': 'vcenter',
+        })
+        grand_fmt = workbook.add_format({
+            'bold': 1, 'border': 1, 'bg_color': '#AAB7B8',
+            'font_size': 11, 'align': 'center', 'valign': 'vcenter',
+        })
 
         sheet.set_column(0, 1, 30)
         sheet.write('A1', 'Type',    header)
@@ -425,21 +524,29 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in lines]
 
-        row       = 1
-        other_row = 1
-        other_col = 4
+        row         = 1
+        other_row   = 1
+        other_col   = 4
+        grand_total = 0.0
+
         for src_type, grp1 in igrp(sorted(norm, key=lambda x: (x[3], x[0])),
                                     key=lambda x: x[3]):
             base_row  = row
             grp1_list = list(grp1)
-            sheet.write(row,       0,         src_type, header)
-            sheet.write(other_row, other_col, src_type, header)
+
+            # Left table: type name
+            sheet.write(row, 0, src_type, header)
+            # Right table: type header row
+            sheet.write(other_row, other_col,     src_type, header)
+            sheet.write(other_row, other_col + 1, '',       header)
+            sheet.write(other_row, other_col + 2, '',       header)
             row       += 1
             other_row += 1
-            total = 0
+
+            total = 0.0
             for journal, grp2 in igrp(sorted(grp1_list, key=lambda x: x[0]),
                                        key=lambda x: x[0]):
-                total_payment = 0
+                total_payment = 0.0
                 sheet.write(other_row, other_col + 1, journal, header)
                 for line in grp2:
                     if line[1] != 'None':
@@ -447,19 +554,35 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
                         total_payment += line[2]
                 sheet.write(other_row, other_col + 2, total_payment, header)
                 other_row += 1
+
+            # Right table: subtotal row for this type
+            sheet.write(other_row, other_col,     'Total ' + src_type, subtotal_fmt)
+            sheet.write(other_row, other_col + 1, '',                  subtotal_fmt)
+            sheet.write(other_row, other_col + 2, total,               subtotal_fmt)
+            sheet.set_row(other_row, 22)
+            other_row += 2   # +1 blank separator between types
+
+            # Left table: total for this type
             sheet.write(base_row, 1, total, header)
+            grand_total += total
+
+        # Left table: grand total row
+        sheet.write(row, 0, 'Grand Total', grand_fmt)
+        sheet.write(row, 1, grand_total,   grand_fmt)
+        sheet.set_row(row, 24)
+
         return workbook
 
     def _generate_excel_all(self, open_invoices, open_credit,
                             paid_invoices, paid_credits,
-                            sro_orders, payments, workbook):
+                            sro_orders, payments, total_invoices, workbook):
         """Summary sheet: tables placed side-by-side.
 
         Layout:
           TOP    left  cols 0-4: Open Invoices & Credits
                  right cols 6-8: Paid Invoices & Credits, then SRO
-          BOTTOM left  cols 0-3: Payments by Journal & Branch
-                 right cols 5-6: Payment Type Summary (type + total)
+          MID    Total Invoices matrix (full width)
+          BOTTOM Payment Type Summary, then Payments by Journal & Branch
         """
         sheet = workbook.add_worksheet('All')
         bold, cell, header = self._fmt(workbook)
@@ -475,12 +598,14 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             'font_color': '#FFFFFF', 'border': 1,
         })
 
-        for c in range(9):
+        # Pre-set default column widths (expanded to 20 cols; the payment matrix
+        # may add more — those are sized individually when the matrix is built)
+        for c in range(20):
             sheet.set_column(c, c, 20)
-        sheet.set_column(2, 2, 26)
+        sheet.set_column(0, 0, 30)   # Journal column
+        sheet.set_column(2, 2, 26)   # Customer column
 
-        # Title
-        sheet.merge_range(0, 0, 0, 8, 'Accounting Report - Full Summary', title_fmt)
+        # Title (will be widened after we know total_pay_col; write it last)
         sheet.set_row(0, 28)
 
         L = 2
@@ -500,26 +625,34 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
             sheet.write(L, 4, self._s(line[4]), cell)
             sheet.set_row(L, 18); L += 1
 
-        # Right: Paid Invoices & Credits
-        sheet.merge_range(R, 6, R, 8, 'Paid Invoices & Credits', section_fmt)
-        sheet.set_row(R, 22); R += 1
-        sheet.write(R, 6, 'Branch', header)
-        sheet.write(R, 7, 'Total',  header)
-        sheet.set_row(R, 20); R += 1
+        # Right: Paid Invoices & Credits (horizontal — branches as columns)
         store = {}
         for line in paid_invoices:
             store[self._s(line[0])] = float(line[1] or 0)
         for line in paid_credits:
             k = self._s(line[0])
             store[k] = store.get(k, 0) + float(line[1] or 0)
-        grand_paid = 0
-        for branch, tot in store.items():
-            sheet.write(R, 6, branch, cell)
-            sheet.write(R, 7, tot,    cell)
-            grand_paid += tot; R += 1
-        sheet.write(R, 6, 'Grand Total', header)
-        sheet.write(R, 7, grand_paid,    header); R += 1
-        R += 1
+        paid_branches_sorted = sorted(store.keys(), key=lambda x: x.casefold())
+        paid_end_col = 6 + len(paid_branches_sorted)   # last data col (Grand Total)
+        sheet.merge_range(R, 6, R, max(paid_end_col, 8),
+                          'Paid Invoices & Credits', section_fmt)
+        sheet.set_row(R, 22); R += 1
+        # Header row: blank label col + branch cols + Grand Total
+        sheet.write(R, 6, '', header)
+        for c, branch in enumerate(paid_branches_sorted, start=7):
+            sheet.set_column(c, c, max(20, len(branch) + 4))
+            sheet.write(R, c, branch, header)
+        sheet.write(R, paid_end_col, 'Grand Total', header)
+        sheet.set_row(R, 24); R += 1
+        # Data row: "Total" label + values + grand total
+        sheet.write(R, 6, 'Total', header)
+        grand_paid = 0.0
+        for c, branch in enumerate(paid_branches_sorted, start=7):
+            tot = store.get(branch, 0)
+            sheet.write(R, c, tot, cell)
+            grand_paid += tot
+        sheet.write(R, paid_end_col, grand_paid, header)
+        sheet.set_row(R, 22); R += 2
 
         # Right: SRO Orders
         sheet.merge_range(R, 6, R, 8, 'SRO Orders', section_fmt)
@@ -537,43 +670,122 @@ class AccountInvoiceAccountingWizard(models.TransientModel):
 
         next_row = max(L, R) + 2
 
+        # ── Total Invoices summary (full-width matrix) ────────────────────
+        if total_invoices:
+            ti_norm = [(self._s(l[0]), float(l[1] or 0), float(l[2] or 0), float(l[3] or 0))
+                       for l in total_invoices]
+            ti_branches = sorted({r[0] for r in ti_norm if r[0]})
+            ti_data     = {r[0]: (r[1], r[2], r[3]) for r in ti_norm if r[0]}
+            ti_total_col = len(ti_branches) + 1
+            sheet.merge_range(next_row, 0, next_row, ti_total_col,
+                              'Total Invoices', section_fmt)
+            sheet.set_row(next_row, 22); next_row += 1
+            # header
+            sheet.write(next_row, 0, '', header)
+            for c, branch in enumerate(ti_branches, start=1):
+                sheet.set_column(c, c, max(20, len(branch) + 4))
+                sheet.write(next_row, c, branch, header)
+            sheet.write(next_row, ti_total_col, 'Grand Total', header)
+            sheet.set_row(next_row, 26); next_row += 1
+            for label, idx in [('Total', 0), ('Not Paid', 1), ('Paid', 2)]:
+                sheet.write(next_row, 0, label, header)
+                grand = 0.0
+                for c, branch in enumerate(ti_branches, start=1):
+                    val = ti_data.get(branch, (0, 0, 0))[idx]
+                    sheet.write(next_row, c, val, cell)
+                    grand += val
+                sheet.write(next_row, ti_total_col, grand, header)
+                sheet.set_row(next_row, 22); next_row += 1
+            next_row += 2
+
         norm = [(self._s(l[0]), self._s(l[1]), float(l[2] or 0), self._s(l[3]))
                 for l in payments]
 
-        BL = next_row
-        BR = next_row
+        # --- pre-compute payment matrix axes so we know total width for title ---
+        pay_matrix   = {}
+        pay_journals = []
+        pay_branches = []
+        j_seen2      = set()
+        b_seen2      = set()
+        for journal, branch, amount, _src in norm:
+            if not journal or not branch:
+                continue
+            if journal not in j_seen2:
+                j_seen2.add(journal)
+                pay_journals.append(journal)
+            if branch not in b_seen2:
+                b_seen2.add(branch)
+                pay_branches.append(branch)
+            pay_matrix[(journal, branch)] = pay_matrix.get((journal, branch), 0) + amount
+        pay_journals.sort(key=lambda j: (0 if 'نقدا' in j else 1, j.casefold()))
+        pay_branches.sort()
 
-        # Bottom-Left: Payments by Journal & Branch
-        sheet.merge_range(BL, 0, BL, 3, 'Payments by Journal & Branch', section_fmt)
-        sheet.set_row(BL, 22); BL += 1
-        for c, lbl in enumerate(['Journal', 'Branch', 'Amount', 'Type']):
-            sheet.write(BL, c, lbl, header)
-        sheet.set_row(BL, 20); BL += 1
-        grand_pay = 0
-        for line in norm:
-            sheet.write(BL, 0, line[0], cell)
-            sheet.write(BL, 1, line[1], cell)
-            sheet.write(BL, 2, line[2], cell)
-            sheet.write(BL, 3, line[3], cell)
-            grand_pay += line[2]; BL += 1
-        sheet.write(BL, 0, 'Grand Total', header)
-        sheet.write(BL, 2, grand_pay,     header); BL += 1
+        total_pay_col = len(pay_branches) + 1          # column index of the "Total" column
+        merge_end_col = total_pay_col
 
-        # Bottom-Right: Payment Type Summary (grouped by type)
-        sheet.merge_range(BR, 5, BR, 6, 'Payment Type Summary', section_fmt)
-        sheet.set_row(BR, 22); BR += 1
-        sheet.write(BR, 5, 'Type',  header)
-        sheet.write(BR, 6, 'Total', header)
-        sheet.set_row(BR, 20); BR += 1
+        # Write the sheet title spanning the full width
+        title_end = max(8, total_pay_col + 3)
+        sheet.merge_range(0, 0, 0, title_end, 'Accounting Report - Full Summary', title_fmt)
+
+        # ── Payment Type Summary (ABOVE Payments by Journal & Branch) ─────────
+        PT = next_row
+        sheet.set_column(0, 0, 20)
+        sheet.set_column(1, 1, 20)
+        sheet.merge_range(PT, 0, PT, 1, 'Payment Type Summary', section_fmt)
+        sheet.set_row(PT, 22); PT += 1
+        sheet.write(PT, 0, 'Type',  header)
+        sheet.write(PT, 1, 'Total', header)
+        sheet.set_row(PT, 20); PT += 1
         grand_type = 0
         for src_type, grp1 in igrp(sorted(norm, key=lambda x: x[3]),
                                     key=lambda x: x[3]):
             tot = sum(l[2] for l in grp1)
-            sheet.write(BR, 5, src_type, cell)
-            sheet.write(BR, 6, tot,      cell)
+            sheet.write(PT, 0, src_type, cell)
+            sheet.write(PT, 1, tot,      cell)
             grand_type += tot
-            sheet.set_row(BR, 18); BR += 1
-        sheet.write(BR, 5, 'Grand Total', header)
-        sheet.write(BR, 6, grand_type,    header); BR += 1
+            sheet.set_row(PT, 18); PT += 1
+        sheet.write(PT, 0, 'Grand Total', header)
+        sheet.write(PT, 1, grand_type,    header); PT += 1
+
+        # ── Payments by Journal & Branch (BELOW Payment Type Summary) ─────────
+        BL = PT + 2
+
+        # Section title spanning all columns of the matrix
+        if merge_end_col > 0:
+            sheet.merge_range(BL, 0, BL, merge_end_col,
+                              'Payments by Journal & Branch', section_fmt)
+        else:
+            sheet.write(BL, 0, 'Payments by Journal & Branch', section_fmt)
+        sheet.set_row(BL, 22); BL += 1
+
+        # Header row: blank corner, branch names, "Total"
+        sheet.write(BL, 0, '', header)
+        for c, branch in enumerate(pay_branches, start=1):
+            sheet.set_column(c, c, max(20, len(branch) + 4))
+            sheet.write(BL, c, branch, header)
+        sheet.write(BL, total_pay_col, 'Total', header)
+        sheet.set_row(BL, 24); BL += 1
+
+        # Body rows
+        branch_pay_totals = [0.0] * len(pay_branches)
+        grand_pay         = 0.0
+        for journal in pay_journals:
+            sheet.write(BL, 0, journal, header)
+            row_total = 0.0
+            for c, branch in enumerate(pay_branches, start=1):
+                amount = pay_matrix.get((journal, branch), 0)
+                sheet.write(BL, c, amount, cell)
+                row_total                += amount
+                branch_pay_totals[c - 1] += amount
+            sheet.write(BL, total_pay_col, row_total, header)
+            grand_pay += row_total
+            sheet.set_row(BL, 20); BL += 1
+
+        # Footer Total row
+        sheet.write(BL, 0, 'Total', header)
+        for c, btot in enumerate(branch_pay_totals, start=1):
+            sheet.write(BL, c, btot, header)
+        sheet.write(BL, total_pay_col, grand_pay, header)
+        sheet.set_row(BL, 22); BL += 1
 
         return workbook

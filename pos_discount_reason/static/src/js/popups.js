@@ -8,12 +8,17 @@ import { TextInputPopup } from "@point_of_sale/app/utils/input_popups/text_input
 import { makeAwaitable } from "@point_of_sale/app/store/make_awaitable_dialog";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { rpc } from "@web/core/network/rpc";
+import { PosChoiceListDialog } from "./selector_dialog";
 
 patch(ControlButtons.prototype, {
     setup() {
         super.setup();
         console.log("ControlButtons patched successfully!");
     },
+    _getCurrentOrder() {
+        return this.pos.get_order();
+    },
+
     _asId(value) {
         if (Array.isArray(value)) {
             return value[0] || false;
@@ -426,11 +431,36 @@ patch(ControlButtons.prototype, {
         return { ok: true };
     },
 
+    clearDiscountReason() {
+        const order = this._getCurrentOrder();
+        if (!order) {
+            return;
+        }
+
+        order.discount_reason_id = false;
+        order.discount_reason = "";
+
+        if (order._discount_reason_rule_lines_by_reason) {
+            order._discount_reason_rule_lines_by_reason = {};
+        }
+
+        order.get_orderlines().forEach((line) => line.set_discount(0));
+    },
+
+    clearSalesRep() {
+        const order = this._getCurrentOrder();
+        if (!order) {
+            return;
+        }
+
+        order.sales_rep_id = false;
+    },
+
     // Add Discount Reason Button Function
     async addDiscountReason() {
         console.log("addDiscountReason clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
@@ -502,12 +532,20 @@ patch(ControlButtons.prototype, {
 
             console.log("Showing selection popup with options:", reasonList);
 
-            const confirmed = await makeAwaitable(this.dialog, SelectionPopup, {
+            const confirmed = await makeAwaitable(this.dialog, PosChoiceListDialog, {
                 title: _t("Select Discount Reason"),
-                list: reasonList,
+                items: reasonList,
+                selectedId: this._asId(order.discount_reason_id),
+                placeholder: _t("Search Discount Reasons..."),
+                emptyMessage: _t("No discount reasons found."),
             });
 
             console.log("Selection result:", confirmed);
+
+            if (confirmed === null) {
+                this.clearDiscountReason();
+                return;
+            }
 
             if (confirmed) {
                 if (confirmed.id === 'custom') {
@@ -586,7 +624,7 @@ patch(ControlButtons.prototype, {
     async toggleAsGift() {
         console.log("toggleAsGift clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
@@ -643,7 +681,7 @@ patch(ControlButtons.prototype, {
     async selectSalesRep() {
         console.log("selectSalesRep clicked!");
 
-        const order = this.pos.get_order();
+        const order = this._getCurrentOrder();
         console.log("Current order:", order);
 
         if (!order) {
@@ -718,12 +756,20 @@ patch(ControlButtons.prototype, {
 
             console.log("Showing sales rep selection:", repList);
 
-            const confirmed = await makeAwaitable(this.dialog, SelectionPopup, {
+            const confirmed = await makeAwaitable(this.dialog, PosChoiceListDialog, {
                 title: _t("Select Sales Representative"),
-                list: repList,
+                items: repList,
+                selectedId: this._asId(order.sales_rep_id),
+                placeholder: _t("Search Sales Representatives..."),
+                emptyMessage: _t("No sales representatives found."),
             });
 
             console.log("Sales rep selection result:", confirmed);
+
+            if (confirmed === null) {
+                this.clearSalesRep();
+                return;
+            }
 
             if (confirmed) {
                 order.sales_rep_id = confirmed;

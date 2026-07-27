@@ -1,4 +1,4 @@
-from odoo import fields,models,api
+from odoo import fields,models,api, _
 from odoo.exceptions import ValidationError
 from odoo.osv import expression
 
@@ -35,6 +35,41 @@ class ResPartnerInherit(models.Model):
     company_device = fields.Integer(
         string='Devices',
         required=False)
+
+    def _sync_company_flags(self, vals):
+        if 'company_type' in vals and 'is_company' in self._fields:
+            vals['is_company'] = vals.get('company_type') == 'company'
+        return vals
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        vals_list = [self._sync_company_flags(dict(vals)) for vals in vals_list]
+        return super().create(vals_list)
+
+    def write(self, vals):
+        vals = self._sync_company_flags(dict(vals))
+        return super().write(vals)
+
+    @api.onchange('company_type')
+    def _onchange_company_type(self):
+        if self.company_type != 'company':
+            self.company_size = False
+            self.company_device = False
+        if 'is_company' in self._fields:
+            self.is_company = self.company_type == 'company'
+
+    @api.constrains('company_type', 'vat', 'company_size', 'company_device')
+    def _check_company_required_fields(self):
+        for partner in self:
+            if partner.company_type != 'company':
+                continue
+
+            if not partner.vat:
+                raise ValidationError(_("Tax ID is mandatory for company contacts."))
+            if not partner.company_size:
+                raise ValidationError(_("Employees is mandatory for company contacts."))
+            if not partner.company_device or partner.company_device <= 0:
+                raise ValidationError(_("Devices must be greater than 0 for company contacts."))
         
     @api.constrains('mobile')
     def unique_mobile_id(self):
@@ -60,6 +95,7 @@ class ResPartnerInherit(models.Model):
     #     return super(ResPartnerInherit, self).write(values)
 
 
+    @api.constrains('vat', 'mobile_type', 'company_type')
     def vat_constrain(self):
 
         if self.vat and self.mobile_type =='local' and self.company_type == 'person' and len(self.vat) != 14:

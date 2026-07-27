@@ -1,370 +1,946 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
+<t t-name="tradeline_executive_pocket_dashboard.MainDashboard">
+<div class="tl-exec-pocket">
 
-    <t t-name="tradeline_executive_pocket_dashboard.MainDashboard">
-        <div class="tl-exec-pocket">
+  <!-- ══════════ STICKY HEADER ══════════ -->
+  <div class="tl-exec-header">
+    <div class="tl-exec-brand">
+      <div class="tl-brand-icon">📊</div>
+      <div class="tl-brand-text">
+        <span class="tl-brand-title">Executive Pocket</span>
+        <span class="tl-brand-sub">Live analytics — scroll to explore</span>
+      </div>
+    </div>
 
-            <!-- HEADER -->
-            <div class="tl-exec-header">
-                <div class="tl-exec-title-block">
-                    <h1>Executive Pocket Dashboard</h1>
-                    <p>General to granular executive analytics with live FX watch.</p>
-                </div>
-
-                <div class="tl-exec-controls">
-
-                    <label>
-                        <span>Start</span>
-                        <input
-                            type="date"
-                            t-model="state.filters.start_date"
-                            t-on-change="onDateChange"
-                        />
-                    </label>
-
-                    <label>
-                        <span>End</span>
-                        <input
-                            type="date"
-                            t-model="state.filters.end_date"
-                            t-on-change="onDateChange"
-                        />
-                    </label>
-
-                    <label>
-                        <span>Lens</span>
-                        <select
-                            t-model="state.lens"
-                            t-on-change="onLensChange"
-                        >
-                            <option value="overview">Overview</option>
-                            <option value="performance">Performance</option>
-                            <option value="risk">Risk</option>
-                            <option value="cash">Cash</option>
-                        </select>
-                    </label>
-
-                </div>
+    <div class="tl-exec-controls">
+      <!-- Company picker -->
+      <div class="tl-control tl-company-control">
+        <span class="tl-control-label">Company</span>
+        <button class="tl-company-trigger" t-on-click="onToggleCompanyPicker">
+          <span class="tl-company-summary"><t t-esc="companySelectionSummary"/></span>
+          <span class="tl-caret">⌄</span>
+        </button>
+        <t t-if="state.companyPicker.open">
+          <div class="tl-company-popover">
+            <input class="tl-company-search" type="text" placeholder="Search company…"
+              t-model="state.companyPicker.search" t-on-input="onCompanySearchInput"/>
+            <div class="tl-company-actions">
+              <button class="tl-btn-xs" t-on-click="onSelectAllCompanies">All</button>
+              <button class="tl-btn-xs" t-on-click="onClearCompanySelection">Clear</button>
+              <button class="tl-btn-xs tl-btn-primary-xs" t-on-click="onApplyCompanySelection">Apply</button>
             </div>
-
-            <!-- STATES -->
-            <t t-if="state.loading">
-                <div class="tl-exec-loading">
-                    Loading executive dashboard...
-                </div>
-            </t>
-
-            <t t-elif="state.error">
-                <div class="tl-exec-error">
-                    <t t-esc="state.error"/>
-                </div>
-            </t>
-
-            <t t-else="">
-
-                <!-- ALERTS -->
-                <div class="tl-alert-ribbon">
-                    <t t-foreach="alerts" t-as="alert" t-key="alert.label">
-                        <span t-att-class="'tl-alert-pill ' + alert.severity">
-                            <strong>
-                                <t t-esc="alert.label"/>:
-                            </strong>
-                            <t t-esc="alert.detail"/>
-                        </span>
-                    </t>
-                </div>
-
-                <!-- KPI -->
-                <div class="tl-kpi-grid">
-                    <t t-foreach="cards" t-as="card" t-key="card.key">
-
-                        <div class="tl-kpi-card">
-
-                            <div class="tl-kpi-label">
-                                <t t-esc="card.label"/>
-                            </div>
-
-                            <div class="tl-kpi-value">
-
-                                <t t-if="card.unit === 'EGP'">
-                                    <t t-esc="_formatCurrency(card.value)"/>
-                                </t>
-
-                                <t t-else="">
-                                    <t t-esc="_formatNumber(card.value)"/>
-                                </t>
-
-                            </div>
-
-                        </div>
-
-                    </t>
-                </div>
-
-                <!-- CHARTS -->
-                <div class="tl-chart-grid">
-
-                    <div class="tl-chart-card">
-
-                        <div class="tl-chart-title">
-                            Top Metrics
-                        </div>
-
-                        <div class="tl-bar-chart">
-
-                            <t t-foreach="topChartRows" t-as="item" t-key="item.dimension">
-
-                                <div class="tl-bar-row">
-
-                                    <div class="tl-bar-label">
-                                        <t t-esc="_shorten(item.dimension, 28)"/>
-                                    </div>
-
-                                    <div class="tl-bar-track">
-                                        <div
-                                            class="tl-bar-fill"
-                                            t-att-style="'width:' + item.pct + '%'"
-                                        />
-                                    </div>
-
-                                    <div class="tl-bar-value">
-                                        <t t-esc="_formatCell(item.metric, item.value)"/>
-                                    </div>
-
-                                </div>
-
-                            </t>
-
-                        </div>
-
-                    </div>
-
-                </div>
-
-                <!-- FX -->
-                <div class="tl-fx-panel">
-
-                    <div class="tl-fx-head">
-
-                        <h2>Currencies To Watch</h2>
-
-                        <button
-                            class="btn btn-primary"
-                            t-on-click="onRefreshFx"
-                            t-att-disabled="state.refreshingFx"
-                        >
-
-                            <t t-if="state.refreshingFx">
-                                Refreshing...
-                            </t>
-
-                            <t t-else="">
-                                Refresh FX
-                            </t>
-
-                        </button>
-
-                    </div>
-
-                    <div class="tl-fx-grid">
-
-                        <t t-foreach="fxCards" t-as="fx" t-key="fx.pair">
-
-                            <div
-                                class="tl-fx-card"
-                                t-att-class="fx.is_stale ? 'is-stale' : 'is-fresh'"
-                            >
-
-                                <div class="tl-fx-pair">
-                                    <t t-esc="fx.display_label || fx.pair"/>
-                                </div>
-
-                                <div class="tl-fx-rate">
-                                    <t t-esc="_formatFxRate(fx.rate)"/>
-                                </div>
-
-                                <div class="tl-fx-egp">
-                                    EGP
-                                </div>
-
-                                <div class="tl-fx-meta">
-
-                                    <span>
-                                        <t t-esc="fx.source || 'Unknown'"/>
-                                    </span>
-
-                                    <span>
-                                        <t t-if="fx.is_stale">Stale</t>
-                                        <t t-else="">Fresh</t>
-                                    </span>
-
-                                </div>
-
-                                <div class="tl-fx-periods">
-
-                                    <t
-                                        t-foreach="_periodRows(fx.period_changes || {})"
-                                        t-as="pc"
-                                        t-key="pc.label"
-                                    >
-
-                                        <span class="tl-fx-chip">
-
-                                            <strong>
-                                                <t t-esc="pc.label"/>
-                                            </strong>
-
-                                            <span>
-                                                <t t-esc="pc.value"/>
-                                            </span>
-
-                                        </span>
-
-                                    </t>
-
-                                </div>
-
-                                <div class="tl-fx-time">
-                                    Updated
-                                    <t t-esc="fx.age_minutes"/>
-                                    min ago
-                                </div>
-
-                            </div>
-
-                        </t>
-
-                    </div>
-
-                </div>
-
-                <!-- DRILLDOWN -->
-                <div class="tl-drill-panel">
-
-                    <div class="tl-drill-head">
-
-                        <h2>Granular Drilldown</h2>
-
-                        <div class="tl-drill-actions">
-                            <button
-                                class="btn btn-secondary"
-                                t-on-click="onOpenNativeView"
-                            >
-                                Open Native View
-                            </button>
-                        </div>
-
-                    </div>
-
-                    <div class="tl-drill-filters">
-
-                        <label>
-
-                            <span>Domain</span>
-
-                            <select
-                                t-model="state.selectedDomain"
-                                t-on-change="onDomainChange"
-                            >
-
-                                <t t-foreach="domains" t-as="domain" t-key="domain.value">
-
-                                    <option t-att-value="domain.value">
-                                        <t t-esc="domain.label"/>
-                                    </option>
-
-                                </t>
-
-                            </select>
-
-                        </label>
-
-                        <label>
-
-                            <span>Group By</span>
-
-                            <select
-                                t-model="state.selectedGroupBy"
-                                t-on-change="onGroupChange"
-                            >
-
-                                <t t-foreach="groupByOptions" t-as="group" t-key="group.value">
-
-                                    <option t-att-value="group.value">
-                                        <t t-esc="group.label"/>
-                                    </option>
-
-                                </t>
-
-                            </select>
-
-                        </label>
-
-                    </div>
-
-                    <!-- TABLE -->
-                    <div class="tl-table-wrap">
-
-                        <table class="table table-sm table-striped">
-
-                            <thead>
-
-                                <tr>
-
-                                    <t
-                                        t-foreach="drillColumns"
-                                        t-as="column"
-                                        t-key="column"
-                                    >
-
-                                        <th>
-                                            <t t-esc="column"/>
-                                        </th>
-
-                                    </t>
-
-                                </tr>
-
-                            </thead>
-
-                            <tbody>
-
-                                <t
-                                    t-foreach="drillRows"
-                                    t-as="row"
-                                    t-key="row_index"
-                                    t-foreach-index="row_index"
-                                >
-
-                                    <tr>
-
-                                        <t
-                                            t-foreach="drillColumns"
-                                            t-as="column"
-                                            t-key="column"
-                                        >
-
-                                            <td>
-                                                <t t-esc="_formatCell(column, row[column])"/>
-                                            </td>
-
-                                        </t>
-
-                                    </tr>
-
-                                </t>
-
-                            </tbody>
-
-                        </table>
-
-                    </div>
-
-                </div>
-
-            </t>
-
-        </div>
+            <div class="tl-company-list">
+              <t t-foreach="filteredCompanyOptions" t-as="company" t-key="company.id">
+                <label class="tl-company-item">
+                  <input type="checkbox" t-att-value="company.id"
+                    t-att-checked="state.companyPicker.draft_ids.includes(company.id) ? 'checked' : null"
+                    t-on-change="onDraftCompanyToggle"/>
+                  <span><t t-esc="company.name"/></span>
+                </label>
+              </t>
+            </div>
+          </div>
+        </t>
+      </div>
+
+      <label class="tl-control">
+        <span class="tl-control-label">From</span>
+        <input class="tl-date-input" type="date" t-model="state.filters.start_date" t-on-change="onDateChange"/>
+      </label>
+      <label class="tl-control">
+        <span class="tl-control-label">To</span>
+        <input class="tl-date-input" type="date" t-model="state.filters.end_date" t-on-change="onEndDateChange"/>
+      </label>
+      <label class="tl-control">
+        <span class="tl-control-label">Daily Report Day</span>
+        <input class="tl-date-input" type="date" t-model="state.filters.report_date" t-on-change="onReportDateChange"/>
+      </label>
+
+      <label class="tl-control">
+        <span class="tl-control-label">Top N</span>
+        <select class="tl-select" t-on-change="onTopNChange">
+          <t t-foreach="[5, 10, 15, 20, 50]" t-as="n" t-key="n">
+            <option t-att-value="n" t-att-selected="state.topN === n ? 'selected' : null"><t t-esc="n"/></option>
+          </t>
+        </select>
+      </label>
+
+      <button class="tl-btn-export" t-on-click="onExportDailyReport">
+        <span class="tl-btn-icon">📄</span> Export Daily Report
+      </button>
+      <button class="tl-btn-export" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
+        <span class="tl-btn-icon">📊</span> Export Period Report
+      </button>
+    </div>
+
+    <!-- Scope chips + margin badge -->
+    <div class="tl-scope-bar">
+      <span class="tl-scope-label">Scope:</span>
+      <t t-if="selectedCompanyLabels.length">
+        <t t-foreach="selectedCompanyLabels" t-as="name" t-key="name_index">
+          <span class="tl-chip"><t t-esc="name"/></span>
+        </t>
+      </t>
+      <t t-else=""><span class="tl-chip tl-chip-all">All accessible companies</span></t>
+      <span t-att-class="'tl-margin-badge ' + marginStatusClass"><t t-esc="marginStatusLabel"/></span>
+    </div>
+  </div>
+
+  <!-- ══════════ LOADING / ERROR ══════════ -->
+  <t t-if="state.loading">
+    <div class="tl-loading-state">
+      <div class="tl-spinner"></div>
+      <span>Loading executive data…</span>
+    </div>
+  </t>
+  <t t-elif="state.error">
+    <div class="tl-error-state">
+      <span class="tl-error-icon">⚠</span>
+      <span><t t-esc="state.error"/></span>
+    </div>
+  </t>
+  <t t-else="">
+
+    <!-- ALERTS -->
+    <t t-if="alerts.length">
+      <div class="tl-alert-ribbon">
+        <t t-foreach="alerts" t-as="alert" t-key="alert.label">
+          <div t-att-class="'tl-alert-pill ' + alert.severity">
+            <strong><t t-esc="alert.label"/></strong>
+            <t t-esc="alert.detail"/>
+          </div>
+        </t>
+      </div>
     </t>
 
+    <!-- ══════════ KPI CARDS ══════════ -->
+    <div class="tl-kpi-grid">
+      <div class="tl-kpi-card tl-kpi-hero" t-on-click="() => this.onCardClick('today_sales')" style="cursor: pointer;">
+        <div class="tl-kpi-icon">💰</div>
+        <div class="tl-kpi-body">
+          <div class="tl-kpi-label">Today's Sales</div>
+          <div class="tl-kpi-value"><t t-esc="_formatCompactEGP(todaySales)"/></div>
+          <div t-att-class="'tl-kpi-trend ' + _trendClass(todayVsYesterdayPct)">
+            <t t-esc="_trendIcon(todayVsYesterdayPct)"/>
+            <t t-esc="_formatPercentOrDash(todayVsYesterdayPct)"/>
+            <span class="tl-kpi-sub-text">vs yesterday</span>
+          </div>
+          <div class="tl-kpi-explain">Sales on selected Daily Report Day</div>
+        </div>
+      </div>
+
+      <div class="tl-kpi-card tl-kpi-hero" t-on-click="() => this.onCardClick('acc_sales')" style="cursor: pointer;">
+        <div class="tl-kpi-icon">📈</div>
+        <div class="tl-kpi-body">
+          <div class="tl-kpi-label">Acc. Sales (MTD)</div>
+          <div class="tl-kpi-value"><t t-esc="_formatCompactEGP(accSales)"/></div>
+          <div t-att-class="'tl-kpi-trend ' + _trendClass(accSalesVsPrevPct)">
+            <t t-esc="_trendIcon(accSalesVsPrevPct)"/>
+            <t t-esc="_formatPercentOrDash(accSalesVsPrevPct)"/>
+            <span class="tl-kpi-sub-text">vs prev day MTD</span>
+          </div>
+          <div t-att-class="'tl-kpi-trend ' + _trendClass(accSalesVsLastMonthMtdPct)" style="margin-top: 2px;">
+            <t t-esc="_trendIcon(accSalesVsLastMonthMtdPct)"/>
+            <t t-esc="_formatPercentOrDash(accSalesVsLastMonthMtdPct)"/>
+            <span class="tl-kpi-sub-text">vs last month same day MTD</span>
+          </div>
+          <div class="tl-kpi-explain">Cumulative sales from Month Day 1 to Report Day</div>
+        </div>
+      </div>
+      <div class="tl-kpi-card has-tooltip">
+        <div class="tl-kpi-icon">🔗</div>
+        <div class="tl-kpi-body">
+          <div class="tl-kpi-label">Care Cards Rate</div>
+          <div class="tl-kpi-value tl-value-pct"><t t-esc="attachmentRate.toFixed(1)"/>%</div>
+          <div class="tl-kpi-sub-text">
+            <span style="margin-right: 8px;"><t t-esc="attachmentData.one_card_invoices || 0"/> with 1 card</span>
+            <span><t t-esc="attachmentData.two_plus_card_invoices || 0"/> with 2+ cards</span>
+            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period</div>
+          </div>
+          <div class="tl-kpi-explain">Percentage of invoices that include at least one Care Card. This helps track the success rate of attaching care plans to core product sales.</div>
+        </div>
+      </div>
+
+      <div class="tl-kpi-card" t-on-click="() => this.onCardClick('total_invoices')" style="cursor: pointer;">
+        <div class="tl-kpi-icon">🧾</div>
+        <div class="tl-kpi-body">
+          <div class="tl-kpi-label">Total Invoices</div>
+          <div class="tl-kpi-value"><t t-esc="_formatNumber(totalInvoices)"/></div>
+          <div class="tl-kpi-sub-text">posted on report day</div>
+        </div>
+      </div>
+
+      <t t-foreach="cards" t-as="card" t-key="card.key">
+        <div t-att-class="'tl-kpi-card' + (card.tone === 'warning' ? ' tl-kpi-warn' : '')" t-on-click="() => this.onCardClick(card.key)" style="cursor: pointer;">
+          <div class="tl-kpi-body">
+            <div class="tl-kpi-label"><t t-esc="card.label"/></div>
+            <div class="tl-kpi-value">
+              <t t-if="card.unit === 'EGP'"><t t-esc="_formatCompactEGP(card.value)"/></t>
+              <t t-else=""><t t-esc="_formatNumber(card.value)"/></t>
+            </div>
+            <div class="tl-kpi-sub-text" t-if="card.subtext" style="margin-top: 4px; font-size: 0.9em;"><t t-esc="card.subtext"/></div>
+          </div>
+        </div>
+      </t>
+    </div>
+
+
+    <!-- ══════════ SECTION: SALES PERFORMANCE ══════════ -->
+    <div class="tl-section">
+      <div class="tl-section-header tl-hdr-sales">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Sales Performance</h2>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — scrollable, always visible</span>
+        </div>
+      </div>
+
+      <!-- Branch -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Branch</h3>
+          <span class="tl-badge tl-badge-blue">Net Revenue</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!branchBarRows.length"><div class="tl-empty-mini">No branch data available</div></t>
+            <t t-foreach="branchBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-blue" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Branch</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
+                  <th class="col-num">Margin%</th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesByBranch" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Salesperson -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Salesperson</h3>
+          <span class="tl-badge tl-badge-teal">Net Revenue</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!salespersonBarRows.length"><div class="tl-empty-mini">No salesperson data available</div></t>
+            <t t-foreach="salespersonBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-teal" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Salesperson</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
+                  <th class="col-num">Margin%</th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesBySalesperson" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category: Donut + Table -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Category</h3>
+          <span class="tl-badge tl-badge-purple">Category Mix</span>
+        </div>
+        <div class="tl-donut-layout">
+          <div class="tl-donut-col">
+            <svg class="tl-donut-svg" viewBox="0 0 150 150">
+              <t t-foreach="donutCategorySegments" t-as="seg" t-key="seg_index">
+                <path t-att-d="seg.path" t-att-fill="seg.color" class="tl-donut-seg"/>
+              </t>
+              <circle cx="75" cy="75" r="34" fill="white"/>
+              <text x="75" y="70" text-anchor="middle" class="tl-donut-lbl">Total</text>
+              <text x="75" y="88" text-anchor="middle" class="tl-donut-val"><t t-esc="_formatCompact(donutCategoryTotal)"/></text>
+            </svg>
+            <div class="tl-donut-legend">
+              <t t-foreach="donutCategorySegments" t-as="seg" t-key="seg_index">
+                <div class="tl-legend-row">
+                  <span class="tl-legend-dot" t-att-style="'background:' + seg.color"></span>
+                  <span class="tl-legend-label" t-att-title="seg.label"><t t-esc="_shorten(seg.label, 22)"/></span>
+                  <span class="tl-legend-pct"><t t-esc="seg.pctLabel"/>%</span>
+                </div>
+              </t>
+            </div>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Category</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop"><th class="col-num">Margin%</th></t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesByCategory" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Customer -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> Customers</h3>
+          <span class="tl-badge tl-badge-blue">by Revenue</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!customerBarRows.length"><div class="tl-empty-mini">No customer data available</div></t>
+            <t t-foreach="customerBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-indigo" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Customer</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
+                  <th class="col-num">Margin%</th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesByCustomer" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product Variant -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="tl-select" t-on-change="onProductCategoryChange" style="padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; background: #f0fdf4; border-color: #86efac; color: #166534; cursor: pointer;">
+              <option value="all">All (Top 10 Categories)</option>
+              <t t-foreach="productCategoryOptions" t-as="cat" t-key="cat">
+                <option t-att-value="cat" t-att-selected="state.filters.product_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
+              </t>
+            </select>
+            <span class="tl-badge tl-badge-teal">Net Revenue</span>
+          </div>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!productBarRows.length"><div class="tl-empty-mini">No product variant data available</div></t>
+            <t t-foreach="productBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-teal" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Product Variant</th>
+                <th class="col-num">Revenue</th>
+                <th class="col-num">Invoices</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num" style="min-width: 90px;">
+                    Margin
+                    <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
+                      <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
+                    </button>
+                  </th>
+                  <th class="col-num">Margin%</th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topSalesByProduct" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell" t-att-title="row.dimension"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
+                    <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
+                      <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ SECTION: INVENTORY ══════════ -->
+    <div class="tl-section">
+      <div class="tl-section-header tl-hdr-inventory">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Inventory Exposure</h2>
+          <span class="tl-section-subtitle">Allocated cost (SVL method) — Top <t t-esc="state.topN"/> categories</span>
+        </div>
+      </div>
+
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Category</h3>
+          <span class="tl-badge tl-badge-amber">Allocated Cost EGP</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!inventoryBarRows.length"><div class="tl-empty-mini">No inventory data available</div></t>
+            <t t-foreach="inventoryBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-amber" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Category</th>
+                <th class="col-num">On-Hand Qty</th>
+                <th class="col-num">Allocated Value</th>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topInventoryByCategory" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.on_hand_qty)"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.allocated_value)"/></td>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ SECTION: DAILY TREND ══════════ -->
+    <div class="tl-section">
+      <div class="tl-section-header tl-hdr-trend">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Sales Trend</h2>
+          <span class="tl-section-subtitle">Daily revenue over selected period + 7-day snapshot</span>
+        </div>
+      </div>
+
+      <!-- Line Chart -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Revenue Over Period</h3>
+          <span class="tl-badge tl-badge-green">Daily Trend</span>
+        </div>
+        <t t-if="salesOverMonth.length">
+          <div class="tl-line-wrapper" style="position: relative;">
+            <div class="tl-line-y-label"><t t-esc="_formatCompact(lineChartData.maxV)"/></div>
+            <svg class="tl-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none"
+                 style="cursor: crosshair;"
+                 t-on-mousemove="onChartMouseMove"
+                 t-on-mouseleave="onChartMouseLeave"
+                 t-on-click="onChartClick">
+              <defs>
+                <linearGradient id="tlLineGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.22"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0.01"/>
+                </linearGradient>
+              </defs>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlLineGrad)" stroke="none"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"
+                stroke-linejoin="round" stroke-linecap="round"/>
+              
+              <!-- Snapping vertical guideline -->
+              <t t-if="state.activePoint">
+                <line t-att-x1="state.activePoint.x" y1="12" t-att-x2="state.activePoint.x" y2="132"
+                      stroke="#00713b" stroke-width="1.2" stroke-dasharray="3,3"/>
+              </t>
+
+              <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
+                <circle t-att-cx="pt.x" t-att-cy="pt.y"
+                        t-att-r="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? 5.5 : 3.5"
+                        t-att-fill="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? '#0c1b12' : '#00713b'"
+                        stroke="white" t-att-stroke-width="state.activePoint &amp;&amp; state.activePoint.date === pt.date ? 2 : 1.5">
+                </circle>
+              </t>
+            </svg>
+            <div class="tl-line-x-axis">
+              <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
+              <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
+              <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
+            </div>
+
+            <!-- Beautiful interactive tooltip overlay -->
+            <t t-if="state.activePoint">
+              <div class="tl-chart-tooltip">
+                <div class="tl-tooltip-date"><t t-esc="_formatDayLabel(state.activePoint.date)"/></div>
+                <div class="tl-tooltip-row">
+                  <span class="tl-tooltip-label">Revenue:</span>
+                  <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
+                </div>
+                <div class="tl-tooltip-row">
+                  <span class="tl-tooltip-label">Invoices:</span>
+                  <span class="tl-tooltip-val"><t t-esc="state.activePoint.invoice_count"/></span>
+                </div>
+                <div class="tl-tooltip-hint">Click point to inspect day</div>
+              </div>
+            </t>
+          </div>
+        </t>
+        <t t-else=""><div class="tl-empty-mini">No trend data for selected period.</div></t>
+      </div>
+
+      <!-- 7-Day Snapshot -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>7-Day Daily Snapshot</h3>
+          <div class="tl-snapshot-quick">
+            <span>Today: <strong><t t-esc="_formatCompactEGP(dailySnapshotStats.today_revenue || 0)"/></strong></span>
+            <span t-att-class="'tl-dod-badge ' + _trendClass(dailySnapshotStats.day_over_day_pct)">
+              <t t-esc="_trendIcon(dailySnapshotStats.day_over_day_pct)"/>
+              <t t-esc="_formatPercentOrDash(dailySnapshotStats.day_over_day_pct)"/> DoD
+            </span>
+          </div>
+        </div>
+        <div class="tl-snapshot-bars">
+          <t t-foreach="dailySnapshotBars" t-as="item" t-key="item.date">
+            <div class="tl-snap-row">
+              <div class="tl-snap-day"><t t-esc="_formatDayLabel(item.date)"/></div>
+              <div class="tl-snap-track">
+                <div class="tl-snap-fill" t-att-style="'width:' + item.pct + '%'"></div>
+              </div>
+              <div class="tl-snap-val"><t t-esc="_formatCompact(item.value)"/></div>
+              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv</div>
+            </div>
+          </t>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ ADVANCED DRILLDOWN (collapsible) ══════════ -->
+    <div class="tl-section tl-advanced-section">
+      <div class="tl-section-header tl-hdr-advanced tl-collapsible" t-on-click="onToggleDrilldown">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Advanced Drilldown</h2>
+          <span class="tl-section-subtitle">Custom domain, group-by, and metric analysis</span>
+        </div>
+        <span class="tl-collapse-toggle"><t t-if="state.drilldownOpen">▲ Hide</t><t t-else="">▼ Show</t></span>
+      </div>
+
+      <t t-if="state.drilldownOpen">
+        <div class="tl-card">
+          <div class="tl-drill-filters">
+            <label class="tl-control">
+              <span class="tl-control-label">Domain</span>
+              <select class="tl-select" t-model="state.selectedDomain" t-on-change="onDomainChange">
+                <t t-foreach="availableDomains" t-as="domain" t-key="domain.key">
+                  <option t-att-value="domain.key"><t t-esc="domain.label"/></option>
+                </t>
+              </select>
+            </label>
+            <label class="tl-control">
+              <span class="tl-control-label">Group By</span>
+              <select class="tl-select" t-model="state.selectedGroupBy" t-on-change="onGroupChange">
+                <t t-foreach="availableGroups" t-as="grp" t-key="grp.key">
+                  <option t-att-value="grp.key"><t t-esc="grp.label"/></option>
+                </t>
+              </select>
+            </label>
+            <label class="tl-control">
+              <span class="tl-control-label">Metric</span>
+              <select class="tl-select" t-model="state.selectedMetric" t-on-change="onMetricChange">
+                <t t-foreach="availableMetrics" t-as="m" t-key="m.key">
+                  <option t-att-value="m.key"><t t-esc="m.label"/></option>
+                </t>
+              </select>
+            </label>
+            <div class="tl-drill-actions-row">
+              <button class="tl-btn-sm" t-if="hasSort" t-on-click="clearSort">Clear Sort</button>
+              <button class="tl-btn-sm tl-btn-outline" t-on-click="onOpenNativeView">Open in Odoo ↗</button>
+            </div>
+          </div>
+
+          <div class="tl-pagebar">
+            <span class="tl-page-info"><t t-esc="drillPageSummary"/></span>
+            <div class="tl-page-controls">
+              <label class="tl-control tl-control-inline">
+                <span>Rows</span>
+                <select class="tl-select tl-select-sm" t-att-value="drillLimit" t-on-change="onPageSizeChange">
+                  <t t-foreach="pageSizeOptions" t-as="size" t-key="size">
+                    <option t-att-value="size"><t t-esc="size"/></option>
+                  </t>
+                </select>
+              </label>
+              <button class="tl-btn-sm" t-on-click="onPrevPage" t-att-disabled="hasPrevPage ? null : true">← Prev</button>
+              <span class="tl-page-num">Page <t t-esc="drillCurrentPage"/>/<t t-esc="drillTotalPages"/></span>
+              <button class="tl-btn-sm" t-on-click="onNextPage" t-att-disabled="hasNextPage ? null : true">Next →</button>
+            </div>
+          </div>
+
+          <t t-if="!hasRows">
+            <div class="tl-empty-mini">No rows. Try adjusting domain, group, or date range.</div>
+          </t>
+          <div class="tl-table-wrap">
+            <table class="tl-top-table tl-drill-table">
+              <thead><tr>
+                <t t-foreach="drillColumns" t-as="col" t-key="col">
+                  <th>
+                    <button class="tl-sort-btn" t-att-class="state.sort.column === col ? 'is-active' : ''"
+                      t-att-data-column="col" t-on-click="onSortColumnClick">
+                      <t t-esc="columnLabel(col)"/>
+                      <span class="tl-sort-icon"><t t-esc="sortIcon(col)"/></span>
+                    </button>
+                  </th>
+                </t>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="drillRows" t-as="row" t-key="row_index">
+                  <tr>
+                    <t t-foreach="drillColumns" t-as="col" t-key="col">
+                      <td><t t-esc="_formatCell(col, row[col])"/></td>
+                    </t>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </t>
+    </div>
+
+    <!-- ══════════ DAILY PRINT LAYOUT ══════════ -->
+    <div class="tl-print-layout tl-print-daily-view">
+      <div class="tl-print-header">
+        <div class="tl-print-brand">
+          <div class="tl-print-company"><t t-esc="reportCompanyName"/></div>
+          <div class="tl-print-report-tag">Daily Report</div>
+        </div>
+        <div class="tl-print-date-block">
+          <div class="tl-print-date"><t t-esc="state.filters.report_date"/></div>
+          <div class="tl-print-period"><t t-esc="state.filters.start_date"/> → <t t-esc="state.filters.end_date"/></div>
+        </div>
+      </div>
+
+      <div class="tl-print-kpi-row">
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Sales</div>
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(dailyTodaySales)"/></div>
+          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(dailyTodayVsYesterdayPct)">
+            <t t-esc="_trendIcon(dailyTodayVsYesterdayPct)"/>
+            <t t-esc="_formatPercentOrDash(dailyTodayVsYesterdayPct)"/> vs day before
+          </div>
+        </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Acc. Sales (MTD)</div>
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(dailyAccSales)"/></div>
+          <div t-att-class="'tl-print-kpi-vs ' + _trendClass(dailyAccSalesVsPrevPct)">
+            <t t-esc="_trendIcon(dailyAccSalesVsPrevPct)"/>
+            <t t-esc="_formatPercentOrDash(dailyAccSalesVsPrevPct)"/> vs day before
+          </div>
+        </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Attachment Rate</div>
+          <div class="tl-print-kpi-val"><t t-esc="dailyAttachmentRate.toFixed(1)"/>%</div>
+          <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
+        </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Invoices</div>
+          <div class="tl-print-kpi-val"><t t-esc="dailyTotalInvoices"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices</div>
+        </div>
+      </div>
+
+      <div class="tl-print-charts-row">
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Branch</div>
+          <t t-foreach="dailyBranchBarRows" t-as="item" t-key="item_index">
+            <div class="tl-print-bar-row">
+              <div class="tl-print-bar-label"><t t-esc="_shorten(item.dimension, 22)"/></div>
+              <div class="tl-print-bar-track">
+                <div class="tl-print-bar-fill" t-att-style="'width:' + item.pct + '%'"></div>
+              </div>
+              <div class="tl-print-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+            </div>
+          </t>
+        </div>
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Category</div>
+          <div class="tl-print-donut-row">
+            <svg viewBox="0 0 150 150" class="tl-print-donut-svg">
+              <t t-foreach="dailyDonutCategorySegments" t-as="seg" t-key="seg_index">
+                <path t-att-d="seg.path" t-att-fill="seg.color"/>
+              </t>
+              <circle cx="75" cy="75" r="34" fill="white"/>
+            </svg>
+            <div class="tl-print-legend">
+              <t t-foreach="dailyDonutCategorySegments" t-as="seg" t-key="seg_index">
+                <div class="tl-print-legend-row">
+                  <span class="tl-print-dot" t-att-style="'background:' + seg.color"></span>
+                  <span class="tl-print-legend-label"><t t-esc="_shorten(seg.label, 20)"/></span>
+                  <span class="tl-print-legend-pct"><t t-esc="seg.pctLabel"/>%</span>
+                </div>
+              </t>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tl-print-chart-full">
+        <div class="tl-print-chart-title">Sales Over Period</div>
+        <t t-if="salesOverMonth.length">
+          <div class="tl-print-line-wrapper">
+            <div class="tl-print-line-y-axis">
+              <span><t t-esc="_formatCompact(lineChartData.maxV)"/></span>
+              <span><t t-esc="_formatCompact(lineChartData.minV)"/></span>
+            </div>
+            <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tlPrintGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGrad)" stroke="none"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"/>
+              <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#00713b"/>
+              </t>
+            </svg>
+            <div class="tl-print-line-x-axis">
+              <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
+              <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
+              <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
+            </div>
+          </div>
+        </t>
+      </div>
+    </div>
+
+    <!-- ══════════ PERIOD PRINT LAYOUT ══════════ -->
+    <div class="tl-print-layout tl-print-period-view">
+      <div class="tl-print-header">
+        <div class="tl-print-brand">
+          <div class="tl-print-company"><t t-esc="reportCompanyName"/></div>
+          <div class="tl-print-report-tag">Period Report</div>
+        </div>
+        <div class="tl-print-date-block">
+          <div class="tl-print-date"><t t-esc="state.filters.start_date"/> → <t t-esc="state.filters.end_date"/></div>
+          <div class="tl-print-period">Overall Selected Range</div>
+        </div>
+      </div>
+
+      <div class="tl-print-kpi-row">
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Sales (Period)</div>
+          <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetRevenue)"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">net revenue in period</div>
+        </div>
+        <t t-if="marginAvailableTop">
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Net Margin (Period)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetMargin)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">net margin in period</div>
+          </div>
+        </t>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Attachment Rate</div>
+          <div class="tl-print-kpi-val"><t t-esc="attachmentRate.toFixed(1)"/>%</div>
+          <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
+        </div>
+        <div class="tl-print-kpi">
+          <div class="tl-print-kpi-label">Total Invoices</div>
+          <div class="tl-print-kpi-val"><t t-esc="totalInvoices"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">posted in period</div>
+        </div>
+      </div>
+
+      <div class="tl-print-charts-row">
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Branch</div>
+          <t t-foreach="branchBarRows" t-as="item" t-key="item_index">
+            <div class="tl-print-bar-row">
+              <div class="tl-print-bar-label"><t t-esc="_shorten(item.dimension, 22)"/></div>
+              <div class="tl-print-bar-track">
+                <div class="tl-print-bar-fill" t-att-style="'width:' + item.pct + '%'"></div>
+              </div>
+              <div class="tl-print-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+            </div>
+          </t>
+        </div>
+        <div class="tl-print-chart-box">
+          <div class="tl-print-chart-title">Sales by Category</div>
+          <div class="tl-print-donut-row">
+            <svg viewBox="0 0 150 150" class="tl-print-donut-svg">
+              <t t-foreach="donutCategorySegments" t-as="seg" t-key="seg_index">
+                <path t-att-d="seg.path" t-att-fill="seg.color"/>
+              </t>
+              <circle cx="75" cy="75" r="34" fill="white"/>
+            </svg>
+            <div class="tl-print-legend">
+              <t t-foreach="donutCategorySegments" t-as="seg" t-key="seg_index">
+                <div class="tl-print-legend-row">
+                  <span class="tl-print-dot" t-att-style="'background:' + seg.color"></span>
+                  <span class="tl-print-legend-label"><t t-esc="_shorten(seg.label, 20)"/></span>
+                  <span class="tl-print-legend-pct"><t t-esc="seg.pctLabel"/>%</span>
+                </div>
+              </t>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tl-print-chart-full">
+        <div class="tl-print-chart-title">Sales Over Period</div>
+        <t t-if="salesOverMonth.length">
+          <div class="tl-print-line-wrapper">
+            <div class="tl-print-line-y-axis">
+              <span><t t-esc="_formatCompact(lineChartData.maxV)"/></span>
+              <span><t t-esc="_formatCompact(lineChartData.minV)"/></span>
+            </div>
+            <svg class="tl-print-line-svg" viewBox="0 0 600 140" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="tlPrintGradPeriod" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#00713b" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="#00713b" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <path t-att-d="lineChartData.areaD" fill="url(#tlPrintGradPeriod)" stroke="none"/>
+              <path t-att-d="lineChartData.lineD" fill="none" stroke="#00713b" stroke-width="2.5"/>
+              <t t-foreach="lineChartData.points" t-as="pt" t-key="pt_index">
+                <circle t-att-cx="pt.x" t-att-cy="pt.y" r="3" fill="#00713b"/>
+              </t>
+            </svg>
+            <div class="tl-print-line-x-axis">
+              <span><t t-esc="_formatShortDate(salesOverMonthFirstDate)"/></span>
+              <span><t t-if="salesOverMonthMidDate"><t t-esc="_formatShortDate(salesOverMonthMidDate)"/></t></span>
+              <span><t t-esc="_formatShortDate(salesOverMonthLastDate)"/></span>
+            </div>
+          </div>
+        </t>
+      </div>
+    </div>
+
+  </t>
+</div>
+</t>
 </templates>

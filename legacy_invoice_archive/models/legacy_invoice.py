@@ -811,7 +811,7 @@ class LegacyProductMap(models.Model):
     )
     match_method = fields.Selection(
         selection=[
-            ("auto_barcode", "Auto (Barcode)"),
+            ("auto_barcode", "Auto (Item Code / Barcode)"),
             ("auto_code", "Auto (Item Code)"),
             ("manual", "Manual"),
             ("none", "None"),
@@ -822,6 +822,12 @@ class LegacyProductMap(models.Model):
     )
     confidence = fields.Float(digits=(16, 4))
     manual_override = fields.Boolean(default=False, index=True)
+    source_match_identifier = fields.Char(index=True)
+    target_match_identifier = fields.Char(index=True)
+    source_match_identifier_type = fields.Char(index=True)
+    target_match_identifier_type = fields.Char(index=True)
+    match_strategy = fields.Char(index=True)
+    candidate_count = fields.Integer(default=0)
     note = fields.Text()
 
     _sql_constraints = [
@@ -1028,7 +1034,7 @@ class LegacyProductCompare(models.Model):
     )
     match_method = fields.Selection(
         selection=[
-            ("auto_barcode", "Auto (Barcode)"),
+            ("auto_barcode", "Auto (Item Code / Barcode)"),
             ("auto_code", "Auto (Item Code)"),
             ("manual", "Manual"),
             ("none", "None"),

@@ -22,6 +22,25 @@
         </field>
     </record>
 
+    <record id="view_account_register_invoice_form_serial" model="ir.ui.view">
+        <field name="name">account.payment.register.serial</field>
+        <field name="model">account.payment.register</field>
+        <field name="inherit_id" ref="account.view_account_payment_register_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='journal_id']" position="after">
+                <field name="is_voucher" invisible="1"/>
+                <field name="is_admin_serial" invisible="1"/>
+                <field name="lot_id"
+                       invisible="not is_voucher"
+                       required="is_voucher"
+                       options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
+            </xpath>
+            <xpath expr="//field[@name='journal_id']" position="attributes">
+                <attribute name="options">{'no_create': True, 'no_create_edit': True, 'no_open': True}</attribute>
+            </xpath>
+        </field>
+    </record>
+
 
 
     <!-- Payment Tree: add lot_id column -->

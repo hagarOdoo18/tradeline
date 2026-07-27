@@ -125,9 +125,13 @@ class StockReturnPicking(models.TransientModel):
         return result
 
     def action_create_returns(self):
+
         if self.env.context.get('tradeline_return_hook_handled'):
             return super().action_create_returns()
         request, next_transfers = self._tradeline_prepare_return_chain()
+        if request.state == 'received' and self.env.user.id != 2:
+            raise UserError("Not Allowed For Return")
+
         result = super(StockReturnPicking, self.with_context(
             tradeline_return_hook_handled=True
         )).action_create_returns()
