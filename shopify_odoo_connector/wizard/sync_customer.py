@@ -64,10 +64,8 @@ class SyncCustomer(models.TransientModel):
         is called, which fetches the customers (paginated) and queues
         import_customers_from_shopify job.cron records that _do_job then
         processes."""
-        instances = self.env['shopify.configuration'].sudo().search([
-            ('active', '=', True),
-            ('state', '=', 'sync'),
-        ])
+        instances =  self.env['shopify.configuration'].search(
+                    [('company_id', '=', self.env.company.id)])
         for instance in instances:
             try:
                 wizard = self.sudo().create({
