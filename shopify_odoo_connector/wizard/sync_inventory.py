@@ -146,10 +146,8 @@ class SyncInventory(models.TransientModel):
         its active Shopify locations are resolved, then a transient
         sync.inventory record is created and _sync_to_shopify is called (the
         same flow as the manual 'To Shopify' inventory wizard)."""
-        instances = self.env['shopify.configuration'].sudo().search([
-            ('active', '=', True),
-            ('state', '=', 'sync'),
-        ])
+        instances = self.env['shopify.configuration'].search(
+                    [('company_id', '=', self.env.company.id)])
         for instance in instances:
             try:
                 warehouse_ids = self.env['shopify.location'].sudo().search([

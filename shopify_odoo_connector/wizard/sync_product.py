@@ -73,10 +73,8 @@ class SyncProduct(models.TransientModel):
         action_sync_products is called, which fetches the products
         (paginated) and queues import_products_from_shopify job.cron records
         that _do_job then processes."""
-        instances = self.env['shopify.configuration'].sudo().search([
-            ('active', '=', True),
-            ('state', '=', 'sync'),
-        ])
+        instances =  self.env['shopify.configuration'].search(
+                    [('company_id', '=', self.env.company.id)])
         for instance in instances:
             try:
                 wizard = self.sudo().create({
