@@ -179,7 +179,7 @@ class SaleOrder(models.Model):
         sale_order_model = self.env["sale.order"]
         domain = [("id", "!=", self.id)]
         if "state" in sale_order_model._fields:
-            domain.append(("state", "in", ["draft", "sent", "sale"]))
+            domain.append(("state", "in", ["draft", "sent"]))
 
         if "company_id" in sale_order_model._fields:
             domain.append(("company_id", "=", self.company_id.id))
@@ -267,8 +267,8 @@ class SaleOrder(models.Model):
         if source_quotation.id == self.id:
             raise UserError(_("You cannot load downpayment lines from the same document."))
 
-        if "state" in source_quotation._fields and source_quotation.state not in ("draft", "sent", "sale"):
-            raise UserError(_("Selected source document must be in Quotation or Sales Order status."))
+        if "state" in source_quotation._fields and source_quotation.state not in ("draft", "sent"):
+            raise UserError(_("Selected source document must still be in Quotation status."))
 
         if "inv_type" in source_quotation._fields and source_quotation.inv_type != "quotation":
             raise UserError(_("Selected source document must be a quotation."))
@@ -445,6 +445,19 @@ class SaleOrder(models.Model):
 
     def action_confirm(self):
         """ Override of `sale` to send the order to Gelato on confirmation. """
+        blocked_orders = self.filtered(
+            lambda order: (
+                order.inv_type == "quotation"
+                and order._has_downpayment_product_lines()
+            )
+        )
+        if blocked_orders:
+            raise UserError(_(
+                "A quotation containing a Down Payment line cannot be confirmed "
+                "into a Sales Order. Remove the Down Payment line or change the "
+                "document workflow first."
+            ))
+
         res = super(SaleOrder, self).action_confirm()
         for rec in self:
             if  rec.pricelist_id.currency_id.id != rec.invoice_journal_id.currency_id.id:
@@ -849,6 +862,12 @@ class SaleOrderLine(models.Model):
         string='Warranty',
         required=False)
 
+    discount = fields.Float(
+        string="Discount (%)",
+        compute='_compute_discount',
+        digits=(16, 6),
+        store=True, readonly=False, precompute=True)
+
     item_code = fields.Char(
         string='Item Code',
         required=False)
@@ -1056,6 +1075,7 @@ class SaleOrderLine(models.Model):
 class saleadvancepaymentinv(models.TransientModel):
     _inherit = 'sale.advance.payment.inv'
     _name = 'sale.advance.payment.inv'
+    _description = "Sale Advance Payment Inv"
 
     advance_payment_method = fields.Selection(
         selection=[

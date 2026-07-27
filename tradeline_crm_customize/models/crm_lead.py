@@ -10,7 +10,6 @@ from odoo.osv import expression
 from odoo.tools import float_is_zero, float_compare
 
 
-from odoo.addons import decimal_precision as dp
 
 from werkzeug.urls import url_encode
 
@@ -75,11 +74,15 @@ class CrmLead(models.Model):
     order_line = fields.One2many(comodel_name="crm.lead.line",
                                  inverse_name="order_id",copy=False)
 
-    amount_untaxed = fields.Float(string='Untaxed Amount', store=True, readonly=True, compute='_amount_all', track_visibility='onchange', track_sequence=5)
+    amount_untaxed = fields.Float(
+        string='Untaxed Amount', store=True, readonly=True,
+        compute='_amount_all', tracking=True)
 
     amount_tax = fields.Float(string='Taxes', store=True, readonly=True, compute='_amount_all')
 
-    amount_total = fields.Float(string='Total', store=True, readonly=True, compute='_amount_all', track_visibility='always', track_sequence=6)
+    amount_total = fields.Float(
+        string='Total', store=True, readonly=True,
+        compute='_amount_all', tracking=True)
 
     @api.depends('order_line.price_total')
     def _amount_all(self):
@@ -438,6 +441,7 @@ class CrmLead(models.Model):
 
 class CrmLeadLine(models.Model):
     _name = 'crm.lead.line'
+    _description = "Crm Lead Line"
 
     order_id = fields.Many2one('crm.lead',
                                string='Order Reference',
@@ -447,12 +451,12 @@ class CrmLeadLine(models.Model):
                                copy=False)
     name = fields.Text(string='Description', required=True)
     sequence = fields.Integer(string='Sequence', default=10)
-    price_unit = fields.Float('Unit Price',readonly=True, required=True, digits=dp.get_precision('Product Price'), default=0.0,store=True)
+    price_unit = fields.Float('Unit Price',readonly=True, required=True, digits='Product Price', default=0.0,store=True)
     price_subtotal = fields.Float(compute='_compute_amount', string='Subtotal', readonly=True, store=True)
     price_tax = fields.Float(compute='_compute_amount', string='Total Tax', readonly=True, store=True)
     price_total = fields.Float(compute='_compute_amount', string='Total', readonly=True, store=True)
     price_reduce = fields.Float(compute='_get_price_reduce', string='Price Reduce',
-                                digits=dp.get_precision('Product Price'), readonly=True, store=True)
+                                digits='Product Price', readonly=True, store=True)
 
     def _default_tax_id(self):
 
@@ -465,7 +469,7 @@ class CrmLeadLine(models.Model):
     price_reduce_taxexcl = fields.Float(compute='_get_price_reduce_notax', string='Price Reduce Tax excl',
                                            readonly=True, store=True)
 
-    discount = fields.Float(string='Discount (%)', digits=dp.get_precision('Discount'), default=0.0,)
+    discount = fields.Float(string='Discount (%)', digits='Discount', default=0.0,)
 
     product_id = fields.Many2one('product.product', string='Product', domain=[('sale_ok', '=', True)],
                                  change_default=True, ondelete='restrict')
@@ -474,7 +478,7 @@ class CrmLeadLine(models.Model):
     def onchange_method_product_id(self):
         self.price_unit = self.product_id.lst_price
 
-    product_uom_qty = fields.Float(string='Ordered Quantity', digits=dp.get_precision('Product Unit of Measure'),
+    product_uom_qty = fields.Float(string='Ordered Quantity', digits='Product Unit of Measure',
                                    required=True, default=1.0)
     product_uom = fields.Many2one('uom.uom', string='Unit of Measure')
     product_image = fields.Binary('Product Image', related="product_id.image_1920", store=False, readonly=False)

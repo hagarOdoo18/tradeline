@@ -54,7 +54,7 @@ class Commotion(models.Model):
         compute='_compute_amounts_in_user_currency', digits=0,
     )
     price_average = fields.Float(
-        string='Average Price', readonly=True, group_operator="avg",
+        string='Average Price', readonly=True, aggregator="avg",
     )
     user_currency_price_average = fields.Float(
         string="Average Price in Currency",
@@ -62,7 +62,7 @@ class Commotion(models.Model):
     )
     currency_rate = fields.Float(
         string='Currency Rate', readonly=True,
-        group_operator="avg", groups="base.group_multi_currency",
+        aggregator="avg", groups="base.group_multi_currency",
     )
     nbr = fields.Integer(string='Line Count', readonly=True)
     move_id = fields.Many2one('account.move', string='Invoice', readonly=True)

@@ -12,6 +12,7 @@ import base64
 import logging
 class send_day (models.Model) :
     _name = 'send.day'
+    _description = "Send Day"
 
     date = fields.Date(
         string='Date',

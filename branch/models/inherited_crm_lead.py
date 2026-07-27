@@ -49,5 +49,6 @@ class CrmLead(models.Model):
 class Lead2OpportunityPartner_inher(models.TransientModel):
     _inherit = 'crm.lead2opportunity.partner'
     _name = 'crm.lead2opportunity.partner'
+    _description = "Crm Lead2Opportunity Partner"
 
     branch_id = fields.Many2one('res.branch', string="Branch",required=True)

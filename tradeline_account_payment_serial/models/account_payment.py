@@ -86,6 +86,7 @@ class AccountPayment(models.Model):
                     )
 class AccountPaymentRegister(models.TransientModel):
     _name = 'account.payment.register'
+    _description = "Account Payment Register"
     _inherit = 'account.payment.register'
 
     is_voucher = fields.Boolean(string='Is Voucher')

@@ -38,6 +38,7 @@ class InvoiceLinePrintWizardLine(models.TransientModel):
 
 class InvoiceLinePrintWizard(models.TransientModel):
     _name = 'invoice.line.print.wizard'
+    _description = "Invoice Line Print Wizard"
 
     move_id = fields.Many2one('account.move', readonly=True)
     line_ids = fields.One2many(

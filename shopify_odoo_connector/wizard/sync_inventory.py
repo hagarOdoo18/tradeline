@@ -21,10 +21,13 @@
 #
 ################################################################################
 import json
+import logging
 import re
 import requests
-from odoo import fields, models, _
+from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
+
+_logger = logging.getLogger(__name__)
 
 
 class SyncInventory(models.TransientModel):
@@ -136,6 +139,37 @@ class SyncInventory(models.TransientModel):
     # To Shopify
     # ------------------------------------------------------------------
 
+    @api.model
+    def _cron_sync_inventory_to_shopify(self):
+        """Scheduled action to push Odoo on-hand quantities to Shopify for all
+        active connected instances. For each instance the warehouses mapped to
+        its active Shopify locations are resolved, then a transient
+        sync.inventory record is created and _sync_to_shopify is called (the
+        same flow as the manual 'To Shopify' inventory wizard)."""
+        instances = self.env['shopify.configuration'].sudo().search([
+            ('active', '=', True),
+            ('state', '=', 'sync'),
+        ])
+        for instance in instances:
+            try:
+                warehouse_ids = self.env['shopify.location'].sudo().search([
+                    ('instance_id', '=', instance.id),
+                    ('warehouse_id', '!=', False),
+                    ('active', '=', True),
+                ]).mapped('warehouse_id').ids
+                if not warehouse_ids:
+                    continue
+                wizard = self.sudo().create({
+                    'import_inventory': 'shopify',
+                    'shopify_instance_id': instance.id,
+                    'warehouse_ids': [(6, 0, warehouse_ids)],
+                })
+                wizard._sync_to_shopify()
+            except Exception as error:
+                _logger.error(
+                    'Failed to push inventory to Shopify for instance '
+                    '%s: %s', instance.name, str(error))
+
     def _sync_to_shopify(self):
         """Push Odoo on-hand quantities to Shopify inventory levels."""
         shopify_instance = self.shopify_instance_id
@@ -198,7 +232,7 @@ class SyncInventory(models.TransientModel):
                 payload = json.dumps({
                     'location_id':        location.shopify_location_id,
                     'inventory_item_id':  inventory_item_id,
-                    'available':          total_qty,
+                    'available':          total_qty if total_qty > 3 else 0,
                 })
                 resp = requests.post(set_url, headers=headers, data=payload)
                 if resp.status_code not in (200, 201):

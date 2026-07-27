@@ -269,12 +269,15 @@ def fetch_price_history_cost_units(
         cost = row.get("cost")
         if ts is None or cost is None:
             continue
+        cost_value = to_float(cost, default=0.0)
+        if cost_value <= 0:
+            continue
         ts_date = ts.date() if isinstance(ts, dt.datetime) else ts
         if not isinstance(ts_date, dt.date):
             ts_date = parse_date(str(ts)[:10])
             if not ts_date:
                 continue
-        timeline[pid].append((ts_date, to_float(cost)))
+        timeline[pid].append((ts_date, cost_value))
 
     out: dict[tuple[int, str], dict[str, float | None]] = {}
     for pid, entries in timeline.items():
@@ -429,7 +432,7 @@ def fetch_stock_move_month_end_valuation(
                 if value_on_hand < 0 and abs(value_on_hand) < 1e-4:
                     value_on_hand = 0.0
 
-            avg_cost_unit = (value_on_hand / qty_on_hand) if qty_on_hand else None
+            avg_cost_unit = (value_on_hand / qty_on_hand) if (qty_on_hand and value_on_hand > 0) else None
             out[(pid, month.isoformat())] = {
                 "legacy_stock_close_qty": qty_on_hand,
                 "legacy_stock_close_value": value_on_hand,
@@ -521,7 +524,6 @@ def fetch_sales_monthly(
     sales_untaxed_total_expr = None
     total_amount_expr = None
     sales_total_expr = None
-    discount_reason_total_expr = None
     if "price_subtotal_signed" in ail_cols:
         # Match Odoo12 Invoice Analysis, which uses account_invoice_line.price_subtotal_signed.
         amount_expr = "COALESCE(ail.price_subtotal_signed, 0.0)"
@@ -544,6 +546,8 @@ def fetch_sales_monthly(
         total_amount_expr = amount_expr
         sales_total_expr = sales_untaxed_total_expr
 
+    air_cols = set(get_table_columns(conn, "account_invoice_report")) if table_exists(conn, "account_invoice_report") else set()
+
     report_total_expr, report_total_source = detect_legacy_report_total_source(conn)
     join_air = ""
     if report_total_expr:
@@ -552,10 +556,7 @@ def fetch_sales_monthly(
             " * CASE WHEN ai.type IN ('out_refund', 'in_refund') THEN -1 ELSE 1 END"
         )
         sales_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
-        discount_reason_total_expr = f"ABS(COALESCE({report_total_expr}, 0.0))"
         join_air = "LEFT JOIN account_invoice_report air ON air.id = ail.id"
-    elif sales_total_expr:
-        discount_reason_total_expr = sales_total_expr
 
     if not qty_col or not amount_expr or not sales_untaxed_total_expr or not total_amount_expr or not sales_total_expr:
         fail("Missing quantity/amount columns on account_invoice_line.")
@@ -564,14 +565,21 @@ def fetch_sales_monthly(
     if "state" in ai_cols:
         state_filter_sql = "AND ai.state NOT IN ('draft', 'cancel')"
 
-    if "reason_id" in ail_cols and "reason_id" in ai_cols:
-        discount_reason_expr = "COALESCE(ail.reason_id, ai.reason_id)"
-    elif "reason_id" in ail_cols:
-        discount_reason_expr = "ail.reason_id"
-    elif "reason_id" in ai_cols:
-        discount_reason_expr = "ai.reason_id"
+    if {"reason_id", "price_total", "amount_total"}.issubset(air_cols):
+        discount_reason_expr = "air.reason_id"
+        discount_reason_untaxed_expr = "COALESCE(air.price_total, 0.0)"
+        discount_reason_total_expr = "COALESCE(air.amount_total, 0.0)"
     else:
-        discount_reason_expr = "NULL::integer"
+        if "reason_id" in ail_cols and "reason_id" in ai_cols:
+            discount_reason_expr = "COALESCE(ail.reason_id, ai.reason_id)"
+        elif "reason_id" in ail_cols:
+            discount_reason_expr = "ail.reason_id"
+        elif "reason_id" in ai_cols:
+            discount_reason_expr = "ai.reason_id"
+        else:
+            discount_reason_expr = "NULL::integer"
+        discount_reason_untaxed_expr = amount_expr
+        discount_reason_total_expr = total_amount_expr
 
     cost_expr, cost_source = detect_legacy_cost_source(ail_cols, pp_cols)
     has_line_total_cost = cost_expr == "ail.total_cost"
@@ -648,14 +656,14 @@ def fetch_sales_monthly(
             ) AS legacy_return_total_amount,
             SUM(
                 CASE
-                    WHEN ai.type = 'out_invoice' AND {discount_reason_expr} IS NOT NULL
-                    THEN {sales_untaxed_total_expr}
+                    WHEN {discount_reason_expr} IS NOT NULL
+                    THEN {discount_reason_untaxed_expr}
                     ELSE 0.0
                 END
             ) AS legacy_discount_reason_sales_untaxed,
             SUM(
                 CASE
-                    WHEN ai.type = 'out_invoice' AND {discount_reason_expr} IS NOT NULL
+                    WHEN {discount_reason_expr} IS NOT NULL
                     THEN {discount_reason_total_expr}
                     ELSE 0.0
                 END
@@ -974,6 +982,10 @@ def main() -> None:
                     continue
                 last_cost_unit = cu.get("last_cost_unit")
                 avg_cost_unit = cu.get("avg_cost_unit")
+                if last_cost_unit is not None and float(last_cost_unit) <= 0:
+                    last_cost_unit = None
+                if avg_cost_unit is not None and float(avg_cost_unit) <= 0:
+                    avg_cost_unit = None
                 if last_cost_unit is None and avg_cost_unit is None:
                     continue
                 if last_cost_unit is None:
@@ -1015,6 +1027,10 @@ def main() -> None:
                     continue
                 last_cost_unit = cost_units.get("legacy_last_cost_unit")
                 avg_cost_unit = cost_units.get("legacy_avg_cost_unit")
+                if last_cost_unit is not None and float(last_cost_unit) <= 0:
+                    last_cost_unit = None
+                if avg_cost_unit is not None and float(avg_cost_unit) <= 0:
+                    avg_cost_unit = None
                 if last_cost_unit is None:
                     vals["legacy_avg_cost_unit"] = avg_cost_unit
                     continue

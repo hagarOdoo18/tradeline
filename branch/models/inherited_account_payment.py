@@ -14,6 +14,7 @@ MAP_INVOICE_TYPE_PARTNER_TYPE = {
 class AccountPaymentRegister(models.TransientModel):
     _inherit = 'account.payment.register'
     _name = 'account.payment.register'
+    _description = "Account Payment Register"
 
 
     @api.model

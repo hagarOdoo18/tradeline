@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Tradeline Transfer Request",
+    'license': 'LGPL-3',
 
     'summary': """
         Tradeline Transfer Request""",
@@ -11,6 +12,8 @@
 
     'category': 'Uncategorized',
     'version': '0.1',
+    'application': True,
+    'icon': '/tradeline_warehouse_transfer/static/description/icon.png',
 
     # any module necessary for this one to work correctly
     'depends': ['base','stock','account','base_tradeline'],

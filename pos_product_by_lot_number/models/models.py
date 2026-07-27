@@ -10,6 +10,7 @@
 from odoo import api, fields, models
 class StockProductionLot(models.Model):
     _name = 'stock.lot'
+    _description = "Stock Lot"
     _inherit = ['stock.lot', 'pos.load.mixin']
     
     @api.model

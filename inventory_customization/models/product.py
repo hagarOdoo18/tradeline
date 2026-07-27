@@ -191,15 +191,15 @@ class ProductProduct(models.Model):
     default_code = fields.Char('UPC', index=True)
 
     barcode = fields.Char(
-        'Item Code', copy=False, oldname='ean13',
+        'Item Code', copy=False,
         help="International Article Number used for product identification.", required=True)
 
     product_point = fields.Float(
-        string='Product point', company_dependent=True, check_company=True,
+        string='Product point', company_dependent=True,
         required=False)
 
     product_incentive = fields.Float(
-        string='Product Incentive', company_dependent=True, check_company=True,
+        string='Product Incentive', company_dependent=True,
         required=False)
 
     product_notes = fields.Char(

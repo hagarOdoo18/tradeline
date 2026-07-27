@@ -9,5 +9,15 @@
         <field name="interval_type">minutes</field>
         <field name="active">True</field>
     </record>
+    <record id="ir_cron_send_executive_daily_reports" model="ir.cron">
+        <field name="name">Executive Dashboard Daily Report Delivery</field>
+        <field name="model_id" ref="model_tradeline_executive_report_schedule"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_send_due_reports()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="user_id" ref="base.user_admin"/>
+        <field name="active">True</field>
+    </record>
 </odoo>
 

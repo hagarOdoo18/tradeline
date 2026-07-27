@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "Customization Transfer Makers",
+    'license': 'LGPL-3',
 
 
 

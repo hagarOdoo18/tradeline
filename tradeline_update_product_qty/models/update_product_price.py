@@ -10,6 +10,7 @@ import openpyxl
 
 class UpdateProductPrice (models.TransientModel) :
     _name = 'update.product.qty.wizard'
+    _description = "Update Product Qty Wizard"
 
     def default_stock(self):
         return self.env['stock.location'].search([('usage', '=', 'internal'),('company_id','=',self.env.company.id)]).ids

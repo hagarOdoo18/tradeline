@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "tradeline custom Print Lable",
+    'license': 'LGPL-3',
 
 
 

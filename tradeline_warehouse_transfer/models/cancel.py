@@ -3,6 +3,7 @@ from odoo import fields, models, api
 
 class CancelReason(models.TransientModel):
     _name = 'cancel.reason.wizard'
+    _description = "Cancel Reason Wizard"
 
     note = fields.Char(string="Reason")
 

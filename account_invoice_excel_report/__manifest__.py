@@ -1,6 +1,7 @@
 
 {
     'name': 'Account Invoice Excel Report',
+    'license': 'LGPL-3',
     'version': '18.0.1.1.0',
     'category': 'Accounting',
     'summary': 'Export invoices & payments to Excel (Odoo 18)',

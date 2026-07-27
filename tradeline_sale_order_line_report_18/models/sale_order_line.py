@@ -130,7 +130,6 @@ class SaleOrderLine(models.Model):
     description_product = fields.Html(
         string="Description",
         related="product_id.description",
-        store=True,
         readonly=True,
     )
     item_code_product = fields.Char(

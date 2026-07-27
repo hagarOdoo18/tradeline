@@ -1,5 +1,6 @@
 {
     'name': 'Download Picking Barcodes',
+    'license': 'LGPL-3',
     'version': '1.0',
     'summary': 'Download all product barcodes from picking lines',
     'author': 'Ezzat',

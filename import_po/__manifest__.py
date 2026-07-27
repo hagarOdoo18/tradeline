@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Impoer Purchase",
+    "license": "LGPL-3",
     "version": "18.0.0.1",
     "website": "www.tradeline.come",
     "depends": ['base', 'purchase',],

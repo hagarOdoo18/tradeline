@@ -7,6 +7,7 @@ from odoo import models, fields
 
 class AccountInvoice(models.Model):
     _name = 'account.invoice.tvc'
+    _description = "Account Invoice Tvc"
 
 
     invoice_number = fields.Text(

@@ -21,8 +21,11 @@
 #
 ################################################################################
 import json
+import logging
 import requests
-from odoo import fields, models
+from odoo import api, fields, models
+
+_logger = logging.getLogger(__name__)
 
 
 class SaleOrder(models.Model):
@@ -47,6 +50,66 @@ class SaleOrder(models.Model):
                                        help='Shopify sync ida of sale order.')
     shopify_order_ref = fields.Char(string='Shopify Order Id',
                                     help='Shopify id of order')
+
+    @api.model
+    def _cron_cancel_shopify_orders(self):
+        """Scheduled action to cancel Odoo sale orders whose Shopify
+        counterpart has been cancelled. For each active connected instance the
+        Shopify cancelled orders are fetched and the matching Odoo order (by
+        Shopify order ref) is cancelled if it is not already cancelled."""
+        instances = self.env['shopify.configuration'].search(
+                    [('company_id', '=', self.env.company.id)])
+        for instance in instances:
+            try:
+                self._cancel_shopify_orders_for_instance(instance)
+            except Exception as error:
+                _logger.error(
+                    'Failed to sync cancelled orders for Shopify instance '
+                    '%s: %s', instance.name, str(error))
+
+    def _cancel_shopify_orders_for_instance(self, instance):
+        """Fetch cancelled Shopify orders for one instance and cancel the
+        matching Odoo sale orders."""
+        store_name = instance.shop_name
+        version = instance.version
+        headers = instance._get_shopify_headers()
+        next_url = ("https://%s/admin/api/%s/orders.json"
+                    "?status=cancelled&limit=250") % (store_name, version)
+        while next_url:
+            response = requests.request('GET', next_url, verify=False,
+                                        headers=headers, data=[])
+            response_json = response.json()
+            for each in response_json.get('orders', []):
+                if not each.get('cancelled_at'):
+                    continue
+                sync = self.env['shopify.sync'].sudo().search([
+                    ('instance_id', '=', instance.id),
+                    ('shopify_order_ref', '=', str(each['id'])),
+                    ('order_id', '!=', False),
+                ], limit=1)
+                order = sync.order_id
+                if order and order.state != 'cancel':
+                    try:
+                        order.sudo().with_context(
+                            skip_shopify_write=True,
+                            disable_cancel_warning=True,
+                        ).action_cancel()
+                    except Exception as error:
+                        _logger.error(
+                            'Failed to cancel Odoo order %s for cancelled '
+                            'Shopify order %s: %s',
+                            order.name, each['id'], str(error))
+            # Parse next page URL from the Link header
+            next_url = None
+            link_header = response.headers.get('link', '')
+            for part in link_header.split(','):
+                part = part.strip()
+                if 'rel="next"' in part:
+                    start = part.find('<') + 1
+                    end = part.find('>')
+                    if start > 0 and end > start:
+                        next_url = part[start:end]
+                    break
 
     def sync_shopify_order(self):
         """Method to sync odoo orders into shopify"""

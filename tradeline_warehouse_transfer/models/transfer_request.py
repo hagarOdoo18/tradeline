@@ -7,6 +7,7 @@ from datetime import datetime
 
 class TransferLine(models.Model):
     _name = 'transfer.request.line'
+    _description = "Transfer Request Line"
 
     product_id = fields.Many2one(
         comodel_name='product.product',
@@ -158,7 +159,7 @@ class TransferRequest(models.Model):
         required=False)
 
     state = fields.Selection(
-        string='State',copy=False,track_visibility='onchange',
+        string='State', copy=False, tracking=True,
         selection=[('draft', 'Draft'),
                    ('approved', 'Approved'),('create','Created'),('in_progress', 'In Progress'),('received', 'Received'),('completed', 'Transfer Completed'), ('cancel', 'Canceled'), ],
         required=False, default='draft')

@@ -19,12 +19,24 @@ class SalesRep(models.Model):
         required=False, )
 
     code = fields.Integer(
-        string='Code', 
+        string='Code',
         required=False)
 
     is_call_center = fields.Boolean(
         string='call center',
         required=False)
+
+    is_online = fields.Boolean(
+        string='Online',
+        required=False,
+        help='Check this if the sales rep handles online sales. Used to '
+             'filter online sales reps.')
+
+    company_id = fields.Many2one(
+        'res.company',
+        string='Company',
+        default=lambda self: self.env.company,
+        help='Company this sales rep belongs to.')
 
     active = fields.Boolean(
         string='Active',

@@ -72,6 +72,7 @@
       <button class="tl-btn-export" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
         <span class="tl-btn-icon">📊</span> Export Period Report
       </button>
+      <button class="tl-btn-automation" t-on-click="onOpenReportAutomation">Daily Email Reports</button>
     </div>
 
     <!-- Scope chips + margin badge -->
@@ -84,10 +85,57 @@
       </t>
       <t t-else=""><span class="tl-chip tl-chip-all">All accessible companies</span></t>
       <span t-att-class="'tl-margin-badge ' + marginStatusClass"><t t-esc="marginStatusLabel"/></span>
+      <span t-if="mostafaMarginEnabled" class="tl-mostafa-badge">Mostafa Margin active · XPRS only</span>
     </div>
   </div>
 
   <!-- ══════════ LOADING / ERROR ══════════ -->
+  <t t-if="state.automation.open">
+    <div class="tl-modal-backdrop" t-on-click.self="onCloseReportAutomation">
+      <div class="tl-automation-modal">
+        <div class="tl-modal-head">
+          <div><div class="tl-modal-kicker">Executive delivery center</div><h2>Daily + MTD Reports</h2><p>Each company receives two portrait reports: a Daily Executive Brief and a separate MTD Executive Report.</p></div>
+          <button class="tl-modal-close" t-on-click="onCloseReportAutomation">Close</button>
+        </div>
+        <t t-if="state.automation.loading"><div class="tl-automation-loading">Loading schedules and delivery history...</div></t>
+        <t t-else="">
+          <div class="tl-schedule-grid">
+            <div class="tl-schedule-card" t-foreach="reportSchedules" t-as="schedule" t-key="schedule.id">
+              <div class="tl-schedule-title-row">
+                <div><span class="tl-schedule-company" t-esc="schedule.company_name"/><span class="tl-schedule-caption">2 branded portrait PDFs per scheduled email</span></div>
+                <label class="tl-switch-label"><input type="checkbox" t-model="schedule.active"/><span>Active</span></label>
+              </div>
+              <label class="tl-automation-field tl-field-wide"><span>Recipient emails</span><input type="text" t-model="schedule.recipient_emails" placeholder="mostafa@example.com"/></label>
+              <div class="tl-schedule-fields tl-schedule-fields-two">
+                <label class="tl-automation-field"><span>Send hour</span><select t-model="schedule.send_hour"><option t-foreach="[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" t-as="hour" t-key="hour" t-att-value="hour"><t t-esc="hour &lt; 10 ? '0' + hour : hour"/>:00</option></select></label>
+                <label class="tl-automation-field"><span>Timezone</span><select t-model="schedule.timezone"><option value="Africa/Cairo">Africa/Cairo</option><option value="UTC">UTC</option></select></label>
+              </div>
+              <div class="tl-schedule-status"><span>Last sent: <strong t-esc="schedule.last_sent_on || 'Not yet sent'"/></span><span>Next run: <strong t-esc="schedule.next_run_at || 'Inactive'"/></span></div>
+              <div class="tl-report-preview-grid">
+                <div class="tl-report-preview-card"><strong>Daily Executive Brief</strong><span>Report-day performance</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'daily', 'pdf')">PDF</button></div></div>
+                <div class="tl-report-preview-card"><strong>MTD Executive Report</strong><span>Month start through report day</span><div><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'html')">View</button><button class="tl-btn-preview" t-on-click="() => this.onPreviewScheduledReport(schedule, 'mtd', 'pdf')">PDF</button></div></div>
+              </div>
+              <div class="tl-schedule-actions"><span class="tl-schedule-help">Sends the completed previous-day Daily report plus MTD through that day. Midnight is 00:00. Advanced Drilldown is excluded.</span><button class="tl-btn-save-schedule" t-on-click="() => this.onSaveReportSchedule(schedule)">Save schedule</button></div>
+            </div>
+          </div>
+          <div class="tl-history-head"><div><h3>Delivery History</h3><p>Sent emails, previews, attachments, and errors are retained here.</p></div><button class="tl-btn-sm" t-on-click="_loadReportAutomation">Refresh</button></div>
+          <div class="tl-history-table-wrap"><table class="tl-history-table">
+            <thead><tr><th>Company</th><th>Report day</th><th>Scope</th><th>Type</th><th>Status</th><th>Recipients</th><th>Sent at</th><th>PDF</th></tr></thead>
+            <tbody>
+              <tr t-foreach="reportHistory" t-as="history" t-key="history.id">
+                <td t-esc="history.company_name"/><td t-esc="history.report_date"/><td t-esc="history.report_scope_label || history.report_scope"/><td t-esc="history.delivery_type"/>
+                <td><span t-att-class="'tl-history-state ' + reportHistoryClass(history.state)" t-esc="history.state"/><div class="tl-history-error" t-if="history.error_message" t-esc="history.error_message"/></td>
+                <td t-esc="history.recipient_emails || '-'"/><td t-esc="history.sent_at || '-'"/>
+                <td><button t-if="history.download_url" class="tl-history-download" t-on-click="() => this.onDownloadReportHistory(history)">Download</button><span t-else="">-</span></td>
+              </tr>
+              <tr t-if="!reportHistory.length"><td colspan="8" class="tl-history-empty">No reports generated yet.</td></tr>
+            </tbody>
+          </table></div>
+        </t>
+      </div>
+    </div>
+  </t>
+
   <t t-if="state.loading">
     <div class="tl-loading-state">
       <div class="tl-spinner"></div>
@@ -156,18 +204,18 @@
           <div class="tl-kpi-sub-text">
             <span style="margin-right: 8px;"><t t-esc="attachmentData.one_card_invoices || 0"/> with 1 card</span>
             <span><t t-esc="attachmentData.two_plus_card_invoices || 0"/> with 2+ cards</span>
-            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period</div>
+            <div style="margin-top: 4px; color: #64748b; font-size: 0.9em;">in selected period, refunds excluded</div>
           </div>
-          <div class="tl-kpi-explain">Percentage of invoices that include at least one Care Card. This helps track the success rate of attaching care plans to core product sales.</div>
+          <div class="tl-kpi-explain">Percentage of posted customer invoices/receipts in the selected period that include at least one Care Card. Refunds are excluded from this rate.</div>
         </div>
       </div>
 
       <div class="tl-kpi-card" t-on-click="() => this.onCardClick('total_invoices')" style="cursor: pointer;">
         <div class="tl-kpi-icon">🧾</div>
         <div class="tl-kpi-body">
-          <div class="tl-kpi-label">Total Invoices</div>
+          <div class="tl-kpi-label">Invoices (Incl. Credit Notes)</div>
           <div class="tl-kpi-value"><t t-esc="_formatNumber(totalInvoices)"/></div>
-          <div class="tl-kpi-sub-text">posted on report day</div>
+          <div class="tl-kpi-sub-text">posted invoices/receipts/credit notes on report day</div>
         </div>
       </div>
 
@@ -177,12 +225,17 @@
             <div class="tl-kpi-label"><t t-esc="card.label"/></div>
             <div class="tl-kpi-value">
               <t t-if="card.unit === 'EGP'"><t t-esc="_formatCompactEGP(card.value)"/></t>
+              <t t-elif="card.unit === '%'"><t t-esc="_formatPercent(card.value)"/></t>
               <t t-else=""><t t-esc="_formatNumber(card.value)"/></t>
             </div>
             <div class="tl-kpi-sub-text" t-if="card.subtext" style="margin-top: 4px; font-size: 0.9em;"><t t-esc="card.subtext"/></div>
           </div>
         </div>
       </t>
+    </div>
+    <div t-if="mostafaMarginEnabled" class="tl-mostafa-disclosure">
+      <strong>Mostafa Margin disclosure</strong>
+      <span t-esc="mostafaMarginDisclosure"/>
     </div>
 
 
@@ -192,7 +245,7 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Sales Performance</h2>
-          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — scrollable, always visible</span>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> breakdown — invoice counts include credit notes</span>
         </div>
       </div>
 
@@ -200,7 +253,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Branch</h3>
-          <span class="tl-badge tl-badge-blue">Net Revenue</span>
+          <span class="tl-badge tl-badge-blue">Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -221,16 +274,18 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Branch</th>
-                <th class="col-num">Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Untaxed Revenue</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
-                  <th class="col-num">Margin%</th>
+                  <th class="col-num">Net Margin %</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -243,6 +298,8 @@
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -256,7 +313,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Salesperson</h3>
-          <span class="tl-badge tl-badge-teal">Net Revenue</span>
+          <span class="tl-badge tl-badge-teal">Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -277,16 +334,18 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Salesperson</th>
-                <th class="col-num">Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Untaxed Revenue</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
-                  <th class="col-num">Margin%</th>
+                  <th class="col-num">Net Margin %</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -299,6 +358,8 @@
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -339,9 +400,14 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Category</th>
-                <th class="col-num">Revenue</th>
-                <th class="col-num">Invoices</th>
-                <t t-if="marginAvailableTop"><th class="col-num">Margin%</th></t>
+                <th class="col-num">Untaxed Revenue</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
+                <t t-if="marginAvailableTop">
+                  <th class="col-num">Net Margin</th>
+                  <th class="col-num">Net Margin %</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
+                </t>
               </tr></thead>
               <tbody>
                 <t t-foreach="topSalesByCategory" t-as="row" t-key="row_index">
@@ -351,7 +417,10 @@
                     <td class="col-num"><t t-esc="_formatCurrency(row.net_revenue)"/></td>
                     <td class="col-num"><t t-esc="_formatNumber(row.invoice_count)"/></td>
                     <t t-if="marginAvailableTop">
+                      <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -365,7 +434,7 @@
       <div class="tl-card">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> Customers</h3>
-          <span class="tl-badge tl-badge-blue">by Revenue</span>
+          <span class="tl-badge tl-badge-blue">by Untaxed Revenue</span>
         </div>
         <div class="tl-chart-table">
           <div class="tl-bars-col">
@@ -386,16 +455,18 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Customer</th>
-                <th class="col-num">Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Untaxed Revenue</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
-                  <th class="col-num">Margin%</th>
+                  <th class="col-num">Net Margin %</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -408,6 +479,8 @@
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -428,7 +501,7 @@
                 <option t-att-value="cat" t-att-selected="state.filters.product_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
               </t>
             </select>
-            <span class="tl-badge tl-badge-teal">Net Revenue</span>
+            <span class="tl-badge tl-badge-teal">Untaxed Revenue</span>
           </div>
         </div>
         <div class="tl-chart-table">
@@ -450,16 +523,18 @@
               <thead><tr>
                 <th class="col-rank">#</th>
                 <th>Product Variant</th>
-                <th class="col-num">Revenue</th>
-                <th class="col-num">Invoices</th>
+                <th class="col-num">Untaxed Revenue</th>
+                <th class="col-num">Invoices (incl. credit notes)</th>
                 <t t-if="marginAvailableTop">
                   <th class="col-num" style="min-width: 90px;">
-                    Margin
+                    Net Margin
                     <button class="btn btn-sm btn-link p-0 ml-1 tl-margin-source-btn" t-on-click="() => this.openMarginSource()" title="View Margin Analysis Source">
                       <i class="fa fa-external-link" style="font-size: 0.8em; color: #007bff;"/>
                     </button>
                   </th>
-                  <th class="col-num">Margin%</th>
+                  <th class="col-num">Net Margin %</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin</th>
+                  <th t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col">Mostafa Margin %</th>
                 </t>
               </tr></thead>
               <tbody>
@@ -472,6 +547,8 @@
                     <t t-if="marginAvailableTop">
                       <td class="col-num"><t t-esc="_formatCurrency(row.net_margin || 0)"/></td>
                       <td t-att-class="'col-num ' + _trendClass(row.margin_pct || 0)"><t t-esc="_formatPercent(row.margin_pct || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" class="col-num tl-mostafa-col"><t t-esc="_formatCurrency(row.mostafa_margin || 0)"/></td>
+                      <td t-if="mostafaMarginEnabled" t-att-class="'col-num tl-mostafa-col ' + _trendClass(row.mostafa_margin_pct || 0)"><t t-esc="_formatPercent(row.mostafa_margin_pct || 0)"/></td>
                     </t>
                   </tr>
                 </t>
@@ -501,7 +578,7 @@
           <div class="tl-bars-col">
             <t t-if="!inventoryBarRows.length"><div class="tl-empty-mini">No inventory data available</div></t>
             <t t-foreach="inventoryBarRows" t-as="item" t-key="item_index">
-              <div class="tl-bar-row">
+              <div class="tl-bar-row" t-on-click="() => this.onInventoryRowClick(item)" style="cursor: pointer;">
                 <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
                 <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
                 <div class="tl-bar-track">
@@ -521,7 +598,58 @@
               </tr></thead>
               <tbody>
                 <t t-foreach="topInventoryByCategory" t-as="row" t-key="row_index">
-                  <tr>
+                  <tr t-on-click="() => this.onInventoryRowClick(row)" style="cursor: pointer;">
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.on_hand_qty)"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.allocated_value)"/></td>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Product Variant (Inventory Exposure) -->
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select class="tl-select" t-on-change="onInventoryCategoryChange" style="padding: 3px 8px; font-size: 11px; font-weight: 700; border-radius: 999px; background: #fffbeb; border-color: #fde68a; color: #b45309; cursor: pointer;">
+              <option value="all">All (Top 10 Categories)</option>
+              <t t-foreach="inventoryCategoryOptions" t-as="cat" t-key="cat">
+                <option t-att-value="cat" t-att-selected="state.filters.inventory_category === cat ? 'selected' : null"><t t-esc="cat"/></option>
+              </t>
+            </select>
+            <span class="tl-badge tl-badge-amber">Allocated Cost EGP</span>
+          </div>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!inventoryProductBarRows.length"><div class="tl-empty-mini">No product variant data available</div></t>
+            <t t-foreach="inventoryProductBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row" t-on-click="() => this.onInventoryRowClick(item)" style="cursor: pointer;">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 24)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-amber" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Product Variant</th>
+                <th class="col-num">On-Hand Qty</th>
+                <th class="col-num">Allocated Value</th>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topInventoryByProduct" t-as="row" t-key="row_index">
+                  <tr t-on-click="() => this.onInventoryRowClick(row)" style="cursor: pointer;">
                     <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
                     <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
                     <td class="col-num"><t t-esc="_formatNumber(row.on_hand_qty)"/></td>
@@ -541,14 +669,14 @@
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Sales Trend</h2>
-          <span class="tl-section-subtitle">Daily revenue over selected period + 7-day snapshot</span>
+          <span class="tl-section-subtitle">Daily untaxed revenue over selected period + 7-day snapshot</span>
         </div>
       </div>
 
       <!-- Line Chart -->
       <div class="tl-card">
         <div class="tl-card-head">
-          <h3>Revenue Over Period</h3>
+          <h3>Untaxed Revenue Over Period</h3>
           <span class="tl-badge tl-badge-green">Daily Trend</span>
         </div>
         <t t-if="salesOverMonth.length">
@@ -594,11 +722,11 @@
               <div class="tl-chart-tooltip">
                 <div class="tl-tooltip-date"><t t-esc="_formatDayLabel(state.activePoint.date)"/></div>
                 <div class="tl-tooltip-row">
-                  <span class="tl-tooltip-label">Revenue:</span>
+                  <span class="tl-tooltip-label">Untaxed Revenue:</span>
                   <span class="tl-tooltip-val"><t t-esc="_formatCurrency(state.activePoint.net_revenue)"/></span>
                 </div>
                 <div class="tl-tooltip-row">
-                  <span class="tl-tooltip-label">Invoices:</span>
+                  <span class="tl-tooltip-label">Invoices (incl. credit notes):</span>
                   <span class="tl-tooltip-val"><t t-esc="state.activePoint.invoice_count"/></span>
                 </div>
                 <div class="tl-tooltip-hint">Click point to inspect day</div>
@@ -615,6 +743,7 @@
           <h3>7-Day Daily Snapshot</h3>
           <div class="tl-snapshot-quick">
             <span>Today: <strong><t t-esc="_formatCompactEGP(dailySnapshotStats.today_revenue || 0)"/></strong></span>
+            <span class="tl-snapshot-note">Invoice counts include credit notes</span>
             <span t-att-class="'tl-dod-badge ' + _trendClass(dailySnapshotStats.day_over_day_pct)">
               <t t-esc="_trendIcon(dailySnapshotStats.day_over_day_pct)"/>
               <t t-esc="_formatPercentOrDash(dailySnapshotStats.day_over_day_pct)"/> DoD
@@ -629,7 +758,7 @@
                 <div class="tl-snap-fill" t-att-style="'width:' + item.pct + '%'"></div>
               </div>
               <div class="tl-snap-val"><t t-esc="_formatCompact(item.value)"/></div>
-              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv</div>
+              <div class="tl-snap-count"><t t-esc="_formatNumber(item.invoice_count)"/> inv incl. credit notes</div>
             </div>
           </t>
         </div>
@@ -637,12 +766,66 @@
     </div>
 
     <!-- ══════════ ADVANCED DRILLDOWN (collapsible) ══════════ -->
+    <div class="tl-section">
+      <div class="tl-section-header tl-hdr-collections">
+        <div class="tl-section-accent"></div>
+        <div>
+          <h2 class="tl-section-title">Collections Mix</h2>
+          <span class="tl-section-subtitle">Top <t t-esc="state.topN"/> journals from Reporting / Payment Excel Report in selected period</span>
+        </div>
+      </div>
+
+      <div class="tl-card">
+        <div class="tl-card-head">
+          <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
+          <span class="tl-badge tl-badge-green">Payment Excel Report Source</span>
+        </div>
+        <div class="tl-chart-table">
+          <div class="tl-bars-col">
+            <t t-if="!paymentJournalBarRows.length"><div class="tl-empty-mini">No payment journal data available</div></t>
+            <t t-foreach="paymentJournalBarRows" t-as="item" t-key="item_index">
+              <div class="tl-bar-row">
+                <div class="tl-bar-rank"><t t-esc="item._rank"/></div>
+                <div class="tl-bar-dim" t-att-title="item.dimension"><t t-esc="_shorten(item.dimension, 26)"/></div>
+                <div class="tl-bar-track">
+                  <div class="tl-bar-fill tl-fill-green" t-att-style="'width:' + item.pct + '%'"></div>
+                </div>
+                <div class="tl-bar-val"><t t-esc="_formatCompact(item._val)"/></div>
+              </div>
+            </t>
+          </div>
+          <div class="tl-data-col">
+            <table class="tl-top-table">
+              <thead><tr>
+                <th class="col-rank">#</th>
+                <th>Journal</th>
+                <th class="col-num">Collections</th>
+                <th class="col-num">Payments</th>
+                <th class="col-num">Mix %</th>
+              </tr></thead>
+              <tbody>
+                <t t-foreach="topPaymentJournals" t-as="row" t-key="row_index">
+                  <tr>
+                    <td class="col-rank tl-rank-num"><t t-esc="row_index + 1"/></td>
+                    <td class="tl-dim-cell"><t t-esc="row.dimension"/></td>
+                    <td class="col-num"><t t-esc="_formatCurrency(row.collections_total)"/></td>
+                    <td class="col-num"><t t-esc="_formatNumber(row.payment_count)"/></td>
+                    <td class="col-num"><t t-esc="_formatPercent(row.share_pct)"/></td>
+                  </tr>
+                </t>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tl-section tl-advanced-section">
       <div class="tl-section-header tl-hdr-advanced tl-collapsible" t-on-click="onToggleDrilldown">
         <div class="tl-section-accent"></div>
         <div>
           <h2 class="tl-section-title">Advanced Drilldown</h2>
-          <span class="tl-section-subtitle">Custom domain, group-by, and metric analysis</span>
+          <span class="tl-section-subtitle">Custom domain, group-by, and metric analysis. Count labels state whether refunds are included.</span>
         </div>
         <span class="tl-collapse-toggle"><t t-if="state.drilldownOpen">▲ Hide</t><t t-else="">▼ Show</t></span>
       </div>
@@ -679,6 +862,16 @@
               <button class="tl-btn-sm tl-btn-outline" t-on-click="onOpenNativeView">Open in Odoo ↗</button>
             </div>
           </div>
+          <t t-if="state.filters.inventory_category and state.filters.inventory_category !== 'all'">
+            <div class="tl-drill-active-filters" style="margin-left: 20px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+              <span class="tl-badge tl-badge-amber">Category: <t t-esc="state.filters.inventory_category"/></span>
+              <button class="btn btn-link btn-sm text-danger p-0" t-on-click="clearCategoryFilter" style="font-size: 0.85em; text-decoration: none;">
+                Clear Filter ✖
+              </button>
+            </div>
+          </t>
+
+          <div class="tl-count-hint" t-if="drillInvoiceCountHint"><t t-esc="drillInvoiceCountHint"/></div>
 
           <div class="tl-pagebar">
             <span class="tl-page-info"><t t-esc="drillPageSummary"/></span>
@@ -764,9 +957,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Total Invoices</div>
+          <div class="tl-print-kpi-label">Invoices (Incl. Credit Notes)</div>
           <div class="tl-print-kpi-val"><t t-esc="dailyTotalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted invoices</div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts/credit notes</div>
         </div>
       </div>
 
@@ -861,6 +1054,23 @@
             <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodNetMargin)"/></div>
             <div class="tl-print-kpi-vs tl-neutral">net margin in period</div>
           </div>
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Net Margin % (Period)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodNetMarginPct)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">Net Margin / Odoo COGS margin revenue basis</div>
+          </div>
+        </t>
+        <t t-if="mostafaMarginEnabled">
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Mostafa Margin (XPRS)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatCompact(periodMostafaMargin)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">net margin + reason discounts</div>
+          </div>
+          <div class="tl-print-kpi">
+            <div class="tl-print-kpi-label">Mostafa Margin % (XPRS)</div>
+            <div class="tl-print-kpi-val"><t t-esc="_formatPercent(periodMostafaMarginPct)"/></div>
+            <div class="tl-print-kpi-vs tl-neutral">Mostafa Margin / same Odoo COGS margin revenue basis</div>
+          </div>
         </t>
         <div class="tl-print-kpi">
           <div class="tl-print-kpi-label">Attachment Rate</div>
@@ -868,9 +1078,9 @@
           <div class="tl-print-kpi-vs tl-neutral">multi-item baskets</div>
         </div>
         <div class="tl-print-kpi">
-          <div class="tl-print-kpi-label">Total Invoices</div>
-          <div class="tl-print-kpi-val"><t t-esc="totalInvoices"/></div>
-          <div class="tl-print-kpi-vs tl-neutral">posted in period</div>
+          <div class="tl-print-kpi-label">Invoices (Incl. Credit Notes)</div>
+          <div class="tl-print-kpi-val"><t t-esc="periodInvoiceCount"/></div>
+          <div class="tl-print-kpi-vs tl-neutral">posted invoices/receipts/credit notes in period</div>
         </div>
       </div>
 

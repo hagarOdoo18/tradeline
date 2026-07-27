@@ -6,6 +6,7 @@ from tempfile import TemporaryFile
 import openpyxl
 class TVCSetting (models.Model) :
     _name = 'tvc.setting'
+    _description = "Tvc Setting"
 
     from_date = fields.Date(
         string='From Date',

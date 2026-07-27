@@ -295,6 +295,31 @@
 }
 .tl-margin-badge.is-good { background: var(--tl-green-lt); color: #065f46; border-color: #6ee7b7; }
 .tl-margin-badge.is-warn { background: var(--tl-amber-lt); color: #92400e; border-color: #fcd34d; }
+.tl-mostafa-badge {
+  margin-left: 8px;
+  padding: 3px 10px;
+  border: 1px solid #86d5b2;
+  border-radius: 999px;
+  background: #effaf5;
+  color: #07593b;
+  font-size: 11px;
+  font-weight: 800;
+}
+.tl-mostafa-disclosure {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  border-left: 4px solid #0d8a60;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #edf9f4 0%, #f8fbf9 100%);
+  color: #38564a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.tl-mostafa-disclosure strong { color: #07593b; white-space: nowrap; }
+.tl-mostafa-col { background: #f0faf5 !important; color: #07593b !important; font-weight: 750; }
 
 /* Utility buttons */
 .tl-btn-sm {
@@ -591,6 +616,7 @@
 .tl-hdr-sales .tl-section-accent   { background: var(--tl-blue); }
 .tl-hdr-inventory .tl-section-accent { background: var(--tl-amber); }
 .tl-hdr-trend .tl-section-accent   { background: var(--tl-green); }
+.tl-hdr-collections .tl-section-accent { background: var(--tl-teal); }
 .tl-hdr-advanced .tl-section-accent{ background: var(--tl-purple); }
 
 .tl-section-title {
@@ -910,6 +936,15 @@
   font-size: 13px;
 }
 .tl-snapshot-quick strong { font-weight: 800; color: var(--tl-text-1); }
+.tl-snapshot-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tl-text-3);
+  background: #f1f5f9;
+  border: 1px solid var(--tl-border);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
 
 .tl-dod-badge {
   font-size: 12px;
@@ -944,6 +979,16 @@
   gap: 10px;
   margin-bottom: 14px;
   align-items: flex-end;
+}
+.tl-count-hint {
+  margin: -2px 0 12px;
+  padding: 8px 10px;
+  border-radius: var(--tl-radius-sm);
+  background: #f8fafc;
+  border: 1px solid var(--tl-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tl-text-2);
 }
 .tl-drill-actions-row {
   display: flex;

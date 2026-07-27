@@ -17,10 +17,12 @@
                                 <field name="name"/>
                                 <field name="code"/>
                                 <field name="is_call_center"/>
+                                <field name="is_online"/>
                             </group>
                             <group>
                                 <field name="mail"/>
                                 <field name="type"/>
+                                <field name="company_id" groups="base.group_multi_company"/>
                                 <field name="active" invisible="1"/>
                             </group>
                         </group>
@@ -37,6 +39,8 @@
                     <field name="name"/>
                     <field name="code"/>
                     <field name="is_call_center"/>
+                    <field name="is_online"/>
+                    <field name="company_id" optional="show" groups="base.group_multi_company"/>
                     <field name="active" optional="hide"/>
                 </list>
             </field>
@@ -49,13 +53,25 @@
                 <search string="Sales Rep">
                     <field name="name"/>
                     <field name="code"/>
+                    <field name="company_id" groups="base.group_multi_company"/>
+                    <filter name="filter_online" string="Online"
+                            domain="[('is_online', '=', True)]"/>
+                    <filter name="filter_call_center" string="Call Center"
+                            domain="[('is_call_center', '=', True)]"/>
                     <filter name="filter_archived" string="Archived"
                             domain="[('active', '=', False)]"/>
+                    <group expand="0" string="Group By">
+                        <filter name="group_by_type" string="Type"
+                                context="{'group_by': 'type'}"/>
+                        <filter name="group_by_company" string="Company"
+                                context="{'group_by': 'company_id'}"
+                                groups="base.group_multi_company"/>
+                    </group>
                 </search>
             </field>
         </record>
 
-       
+
 
         <record id="sales_rep_act_window" model="ir.actions.act_window">
             <field name="name">sales rep</field>

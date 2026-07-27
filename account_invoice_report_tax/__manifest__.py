@@ -1,5 +1,6 @@
 {
     "name": "Account Invoice Report Tax Wizard",
+    "license": "LGPL-3",
     "version": "1.0",
     "depends": ["account"],
     "data": [

@@ -27,7 +27,7 @@ import pytz
 import re
 import requests
 import odoo
-from odoo import models, fields, _
+from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
@@ -112,6 +112,31 @@ class SaleOrderSync(models.TransientModel):
                 elif self.type_order == 'confirmed':
                     self.sync_confirmed_orders(self.shopify_instance_id,
                                                self.id)
+
+    @api.model
+    def _cron_sync_confirmed_orders(self):
+        """Scheduled action to import confirmed orders from Shopify for all
+        active connected instances. Mirrors the manual 'From Shopify ->
+        Confirmed Orders' wizard flow: for each instance a transient
+        sale.order.sync record is created and sync_confirmed_orders is
+        called, which queues import_confirmed_orders_from_shopify job.cron
+        records that _do_job then processes."""
+        instances = self.env['shopify.configuration'].sudo().search([
+            ('active', '=', True),
+            ('state', '=', 'sync'),
+        ])
+        for instance in instances:
+            try:
+                wizard = self.sudo().create({
+                    'import_orders': 'odoo',
+                    'shopify_instance_id': instance.id,
+                    'type_order': 'confirmed',
+                })
+                wizard.sync_confirmed_orders(instance, wizard.id)
+            except Exception as error:
+                _logger.error(
+                    'Failed to queue confirmed orders sync for Shopify '
+                    'instance %s: %s', instance.name, str(error))
 
     def sync_confirmed_orders(self, instance, ref):
         """Method to create  jobs for importing confirmed orders."""
@@ -234,6 +259,55 @@ class SaleOrderSync(models.TransientModel):
                 if order_link and rel is not None:
                     rec += 1
 
+    def _get_shopify_order_warehouse(self, each, instance):
+        """Resolve the Odoo warehouse a Shopify order should be assigned to.
+
+        Shopify orders carry the fulfillment location either as the
+        order-level 'location_id' (often None while the order is still
+        unpaid / not yet fulfilled) or, for storefronts that let the
+        customer pick a branch/pickup location, as a '_selected_location'
+        note attribute (e.g. 'Tradeline Sodic'). Both are matched against
+        the shopify.location mapping table (warehouse <-> Shopify location)
+        for this instance. Falls back to the instance's default warehouse.
+
+            each(dict): raw Shopify order payload.
+            instance(shopify.configuration): the Shopify instance.
+
+            stock.warehouse: the resolved warehouse (may be an empty
+            recordset if nothing could be matched and no default is set).
+        """
+        location_model = self.env['shopify.location'].sudo()
+
+        location_id = each.get('location_id')
+        if location_id:
+            loc = location_model.search([
+                ('shopify_location_id', '=', str(location_id)),
+                ('instance_id', '=', instance.id),
+            ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        selected_location = False
+        for attr in each.get('note_attributes') or []:
+            if attr.get('name') == '_selected_location':
+                selected_location = attr.get('value')
+                break
+
+        if selected_location:
+            loc = location_model.search([
+                ('instance_id', '=', instance.id),
+                ('name', '=', selected_location),
+            ], limit=1)
+            if not loc:
+                loc = location_model.search([
+                    ('instance_id', '=', instance.id),
+                    ('name', 'ilike', selected_location),
+                ], limit=1)
+            if loc.warehouse_id:
+                return loc.warehouse_id
+
+        return instance.warehouse_id
+
     def import_confirmed_orders_from_shopify(self, shopify_orders, instance,
                                              ref):
         """ Method to import confirmed orders from shopify to odoo.
@@ -333,7 +407,7 @@ class SaleOrderSync(models.TransientModel):
                             state_id = self.env['res.country.state'].search([
                                 ('name', '=',
                                  each['shipping_address']['province'])
-                            ])
+                            ],limit=1)
                             shipping_child_id = self.env[
                                 'res.partner'].sudo().create([
                                 {"name": each['shipping_address'][
@@ -357,7 +431,8 @@ class SaleOrderSync(models.TransientModel):
                                  "type": 'delivery',
                                  }]).id
                             vals['partner_shipping_id'] = shipping_child_id
-                        if each['billing_address']:
+                        if each['billing_address'] and each['shipping_address'] :
+
                             county_id = self.env['res.country'].search([
                                 ('name', '=',
                                  each['shipping_address']['country'])
@@ -365,7 +440,7 @@ class SaleOrderSync(models.TransientModel):
                             state_id = self.env['res.country.state'].search([
                                 ('name', '=',
                                  each['shipping_address']['province'])
-                            ])
+                            ],limit=1)
                             billing_child_id = self.env[
                                 'res.partner'].sudo().create(
                                 [{
@@ -418,8 +493,9 @@ class SaleOrderSync(models.TransientModel):
                     tax_name = self.env[
                         'account.tax'].search(
                         [('amount', '=', taxes),
-                         ('tax_group_id', '=', tax_group),
-                         ('type_tax_use', '=', 'sale')])
+                         ('type_tax_use', '=', 'sale'),
+                         ('company_id', '=', instance.company_id.id)],
+                        limit=1)
                     if not tax_name:
                         tax_group_id = self.env['account.tax.group'].create(
                             {'name': tax_group})
@@ -436,8 +512,22 @@ class SaleOrderSync(models.TransientModel):
                     dateutil.parser.parse(each['created_at']).astimezone(
                         pytz.utc)))
                 vals["shopify_order_ref"] = each['id']
-                vals["name"] = each['name']
+                vals["reference_number"] = each['name']
+                # vals["name"] = each['name']
                 vals['shopify_instance_id'] = shopify_instance.id
+                order_warehouse = self._get_shopify_order_warehouse(
+                    each, shopify_instance)
+                vals['warehouse_id'] = (
+                    order_warehouse.id if order_warehouse else False)
+                team = self.env['crm.team'].search(
+                    [('branch_id', '=',  order_warehouse.branch_id.id), ('company_id', '=', self.env.company.id)])
+                vals['team_id'] = team.id if team else False
+                sales_rep = self.env['sales.rep'].search(
+                    [('company_id', '=', instance.company_id.id),
+                     ('is_online', '=', True)], limit=1)
+                vals['branch_id'] = (
+                    order_warehouse.branch_id.id if order_warehouse else False)
+                vals['sales_rep_id'] = sales_rep.id if sales_rep else False
                 fulfillment_status = each['fulfillment_status']
                 payment_status = each['financial_status']
                 fulfillment = 'fulfilled' \
@@ -468,7 +558,7 @@ class SaleOrderSync(models.TransientModel):
                 so.shopify_order_ref = each['id']
                 currency = self.env['res.currency'].sudo().search(
                     [('name', 'ilike', each['currency']),
-                     ('active', 'in', [False, True])])
+                     ('active', 'in', [False, True])], limit=1)
                 if currency and not currency.active:
                     currency.sudo().write({'active': True})
                 line_vals_list = []
@@ -477,14 +567,31 @@ class SaleOrderSync(models.TransientModel):
                     if line['discount_allocations']:
                         discount = line['discount_allocations'][0]['amount']
                     product_id = self.env['product.product'].sudo().search(
-                        [('shopify_product', '=', line['product_id']), (
-                            'shopify_sync_ids.instance_id', '=',
-                            shopify_instance.id),
+                        [('barcode', '=', line['sku']),
+                         ('shopify_sync_ids.instance_id', '=',
+                          shopify_instance.id),
                          ('company_id', 'in', [shopify_instance.company_id.id,
                                                False])])
                     if line['variant_id']:
-                        product_id = product_id.search([
-                            ('shopify_variant', '=', line['variant_id'])])
+                        # narrow within the barcode+instance result first
+                        variant_match = product_id.filtered(
+                            lambda p, vid=line['variant_id']: (
+                                str(p.shopify_variant) == str(vid)))
+                        if variant_match:
+                            product_id = variant_match[:1]
+                        else:
+                            # fall back: any product in this company with
+                            # the matching Shopify variant id
+                            product_id = self.env[
+                                'product.product'].sudo().search([
+                                    ('shopify_variant', '=',
+                                     line['variant_id']),
+                                    ('company_id', 'in', [
+                                        shopify_instance.company_id.id,
+                                        False]),
+                                ], limit=1)
+                    else:
+                        product_id = product_id[:1]
                     if not product_id:
                         product = line['product_id']
                         product_response = self.env[
@@ -502,10 +609,32 @@ class SaleOrderSync(models.TransientModel):
                                 'model': 'sale.order',
                             }])
                             continue
+                        # re-fetch the newly created product
                         if line['variant_id']:
-                            product_id = self.env['product.product'].search([
-                                ('shopify_variant', '=', line['variant_id'])
-                            ])
+                            product_id = self.env[
+                                'product.product'].sudo().search([
+                                    ('shopify_variant', '=',
+                                     line['variant_id']),
+                                ], limit=1)
+                        else:
+                            product_id = self.env[
+                                'product.product'].sudo().search([
+                                    ('barcode', '=', line['sku']),
+                                ], limit=1)
+                    # final guard -- skip line if product is still not resolved
+                    if not product_id:
+                        self.env['log.message'].sudo().create([{
+                            'name': ' Order : ' + each[
+                                'name'] + ' line "' + (
+                                line.get('title') or '') + '" skipped'
+                                ' - product not found'
+                                ' (sku: ' + str(line.get('sku') or '') + ','
+                                ' variant: ' + str(
+                                line.get('variant_id') or '') + ').',
+                            'shopify_instance_id': instance.id,
+                            'model': 'sale.order',
+                        }])
+                        continue
                     str_list = []
                     for desc_index in line['discount_allocations']:
                         discount_type = \
@@ -522,16 +651,21 @@ class SaleOrderSync(models.TransientModel):
                                 each['discount_applications'][
                                     desc_index['discount_application_index']][
                                     'title'])
+                    price=float(line['price'])
                     line_vals = {
                         'product_id': product_id.id,
-                        'price_unit': line['price'],
+                        'name': line.get('title') or product_id.name or '/',
+                        'price_unit':price,
                         'product_uom_qty': line['quantity'],
                         'currency_id': currency.id,
-                        'discount': (float(discount) / float(
-                            line['price']) * 100) / float(line['quantity'])
-                        if discount else 0,
-                        'tax_id': [
-                            (6, 0, tax_name.ids)] if tax_name else False,
+                        'discount': (
+                            float(discount) * 100 /
+                            ((price))
+
+                            if price and float(line['quantity'])
+                            else 0
+                        ) if discount else 0,
+                        'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
                         'shopify_line_ref': line['id'],
                         'shopify_instance_id': shopify_instance.id,
                         'shopify_taxable': line['taxable'],
@@ -548,7 +682,8 @@ class SaleOrderSync(models.TransientModel):
                                     i['discount_application_index']][
                                     'value']) for i in
                                 line['discount_allocations']) if
-                            each['discount_applications'] else 0.0,
+                            (each.get('discount_applications') and
+                             line['discount_allocations']) else 0.0,
                         'shopify_discount_code': ','.join(str_list),
                         'order_id': so.id,
                         'company_id': shopify_instance.company_id.id,
@@ -562,17 +697,20 @@ class SaleOrderSync(models.TransientModel):
                     line_vals_list.append(line_vals)
                 if each['shipping_lines']:
                     shipping_lines = each['shipping_lines']
+
                     product_id = self.env.ref(
                         'shopify_odoo_connector.product_shopify_shipping_cost')
                     for line in shipping_lines:
+                        price = float(line['price'])
+
                         shipping_line_vals = {
                             'product_id': product_id.id,
                             'name': line['title'] if line[
                                 'title'] else product_id.name,
-                            'price_unit': line['price'],
+                            'price_unit':price,
                             'product_uom_qty': 1,
                             'shopify_line_ref': line['id'],
-                            'tax_id': False,
+                            'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
                             'order_id': so.id,
                             'shopify_instance_id': shopify_instance.id,
                             'company_id': shopify_instance.company_id.id,
@@ -590,11 +728,59 @@ class SaleOrderSync(models.TransientModel):
                         'tax_id': None,
                         'order_id': so.id,
                     }
-                    line_vals_list.append(discount_dict)
-                sale_order_line = self.env['sale.order.line']
-                sale_order_line.create(line_vals_list)
-                if not wizard.draft:
-                    so.action_confirm()
+                    # line_vals_list.append(discount_dict)
+
+                    discount_code = each['discount_codes'][0]['code']
+
+                    discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
+                    so.discount_id = discount_reason.id
+                if line_vals_list:
+                    try:
+                        new_lines = self.env['sale.order.line'].sudo().create(
+                            line_vals_list)
+                    except Exception as e:
+                        print('ezzat')
+                        print(e)
+                else:
+                    new_lines = self.env['sale.order.line'].browse()
+                # if not wizard.draft:
+                #     so.action_confirm()
+                # Force Shopify prices onto the lines.
+                # Both create() and action_confirm() trigger Odoo 18's
+                # _compute_price_unit which overwrites price_unit with the
+                # pricelist price.  The only reliable fix is to:
+                #   1. flush_all() so all pending ORM writes reach the DB,
+                #   2. patch price_unit / discount directly via SQL,
+                #   3. remove those fields from the recompute queue so
+                #      the engine does not re-run the compute method,
+                #   4. invalidate the ORM cache and recompute monetary
+                #      totals from the corrected price.
+                if new_lines and line_vals_list:
+                    self.env.flush_all()
+                    cr = self.env.cr
+                    for sol, lv in zip(new_lines, line_vals_list):
+                        price = float(lv.get('price_unit') or 0)
+                        disc = float(lv.get('discount') or 0)
+                        cr.execute(
+                            "UPDATE sale_order_line "
+                            "SET price_unit = %s, discount = %s "
+                            "WHERE id = %s",
+                            (price, disc, sol.id),
+                        )
+                    # Drop price_unit/discount from the pending recompute set
+                    sol_model = self.env['sale.order.line']
+                    pf = sol_model._fields.get('price_unit')
+                    df = sol_model._fields.get('discount')
+                    tocompute = getattr(
+                        getattr(self.env, 'all', None), 'tocompute', {})
+                    line_ids = set(new_lines.ids)
+                    for fld in (pf, df):
+                        if fld and fld in tocompute:
+                            tocompute[fld] -= line_ids
+                    # Refresh ORM cache and recompute monetary totals
+                    new_lines.invalidate_recordset(
+                        ['price_unit', 'discount'])
+                    new_lines.sudo()._compute_amount()
 
     def import_draft_orders_from_shopify(self, shopify_orders, instance):
         """ Method to import draft orders from shopify to odoo.
@@ -760,8 +946,9 @@ class SaleOrderSync(models.TransientModel):
                     tax_name = self.env[
                         'account.tax'].search(
                         [('amount', '=', taxes),
-                         ('tax_group_id', '=', tax_group),
-                         ('type_tax_use', '=', 'sale')])
+                         ('type_tax_use', '=', 'sale'),
+                         ('company_id', '=', instance.company_id.id)],
+                        limit=1).id
                     if not tax_name:
                         tax_group_id = self.env['account.tax.group'].create(
                             {'name': tax_group})

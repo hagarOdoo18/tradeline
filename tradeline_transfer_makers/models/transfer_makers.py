@@ -6,10 +6,11 @@ from datetime import datetime
 
 class TransferMakers(models.Model):
     _name = 'transfer.makers'
+    _description = "Transfer Makers"
     _rec_name = 'name'
 
-    code = fields.Char(string='Code',track_visibility='always',)
-    name = fields.Char(string='Name',track_visibility='always',)
+    code = fields.Char(string='Code')
+    name = fields.Char(string='Name')
     transfer_line_ids = fields.One2many(
         comodel_name='transfer.makers.line',
         inverse_name='transfer_maker_id',
@@ -41,6 +42,7 @@ class TransferMakers(models.Model):
 
 class TransferMakersLine(models.Model):
     _name = 'transfer.makers.line'
+    _description = "Transfer Makers Line"
 
     transfer_maker_id = fields.Many2one(
         comodel_name='transfer.makers',

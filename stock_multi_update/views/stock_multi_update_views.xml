@@ -44,7 +44,8 @@
                     <group>
                         <group string="Update Info">
                             <field name="date"/>
-                            <field name="location_id" options="{'no_create': True}"/>
+                            <field name="location_id" options="{'no_create': True}"
+                                   readonly="state in ('done','cancelled')"/>
                         </group>
                         <group string="Summary" invisible="state == 'draft'">
                             <field name="total_lines" string="Lines"/>

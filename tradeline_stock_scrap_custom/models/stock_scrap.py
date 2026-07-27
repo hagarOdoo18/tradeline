@@ -3,6 +3,7 @@ from odoo import fields, models, _
 
 class StockScrap(models.Model):
     _name = 'stock.scrap'
+    _description = "Stock Scrap"
     _inherit = ['stock.scrap', 'mail.thread', 'mail.activity.mixin']
 
     state = fields.Selection(

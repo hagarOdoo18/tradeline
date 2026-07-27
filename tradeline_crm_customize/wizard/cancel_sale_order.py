@@ -8,6 +8,7 @@ from odoo.tools.translate import _
 
 class CancelSaleOrderPipe(models.TransientModel):
     _name = 'cancel.sale.order.pipeline'
+    _description = "Cancel Sale Order Pipeline"
 
 
 

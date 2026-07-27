@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': "tradeline custom English Invoice Report",
+    'license': 'LGPL-3',
 
 
 

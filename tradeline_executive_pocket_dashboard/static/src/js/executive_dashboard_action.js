@@ -27,6 +27,7 @@ export class ExecutivePocketDashboard extends Component {
                 branch_ids: [],
                 salesperson_ids: [],
                 product_category: "all",
+                inventory_category: "all",
             },
             activePoint: null,
             selectedDomain: "finance",
@@ -37,6 +38,7 @@ export class ExecutivePocketDashboard extends Component {
             lens: "overview",
             bundle: null,
             error: "",
+            automation: { open: false, loading: false, schedules: [], history: [] },
         });
 
         onWillStart(async () => { await this._loadBundle(); });
@@ -49,7 +51,11 @@ export class ExecutivePocketDashboard extends Component {
     get topSalesByCategory() { return this.topSections.sales_by_category || []; }
     get topSalesByCustomer() { return this.topSections.sales_by_customer || []; }
     get topSalesByProduct() { return this.topSections.sales_by_product || []; }
+    get topPaymentJournals() { return this.topSections.payment_journals || []; }
     get topInventoryByCategory() { return this.topSections.inventory_by_category || []; }
+    get topInventoryByProduct() { return this.topSections.inventory_by_product || []; }
+    get inventoryProductBarRows() { return this._barRowsFor(this.topInventoryByProduct, "allocated_value"); }
+    get inventoryCategoryOptions() { return this.topInventoryByCategory.map(c => c.dimension).filter(Boolean); }
     get salesOverMonth() { return this.topSections.sales_over_month || []; }
     get attachmentRate() { return Number(this.topSections.attachment_rate || 0); }
     get totalInvoices() { return Number(this.topSections.total_invoices || 0); }
@@ -61,6 +67,8 @@ export class ExecutivePocketDashboard extends Component {
     get yesterdaySales() { return Number(this.topSections.yesterday_sales || 0); }
     get marginAvailableTop() { return Boolean(this.topSections.margin_available); }
     get companyNamesForReport() { return this.topSections.company_names || []; }
+    get reportSchedules() { return this.state.automation.schedules || []; }
+    get reportHistory() { return this.state.automation.history || []; }
 
     // ─── Daily top sections getters ──────────────────────────────────────────
     get dailyTopSections() { return this.state.bundle?.daily_top_sections || {}; }
@@ -78,6 +86,10 @@ export class ExecutivePocketDashboard extends Component {
     get dailyDonutCategorySegments() { return this._buildDonutSegments(this.dailyTopSections.sales_by_category || [], "net_revenue"); }
     get periodNetRevenue() { return this.state.bundle?.cards?.find(c => c.key === 'net_revenue')?.value || 0; }
     get periodNetMargin() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin')?.value || 0; }
+    get periodNetMarginPct() { return this.state.bundle?.cards?.find(c => c.key === 'net_margin_pct')?.value || 0; }
+    get periodMostafaMargin() { return this.state.bundle?.cards?.find(c => c.key === 'mostafa_margin')?.value || 0; }
+    get periodMostafaMarginPct() { return this.state.bundle?.cards?.find(c => c.key === 'mostafa_margin_pct')?.value || 0; }
+    get periodInvoiceCount() { return this.state.bundle?.cards?.find(c => c.key === 'invoice_count')?.value || 0; }
 
     // ─── KPI / meta getters ───────────────────────────────────────────────────
     get cards() { return this.state.bundle?.cards || []; }
@@ -87,6 +99,9 @@ export class ExecutivePocketDashboard extends Component {
     get marginCoveragePct() { return Number(this.marginStatus.coverage_pct || 0).toFixed(1); }
     get marginStatusClass() { return this.marginStatus.available ? "is-good" : "is-warn"; }
     get marginStatusLabel() { return this.marginStatus.available ? "✓ Real COGS margin" : "⚠ Margin approx."; }
+    get mostafaMarginMeta() { return this.state.bundle?.meta?.mostafa_margin || { enabled: false, reasons: [] }; }
+    get mostafaMarginEnabled() { return Boolean(this.mostafaMarginMeta.enabled); }
+    get mostafaMarginDisclosure() { return this.mostafaMarginMeta.disclosure || ""; }
 
     // ─── Daily snapshot ───────────────────────────────────────────────────────
     get dailySnapshot() { return this.state.bundle?.sections?.daily_snapshot || { rows: [], stats: {} }; }
@@ -155,6 +170,11 @@ export class ExecutivePocketDashboard extends Component {
     get availableMetrics() { return this.selectedDomainCatalog?.metrics || []; }
     get hasSort() { return Boolean(this.state.sort.column && this.state.sort.direction); }
     get selectedDomainCoverage() { return Number((this.state.bundle?.coverage || {})[this.state.selectedDomain] || 0); }
+    get drillInvoiceCountHint() {
+        if (this.state.selectedDomain === "finance") return "Count = posted sales documents, including refunds.";
+        if (this.state.selectedDomain === "sales") return "Count = customer invoices/receipts/credit notes.";
+        return "";
+    }
 
     // ─── Computed chart data (cached as getters) ──────────────────────────────
     get donutCategorySegments() { return this._buildDonutSegments(this.topSalesByCategory, "net_revenue"); }
@@ -164,6 +184,7 @@ export class ExecutivePocketDashboard extends Component {
     get lineChartData() { return this._buildLineChart(this.salesOverMonth, "net_revenue"); }
     get branchBarRows() { return this._barRowsFor(this.topSalesByBranch, "net_revenue"); }
     get salespersonBarRows() { return this._barRowsFor(this.topSalesBySalesperson, "net_revenue"); }
+    get paymentJournalBarRows() { return this._barRowsFor(this.topPaymentJournals, "collections_total"); }
     get inventoryBarRows() { return this._barRowsFor(this.topInventoryByCategory, "allocated_value"); }
     get customerBarRows() { return this._barRowsFor(this.topSalesByCustomer, "net_revenue"); }
     get productBarRows() { return this._barRowsFor(this.topSalesByProduct, "net_revenue"); }
@@ -288,6 +309,13 @@ export class ExecutivePocketDashboard extends Component {
         return s.length > maxLen ? `${s.slice(0, maxLen - 1)}…` : s;
     }
     columnLabel(col) {
+        if (col === "margin_pct") return "Net Margin %";
+        if (col === "mostafa_margin") return "Mostafa Margin";
+        if (col === "mostafa_margin_pct") return "Mostafa Margin %";
+        if (col === "invoice_count") {
+            if (this.state.selectedDomain === "finance") return "Posted Docs (incl. refunds)";
+            if (this.state.selectedDomain === "sales") return "Invoices (excl. refunds)";
+        }
         return String(col || "").replace(/_/g, " ").split(" ").filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
     }
     _formatDayLabel(value) {
@@ -315,6 +343,16 @@ export class ExecutivePocketDashboard extends Component {
         if (!previous) return null;
         return ((current - previous) / previous) * 100;
     }
+    _extractRpcError(error) {
+        const candidates = [
+            error?.cause?.data?.message,
+            error?.cause?.message,
+            error?.data?.message,
+            error?.message,
+        ].filter(v => typeof v === "string" && v.trim());
+        const specific = candidates.find(v => !["Odoo Server Error", "RPC_ERROR"].includes(v.trim()));
+        return specific || candidates[0] || "Failed to load dashboard data.";
+    }
     sortIcon(col) {
         if (this.state.sort.column !== col) return "⇅";
         return this.state.sort.direction === "asc" ? "↑" : "↓";
@@ -336,12 +374,15 @@ export class ExecutivePocketDashboard extends Component {
             }
             this._syncCompanyDraft();
             this._syncSelectionFromBundle();
-            if (this._ensureValidProductCategory()) {
+            let reloadTop = false;
+            if (this._ensureValidProductCategory()) reloadTop = true;
+            if (this._ensureValidInventoryCategory()) reloadTop = true;
+            if (reloadTop) {
                 await this._loadTopSections();
             }
             await this._reloadDrilldown();
         } catch (error) {
-            this.state.error = error?.message || "Failed to load dashboard data.";
+            this.state.error = this._extractRpcError(error);
         } finally {
             this.state.loading = false;
         }
@@ -355,7 +396,10 @@ export class ExecutivePocketDashboard extends Component {
                 [this.state.filters, this.state.topN]
             );
             if (this.state.bundle) this.state.bundle.top_sections = topSections;
-            if (this._ensureValidProductCategory()) {
+            let reloadTop = false;
+            if (this._ensureValidProductCategory()) reloadTop = true;
+            if (this._ensureValidInventoryCategory()) reloadTop = true;
+            if (reloadTop) {
                 await this._loadTopSections();
             }
         } catch {
@@ -395,6 +439,13 @@ export class ExecutivePocketDashboard extends Component {
         this.state.filters.product_category = "all";
         return true;
     }
+    _ensureValidInventoryCategory() {
+        const selected = this.state.filters.inventory_category || "all";
+        if (selected === "all") return false;
+        if (this.inventoryCategoryOptions.includes(selected)) return false;
+        this.state.filters.inventory_category = "all";
+        return true;
+    }
 
     // ─── Event handlers ───────────────────────────────────────────────────────
     async onTopNChange(ev) {
@@ -404,6 +455,29 @@ export class ExecutivePocketDashboard extends Component {
     async onProductCategoryChange(ev) {
         this.state.filters.product_category = ev.target.value || "all";
         await this._loadTopSections();
+    }
+    async onInventoryCategoryChange(ev) {
+        this.state.filters.inventory_category = ev.target.value || "all";
+        await this._loadTopSections();
+    }
+    async onInventoryRowClick(row) {
+        this.state.selectedDomain = "inventory";
+        this.state.selectedGroupBy = "product";
+        this.state.selectedMetric = "allocated_value";
+        this.state.filters.inventory_category = row.dimension;
+        this.state.drilldownOpen = true;
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
+        
+        const el = document.querySelector(".tl-advanced-section");
+        if (el) {
+            el.scrollIntoView({ behavior: "smooth" });
+        }
+    }
+    async clearCategoryFilter() {
+        this.state.filters.inventory_category = "all";
+        this.state.pagination.offset = 0;
+        await this._reloadDrilldown();
     }
     async onCardClick(key) {
         const filters = this.state.filters;
@@ -422,9 +496,9 @@ export class ExecutivePocketDashboard extends Component {
             case "today_sales":
             case "total_invoices":
                 model = "account.move";
-                name = "Today's Invoices";
+                name = "Today's Customer Invoices/Receipts";
                 domain = [
-                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
                     ["invoice_date", "=", report]
                 ].concat(compDomain);
@@ -442,6 +516,7 @@ export class ExecutivePocketDashboard extends Component {
                 ].concat(compDomain);
                 break;
             case "net_margin":
+            case "net_margin_pct":
                 model = "account.invoice.report";
                 name = "Margin Analysis";
                 domain = [
@@ -451,13 +526,25 @@ export class ExecutivePocketDashboard extends Component {
                     ["invoice_date", "<=", end]
                 ].concat(compDomain);
                 break;
+            case "mostafa_margin":
+            case "mostafa_margin_pct":
+                model = "account.invoice.report";
+                name = "XPRS Mostafa Margin Source";
+                domain = [
+                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", end],
+                    ["discount_id", "!=", false]
+                ].concat(compDomain);
+                break;
             case "net_revenue":
             case "invoice_count":
             case "total_move_count":
                 model = "account.move";
-                name = "Period Invoices";
+                name = "Period Customer Invoices/Receipts";
                 domain = [
-                    ["move_type", "in", ["out_invoice", "out_receipt", "out_refund"]],
+                    ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
                     ["invoice_date", ">=", start],
                     ["invoice_date", "<=", end]
@@ -486,12 +573,14 @@ export class ExecutivePocketDashboard extends Component {
                 break;
             case "overdue_receivables":
                 model = "account.move";
-                name = "Overdue Receivables";
+                name = "Open Unpaid Invoice Value";
                 domain = [
                     ["move_type", "in", ["out_invoice", "out_receipt"]],
                     ["state", "=", "posted"],
+                    ["invoice_date", ">=", start],
+                    ["invoice_date", "<=", report],
                     ["amount_residual_signed", ">", 0],
-                    ["invoice_date_due", "<", end]
+                    ["payment_state", "in", ["not_paid", "partial", "in_payment"]]
                 ].concat(compDomain);
                 break;
             case "inventory_value":
@@ -567,6 +656,68 @@ export class ExecutivePocketDashboard extends Component {
         document.body.classList.remove('tl-print-mode-daily');
         window.print();
     }
+    async onOpenReportAutomation() {
+        this.state.automation.open = true;
+        await this._loadReportAutomation();
+    }
+    onCloseReportAutomation() { this.state.automation.open = false; }
+    async _loadReportAutomation() {
+        this.state.automation.loading = true;
+        try {
+            const config = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "get_dashboard_config",
+                []
+            );
+            this.state.automation.schedules = config?.schedules || [];
+            this.state.automation.history = config?.history || [];
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        } finally {
+            this.state.automation.loading = false;
+        }
+    }
+    async onSaveReportSchedule(schedule) {
+        try {
+            const saved = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "save_dashboard_config",
+                [schedule.id, {
+                    active: Boolean(schedule.active),
+                    recipient_emails: schedule.recipient_emails || "",
+                    send_hour: Number(schedule.send_hour || 0),
+                    timezone: schedule.timezone || "Africa/Cairo",
+                    top_n: Number(schedule.top_n || 10),
+                }]
+            );
+            const index = this.state.automation.schedules.findIndex(item => item.id === saved.id);
+            if (index >= 0) this.state.automation.schedules[index] = saved;
+            this.notification.add(`${saved.company_name} schedule saved`, { type: "success" });
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        }
+    }
+    async onPreviewScheduledReport(schedule, reportScope, outputFormat) {
+        try {
+            const action = await this.orm.call(
+                "tradeline.executive.report.schedule",
+                "action_preview_report",
+                [[schedule.id], reportScope, this.state.filters.report_date, outputFormat]
+            );
+            await this.action.doAction(action);
+            await this._loadReportAutomation();
+        } catch (error) {
+            this.notification.add(this._extractRpcError(error), { type: "danger" });
+        }
+    }
+    onDownloadReportHistory(history) {
+        if (history?.download_url) window.location.assign(history.download_url);
+    }
+    reportHistoryClass(state) {
+        if (state === "sent") return "is-sent";
+        if (state === "failed") return "is-failed";
+        return "is-preview";
+    }
     onChartMouseMove(ev) {
         const svg = ev.currentTarget;
         const rect = svg.getBoundingClientRect();
@@ -623,7 +774,13 @@ export class ExecutivePocketDashboard extends Component {
         await this._loadBundle();
     }
     onToggleDrilldown() { this.state.drilldownOpen = !this.state.drilldownOpen; }
-    async onDomainChange(ev) { this.state.selectedDomain = ev.target.value; this.state.pagination.offset = 0; this._syncSelectionFromBundle(); await this._reloadDrilldown(); }
+    async onDomainChange(ev) { 
+        this.state.selectedDomain = ev.target.value; 
+        this.state.pagination.offset = 0; 
+        this.state.filters.inventory_category = "all";
+        this._syncSelectionFromBundle(); 
+        await this._reloadDrilldown(); 
+    }
     async onGroupChange(ev) { this.state.selectedGroupBy = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
     async onMetricChange(ev) { this.state.selectedMetric = ev.target.value; this.state.pagination.offset = 0; await this._reloadDrilldown(); }
     async onPageSizeChange(ev) {
@@ -643,8 +800,8 @@ export class ExecutivePocketDashboard extends Component {
     clearSort() { this.state.sort.column = ""; this.state.sort.direction = ""; }
     async onOpenNativeView() {
         const map = {
-            finance: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
-            sales: { name: "Invoices", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            finance: { name: "Posted Sales Documents (incl. refunds)", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
+            sales: { name: "Customer Invoices/Receipts/Refunds", model: "account.move", domain: [["move_type","in",["out_invoice","out_receipt","out_refund"]]] },
             inventory: { name: "Stock Quants", model: "stock.quant", domain: [] },
         };
         const t = map[this.state.selectedDomain] || map.finance;

@@ -9,9 +9,10 @@ from odoo.tools.translate import _
 class Lead2OpportunityPartner_inher(models.TransientModel):
     _inherit = 'crm.lead2opportunity.partner'
     _name = 'crm.lead2opportunity.partner'
+    _description = "Crm Lead2Opportunity Partner"
 
 
-    team_id = fields.Many2one('crm.team', 'Sales Team', oldname='section_id', index=True,readonly=True)
+    team_id = fields.Many2one('crm.team', 'Sales Team', index=True, readonly=True)
     user_id = fields.Many2one('res.users', 'Salesperson', index=True)
 
     @api.model
