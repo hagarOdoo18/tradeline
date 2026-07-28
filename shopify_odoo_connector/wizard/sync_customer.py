@@ -224,6 +224,8 @@ class SyncCustomer(models.TransientModel):
             details.
         """
         shopify_instance = instance
+        _logger.info('++++++++++customers++++++++++++++++++++',shopify_customers)
+
         for customer in shopify_customers:
             phone = customer['phone'] or ''
             exist_customers = self.env['res.partner'].search(
