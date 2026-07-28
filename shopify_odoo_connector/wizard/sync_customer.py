@@ -320,4 +320,12 @@ class SyncCustomer(models.TransientModel):
                 vals['shopify_instance_id'] = shopify_instance.id
                 vals['synced_customer'] = True
                 vals['company_id'] = shopify_instance.company_id.id
+
                 self.env['res.partner'].sudo().write(vals)
+                sync = self.env['shopify.sync'].sudo().search([('shopify_customer_ref','=', customer['id'])])
+                if not sync:
+                    exist_customers.shopify_sync_ids.sudo().create({
+                        'instance_id': instance.id,
+                        'shopify_customer_ref': customer['id'],
+                        'customer_id': exist_customers.id,
+                    })
