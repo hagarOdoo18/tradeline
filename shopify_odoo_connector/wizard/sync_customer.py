@@ -224,108 +224,112 @@ class SyncCustomer(models.TransientModel):
             details.
         """
         shopify_instance = instance
-        _logger.info(shopify_customers)
+
 
         for customer in shopify_customers:
-            phone = customer['phone'] or ''
-            exist_customers = self.env['res.partner'].search(
-                [('mobile', '=', phone)])
-            if not exist_customers and phone.startswith('+2'):
+            try:
+                phone = customer['phone'] or ''
                 exist_customers = self.env['res.partner'].search(
-                    [('mobile', '=', phone[2:])])
-            if not exist_customers:
-                vals = {}
-                if customer['addresses']:
-                    country_id = self.env['res.country'].sudo().search([
-                        ('name', '=', customer['addresses'][0]['country'])
-                    ])
-                    state_id = self.env['res.country.state'].sudo().search([
-                        ('name', '=', customer['addresses'][0]['province'])
-                    ],limit=1)
-                    vals = {
-                        'street': customer['addresses'][0]['address1'],
-                        'street2': customer['addresses'][0]['address2'],
-                        'city': customer['addresses'][0]['city'],
-                        'country_id': country_id.id if country_id else False,
-                        'state_id': state_id.id if state_id else False,
-                        'zip': customer['addresses'][0]['zip'],
-                    }
-                if customer['first_name']:
-                    vals['name'] = customer['first_name']
-                if customer['last_name']:
+                    [('mobile', '=', phone)])
+                if not exist_customers and phone.startswith('+2'):
+                    exist_customers = self.env['res.partner'].search(
+                        [('mobile', '=', phone[2:])])
+                if not exist_customers:
+                    vals = {}
+                    if customer['addresses']:
+                        country_id = self.env['res.country'].sudo().search([
+                            ('name', '=', customer['addresses'][0]['country'])
+                        ])
+                        state_id = self.env['res.country.state'].sudo().search([
+                            ('name', '=', customer['addresses'][0]['province'])
+                        ],limit=1)
+                        vals = {
+                            'street': customer['addresses'][0]['address1'],
+                            'street2': customer['addresses'][0]['address2'],
+                            'city': customer['addresses'][0]['city'],
+                            'country_id': country_id.id if country_id else False,
+                            'state_id': state_id.id if state_id else False,
+                            'zip': customer['addresses'][0]['zip'],
+                        }
                     if customer['first_name']:
-                        vals['name'] = (customer['first_name'] + ' ' +
-                                        customer['last_name'])
+                        vals['name'] = customer['first_name']
+                    if customer['last_name']:
+                        if customer['first_name']:
+                            vals['name'] = (customer['first_name'] + ' ' +
+                                            customer['last_name'])
+                        else:
+                            vals['name'] = customer['last_name']
+                    if (not customer['first_name'] and
+                            not customer['last_name'] and customer['email']):
+                        vals['name'] = customer['email']
+                    vals['email'] = customer['email']
+                    vals['mobile'] = customer['phone']
+                    vals['shopify_customer_ref'] = customer['id']
+                    vals['shopify_instance_id'] = shopify_instance.id
+                    vals['synced_customer'] = True
+                    vals['company_id'] = shopify_instance.company_id.id
+                    if customer['first_name']:
+
+                        new_customer = self.env['res.partner'].sudo().create(vals)
+                        new_customer.shopify_sync_ids.sudo().create({
+                            'instance_id': instance.id,
+                            'shopify_customer_ref': customer['id'],
+                            'customer_id': new_customer.id,
+                        })
+                        self.env['log.message'].sudo().create([{
+                            'name': 'Customer Creation  processed for '
+                                    'shopify id : ' + str(customer['id']),
+                            'shopify_instance_id': self.shopify_instance_id.id,
+                            'model': 'res.partner',
+                        }])
                     else:
-                        vals['name'] = customer['last_name']
-                if (not customer['first_name'] and
-                        not customer['last_name'] and customer['email']):
-                    vals['name'] = customer['email']
-                vals['email'] = customer['email']
-                vals['mobile'] = customer['phone']
-                vals['shopify_customer_ref'] = customer['id']
-                vals['shopify_instance_id'] = shopify_instance.id
-                vals['synced_customer'] = True
-                vals['company_id'] = shopify_instance.company_id.id
-                if customer['first_name']:
-
-                    new_customer = self.env['res.partner'].sudo().create(vals)
-                    new_customer.shopify_sync_ids.sudo().create({
-                        'instance_id': instance.id,
-                        'shopify_customer_ref': customer['id'],
-                        'customer_id': new_customer.id,
-                    })
-                    self.env['log.message'].sudo().create([{
-                        'name': 'Customer Creation  processed for '
-                                'shopify id : ' + str(customer['id']),
-                        'shopify_instance_id': self.shopify_instance_id.id,
-                        'model': 'res.partner',
-                    }])
+                        self.env['log.message'].sudo().create([{
+                            'name': 'Customer Creation not processed for '
+                                    'shopify id : ' + str(customer['id']),
+                            'shopify_instance_id': self.shopify_instance_id.id,
+                            'model': 'res.partner',
+                        }])
                 else:
-                    self.env['log.message'].sudo().create([{
-                        'name': 'Customer Creation not processed for '
-                                'shopify id : ' + str(customer['id']),
-                        'shopify_instance_id': self.shopify_instance_id.id,
-                        'model': 'res.partner',
-                    }])
-            else:
-                vals = {}
-                if customer['addresses']:
-                    country_id = self.env['res.country'].sudo().search([
-                        ('name', '=', customer['addresses'][0]['country'])
-                    ])
-                    state_id = self.env['res.country.state'].sudo().search([
-                        ('name', '=', customer['addresses'][0]['province'])
-                    ],limit=1)
-                    vals = {
-                        'street': customer['addresses'][0]['address1'],
-                        'street2': customer['addresses'][0]['address2'],
-                        'city': customer['addresses'][0]['city'],
-                        'country_id': country_id.id if country_id else False,
-                        'state_id': state_id.id if state_id else False,
-                        'zip': customer['addresses'][0]['zip'],
-                    }
-                if customer['first_name']:
-                    vals['name'] = customer['first_name']
-                if customer['last_name']:
+                    _logger.info(shopify_customers)
+                    vals = {}
+                    if customer['addresses']:
+                        country_id = self.env['res.country'].sudo().search([
+                            ('name', '=', customer['addresses'][0]['country'])
+                        ])
+                        state_id = self.env['res.country.state'].sudo().search([
+                            ('name', '=', customer['addresses'][0]['province'])
+                        ],limit=1)
+                        vals = {
+                            'street': customer['addresses'][0]['address1'],
+                            'street2': customer['addresses'][0]['address2'],
+                            'city': customer['addresses'][0]['city'],
+                            'country_id': country_id.id if country_id else False,
+                            'state_id': state_id.id if state_id else False,
+                            'zip': customer['addresses'][0]['zip'],
+                        }
                     if customer['first_name']:
-                        vals['name'] = (customer['first_name'] + ' ' +
-                                        customer['last_name'])
-                if (not customer['first_name'] and
-                        not customer['last_name'] and customer['email']):
-                    vals['name'] = customer['email']
-                vals['email'] = customer['email']
-                vals['mobile'] = customer['phone']if customer['phone'] else '011'
-                vals['shopify_customer_ref'] = customer['id']
-                vals['shopify_instance_id'] = shopify_instance.id
-                vals['synced_customer'] = True
-                vals['company_id'] = shopify_instance.company_id.id
+                        vals['name'] = customer['first_name']
+                    if customer['last_name']:
+                        if customer['first_name']:
+                            vals['name'] = (customer['first_name'] + ' ' +
+                                            customer['last_name'])
+                    if (not customer['first_name'] and
+                            not customer['last_name'] and customer['email']):
+                        vals['name'] = customer['email']
+                    vals['email'] = customer['email']
+                    vals['mobile'] = customer['phone']if customer['phone'] else '011'
+                    vals['shopify_customer_ref'] = customer['id']
+                    vals['shopify_instance_id'] = shopify_instance.id
+                    vals['synced_customer'] = True
+                    vals['company_id'] = shopify_instance.company_id.id
 
-                self.env['res.partner'].sudo().write(vals)
-                sync = self.env['shopify.sync'].sudo().search([('shopify_customer_ref','=', customer['id'])])
-                if not sync:
-                    exist_customers.shopify_sync_ids.sudo().create({
-                        'instance_id': instance.id,
-                        'shopify_customer_ref': customer['id'],
-                        'customer_id': exist_customers.id,
-                    })
+                    self.env['res.partner'].sudo().write(vals)
+                    sync = self.env['shopify.sync'].sudo().search([('shopify_customer_ref','=', customer['id'])])
+                    if not sync:
+                        exist_customers.shopify_sync_ids.sudo().create({
+                            'instance_id': instance.id,
+                            'shopify_customer_ref': customer['id'],
+                            'customer_id': exist_customers.id,
+                        })
+            except Exception as e:
+                continue
