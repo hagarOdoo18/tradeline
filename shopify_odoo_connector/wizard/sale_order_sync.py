@@ -320,466 +320,469 @@ class SaleOrderSync(models.TransientModel):
         version = instance.version
         headers = instance._get_shopify_headers()
         for each in shopify_orders:
+
             shopify_id = each['id']
             existing_order = self.env['sale.order'].search(
                 [('shopify_sync_ids.shopify_order_ref', '=', shopify_id)])
-            if not existing_order:
-                if each['customer']:
-                    customer_id = each['customer'].get('id')
-                    if (each['customer']['first_name'] or
-                            each['customer']['last_name']):
-                        partner_id = self.env['res.partner'].sudo().search(
-                            [('shopify_sync_ids.shopify_customer_ref', '=',
-                              customer_id),
-                             ('shopify_sync_ids.instance_id', '=',
-                              shopify_instance.id),
-                             ('company_id', 'in',
-                              [shopify_instance.company_id.id, False])],
-                            limit=1).id
-                        if not partner_id:
-                            customer_url = ("https://%s/admin/api/%s/"
-                                            "customers/%s.json") % (
-                                               store_name, version, customer_id)
-                            response = requests.request("GET", customer_url,
-                                                        headers=headers,
-                                                        data=[])
-                            customer_response = response.json()
-                            customer_vals = {}
-                            customer = customer_response['customer']
-                            if customer['addresses']:
-                                country_id = self.env[
-                                    'res.country'].sudo().search(
-                                    [('name', '=',
-                                      customer['addresses'][0]['country'])
-                                     ])
-                                state_id = self.env[
-                                    'res.country.state'].sudo().search(
-                                    [('name', '=',
-                                      customer['addresses'][0]['province'])])
-                                customer_vals = {
-                                    'street': customer['addresses'][0][
-                                        'address1'],
-                                    'street2': customer['addresses'][0][
-                                        'address2'],
-                                    'city': customer['addresses'][0]['city'],
-                                    'country_id': country_id.id if
-                                    country_id else False,
-                                    'state_id': state_id.id if
-                                    state_id else False,
-                                    'zip': customer['addresses'][0]['zip'],
-                                }
-                            if (customer['first_name'] and
-                                    not customer['last_name']):
-                                customer_vals['name'] = customer['first_name']
-                            if (customer['last_name'] and
-                                    not customer['first_name']):
-                                customer_vals['name'] = customer['last_name']
-                            if customer['first_name'] and customer['last_name']:
-                                customer_vals['name'] = (customer['first_name']
-                                                         + ' '
-                                                         + customer['last_name'])
-                            customer_vals['email'] = customer['email']
-                            customer_vals['phone'] = customer['phone']
-                            customer_vals['shopify_customer_ref'] = customer[
-                                'id']
-                            customer_vals[
-                                'shopify_instance_id'] = shopify_instance.id
-                            customer_vals['synced_customer'] = True
-                            customer_vals[
-                                'company_id'] = shopify_instance.company_id.id
-                            partner_id = self.env['res.partner'].sudo().create(
-                                customer_vals).id
-                            partner_ = self.env['res.partner'].browse(
-                                partner_id)
-                            partner_.shopify_sync_ids.sudo().create({
-                                'instance_id': instance.id,
-                                'shopify_customer_ref': customer_id,
-                                'customer_id': partner_id,
-                            })
-                        vals["partner_id"] = partner_id
-                        if each['shipping_address']:
-                            county_id = self.env['res.country'].search([
-                                ('name', '=',
-                                 each['shipping_address']['country'])
-                            ])
-                            state_id = self.env['res.country.state'].search([
-                                ('name', '=',
-                                 each['shipping_address']['province'])
-                            ],limit=1)
-                            shipping_child_id = self.env[
-                                'res.partner'].sudo().create([
-                                {"name": each['shipping_address'][
-                                    'first_name'] if each['shipping_address'][
-                                    'first_name'] else '',
-                                 "street": each['shipping_address'][
-                                     'address1'] if each['shipping_address'][
-                                     'address1'] else '',
-                                 "street2": each['shipping_address'][
-                                     'address2'] if each['shipping_address'][
-                                     'address2'] else '',
-                                 "city": each['shipping_address']['city'] if
-                                 each['shipping_address']['city'] else '',
-                                 "state_id": state_id.id or None,
-                                 "phone": each['shipping_address']['phone'] if
-                                 each['shipping_address']['phone'] else None,
-                                 "zip": each['shipping_address']['zip'] if
-                                 each['shipping_address']['zip'] else '',
-                                 "country_id": county_id.id or None,
-                                 "parent_id": partner_id,
-                                 "type": 'delivery',
-                                 }]).id
-                            vals['partner_shipping_id'] = shipping_child_id
-                        if each['billing_address'] and each['shipping_address'] :
-
-                            county_id = self.env['res.country'].search([
-                                ('name', '=',
-                                 each['shipping_address']['country'])
-                            ])
-                            state_id = self.env['res.country.state'].search([
-                                ('name', '=',
-                                 each['shipping_address']['province'])
-                            ],limit=1)
-                            billing_child_id = self.env[
-                                'res.partner'].sudo().create(
-                                [{
-                                    "name": each['billing_address'][
-                                        'first_name'] if
-                                    each['billing_address'][
+            try:
+                if not existing_order:
+                    if each['customer']:
+                        customer_id = each['customer'].get('id')
+                        if (each['customer']['first_name'] or
+                                each['customer']['last_name']):
+                            partner_id = self.env['res.partner'].sudo().search(
+                                [('shopify_sync_ids.shopify_customer_ref', '=',
+                                  customer_id),
+                                 ('shopify_sync_ids.instance_id', '=',
+                                  shopify_instance.id),
+                                 ('company_id', 'in',
+                                  [shopify_instance.company_id.id, False])],
+                                limit=1).id
+                            if not partner_id:
+                                customer_url = ("https://%s/admin/api/%s/"
+                                                "customers/%s.json") % (
+                                                   store_name, version, customer_id)
+                                response = requests.request("GET", customer_url,
+                                                            headers=headers,
+                                                            data=[])
+                                customer_response = response.json()
+                                customer_vals = {}
+                                customer = customer_response['customer']
+                                if customer['addresses']:
+                                    country_id = self.env[
+                                        'res.country'].sudo().search(
+                                        [('name', '=',
+                                          customer['addresses'][0]['country'])
+                                         ])
+                                    state_id = self.env[
+                                        'res.country.state'].sudo().search(
+                                        [('name', '=',
+                                          customer['addresses'][0]['province'])])
+                                    customer_vals = {
+                                        'street': customer['addresses'][0][
+                                            'address1'],
+                                        'street2': customer['addresses'][0][
+                                            'address2'],
+                                        'city': customer['addresses'][0]['city'],
+                                        'country_id': country_id.id if
+                                        country_id else False,
+                                        'state_id': state_id.id if
+                                        state_id else False,
+                                        'zip': customer['addresses'][0]['zip'],
+                                    }
+                                if (customer['first_name'] and
+                                        not customer['last_name']):
+                                    customer_vals['name'] = customer['first_name']
+                                if (customer['last_name'] and
+                                        not customer['first_name']):
+                                    customer_vals['name'] = customer['last_name']
+                                if customer['first_name'] and customer['last_name']:
+                                    customer_vals['name'] = (customer['first_name']
+                                                             + ' '
+                                                             + customer['last_name'])
+                                customer_vals['email'] = customer['email']
+                                customer_vals['phone'] = customer['phone']
+                                customer_vals['shopify_customer_ref'] = customer[
+                                    'id']
+                                customer_vals[
+                                    'shopify_instance_id'] = shopify_instance.id
+                                customer_vals['synced_customer'] = True
+                                customer_vals[
+                                    'company_id'] = shopify_instance.company_id.id
+                                partner_id = self.env['res.partner'].sudo().create(
+                                    customer_vals).id
+                                partner_ = self.env['res.partner'].browse(
+                                    partner_id)
+                                partner_.shopify_sync_ids.sudo().create({
+                                    'instance_id': instance.id,
+                                    'shopify_customer_ref': customer_id,
+                                    'customer_id': partner_id,
+                                })
+                            vals["partner_id"] = partner_id
+                            if each['shipping_address']:
+                                county_id = self.env['res.country'].search([
+                                    ('name', '=',
+                                     each['shipping_address']['country'])
+                                ])
+                                state_id = self.env['res.country.state'].search([
+                                    ('name', '=',
+                                     each['shipping_address']['province'])
+                                ],limit=1)
+                                shipping_child_id = self.env[
+                                    'res.partner'].sudo().create([
+                                    {"name": each['shipping_address'][
+                                        'first_name'] if each['shipping_address'][
                                         'first_name'] else '',
-                                    "street": each['billing_address'][
-                                        'address1'] if
-                                    each['billing_address'][
-                                        'address1'] else '',
-                                    "street2": each['billing_address'][
-                                        'address2'] if each['billing_address'][
-                                        'address2'] else '',
-                                    "city": each['billing_address']['city'] if
-                                    each['billing_address']['city'] else '',
-                                    "state_id": state_id.id or None,
-                                    "phone": each['billing_address']['phone'] if
-                                    each['billing_address'][
-                                        'phone'] else None,
-                                    "zip": each['billing_address']['zip'] if
-                                    each['billing_address']['zip'] else '',
-                                    "country_id": county_id.id or None,
-                                    "parent_id": partner_id,
-                                    "type": 'invoice'}]).id
-                            vals['partner_invoice_id'] = billing_child_id
-                    else:
-                        self.env['log.message'].sudo().create([{
-                            'name': ' Creation of order : ' + each[
-                                'name'] + ' is not processed. Customer does'
-                                          ' not have a name.',
-                            'shopify_instance_id': instance.id,
-                            'model': 'sale.order',
-                        }])
-                        continue
-                else:
-                    self.env['log.message'].sudo().create(
-                        [{
-                            'name': 'Creation order : ' + each[
-                                'name'] + ' is not processed. Order does not '
-                                          'contain a customer.',
-                            'shopify_instance_id': instance.id,
-                            'model': 'sale.order',
-                        }])
-                    continue
-                if each['tax_lines']:
-                    tax = each['tax_lines'][0]['rate']
-                    tax_group = each['tax_lines'][0]["title"]
-                    taxes = tax * 100
-                    tax_name = self.env[
-                        'account.tax'].search(
-                        [('amount', '=', taxes),
-                         ('type_tax_use', '=', 'sale'),
-                         ('company_id', '=', instance.company_id.id)],
-                        limit=1)
-                    if not tax_name:
-                        tax_group_id = self.env['account.tax.group'].create(
-                            {'name': tax_group})
-                        tax_name = self.env['account.tax'].create(
-                            [{'name': tax_group + str(taxes) + '%',
-                              'type_tax_use': 'sale',
-                              'amount_type': 'percent',
-                              'tax_group_id': tax_group_id.id,
-                              'amount': taxes,
-                              }])
-                else:
-                    tax_name = None
-                vals["date_order"] = str(odoo.fields.Datetime.to_string(
-                    dateutil.parser.parse(each['created_at']).astimezone(
-                        pytz.utc)))
-                vals["shopify_order_ref"] = each['id']
-                vals["reference_number"] = each['name']
-                # vals["name"] = each['name']
-                vals['shopify_instance_id'] = shopify_instance.id
-                order_warehouse = self._get_shopify_order_warehouse(
-                    each, shopify_instance)
-                vals['warehouse_id'] = (
-                    order_warehouse.id if order_warehouse else False)
-                team = self.env['crm.team'].search(
-                    [('branch_id', '=',  order_warehouse.branch_id.id), ('company_id', '=', self.env.company.id)])
-                vals['team_id'] = team.id if team else False
-                sales_rep = self.env['sales.rep'].search(
-                    [('company_id', '=', instance.company_id.id),
-                     ('is_online', '=', True)], limit=1)
-                vals['branch_id'] = (
-                    order_warehouse.branch_id.id if order_warehouse else False)
-                vals['sales_rep_id'] = sales_rep.id if sales_rep else False
-                fulfillment_status = each['fulfillment_status']
-                payment_status = each['financial_status']
-                fulfillment = 'fulfilled' \
-                    if fulfillment_status == 'fulfilled' \
-                    else 'partially_fulfilled' \
-                    if fulfillment_status == 'partially_fulfilled' \
-                    else 'un_fulfilled'
-                payment = 'paid' if payment_status == 'paid' \
-                    else 'partially_paid' \
-                    if payment_status == 'partially_paid' \
-                    else 'partially_refunded' \
-                    if payment_status == 'partially_refunded' \
-                    else 'refunded' if payment_status == 'refunded' \
-                    else 'unpaid'
-                sale_order = self.env['sale.order']
-                so = sale_order.create(vals)
-                so.shopify_sync_ids.sudo().create(
-                    {
-                        'instance_id': instance.id,
-                        'shopify_order_ref': each['id'],
-                        'shopify_order_name': each['name'],
-                        'shopify_order_number': each['number'],
-                        'fulfillment_status': fulfillment,
-                        'payment_status': payment,
-                        'order_id': so.id,
-                        'synced_order': True,
-                    })
-                so.shopify_order_ref = each['id']
-                currency = self.env['res.currency'].sudo().search(
-                    [('name', 'ilike', each['currency']),
-                     ('active', 'in', [False, True])], limit=1)
-                if currency and not currency.active:
-                    currency.sudo().write({'active': True})
-                line_vals_list = []
-                for line in each['line_items']:
-                    discount = 0.0
-                    if line['discount_allocations']:
-                        discount = line['discount_allocations'][0]['amount']
-                    product_id = self.env['product.product'].sudo().search(
-                        [('barcode', '=', line['sku']),
-                         ('shopify_sync_ids.instance_id', '=',
-                          shopify_instance.id),
-                         ('company_id', 'in', [shopify_instance.company_id.id,
-                                               False])])
-                    if line['variant_id']:
-                        # narrow within the barcode+instance result first
-                        variant_match = product_id.filtered(
-                            lambda p, vid=line['variant_id']: (
-                                str(p.shopify_variant) == str(vid)))
-                        if variant_match:
-                            product_id = variant_match[:1]
+                                     "street": each['shipping_address'][
+                                         'address1'] if each['shipping_address'][
+                                         'address1'] else '',
+                                     "street2": each['shipping_address'][
+                                         'address2'] if each['shipping_address'][
+                                         'address2'] else '',
+                                     "city": each['shipping_address']['city'] if
+                                     each['shipping_address']['city'] else '',
+                                     "state_id": state_id.id or None,
+                                     "phone": each['shipping_address']['phone'] if
+                                     each['shipping_address']['phone'] else None,
+                                     "zip": each['shipping_address']['zip'] if
+                                     each['shipping_address']['zip'] else '',
+                                     "country_id": county_id.id or None,
+                                     "parent_id": partner_id,
+                                     "type": 'delivery',
+                                     }]).id
+                                vals['partner_shipping_id'] = shipping_child_id
+                            if each['billing_address'] and each['shipping_address'] :
+
+                                county_id = self.env['res.country'].search([
+                                    ('name', '=',
+                                     each['shipping_address']['country'])
+                                ])
+                                state_id = self.env['res.country.state'].search([
+                                    ('name', '=',
+                                     each['shipping_address']['province'])
+                                ],limit=1)
+                                billing_child_id = self.env[
+                                    'res.partner'].sudo().create(
+                                    [{
+                                        "name": each['billing_address'][
+                                            'first_name'] if
+                                        each['billing_address'][
+                                            'first_name'] else '',
+                                        "street": each['billing_address'][
+                                            'address1'] if
+                                        each['billing_address'][
+                                            'address1'] else '',
+                                        "street2": each['billing_address'][
+                                            'address2'] if each['billing_address'][
+                                            'address2'] else '',
+                                        "city": each['billing_address']['city'] if
+                                        each['billing_address']['city'] else '',
+                                        "state_id": state_id.id or None,
+                                        "phone": each['billing_address']['phone'] if
+                                        each['billing_address'][
+                                            'phone'] else None,
+                                        "zip": each['billing_address']['zip'] if
+                                        each['billing_address']['zip'] else '',
+                                        "country_id": county_id.id or None,
+                                        "parent_id": partner_id,
+                                        "type": 'invoice'}]).id
+                                vals['partner_invoice_id'] = billing_child_id
                         else:
-                            # fall back: any product in this company with
-                            # the matching Shopify variant id
-                            product_id = self.env[
-                                'product.product'].sudo().search([
-                                    ('shopify_variant', '=',
-                                     line['variant_id']),
-                                    ('company_id', 'in', [
-                                        shopify_instance.company_id.id,
-                                        False]),
-                                ], limit=1)
-                    else:
-                        product_id = product_id[:1]
-                    if not product_id:
-                        product = line['product_id']
-                        product_response = self.env[
-                            'sync.product'].create_product_by_id(
-                            shopify_instance, store_name, version, product)
-                        if 'errors' in product_response:
                             self.env['log.message'].sudo().create([{
-                                'name': ' Creation of product  order : ' + each[
-                                    'name'] + ' with product id:  ' + str(
-                                    line['id']) + ' and name:  ' + line[
-                                            'title'] + '  is not processed. '
-                                                       'Product does not '
-                                                       'exists in Shopify.',
+                                'name': ' Creation of order : ' + each[
+                                    'name'] + ' is not processed. Customer does'
+                                              ' not have a name.',
                                 'shopify_instance_id': instance.id,
                                 'model': 'sale.order',
                             }])
                             continue
-                        # re-fetch the newly created product
-                        if line['variant_id']:
-                            product_id = self.env[
-                                'product.product'].sudo().search([
-                                    ('shopify_variant', '=',
-                                     line['variant_id']),
-                                ], limit=1)
-                        else:
-                            product_id = self.env[
-                                'product.product'].sudo().search([
-                                    ('barcode', '=', line['sku']),
-                                ], limit=1)
-                    # final guard -- skip line if product is still not resolved
-                    if not product_id:
-                        self.env['log.message'].sudo().create([{
-                            'name': ' Order : ' + each[
-                                'name'] + ' line "' + (
-                                line.get('title') or '') + '" skipped'
-                                ' - product not found'
-                                ' (sku: ' + str(line.get('sku') or '') + ','
-                                ' variant: ' + str(
-                                line.get('variant_id') or '') + ').',
-                            'shopify_instance_id': instance.id,
-                            'model': 'sale.order',
-                        }])
+                    else:
+                        self.env['log.message'].sudo().create(
+                            [{
+                                'name': 'Creation order : ' + each[
+                                    'name'] + ' is not processed. Order does not '
+                                              'contain a customer.',
+                                'shopify_instance_id': instance.id,
+                                'model': 'sale.order',
+                            }])
                         continue
-                    str_list = []
-                    for desc_index in line['discount_allocations']:
-                        discount_type = \
-                            each['discount_applications'][
-                                desc_index['discount_application_index']][
-                                'type']
-                        if discount_type == 'discount_code':
-                            str_list.append(
-                                each['discount_applications'][
-                                    desc_index['discount_application_index']][
-                                    'code'])
-                        else:
-                            str_list.append(
-                                each['discount_applications'][
-                                    desc_index['discount_application_index']][
-                                    'title'])
-                    price=float(line['price'])
-                    line_vals = {
-                        'product_id': product_id.id,
-                        'name': line.get('title') or product_id.name or '/',
-                        'price_unit':price,
-                        'product_uom_qty': line['quantity'],
-                        'currency_id': currency.id,
-                        'discount': (
-                            float(discount) * 100 /
-                            ((price))
-
-                            if price and float(line['quantity'])
-                            else 0
-                        ) if discount else 0,
-                        'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
-                        'shopify_line_ref': line['id'],
-                        'shopify_instance_id': shopify_instance.id,
-                        'shopify_taxable': line['taxable'],
-                        'shopify_tax_amount': float(
-                            line['tax_lines'][0]['price']) if
-                        line['tax_lines'] else 0.0,
-                        'shopify_discount_amount':
-                            sum(float(i['amount']) for
-                                i in line['discount_allocations']) if line[
-                                'discount_allocations'] else 0.0,
-                        'shopify_line_item_discount':
-                            sum(float(
-                                each['discount_applications'][
-                                    i['discount_application_index']][
-                                    'value']) for i in
-                                line['discount_allocations']) if
-                            (each.get('discount_applications') and
-                             line['discount_allocations']) else 0.0,
-                        'shopify_discount_code': ','.join(str_list),
-                        'order_id': so.id,
-                        'company_id': shopify_instance.company_id.id,
-                    }
-                    if 'refunds' in each.keys():
-                        for refunds in each['refunds']:
-                            for refund_line in refunds['refund_line_items']:
-                                if refund_line['line_item_id'] == line['id']:
-                                    line_vals['product_uom_qty'] -= \
-                                        refund_line['quantity']
-                    line_vals_list.append(line_vals)
-                if each['shipping_lines']:
-                    shipping_lines = each['shipping_lines']
-
-                    product_id = self.env.ref(
-                        'shopify_odoo_connector.product_shopify_shipping_cost')
-                    for line in shipping_lines:
-                        price = float(line['price'])
-
-                        shipping_line_vals = {
-                            'product_id': product_id.id,
-                            'name': line['title'] if line[
-                                'title'] else product_id.name,
-                            'price_unit':price,
-                            'product_uom_qty': 1,
-                            'shopify_line_ref': line['id'],
-                            'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
+                    if each['tax_lines']:
+                        tax = each['tax_lines'][0]['rate']
+                        tax_group = each['tax_lines'][0]["title"]
+                        taxes = tax * 100
+                        tax_name = self.env[
+                            'account.tax'].search(
+                            [('amount', '=', taxes),
+                             ('type_tax_use', '=', 'sale'),
+                             ('company_id', '=', instance.company_id.id)],
+                            limit=1)
+                        if not tax_name:
+                            tax_group_id = self.env['account.tax.group'].create(
+                                {'name': tax_group})
+                            tax_name = self.env['account.tax'].create(
+                                [{'name': tax_group + str(taxes) + '%',
+                                  'type_tax_use': 'sale',
+                                  'amount_type': 'percent',
+                                  'tax_group_id': tax_group_id.id,
+                                  'amount': taxes,
+                                  }])
+                    else:
+                        tax_name = None
+                    vals["date_order"] = str(odoo.fields.Datetime.to_string(
+                        dateutil.parser.parse(each['created_at']).astimezone(
+                            pytz.utc)))
+                    vals["shopify_order_ref"] = each['id']
+                    vals["reference_number"] = each['name']
+                    # vals["name"] = each['name']
+                    vals['shopify_instance_id'] = shopify_instance.id
+                    order_warehouse = self._get_shopify_order_warehouse(
+                        each, shopify_instance)
+                    vals['warehouse_id'] = (
+                        order_warehouse.id if order_warehouse else False)
+                    team = self.env['crm.team'].search(
+                        [('branch_id', '=',  order_warehouse.branch_id.id), ('company_id', '=', self.env.company.id)])
+                    vals['team_id'] = team.id if team else False
+                    sales_rep = self.env['sales.rep'].search(
+                        [('company_id', '=', instance.company_id.id),
+                         ('is_online', '=', True)], limit=1)
+                    vals['branch_id'] = (
+                        order_warehouse.branch_id.id if order_warehouse else False)
+                    vals['sales_rep_id'] = sales_rep.id if sales_rep else False
+                    fulfillment_status = each['fulfillment_status']
+                    payment_status = each['financial_status']
+                    fulfillment = 'fulfilled' \
+                        if fulfillment_status == 'fulfilled' \
+                        else 'partially_fulfilled' \
+                        if fulfillment_status == 'partially_fulfilled' \
+                        else 'un_fulfilled'
+                    payment = 'paid' if payment_status == 'paid' \
+                        else 'partially_paid' \
+                        if payment_status == 'partially_paid' \
+                        else 'partially_refunded' \
+                        if payment_status == 'partially_refunded' \
+                        else 'refunded' if payment_status == 'refunded' \
+                        else 'unpaid'
+                    sale_order = self.env['sale.order']
+                    so = sale_order.create(vals)
+                    so.shopify_sync_ids.sudo().create(
+                        {
+                            'instance_id': instance.id,
+                            'shopify_order_ref': each['id'],
+                            'shopify_order_name': each['name'],
+                            'shopify_order_number': each['number'],
+                            'fulfillment_status': fulfillment,
+                            'payment_status': payment,
                             'order_id': so.id,
+                            'synced_order': True,
+                        })
+                    so.shopify_order_ref = each['id']
+                    currency = self.env['res.currency'].sudo().search(
+                        [('name', 'ilike', each['currency']),
+                         ('active', 'in', [False, True])], limit=1)
+                    if currency and not currency.active:
+                        currency.sudo().write({'active': True})
+                    line_vals_list = []
+                    for line in each['line_items']:
+                        discount = 0.0
+                        if line['discount_allocations']:
+                            discount = line['discount_allocations'][0]['amount']
+                        product_id = self.env['product.product'].sudo().search(
+                            [('barcode', '=', line['sku']),
+                             ('shopify_sync_ids.instance_id', '=',
+                              shopify_instance.id),
+                             ('company_id', 'in', [shopify_instance.company_id.id,
+                                                   False])])
+                        if line['variant_id']:
+                            # narrow within the barcode+instance result first
+                            variant_match = product_id.filtered(
+                                lambda p, vid=line['variant_id']: (
+                                    str(p.shopify_variant) == str(vid)))
+                            if variant_match:
+                                product_id = variant_match[:1]
+                            else:
+                                # fall back: any product in this company with
+                                # the matching Shopify variant id
+                                product_id = self.env[
+                                    'product.product'].sudo().search([
+                                        ('shopify_variant', '=',
+                                         line['variant_id']),
+                                        ('company_id', 'in', [
+                                            shopify_instance.company_id.id,
+                                            False]),
+                                    ], limit=1)
+                        else:
+                            product_id = product_id[:1]
+                        if not product_id:
+                            product = line['product_id']
+                            product_response = self.env[
+                                'sync.product'].create_product_by_id(
+                                shopify_instance, store_name, version, product)
+                            if 'errors' in product_response:
+                                self.env['log.message'].sudo().create([{
+                                    'name': ' Creation of product  order : ' + each[
+                                        'name'] + ' with product id:  ' + str(
+                                        line['id']) + ' and name:  ' + line[
+                                                'title'] + '  is not processed. '
+                                                           'Product does not '
+                                                           'exists in Shopify.',
+                                    'shopify_instance_id': instance.id,
+                                    'model': 'sale.order',
+                                }])
+                                continue
+                            # re-fetch the newly created product
+                            if line['variant_id']:
+                                product_id = self.env[
+                                    'product.product'].sudo().search([
+                                        ('shopify_variant', '=',
+                                         line['variant_id']),
+                                    ], limit=1)
+                            else:
+                                product_id = self.env[
+                                    'product.product'].sudo().search([
+                                        ('barcode', '=', line['sku']),
+                                    ], limit=1)
+                        # final guard -- skip line if product is still not resolved
+                        if not product_id:
+                            self.env['log.message'].sudo().create([{
+                                'name': ' Order : ' + each[
+                                    'name'] + ' line "' + (
+                                    line.get('title') or '') + '" skipped'
+                                    ' - product not found'
+                                    ' (sku: ' + str(line.get('sku') or '') + ','
+                                    ' variant: ' + str(
+                                    line.get('variant_id') or '') + ').',
+                                'shopify_instance_id': instance.id,
+                                'model': 'sale.order',
+                            }])
+                            continue
+                        str_list = []
+                        for desc_index in line['discount_allocations']:
+                            discount_type = \
+                                each['discount_applications'][
+                                    desc_index['discount_application_index']][
+                                    'type']
+                            if discount_type == 'discount_code':
+                                str_list.append(
+                                    each['discount_applications'][
+                                        desc_index['discount_application_index']][
+                                        'code'])
+                            else:
+                                str_list.append(
+                                    each['discount_applications'][
+                                        desc_index['discount_application_index']][
+                                        'title'])
+                        price=float(line['price'])
+                        line_vals = {
+                            'product_id': product_id.id,
+                            'name': line.get('title') or product_id.name or '/',
+                            'price_unit':price,
+                            'product_uom_qty': line['quantity'],
+                            'currency_id': currency.id,
+                            'discount': (
+                                float(discount) * 100 /
+                                ((price))
+
+                                if price and float(line['quantity'])
+                                else 0
+                            ) if discount else 0,
+                            'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
+                            'shopify_line_ref': line['id'],
                             'shopify_instance_id': shopify_instance.id,
+                            'shopify_taxable': line['taxable'],
+                            'shopify_tax_amount': float(
+                                line['tax_lines'][0]['price']) if
+                            line['tax_lines'] else 0.0,
+                            'shopify_discount_amount':
+                                sum(float(i['amount']) for
+                                    i in line['discount_allocations']) if line[
+                                    'discount_allocations'] else 0.0,
+                            'shopify_line_item_discount':
+                                sum(float(
+                                    each['discount_applications'][
+                                        i['discount_application_index']][
+                                        'value']) for i in
+                                    line['discount_allocations']) if
+                                (each.get('discount_applications') and
+                                 line['discount_allocations']) else 0.0,
+                            'shopify_discount_code': ','.join(str_list),
+                            'order_id': so.id,
                             'company_id': shopify_instance.company_id.id,
                         }
-                        line_vals_list.append(shipping_line_vals)
-                if float(each['current_total_discounts']) != 0.00:
-                    discount_lines = each['current_total_discounts_set']
-                    product_id = self.env.ref(
-                        'shopify_odoo_connector.product_shopify_order_discount')
-                    discount_dict = {
-                        'product_id': product_id.id,
-                        'price_unit': -float(
-                            discount_lines['shop_money']['amount']),
-                        'product_uom_qty': 1,
-                        'tax_id': None,
-                        'order_id': so.id,
-                    }
-                    # line_vals_list.append(discount_dict)
+                        if 'refunds' in each.keys():
+                            for refunds in each['refunds']:
+                                for refund_line in refunds['refund_line_items']:
+                                    if refund_line['line_item_id'] == line['id']:
+                                        line_vals['product_uom_qty'] -= \
+                                            refund_line['quantity']
+                        line_vals_list.append(line_vals)
+                    if each['shipping_lines']:
+                        shipping_lines = each['shipping_lines']
 
-                    discount_code = each['discount_codes'][0]['code']
+                        product_id = self.env.ref(
+                            'shopify_odoo_connector.product_shopify_shipping_cost')
+                        for line in shipping_lines:
+                            price = float(line['price'])
 
-                    discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
-                    so.discount_id = discount_reason.id
-                if line_vals_list:
-                    try:
-                        new_lines = self.env['sale.order.line'].sudo().create(
-                            line_vals_list)
-                    except Exception as e:
-                        print('ezzat')
-                        print(e)
-                else:
-                    new_lines = self.env['sale.order.line'].browse()
-                # if not wizard.draft:
-                #     so.action_confirm()
-                # Force Shopify prices onto the lines.
-                # Both create() and action_confirm() trigger Odoo 18's
-                # _compute_price_unit which overwrites price_unit with the
-                # pricelist price.  The only reliable fix is to:
-                #   1. flush_all() so all pending ORM writes reach the DB,
-                #   2. patch price_unit / discount directly via SQL,
-                #   3. remove those fields from the recompute queue so
-                #      the engine does not re-run the compute method,
-                #   4. invalidate the ORM cache and recompute monetary
-                #      totals from the corrected price.
-                if new_lines and line_vals_list:
-                    self.env.flush_all()
-                    cr = self.env.cr
-                    for sol, lv in zip(new_lines, line_vals_list):
-                        price = float(lv.get('price_unit') or 0)
-                        disc = float(lv.get('discount') or 0)
-                        cr.execute(
-                            "UPDATE sale_order_line "
-                            "SET price_unit = %s, discount = %s "
-                            "WHERE id = %s",
-                            (price, disc, sol.id),
-                        )
-                    # Drop price_unit/discount from the pending recompute set
-                    sol_model = self.env['sale.order.line']
-                    pf = sol_model._fields.get('price_unit')
-                    df = sol_model._fields.get('discount')
-                    tocompute = getattr(
-                        getattr(self.env, 'all', None), 'tocompute', {})
-                    line_ids = set(new_lines.ids)
-                    for fld in (pf, df):
-                        if fld and fld in tocompute:
-                            tocompute[fld] -= line_ids
-                    # Refresh ORM cache and recompute monetary totals
-                    new_lines.invalidate_recordset(
-                        ['price_unit', 'discount'])
-                    new_lines.sudo()._compute_amount()
+                            shipping_line_vals = {
+                                'product_id': product_id.id,
+                                'name': line['title'] if line[
+                                    'title'] else product_id.name,
+                                'price_unit':price,
+                                'product_uom_qty': 1,
+                                'shopify_line_ref': line['id'],
+                                'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
+                                'order_id': so.id,
+                                'shopify_instance_id': shopify_instance.id,
+                                'company_id': shopify_instance.company_id.id,
+                            }
+                            line_vals_list.append(shipping_line_vals)
+                    if float(each['current_total_discounts']) != 0.00:
+                        discount_lines = each['current_total_discounts_set']
+                        product_id = self.env.ref(
+                            'shopify_odoo_connector.product_shopify_order_discount')
+                        discount_dict = {
+                            'product_id': product_id.id,
+                            'price_unit': -float(
+                                discount_lines['shop_money']['amount']),
+                            'product_uom_qty': 1,
+                            'tax_id': None,
+                            'order_id': so.id,
+                        }
+                        # line_vals_list.append(discount_dict)
 
+                        discount_code = each['discount_codes'][0]['code']
+
+                        discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
+                        so.discount_id = discount_reason.id
+                    if line_vals_list:
+                        try:
+                            new_lines = self.env['sale.order.line'].sudo().create(
+                                line_vals_list)
+                        except Exception as e:
+                            print('ezzat')
+                            print(e)
+                    else:
+                        new_lines = self.env['sale.order.line'].browse()
+                    # if not wizard.draft:
+                    #     so.action_confirm()
+                    # Force Shopify prices onto the lines.
+                    # Both create() and action_confirm() trigger Odoo 18's
+                    # _compute_price_unit which overwrites price_unit with the
+                    # pricelist price.  The only reliable fix is to:
+                    #   1. flush_all() so all pending ORM writes reach the DB,
+                    #   2. patch price_unit / discount directly via SQL,
+                    #   3. remove those fields from the recompute queue so
+                    #      the engine does not re-run the compute method,
+                    #   4. invalidate the ORM cache and recompute monetary
+                    #      totals from the corrected price.
+                    if new_lines and line_vals_list:
+                        self.env.flush_all()
+                        cr = self.env.cr
+                        for sol, lv in zip(new_lines, line_vals_list):
+                            price = float(lv.get('price_unit') or 0)
+                            disc = float(lv.get('discount') or 0)
+                            cr.execute(
+                                "UPDATE sale_order_line "
+                                "SET price_unit = %s, discount = %s "
+                                "WHERE id = %s",
+                                (price, disc, sol.id),
+                            )
+                        # Drop price_unit/discount from the pending recompute set
+                        sol_model = self.env['sale.order.line']
+                        pf = sol_model._fields.get('price_unit')
+                        df = sol_model._fields.get('discount')
+                        tocompute = getattr(
+                            getattr(self.env, 'all', None), 'tocompute', {})
+                        line_ids = set(new_lines.ids)
+                        for fld in (pf, df):
+                            if fld and fld in tocompute:
+                                tocompute[fld] -= line_ids
+                        # Refresh ORM cache and recompute monetary totals
+                        new_lines.invalidate_recordset(
+                            ['price_unit', 'discount'])
+                        new_lines.sudo()._compute_amount()
+            except Exception as e:
+                continue
     def import_draft_orders_from_shopify(self, shopify_orders, instance):
         """ Method to import draft orders from shopify to odoo.
              job evokes this method for creating draft orders in odoo.
