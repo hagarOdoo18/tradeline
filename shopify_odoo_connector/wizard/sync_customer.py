@@ -266,12 +266,19 @@ class SyncCustomer(models.TransientModel):
                 vals['synced_customer'] = True
                 vals['company_id'] = shopify_instance.company_id.id
                 if customer['first_name']:
+
                     new_customer = self.env['res.partner'].sudo().create(vals)
                     new_customer.shopify_sync_ids.sudo().create({
                         'instance_id': instance.id,
                         'shopify_customer_ref': customer['id'],
                         'customer_id': new_customer.id,
                     })
+                    self.env['log.message'].sudo().create([{
+                        'name': 'Customer Creation  processed for '
+                                'shopify id : ' + str(customer['id']),
+                        'shopify_instance_id': self.shopify_instance_id.id,
+                        'model': 'res.partner',
+                    }])
                 else:
                     self.env['log.message'].sudo().create([{
                         'name': 'Customer Creation not processed for '
@@ -306,7 +313,7 @@ class SyncCustomer(models.TransientModel):
                         not customer['last_name'] and customer['email']):
                     vals['name'] = customer['email']
                 vals['email'] = customer['email']
-                vals['mobile'] = customer['phone']if customer['phone'] else '01119499107'
+                vals['mobile'] = customer['phone']if customer['phone'] else '011'
                 vals['shopify_customer_ref'] = customer['id']
                 vals['shopify_instance_id'] = shopify_instance.id
                 vals['synced_customer'] = True
