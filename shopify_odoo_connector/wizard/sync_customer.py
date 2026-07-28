@@ -319,7 +319,8 @@ class SyncCustomer(models.TransientModel):
                     vals['email'] = customer['email']
                     vals['mobile'] = customer['phone']if customer['phone'] else '011'
                     vals['shopify_customer_ref'] = customer['id']
-                    vals['shopify_instance_id'] = shopify_instance.id
+                    exist_customers.shopify_instance_id = shopify_instance.id
+                    exist_customers.shopify_customer_ref = customer['id']
                     vals['synced_customer'] = True
                     vals['company_id'] = shopify_instance.company_id.id
 
