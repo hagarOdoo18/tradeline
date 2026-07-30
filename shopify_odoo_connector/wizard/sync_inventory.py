@@ -239,7 +239,7 @@ class SyncInventory(models.TransientModel):
                             'Inventory push failed for variant %s '
                             '(location %s): %s'
                             % (sync.shopify_variant_id,
-                               location.shopify_location_i, resp.text)
+                               location.shopify_location_id, resp.text)
                         ),
                         'shopify_instance_id': shopify_instance.id,
                         'model': 'Stock Quantity',
@@ -250,7 +250,7 @@ class SyncInventory(models.TransientModel):
                                 'Inventory push done for variant %s '
                                 '(location %s): %s'
                                 % (sync.shopify_variant_id,
-                                   location.shopify_location_i, resp.text)
+                                   location.shopify_location_id, resp.text)
                         ),
                         'shopify_instance_id': shopify_instance.id,
                         'model': 'Stock Quantity',
