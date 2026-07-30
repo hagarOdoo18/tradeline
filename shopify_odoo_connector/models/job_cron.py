@@ -56,67 +56,66 @@ class JobCron(models.Model):
     @api.model
     def _do_job(self):
         """Method to do cron jobs for exporting and importing data."""
-        jobs = self.env['job.cron'].sudo().search([('state', '=', 'pending')],
-                                                 order='id asc', limit=10)
-        for job in jobs:
-            if job:
-                model = self.env[job.model_id.model].sudo().search([])
-                if job.function == "import_products_from_shopify":
-                    try:
-                        model.import_products_from_shopify(job.data,
+        job = self.env['job.cron'].sudo().search([('state', '=', 'pending')],
+                                                 order='id asc', limit=1)
+        if job:
+            model = self.env[job.model_id.model].sudo().search([])
+            if job.function == "import_products_from_shopify":
+                try:
+                    model.import_products_from_shopify(job.data,
+                                                       job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    _logger.error('Some error has been occurred in the '
+                                  'processing of function:'
+                                  'import_products_from_shopify')
+                    job.state = "failed"
+            if job.function == "export_products_to_shopify":
+                try:
+                    model.export_products_to_shopify(job.data, job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    _logger.error(
+                        'Some error has been occurred in the processing'
+                        ' of function:export_products_to_shopify')
+                    job.state = "failed"
+            if job.function == "export_partners_to_shopify":
+                try:
+                    model.export_partners_to_shopify(job.data, job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    _logger.error(
+                        'Some error has been occurred in the processing'
+                        ' of function:export_partners_to_shopify')
+                    job.state = "failed"
+            if job.function == "import_customers_from_shopify":
+                try:
+                    model.import_customers_from_shopify(job.data,
+                                                        job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    job.state = "failed"
+            if job.function == "export_orders_to_shopify":
+                try:
+                    model.export_orders_to_shopify(job.data, job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    job.state = "failed"
+            if job.function == "import_confirmed_orders_from_shopify":
+                try:
+                    model.import_confirmed_orders_from_shopify(job.data,
+                                                               job.instance_id,
+                                                               job.wizard)
+                    job.state = "done"
+                except Exception:
+                    job.state = "failed"
+            if job.function == "import_draft_orders_from_shopify":
+                try:
+                    model.import_draft_orders_from_shopify(job.data,
                                                            job.instance_id)
-                        job.state = "done"
-                    except Exception:
-                        _logger.error('Some error has been occurred in the '
-                                      'processing of function:'
-                                      'import_products_from_shopify')
-                        job.state = "failed"
-                if job.function == "export_products_to_shopify":
-                    try:
-                        model.export_products_to_shopify(job.data, job.instance_id)
-                        job.state = "done"
-                    except Exception:
-                        _logger.error(
-                            'Some error has been occurred in the processing'
-                            ' of function:export_products_to_shopify')
-                        job.state = "failed"
-                if job.function == "export_partners_to_shopify":
-                    try:
-                        model.export_partners_to_shopify(job.data, job.instance_id)
-                        job.state = "done"
-                    except Exception:
-                        _logger.error(
-                            'Some error has been occurred in the processing'
-                            ' of function:export_partners_to_shopify')
-                        job.state = "failed"
-                if job.function == "import_customers_from_shopify":
-                    try:
-                        model.import_customers_from_shopify(job.data,
-                                                            job.instance_id)
-                        job.state = "done"
-                    except Exception:
-                        job.state = "failed"
-                if job.function == "export_orders_to_shopify":
-                    try:
-                        model.export_orders_to_shopify(job.data, job.instance_id)
-                        job.state = "done"
-                    except Exception:
-                        job.state = "failed"
-                if job.function == "import_confirmed_orders_from_shopify":
-                    try:
-                        model.import_confirmed_orders_from_shopify(job.data,
-                                                                   job.instance_id,
-                                                                   job.wizard)
-                        job.state = "done"
-                    except Exception:
-                        job.state = "failed"
-                if job.function == "import_draft_orders_from_shopify":
-                    try:
-                        model.import_draft_orders_from_shopify(job.data,
-                                                               job.instance_id)
-                        job.state = "done"
-                    except Exception as e:
-                        job.state = "failed"
+                    job.state = "done"
+                except Exception as e:
+                    job.state = "failed"
 
     @api.model
     def _refresh_shopify_tokens(self):
