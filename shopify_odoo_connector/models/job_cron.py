@@ -57,7 +57,7 @@ class JobCron(models.Model):
     def _do_job(self):
         """Method to do cron jobs for exporting and importing data."""
         job = self.env['job.cron'].sudo().search([('state', '=', 'pending')],
-                                                 order='id asc', limit=1)
+                                                 order='id asc', limit=10)
         if job:
             model = self.env[job.model_id.model].sudo().search([])
             if job.function == "import_products_from_shopify":
