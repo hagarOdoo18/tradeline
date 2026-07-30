@@ -244,6 +244,17 @@ class SyncInventory(models.TransientModel):
                         'shopify_instance_id': shopify_instance.id,
                         'model': 'Stock Quantity',
                     }])
+                else:
+                    self.env['log.message'].sudo().create([{
+                        'name': (
+                                'Inventory push done for variant %s '
+                                '(location %s): %s'
+                                % (sync.shopify_variant_id,
+                                   location.shopify_location_i, resp.text)
+                        ),
+                        'shopify_instance_id': shopify_instance.id,
+                        'model': 'Stock Quantity',
+                    }])
 
     # ------------------------------------------------------------------
     # From Shopify
