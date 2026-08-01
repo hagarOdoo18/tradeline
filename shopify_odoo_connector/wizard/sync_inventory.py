@@ -71,8 +71,7 @@ class SyncInventory(models.TransientModel):
             ('product_id',  '=', product.id),
             ('company_id',  '=', company_id),
         ])
-        print(quants.mapped('quantity'),'quants')
-        print(product.id,'product_id')
+
         total += sum(quants.mapped('quantity'))
         return total
 
@@ -151,7 +150,7 @@ class SyncInventory(models.TransientModel):
             [('model', '=', 'sync.inventory')])
         instances = self.env['shopify.configuration'].search(
                     [('company_id', '=', self.env.company.id)])
-        size = 50
+        size = 20
         for instance in instances:
             try:
                 warehouse_ids = self.env['shopify.location'].sudo().search([
