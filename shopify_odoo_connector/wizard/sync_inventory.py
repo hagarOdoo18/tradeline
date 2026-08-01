@@ -142,12 +142,16 @@ class SyncInventory(models.TransientModel):
     @api.model
     def _cron_sync_inventory_to_shopify(self):
         """Scheduled action to push Odoo on-hand quantities to Shopify for all
-        active connected instances. For each instance the warehouses mapped to
-        its active Shopify locations are resolved, then a transient
-        sync.inventory record is created and _sync_to_shopify is called (the
-        same flow as the manual 'To Shopify' inventory wizard)."""
+        active connected instances. Instead of pushing everything in a single
+        run (which can time out on large catalogues), the synced
+        product/variant records are split into batches of 50 and queued as
+        job.cron records with the function 'export_inventory_to_shopify'.
+        _do_job then processes one batch per cron tick."""
+        model = self.env['ir.model'].search(
+            [('model', '=', 'sync.inventory')])
         instances = self.env['shopify.configuration'].search(
                     [('company_id', '=', self.env.company.id)])
+        size = 50
         for instance in instances:
             try:
                 warehouse_ids = self.env['shopify.location'].sudo().search([
@@ -157,19 +161,59 @@ class SyncInventory(models.TransientModel):
                 ]).mapped('warehouse_id').ids
                 if not warehouse_ids:
                     continue
-                wizard = self.sudo().create({
-                    'import_inventory': 'shopify',
-                    'shopify_instance_id': instance.id,
-                    'warehouse_ids': [(6, 0, warehouse_ids)],
-                })
-                wizard._sync_to_shopify()
+                sync_ids = self.env['shopify.sync'].sudo().search([
+                    ('instance_id', '=', instance.id),
+                    ('shopify_variant_id', '!=', False),
+                    ('product_prod_id', '!=', False),
+                ]).ids
+                if not sync_ids:
+                    continue
+                # Split synced variants into batches of 50, one job per batch.
+                for i in range(0, len(sync_ids), size):
+                    self.env['job.cron'].sudo().create([{
+                        'model_id': model.id,
+                        'function': 'export_inventory_to_shopify',
+                        'data': {
+                            'sync_ids': sync_ids[i:i + size],
+                            'warehouse_ids': warehouse_ids,
+                        },
+                        'instance_id': instance.id,
+                    }])
+                _logger.info(
+                    'Shopify inventory sync: queued %d variants in %d batch(es)'
+                    ' for instance %s',
+                    len(sync_ids),
+                    (len(sync_ids) + size - 1) // size,
+                    instance.name)
             except Exception as error:
                 _logger.error(
-                    'Failed to push inventory to Shopify for instance '
+                    'Failed to queue inventory push to Shopify for instance '
                     '%s: %s', instance.name, str(error))
 
-    def _sync_to_shopify(self):
-        """Push Odoo on-hand quantities to Shopify inventory levels."""
+    @api.model
+    def export_inventory_to_shopify(self, data, instance):
+        """Process a single queued inventory batch (called by job.cron._do_job).
+
+        `data` is the Json payload stored on the job.cron record and contains
+        the `sync_ids` for this batch of 50 variants and the `warehouse_ids` to
+        read on-hand quantities from. A transient sync.inventory record is
+        created and _sync_to_shopify is called for just this batch."""
+        warehouse_ids = data.get('warehouse_ids', [])
+        sync_ids = data.get('sync_ids', [])
+        wizard = self.sudo().create({
+            'import_inventory': 'shopify',
+            'shopify_instance_id': instance.id,
+            'warehouse_ids': [(6, 0, warehouse_ids)],
+        })
+        sync_records = self.env['shopify.sync'].sudo().browse(sync_ids).exists()
+        wizard._sync_to_shopify(sync_records=sync_records)
+
+    def _sync_to_shopify(self, sync_records=None):
+        """Push Odoo on-hand quantities to Shopify inventory levels.
+
+        When `sync_records` is provided (batch mode via job.cron) only those
+        variants are pushed; otherwise every synced variant for the instance is
+        pushed (manual wizard mode)."""
         shopify_instance = self.shopify_instance_id
         store_name = shopify_instance.shop_name
         version    = shopify_instance.version
@@ -184,6 +228,7 @@ class SyncInventory(models.TransientModel):
         ])
         location_ids = [
             int(loc.shopify_location_id)
+
             for loc in shopify_locations
             if loc.shopify_location_id
         ]
@@ -204,12 +249,13 @@ class SyncInventory(models.TransientModel):
                 variant_to_inv_item[str(variant['id'])] = (
                     variant['inventory_item_id'])
 
-        # 3. Get all synced variants for this instance
-        sync_records = self.env['shopify.sync'].sudo().search([
-            ('instance_id','=', shopify_instance.id),
-            ('shopify_variant_id', '!=', False),
-            ('product_prod_id',   '!=', False),
-        ])
+        # 3. Get the synced variants to push (batch subset or all)
+        if sync_records is None:
+            sync_records = self.env['shopify.sync'].sudo().search([
+                ('instance_id','=', shopify_instance.id),
+                ('shopify_variant_id', '!=', False),
+                ('product_prod_id',   '!=', False),
+            ])
 
         set_url = ("https://%s/admin/api/%s/inventory_levels/set.json"
                    % (store_name, version))
@@ -247,14 +293,17 @@ class SyncInventory(models.TransientModel):
                 else:
                     self.env['log.message'].sudo().create([{
                         'name': (
-                                'Inventory push done for variant %s '
-                                '(location %s): %s'
-                                % (sync.shopify_variant_id,
-                                   location.shopify_location_id, resp.text)
+                                'Inventory push done for variant %s,product %s, '
+                                '(location %s): %s qty %s'
+                                % (sync.shopify_variant_id,sync.product_prod_id.id,
+                                   location.shopify_location_id, resp.text,total_qty)
                         ),
                         'shopify_instance_id': shopify_instance.id,
                         'model': 'Stock Quantity',
                     }])
+                    self._cr.commit()
+
+
 
     # ------------------------------------------------------------------
     # From Shopify

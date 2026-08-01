@@ -75,6 +75,24 @@
                   <field name="product_incentive"/>
                   <field name="product_notes" groups='inventory_customization.group_menu_product_notes'/>
                 </xpath>
+                  <xpath expr="//field[@name='standard_price']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+            </field>
+        </record>
+      <record id="product_cost_view" model="ir.ui.view">
+            <field name="name">product cost</field>
+            <field name="model">product.product</field>
+                       <field name="inherit_id" ref="product.product_template_form_view"/>
+
+            <field name="arch" type="xml">
+
+                  <xpath expr="//div[@name='standard_price_uom']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+                  <xpath expr="//label[@for='standard_price']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
             </field>
         </record>
 
