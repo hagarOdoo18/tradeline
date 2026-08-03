@@ -7,7 +7,8 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="apple_business_customer_eligible" invisible="1"/>
-                <field name="apple_business" readonly="not apple_business_customer_eligible"/>
+                <field name="apple_business" widget="apple_business_boolean"
+                       readonly="not apple_business_customer_eligible"/>
                 <field name="apple_business_id" invisible="not apple_business" options="{'no_create': True}"/>
                 <field name="apple_business_company_id" invisible="1"/>
             </xpath>

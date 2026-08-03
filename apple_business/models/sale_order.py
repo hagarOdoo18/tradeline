@@ -59,6 +59,26 @@ class SaleOrder(models.Model):
             limit=1,
         )
 
+    @api.model
+    def get_apple_business_subscription_status(self, partner_id, branch_id):
+        partner = self.env["res.partner"].browse(partner_id).exists()
+        branch = self.env["res.branch"].browse(branch_id).exists()
+        if not partner or not branch or not partner.is_company:
+            return {"eligible": False, "subscription_id": False}
+
+        subscription = self.env["apple.business"].search(
+            [
+                ("partner_id", "=", partner.commercial_partner_id.id),
+                ("branch_id", "=", branch.id),
+                ("state", "=", "active"),
+            ],
+            limit=1,
+        )
+        return {
+            "eligible": True,
+            "subscription_id": subscription.id or False,
+        }
+
     def _validate_apple_business_order(self):
         for order in self.filtered("apple_business"):
             if not order.apple_business_customer_eligible:
