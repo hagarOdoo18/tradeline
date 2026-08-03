@@ -38,6 +38,12 @@ export class AppleBusinessBooleanField extends BooleanField {
         return fallback;
     }
 
+    async resetUnchecked() {
+        this.state.value = false;
+        await this.props.record.update({ [this.props.name]: false });
+        await this.render();
+    }
+
     async onChange(newValue) {
         if (!newValue) {
             return super.onChange(false);
@@ -60,7 +66,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 [partnerId, branchId]
             );
             if (!status.eligible) {
-                await super.onChange(false);
+                await this.resetUnchecked();
                 this.notification.add(
                     _t("Apple Business is only available for company customers."),
                     { type: "warning" }
@@ -71,7 +77,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 return super.onChange(true);
             }
 
-            await super.onChange(false);
+            await this.resetUnchecked();
             const partnerName =
                 status.partner_name ||
                 this.getRelationName(
@@ -109,7 +115,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 },
             });
         } catch (error) {
-            await super.onChange(false);
+            await this.resetUnchecked();
             this.notification.add(
                 error?.message || _t("Could not check the Apple Business subscription."),
                 { type: "danger" }
