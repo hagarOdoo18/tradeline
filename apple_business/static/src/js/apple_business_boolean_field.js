@@ -59,10 +59,19 @@ export class AppleBusinessBooleanField extends BooleanField {
                 "get_apple_business_subscription_status",
                 [partnerId, branchId]
             );
+            if (!status.eligible) {
+                await super.onChange(false);
+                this.notification.add(
+                    _t("Apple Business is only available for company customers."),
+                    { type: "warning" }
+                );
+                return;
+            }
             if (status.subscription_id) {
                 return super.onChange(true);
             }
 
+            await super.onChange(false);
             const partnerName =
                 status.partner_name ||
                 this.getRelationName(
@@ -100,6 +109,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 },
             });
         } catch (error) {
+            await super.onChange(false);
             this.notification.add(
                 error?.message || _t("Could not check the Apple Business subscription."),
                 { type: "danger" }
