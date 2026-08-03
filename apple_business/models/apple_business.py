@@ -27,7 +27,7 @@ class AppleBusiness(models.Model):
         "res.partner",
         string="Company Name",
         required=True,
-        domain="[('company_type', '=', 'company')]",
+        domain="[('is_company', '=', True)]",
         ondelete="cascade",
     )
     organization_id = fields.Char(required=True, index=True)
