@@ -77,6 +77,8 @@ class SaleOrder(models.Model):
         return {
             "eligible": True,
             "subscription_id": subscription.id or False,
+            "partner_name": partner.name,
+            "branch_name": branch.name,
         }
 
     def _validate_apple_business_order(self):

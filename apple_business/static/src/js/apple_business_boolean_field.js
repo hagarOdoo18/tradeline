@@ -63,14 +63,18 @@ export class AppleBusinessBooleanField extends BooleanField {
                 return super.onChange(true);
             }
 
-            const partnerName = this.getRelationName(
-                this.props.record.data.partner_id,
-                _t("This company")
-            );
-            const branchName = this.getRelationName(
-                this.props.record.data.branch_id,
-                _t("the selected branch")
-            );
+            const partnerName =
+                status.partner_name ||
+                this.getRelationName(
+                    this.props.record.data.partner_id,
+                    _t("This company")
+                );
+            const branchName =
+                status.branch_name ||
+                this.getRelationName(
+                    this.props.record.data.branch_id,
+                    _t("the selected branch")
+                );
             this.dialog.add(ConfirmationDialog, {
                 title: _t("Apple Business Subscription Required"),
                 body: _t(
@@ -80,6 +84,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 ),
                 confirmLabel: _t("Create Subscription"),
                 cancelLabel: _t("Not Now"),
+                cancel: () => {},
                 confirm: () => {
                     this.action.doAction({
                         type: "ir.actions.act_window",
