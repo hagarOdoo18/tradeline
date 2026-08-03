@@ -9,12 +9,19 @@ class SaleOrder(models.Model):
 
     apple_business = fields.Boolean(
         string="Apple Business",
-        help="Restrict this order to ABM products for a company with an active Apple Business subscription.",
+        help=(
+            "Select only when the company customer has opted into Apple Business "
+            "and has a confirmed subscription for this branch."
+        ),
     )
     apple_business_id = fields.Many2one(
         "apple.business",
         string="Apple Business Subscription",
         domain="[('state', '=', 'active'), ('partner_id', '=', apple_business_company_id), ('branch_id', '=', branch_id)]",
+    )
+    apple_business_customer_eligible = fields.Boolean(
+        compute="_compute_apple_business_customer_eligible",
+        string="Apple Business Customer Eligible",
     )
     apple_business_company_id = fields.Many2one(
         "res.partner",
@@ -22,13 +29,26 @@ class SaleOrder(models.Model):
         string="Apple Business Company",
     )
 
+    @api.depends("partner_id", "partner_id.is_company")
+    def _compute_apple_business_customer_eligible(self):
+        for order in self:
+            order.apple_business_customer_eligible = bool(
+                order.partner_id and order.partner_id.is_company
+            )
+
     @api.depends("partner_id")
     def _compute_apple_business_company_id(self):
         for order in self:
-            order.apple_business_company_id = order.partner_id.commercial_partner_id
+            order.apple_business_company_id = (
+                order.partner_id.commercial_partner_id
+                if order.partner_id and order.partner_id.is_company
+                else False
+            )
 
     def _get_active_apple_business_subscription(self):
         self.ensure_one()
+        if not self.apple_business_customer_eligible:
+            return self.env["apple.business"]
         company = self.partner_id.commercial_partner_id
         return self.env["apple.business"].search(
             [
@@ -41,9 +61,9 @@ class SaleOrder(models.Model):
 
     def _validate_apple_business_order(self):
         for order in self.filtered("apple_business"):
-            company = order.partner_id.commercial_partner_id
-            if not company or company.company_type != "company":
+            if not order.apple_business_customer_eligible:
                 raise UserError(_("Apple Business orders require a company customer."))
+            company = order.partner_id.commercial_partner_id
             subscription = order._get_active_apple_business_subscription()
             if not subscription:
                 raise UserError(_(
@@ -68,6 +88,18 @@ class SaleOrder(models.Model):
     @api.onchange("partner_id", "branch_id", "apple_business")
     def _onchange_apple_business_partner(self):
         for order in self:
+            if order.apple_business and not order.apple_business_customer_eligible:
+                order.apple_business = False
+                order.apple_business_id = False
+                return {
+                    "warning": {
+                        "title": _("Company Customer Required"),
+                        "message": _(
+                            "Apple Business can only be selected for a company customer. "
+                            "The option has been cleared."
+                        ),
+                    }
+                }
             if not order.apple_business:
                 order.apple_business_id = False
                 continue
@@ -92,7 +124,7 @@ class SaleOrder(models.Model):
 
     def write(self, vals):
         result = super().write(vals)
-        if {"apple_business", "apple_business_id", "partner_id", "order_line"} & set(vals):
+        if {"apple_business", "apple_business_id", "partner_id", "branch_id", "order_line"} & set(vals):
             self._validate_apple_business_order()
         return result
 

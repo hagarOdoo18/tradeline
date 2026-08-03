@@ -78,7 +78,7 @@ class AppleBusiness(models.Model):
     @api.constrains("partner_id")
     def _check_company_partner(self):
         for subscription in self:
-            if subscription.partner_id and subscription.partner_id.commercial_partner_id.company_type != "company":
+            if subscription.partner_id and not subscription.partner_id.is_company:
                 raise ValidationError(_("Apple Business subscriptions are only available for company customers."))
 
     @api.constrains("invoice_id", "partner_id", "branch_id")
