@@ -106,12 +106,13 @@ class SaleOrder(models.Model):
             subscription = order._get_active_apple_business_subscription() if order.partner_id else False
             order.apple_business_id = subscription
             if order.partner_id and not subscription:
+                order.apple_business = False
                 return {
                     "warning": {
                         "title": _("Apple Business Subscription Required"),
                         "message": _(
                             "The selected customer needs a confirmed Apple Business "
-                            "subscription for this branch."
+                            "subscription for this branch. The option has been cleared."
                         ),
                     }
                 }
