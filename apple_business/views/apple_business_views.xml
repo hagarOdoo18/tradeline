@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="apple_business_view_list" model="ir.ui.view">
+        <field name="name">apple.business.list</field>
+        <field name="model">apple.business</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="partner_id"/>
+                <field name="organization_id"/>
+                <field name="branch_id"/>
+                <field name="invoice_id"/>
+                <field name="state"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="apple_business_view_form" model="ir.ui.view">
+        <field name="name">apple.business.form</field>
+        <field name="model">apple.business</field>
+        <field name="arch" type="xml">
+            <form string="Apple Business">
+                <header>
+                    <button name="action_confirm" string="Confirm" type="object" class="oe_highlight"
+                            invisible="state != 'draft'" groups="apple_business.group_apple_business_manager"/>
+                    <button name="action_expire" string="Mark Expired" type="object"
+                            invisible="state != 'active'" groups="apple_business.group_apple_business_manager"/>
+                    <button name="action_cancel" string="Cancel" type="object"
+                            invisible="state not in ('draft', 'active', 'expired')" groups="apple_business.group_apple_business_manager"/>
+                    <button name="action_set_created" string="Reset to Created" type="object"
+                            invisible="state == 'draft'" groups="apple_business.group_apple_business_manager"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,active,expired,cancelled"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="partner_id" options="{'no_create': True}"/>
+                            <field name="organization_id"/>
+                            <field name="branch_id"/>
+                        </group>
+                        <group>
+                            <field name="street"/>
+                            <field name="country_id"/>
+                            <field name="phone"/>
+                            <field name="email"/>
+                            <field name="invoice_id" options="{'no_create': True}"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Products and Serial Numbers">
+                            <field name="device_line_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="product_id"/>
+                                    <field name="lot_id"/>
+                                    <field name="quantity"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="apple_business_action" model="ir.actions.act_window">
+        <field name="name">Apple Business</field>
+        <field name="res_model">apple.business</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="apple_business_menu_root" name="Apple Business" parent="sale.sale_menu_root" action="apple_business_action" sequence="30"
+              groups="apple_business.group_apple_business_user"/>
+</odoo>
