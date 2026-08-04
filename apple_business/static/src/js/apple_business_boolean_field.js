@@ -53,6 +53,9 @@ export class AppleBusinessBooleanField extends BooleanField {
 
         const partnerId = this.getRelationId(this.props.record.data.partner_id);
         const branchId = this.getRelationId(this.props.record.data.branch_id);
+        const journalId = this.getRelationId(
+            this.props.record.data.invoice_journal_id
+        );
         if (!partnerId || !branchId) {
             this.notification.add(
                 _t("Select a company customer and branch first."),
@@ -113,6 +116,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                             default_move_type: "out_invoice",
                             default_partner_id: partnerId,
                             default_branch_id: branchId,
+                            default_journal_id: journalId,
                             branch_id: branchId,
                             default_invoice_origin: _t(
                                 "Apple Business Subscription"
