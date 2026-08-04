@@ -31,6 +31,22 @@
                     <field name="state" widget="statusbar" statusbar_visible="draft,active,expired,cancelled"/>
                 </header>
                 <sheet>
+                    <div class="alert alert-info" role="alert" invisible="state != 'draft'">
+                        <strong>Step 2 of 3 — Subscription created.</strong>
+                        Save this record, then an Apple Business Manager must confirm it.
+                    </div>
+                    <div class="alert alert-success" role="alert" invisible="state != 'active'">
+                        <strong>Step 3 of 3 — Subscription confirmed.</strong>
+                        Apple Business can now be enabled on quotations for this company and branch.
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="state != 'expired'">
+                        <strong>Subscription expired.</strong>
+                        Apple Business quotations are blocked until the subscription is confirmed again.
+                    </div>
+                    <div class="alert alert-secondary" role="alert" invisible="state != 'cancelled'">
+                        <strong>Subscription cancelled.</strong>
+                        Reset it to Created and confirm it again before using Apple Business.
+                    </div>
                     <group>
                         <group>
                             <field name="partner_id" options="{'no_create': True}"/>
@@ -42,7 +58,8 @@
                             <field name="country_id"/>
                             <field name="phone"/>
                             <field name="email"/>
-                            <field name="invoice_id" options="{'no_create': True}"/>
+                            <field name="invoice_id" string="Subscription Invoice"
+                                   options="{'no_create': True}"/>
                         </group>
                     </group>
                     <notebook>

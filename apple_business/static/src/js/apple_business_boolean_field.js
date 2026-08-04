@@ -93,25 +93,31 @@ export class AppleBusinessBooleanField extends BooleanField {
                     _t("the selected branch")
                 );
             this.dialog.add(ConfirmationDialog, {
-                title: _t("Apple Business Subscription Required"),
+                title: _t("Create an Invoice First"),
                 body: _t(
-                    "%s does not have a confirmed Apple Business subscription for %s. Would you like to create one now?",
+                    "%s does not have a confirmed Apple Business subscription for %s. A posted customer invoice is required first. Would you like to create the invoice now?",
                     partnerName,
                     branchName
                 ),
-                confirmLabel: _t("Create Subscription"),
+                confirmLabel: _t("Create Invoice"),
                 cancelLabel: _t("Not Now"),
                 cancel: () => {},
                 confirm: () => {
                     this.action.doAction({
                         type: "ir.actions.act_window",
-                        name: _t("New Apple Business Subscription"),
-                        res_model: "apple.business",
+                        name: _t("New Apple Business Invoice"),
+                        res_model: "account.move",
                         views: [[false, "form"]],
                         target: "new",
                         context: {
+                            default_move_type: "out_invoice",
                             default_partner_id: partnerId,
                             default_branch_id: branchId,
+                            branch_id: branchId,
+                            default_invoice_origin: _t(
+                                "Apple Business Subscription"
+                            ),
+                            apple_business_subscription_flow: true,
                         },
                     });
                 },

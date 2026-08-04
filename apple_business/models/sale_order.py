@@ -3,6 +3,19 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
+APPLE_BUSINESS_CATEGORY_NAMES = {"mac", "ipad", "iphone"}
+
+
+def _category_or_parent_matches(category):
+    seen = set()
+    current = category
+    while current and current.id not in seen:
+        if current.name.strip().lower() in APPLE_BUSINESS_CATEGORY_NAMES:
+            return True
+        seen.add(current.id)
+        current = current.parent_id
+    return False
+
 
 class SaleOrder(models.Model):
     _inherit = "sale.order"
@@ -28,6 +41,11 @@ class SaleOrder(models.Model):
         compute="_compute_apple_business_company_id",
         string="Apple Business Company",
     )
+    apple_business_category_ids = fields.Many2many(
+        "product.category",
+        compute="_compute_apple_business_category_ids",
+        string="Apple Business Product Categories",
+    )
 
     @api.depends("partner_id", "partner_id.is_company")
     def _compute_apple_business_customer_eligible(self):
@@ -44,6 +62,12 @@ class SaleOrder(models.Model):
                 if order.partner_id and order.partner_id.is_company
                 else False
             )
+
+    def _compute_apple_business_category_ids(self):
+        categories = self.env["product.category"].search([])
+        allowed_categories = categories.filtered(_category_or_parent_matches)
+        for order in self:
+            order.apple_business_category_ids = allowed_categories
 
     def _get_active_apple_business_subscription(self):
         self.ensure_one()
@@ -98,14 +122,23 @@ class SaleOrder(models.Model):
                 or order.apple_business_id.state != "active"
             ):
                 raise UserError(_("The selected Apple Business subscription does not belong to this customer or is inactive."))
-            non_abm_lines = order.order_line.filtered(
+            invalid_apple_lines = order.order_line.filtered(
                 lambda line: not line.display_type
                 and line.product_id
-                and (not line.product_id.vendor_id or line.product_id.vendor_id.name.strip().lower() != "abm")
+                and not line.product_id._is_apple_business_product()
             )
-            if non_abm_lines:
-                product_names = "\n".join("- %s" % name for name in non_abm_lines.mapped("product_id.display_name"))
-                raise UserError(_("Apple Business orders can only contain products supplied by ABM:\n%s") % product_names)
+            if invalid_apple_lines:
+                product_names = "\n".join(
+                    "- %s" % name
+                    for name in invalid_apple_lines.mapped("product_id.display_name")
+                )
+                raise UserError(
+                    _(
+                        "Apple Business orders can only contain ABM products "
+                        "from the Mac, iPad, or iPhone categories:\n%s"
+                    )
+                    % product_names
+                )
 
     @api.onchange("partner_id", "branch_id", "apple_business")
     def _onchange_apple_business_partner(self):
@@ -161,13 +194,17 @@ class SaleOrderLine(models.Model):
 
     @api.onchange("product_id")
     def _onchange_apple_business_product_id(self):
-        if self.order_id.apple_business and self.product_id and (
-            not self.product_id.vendor_id or self.product_id.vendor_id.name.strip().lower() != "abm"
+        if (
+            self.order_id.apple_business
+            and self.product_id
+            and not self.product_id._is_apple_business_product()
         ):
             return {
                 "warning": {
-                    "title": _("ABM Product Required"),
-                    "message": _("Apple Business orders can only contain products supplied by ABM."),
+                    "title": _("Eligible Apple Device Required"),
+                    "message": _(
+                        "Select an ABM product from the Mac, iPad, or iPhone categories."
+                    ),
                 }
             }
 
@@ -182,3 +219,16 @@ class SaleOrderLine(models.Model):
         if {"product_id", "order_id"} & set(vals):
             self.mapped("order_id")._validate_apple_business_order()
         return result
+
+
+class ProductProduct(models.Model):
+    _inherit = "product.product"
+
+    def _is_apple_business_product(self):
+        self.ensure_one()
+        if (
+            not self.vendor_id
+            or self.vendor_id.name.strip().lower() != "abm"
+        ):
+            return False
+        return _category_or_parent_matches(self.categ_id)

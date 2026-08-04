@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Apple Business",
-    "version": "18.0.1.1.0",
+    "version": "18.0.2.0.0",
     "category": "Sales",
     "summary": "Manage Apple Business subscriptions and ABM-only sales orders",
     "author": "Tradeline",
@@ -10,6 +10,7 @@
         "sale_management",
         "sale_stock",
         "account",
+        "accounting_customization",
         "branch",
         "inventory_customization",
         "partner_customization",

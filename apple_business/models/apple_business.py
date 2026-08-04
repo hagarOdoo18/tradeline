@@ -40,8 +40,13 @@ class AppleBusiness(models.Model):
     invoice_id = fields.Many2one(
         "account.move",
         string="Invoice Number",
+        required=True,
         domain="[('move_type', '=', 'out_invoice'), ('state', '=', 'posted'), ('commercial_partner_id', '=', partner_id), ('branch_id', '=', branch_id)]",
-        help="Apple Business Plus invoice for this subscription.",
+        help=(
+            "Posted customer invoice used to establish this Apple Business "
+            "subscription. You may replace the suggested invoice with another "
+            "posted invoice for the same company and branch."
+        ),
     )
     branch_id = fields.Many2one("res.branch", string="Branch Name", required=True)
     device_line_ids = fields.One2many(
