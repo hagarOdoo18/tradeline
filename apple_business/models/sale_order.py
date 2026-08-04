@@ -106,9 +106,21 @@ class SaleOrder(models.Model):
             ],
             limit=1,
         )
+        suggested_invoice = self.env["account.move"].search(
+            [
+                ("move_type", "=", "out_invoice"),
+                ("state", "=", "posted"),
+                ("commercial_partner_id", "=", partner.commercial_partner_id.id),
+                ("branch_id", "=", branch.id),
+            ],
+            order="invoice_date desc, date desc, id desc",
+            limit=1,
+        )
         return {
             "eligible": True,
             "subscription_id": subscription.id or False,
+            "suggested_invoice_id": suggested_invoice.id or False,
+            "suggested_invoice_name": suggested_invoice.name or False,
             "partner_name": partner.name,
             "branch_name": branch.name,
         }

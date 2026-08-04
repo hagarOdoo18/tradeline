@@ -53,9 +53,6 @@ export class AppleBusinessBooleanField extends BooleanField {
 
         const partnerId = this.getRelationId(this.props.record.data.partner_id);
         const branchId = this.getRelationId(this.props.record.data.branch_id);
-        const journalId = this.getRelationId(
-            this.props.record.data.invoice_journal_id
-        );
         if (!partnerId || !branchId) {
             this.notification.add(
                 _t("Select a company customer and branch first."),
@@ -95,33 +92,44 @@ export class AppleBusinessBooleanField extends BooleanField {
                     this.props.record.data.branch_id,
                     _t("the selected branch")
                 );
+            if (!status.suggested_invoice_id) {
+                this.dialog.add(ConfirmationDialog, {
+                    title: _t("Sales Invoice Required"),
+                    body: _t(
+                        "Create and post the sales invoice normally for %s at %s. Then select Apple Business again to create the subscription.",
+                        partnerName,
+                        branchName
+                    ),
+                    confirmLabel: _t("OK"),
+                    cancelLabel: _t("Not Now"),
+                    cancel: () => {},
+                    confirm: () => {},
+                });
+                return;
+            }
+
             this.dialog.add(ConfirmationDialog, {
-                title: _t("Create an Invoice First"),
+                title: _t("Apple Business Subscription Required"),
                 body: _t(
-                    "%s does not have a confirmed Apple Business subscription for %s. A posted customer invoice is required first. Would you like to create the invoice now?",
+                    "%s needs a confirmed Apple Business subscription for %s. Invoice %s will be suggested, and you can select another posted invoice for the same company and branch.",
                     partnerName,
-                    branchName
+                    branchName,
+                    status.suggested_invoice_name
                 ),
-                confirmLabel: _t("Create Invoice"),
+                confirmLabel: _t("Create Subscription"),
                 cancelLabel: _t("Not Now"),
                 cancel: () => {},
                 confirm: () => {
                     this.action.doAction({
                         type: "ir.actions.act_window",
-                        name: _t("New Apple Business Invoice"),
-                        res_model: "account.move",
+                        name: _t("New Apple Business Subscription"),
+                        res_model: "apple.business",
                         views: [[false, "form"]],
                         target: "new",
                         context: {
-                            default_move_type: "out_invoice",
                             default_partner_id: partnerId,
                             default_branch_id: branchId,
-                            default_journal_id: journalId,
-                            branch_id: branchId,
-                            default_invoice_origin: _t(
-                                "Apple Business Subscription"
-                            ),
-                            apple_business_subscription_flow: true,
+                            default_invoice_id: status.suggested_invoice_id,
                         },
                     });
                 },
