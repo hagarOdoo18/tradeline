@@ -106,21 +106,9 @@ class SaleOrder(models.Model):
             ],
             limit=1,
         )
-        suggested_invoice = self.env["account.move"].search(
-            [
-                ("move_type", "=", "out_invoice"),
-                ("state", "=", "posted"),
-                ("commercial_partner_id", "=", partner.commercial_partner_id.id),
-                ("branch_id", "=", branch.id),
-            ],
-            order="invoice_date desc, date desc, id desc",
-            limit=1,
-        )
         return {
             "eligible": True,
             "subscription_id": subscription.id or False,
-            "suggested_invoice_id": suggested_invoice.id or False,
-            "suggested_invoice_name": suggested_invoice.name or False,
             "partner_name": partner.name,
             "branch_name": branch.name,
         }
@@ -131,11 +119,6 @@ class SaleOrder(models.Model):
                 raise UserError(_("Apple Business orders require a company customer."))
             company = order.partner_id.commercial_partner_id
             subscription = order._get_active_apple_business_subscription()
-            if not subscription:
-                raise UserError(_(
-                    "The selected customer does not have a confirmed Apple Business "
-                    "subscription for this branch."
-                ))
             if order.apple_business_id and (
                 order.apple_business_id.partner_id != company
                 or order.apple_business_id.branch_id != order.branch_id
@@ -180,17 +163,6 @@ class SaleOrder(models.Model):
                 continue
             subscription = order._get_active_apple_business_subscription() if order.partner_id else False
             order.apple_business_id = subscription
-            if order.partner_id and not subscription:
-                order.apple_business = False
-                return {
-                    "warning": {
-                        "title": _("Apple Business Subscription Required"),
-                        "message": _(
-                            "The selected customer needs a confirmed Apple Business "
-                            "subscription for this branch. The option has been cleared."
-                        ),
-                    }
-                }
 
     @api.model_create_multi
     def create(self, vals_list):

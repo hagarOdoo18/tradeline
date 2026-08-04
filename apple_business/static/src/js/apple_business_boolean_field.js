@@ -79,61 +79,7 @@ export class AppleBusinessBooleanField extends BooleanField {
                 return super.onChange(true);
             }
 
-            await this.resetUnchecked();
-            const partnerName =
-                status.partner_name ||
-                this.getRelationName(
-                    this.props.record.data.partner_id,
-                    _t("This company")
-                );
-            const branchName =
-                status.branch_name ||
-                this.getRelationName(
-                    this.props.record.data.branch_id,
-                    _t("the selected branch")
-                );
-            if (!status.suggested_invoice_id) {
-                this.dialog.add(ConfirmationDialog, {
-                    title: _t("Sales Invoice Required"),
-                    body: _t(
-                        "Create and post the sales invoice normally for %s at %s. Then select Apple Business again to create the subscription.",
-                        partnerName,
-                        branchName
-                    ),
-                    confirmLabel: _t("OK"),
-                    cancelLabel: _t("Not Now"),
-                    cancel: () => {},
-                    confirm: () => {},
-                });
-                return;
-            }
-
-            this.dialog.add(ConfirmationDialog, {
-                title: _t("Apple Business Subscription Required"),
-                body: _t(
-                    "%s needs a confirmed Apple Business subscription for %s. Invoice %s will be suggested, and you can select another posted invoice for the same company and branch.",
-                    partnerName,
-                    branchName,
-                    status.suggested_invoice_name
-                ),
-                confirmLabel: _t("Create Subscription"),
-                cancelLabel: _t("Not Now"),
-                cancel: () => {},
-                confirm: () => {
-                    this.action.doAction({
-                        type: "ir.actions.act_window",
-                        name: _t("New Apple Business Subscription"),
-                        res_model: "apple.business",
-                        views: [[false, "form"]],
-                        target: "new",
-                        context: {
-                            default_partner_id: partnerId,
-                            default_branch_id: branchId,
-                            default_invoice_id: status.suggested_invoice_id,
-                        },
-                    });
-                },
-            });
+            return super.onChange(true);
         } catch (error) {
             await this.resetUnchecked();
             this.notification.add(
@@ -152,4 +98,35 @@ export const appleBusinessBooleanField = {
 registry.category("fields").add(
     "apple_business_boolean",
     appleBusinessBooleanField
+);
+
+registry.category("actions").add(
+    "apple_business_subscription_prompt",
+    (env, action) => {
+        const params = action.params || {};
+        env.services.dialog.add(ConfirmationDialog, {
+            title: _t("Apple Business Subscription Required"),
+            body: _t(
+                "Invoice %s is finished. Create the Apple Business subscription now? This invoice will be suggested, and you can select another posted invoice for the same company and branch.",
+                params.invoice_name
+            ),
+            confirmLabel: _t("Create Subscription"),
+            cancelLabel: _t("Not Now"),
+            cancel: () => {},
+            confirm: () => {
+                env.services.action.doAction({
+                    type: "ir.actions.act_window",
+                    name: _t("New Apple Business Subscription"),
+                    res_model: "apple.business",
+                    views: [[false, "form"]],
+                    target: "new",
+                    context: {
+                        default_partner_id: params.partner_id,
+                        default_branch_id: params.branch_id,
+                        default_invoice_id: params.invoice_id,
+                    },
+                });
+            },
+        });
+    }
 );
