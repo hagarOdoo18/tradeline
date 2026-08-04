@@ -17,6 +17,14 @@ def _category_or_parent_matches(category):
     return False
 
 
+def _is_apple_business_product(product):
+    return bool(
+        product.vendor_id
+        and product.vendor_id.name.strip().lower() == "abm"
+        and _category_or_parent_matches(product.categ_id)
+    )
+
+
 class SaleOrder(models.Model):
     _inherit = "sale.order"
 
@@ -125,7 +133,7 @@ class SaleOrder(models.Model):
             invalid_apple_lines = order.order_line.filtered(
                 lambda line: not line.display_type
                 and line.product_id
-                and not line.product_id._is_apple_business_product()
+                and not _is_apple_business_product(line.product_id)
             )
             if invalid_apple_lines:
                 product_names = "\n".join(
@@ -197,7 +205,7 @@ class SaleOrderLine(models.Model):
         if (
             self.order_id.apple_business
             and self.product_id
-            and not self.product_id._is_apple_business_product()
+            and not _is_apple_business_product(self.product_id)
         ):
             return {
                 "warning": {
@@ -219,16 +227,3 @@ class SaleOrderLine(models.Model):
         if {"product_id", "order_id"} & set(vals):
             self.mapped("order_id")._validate_apple_business_order()
         return result
-
-
-class ProductProduct(models.Model):
-    _inherit = "product.product"
-
-    def _is_apple_business_product(self):
-        self.ensure_one()
-        if (
-            not self.vendor_id
-            or self.vendor_id.name.strip().lower() != "abm"
-        ):
-            return False
-        return _category_or_parent_matches(self.categ_id)
