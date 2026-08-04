@@ -40,7 +40,6 @@ class AppleBusiness(models.Model):
     invoice_id = fields.Many2one(
         "account.move",
         string="Invoice Number",
-        required=True,
         domain="[('move_type', '=', 'out_invoice'), ('state', '=', 'posted'), ('commercial_partner_id', '=', partner_id), ('branch_id', '=', branch_id)]",
         help=(
             "Posted customer invoice used to establish this Apple Business "
@@ -62,6 +61,10 @@ class AppleBusiness(models.Model):
 
     def action_confirm(self):
         self._check_manager_access()
+        if any(not subscription.invoice_id for subscription in self):
+            raise ValidationError(
+                _("A posted customer invoice is required before confirming the subscription.")
+            )
         self.write({"state": "active"})
 
     def action_expire(self):
@@ -90,7 +93,9 @@ class AppleBusiness(models.Model):
     def _check_invoice_customer_and_branch(self):
         for subscription in self:
             if not subscription.invoice_id:
-                continue
+                raise ValidationError(
+                    _("A posted customer invoice is required for an Apple Business subscription.")
+                )
             if (
                 subscription.invoice_id.partner_id.commercial_partner_id
                 != subscription.partner_id.commercial_partner_id

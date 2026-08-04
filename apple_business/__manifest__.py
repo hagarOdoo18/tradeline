@@ -10,7 +10,6 @@
         "sale_management",
         "sale_stock",
         "account",
-        "accounting_customization",
         "branch",
         "inventory_customization",
         "partner_customization",

@@ -59,6 +59,7 @@
                             <field name="phone"/>
                             <field name="email"/>
                             <field name="invoice_id" string="Subscription Invoice"
+                                   required="1"
                                    options="{'no_create': True}"/>
                         </group>
                     </group>
