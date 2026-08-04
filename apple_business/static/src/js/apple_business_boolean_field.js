@@ -39,6 +39,8 @@ export class AppleBusinessBooleanField extends BooleanField {
     }
 
     async resetUnchecked() {
+        this.state.value = true;
+        await this.render();
         this.state.value = false;
         await this.props.record.update({ [this.props.name]: false });
         await this.render();
