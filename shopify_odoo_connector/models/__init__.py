@@ -34,3 +34,4 @@ from . import shopify_configuration
 from . import shopify_payment
 from . import shopify_location
 from . import shopify_sync
+from . import stock_picking

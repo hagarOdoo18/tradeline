@@ -209,39 +209,39 @@ class SyncProduct(models.TransientModel):
                 if not sku:
                     continue
 
-                odoo_variant = self.env['product.product'].sudo().search([
-                    ('barcode', '=', sku),
+                odoo_variants = self.env['product.product'].sudo().search([
+                   '|', ('barcode', '=', sku),('shopify_variant_sku','in', shopify_skus),
                     ('product_tmpl_id', '=', product_id.id)
-                ], limit=1)
+                ], )
 
-                if not odoo_variant:
+                if not odoo_variants:
                     _logger.warning(
                         'Shopify variant SKU "%s" not found in product "%s" — skipped.',
                         sku, product_id.name
                     )
                     continue
+                for odoo_variant in odoo_variants:
+                    odoo_variant.sudo().write({
+                        'shopify_variant': shopify_var['id'],
+                        'shopify_instance_id': shopify_instance.id,
+                        'synced_product': True,
+                        # 'company_id': shopify_instance.company_id.id,
+                        # 'lst_price': shopify_var['price'],
+                    })
 
-                odoo_variant.sudo().write({
-                    'shopify_variant': shopify_var['id'],
-                    'shopify_instance_id': shopify_instance.id,
-                    'synced_product': True,
-                    # 'company_id': shopify_instance.company_id.id,
-                    # 'lst_price': shopify_var['price'],
-                })
+                    shopify_price_list.append({
+                        shopify_var['id']: shopify_var['price'],
+                        'variant': shopify_var['title']
+                    })
 
-                shopify_price_list.append({
-                    shopify_var['id']: shopify_var['price'],
-                    'variant': shopify_var['title']
-                })
+                    odoo_variant.shopify_sync_ids.sudo().create({
+                        'instance_id': shopify_instance.id,
+                        'shopify_product': shopify_var['id'],
+                        'shopify_variant_id': shopify_var['id'],
+                        'product_prod_id': odoo_variant.id,
+                        'product_id': product_id.id,
 
-                odoo_variant.shopify_sync_ids.sudo().create({
-                    'instance_id': shopify_instance.id,
-                    'shopify_product': shopify_var['id'],
-                    'shopify_variant_id': shopify_var['id'],
-                    'product_prod_id': odoo_variant.id,
-                    'product_id': product_id.id,
-
-                })
+                    })
 
             # ٧. حساب price_extra لكل variant
             # for rec in shopify_price_list:
