@@ -34,6 +34,10 @@ class ProductProduct(models.Model):
     """
     _inherit = 'product.product'
 
+    shopify_variant_sku = fields.Char(readonly=False,
+                                  string='Shopify SKU',
+                                  help='Shopify SKU of product variant')
+
     shopify_variant = fields.Char(readonly=True,
                                   string='Shopify Variant',
                                   help='Shopify id of product variant')
