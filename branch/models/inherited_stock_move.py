@@ -135,7 +135,7 @@ class StockMove(models.Model):
 
     branch_id = fields.Many2one('res.branch')
     item_code = fields.Char(related='product_id.barcode')
-    default_code = fields.Char('UPC', related='product_id.barcode')
+    default_code = fields.Char('UPC', related='product_id.default_code')
 
 
 
