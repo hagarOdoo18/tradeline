@@ -10,6 +10,8 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='shopify_product']" position="after">
                 <field name="shopify_variant" invisible="1"/>
+                <field name="shopify_variant_sku" />
+
             </xpath>
         </field>
     </record>

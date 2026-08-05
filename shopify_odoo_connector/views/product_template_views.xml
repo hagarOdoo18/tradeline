@@ -21,7 +21,6 @@
                         <group>
                             <field name="shopify_instance_id"/>
                             <field name="shopify_product" invisible="1"/>
-                            <field name="shopify_variant_sku" invisible="1"/>
                             <field name="collection_ids"
                                    widget="many2many_tags" invisible="1"/>
                             <field name="gift_card" invisible="1"/>
