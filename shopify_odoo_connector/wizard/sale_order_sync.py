@@ -526,28 +526,27 @@ class SaleOrderSync(models.TransientModel):
                         if payment_status == 'partially_refunded' \
                         else 'refunded' if payment_status == 'refunded' \
                         else 'unpaid'
-                    if each['shipping_lines']:
-                        shipping_lines = each['shipping_lines']
+                    shipping_lines = each['shipping_lines']
 
-                        product_id = self.env.ref(
-                            'shopify_odoo_connector.product_shopify_shipping_cost')
-                        for line in shipping_lines[0]:
+                    product_id = self.env.ref(
+                        'shopify_odoo_connector.product_shopify_shipping_cost')
+                    line = shipping_lines[0]
 
-                            order_warehouse = self._get_shopify_order_warehouse(
-                                line['code'], shopify_instance)
-                            vals['warehouse_id'] = (
-                                order_warehouse.id if order_warehouse else False)
-                            team = self.env['crm.team'].search(
-                                [('branch_id', '=', order_warehouse.branch_id.id),
-                                 ('company_id', '=', self.env.company.id)])
-                            vals['team_id'] = team.id if team else False
-                            sales_rep = self.env['sales.rep'].search(
-                                [('company_id', '=', instance.company_id.id),
-                                 ('is_online', '=', True)], limit=1)
-                            vals['sales_rep_id'] = sales_rep.id if sales_rep else False
+                    order_warehouse = self._get_shopify_order_warehouse(
+                        line['code'], shopify_instance)
+                    vals['warehouse_id'] = (
+                        order_warehouse.id if order_warehouse else False)
+                    team = self.env['crm.team'].search(
+                        [('branch_id', '=', order_warehouse.branch_id.id),
+                         ('company_id', '=', self.env.company.id)])
+                    vals['team_id'] = team.id if team else False
+                    sales_rep = self.env['sales.rep'].search(
+                        [('company_id', '=', instance.company_id.id),
+                         ('is_online', '=', True)], limit=1)
+                    vals['sales_rep_id'] = sales_rep.id if sales_rep else False
 
-                            vals['branch_id'] = (
-                                order_warehouse.branch_id.id if order_warehouse else False)
+                    vals['branch_id'] = (
+                        order_warehouse.branch_id.id if order_warehouse else False)
                     sale_order = self.env['sale.order']
                     so = sale_order.create(vals)
 
