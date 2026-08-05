@@ -510,44 +510,64 @@ class SaleOrder(models.Model):
                     "This discount reason requires category rules but none are configured."
                 )
 
-        eligible_lines = []
+        eligible_groups = {}
         for line in lines:
-            if has_category_scope and self._get_reason_category_cap_for_product(reason, line.product_id) is None:
+            rule = (
+                self._get_reason_category_rule_for_product(reason, line.product_id)
+                if has_category_scope
+                else False
+            )
+            if has_category_scope and not rule:
                 continue
-            eligible_lines.append((line, self._get_discount_reason_line_base_amount(line)))
-        eligible_lines = [(line, base) for line, base in eligible_lines if base > 0]
-        eligible_base_total = sum(base for _, base in eligible_lines)
+            base_amount = self._get_discount_reason_line_base_amount(line)
+            if base_amount <= 0:
+                continue
+            group_key = rule.id if rule else False
+            eligible_groups.setdefault(group_key, []).append((line, base_amount))
 
         if float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 0:
             return {line.id: 0.0 for line in lines}
 
-        if has_category_scope and not eligible_lines:
+        if has_category_scope and not eligible_groups:
             raise UserError(
                 "No order lines are eligible for this discount reason. "
                 "Remove discount reason or add eligible products from allowed scope: %s."
                 % self._get_reason_allowed_categories_display(reason)
             )
 
-        if float_compare(eligible_base_total, 0.0, precision_rounding=precision_rounding) <= 0:
+        if not eligible_groups:
             raise UserError("Cannot apply fixed discount on zero-value order lines.")
 
-        if float_compare(fixed_amount, eligible_base_total, precision_rounding=precision_rounding) == 1:
-            raise UserError(
-                "Fixed discount amount cannot exceed eligible order lines total (%.2f)."
-                % eligible_base_total
-            )
-
         percentages = {}
-        remaining_amount = fixed_amount
-        for index, (line, base_amount) in enumerate(eligible_lines):
-            if index == len(eligible_lines) - 1:
-                line_discount_amount = remaining_amount
-            else:
-                line_discount_amount = fixed_amount * (base_amount / eligible_base_total)
-                remaining_amount -= line_discount_amount
+        for eligible_lines in eligible_groups.values():
+            eligible_base_total = sum(base for _, base in eligible_lines)
+            if float_compare(
+                fixed_amount,
+                eligible_base_total,
+                precision_rounding=precision_rounding,
+            ) == 1:
+                scope_label = (
+                    "eligible category lines total"
+                    if has_category_scope
+                    else "eligible order lines total"
+                )
+                raise UserError(
+                    "Fixed discount amount cannot exceed %s (%.2f)."
+                    % (scope_label, eligible_base_total)
+                )
 
-            discount_percentage = (line_discount_amount / base_amount) * 100 if base_amount else 0.0
-            percentages[line.id] = min(max(discount_percentage, 0.0), 100.0)
+            remaining_amount = fixed_amount
+            for index, (line, base_amount) in enumerate(eligible_lines):
+                if index == len(eligible_lines) - 1:
+                    line_discount_amount = remaining_amount
+                else:
+                    line_discount_amount = fixed_amount * (base_amount / eligible_base_total)
+                    remaining_amount -= line_discount_amount
+
+                discount_percentage = (
+                    (line_discount_amount / base_amount) * 100 if base_amount else 0.0
+                )
+                percentages[line.id] = min(max(discount_percentage, 0.0), 100.0)
 
         for line in lines - self.env["sale.order.line"].browse(list(percentages.keys())):
             percentages[line.id] = 0.0
@@ -562,6 +582,56 @@ class SaleOrder(models.Model):
                 continue
             total += base_amount * ((line.discount or 0.0) / 100.0)
         return total
+
+    def _validate_fixed_reason_discount_totals(self, reason, lines):
+        """Validate a fixed amount once per matched category rule."""
+        self.ensure_one()
+        fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
+        precision_rounding = self.currency_id.rounding if self.currency_id else 0.01
+
+        if not self._reason_has_category_scope(reason):
+            discounted_total = self._get_order_lines_discount_amount_total(lines)
+            if float_compare(
+                discounted_total,
+                fixed_amount,
+                precision_rounding=precision_rounding,
+            ) == 1:
+                raise UserError(
+                    "Discount Not Matched with Discount Reason. "
+                    "Total line discounts exceed fixed amount %.2f."
+                    % fixed_amount
+                )
+            return discounted_total
+
+        totals_by_rule = {}
+        rules_by_id = {}
+        for line in lines:
+            rule = self._get_reason_category_rule_for_product(reason, line.product_id)
+            if not rule:
+                continue
+            base_amount = self._get_discount_reason_line_base_amount(line)
+            if base_amount <= 0:
+                continue
+            rules_by_id[rule.id] = rule
+            totals_by_rule[rule.id] = totals_by_rule.get(rule.id, 0.0) + (
+                base_amount * ((line.discount or 0.0) / 100.0)
+            )
+
+        for rule_id, discounted_total in totals_by_rule.items():
+            if float_compare(
+                discounted_total,
+                fixed_amount,
+                precision_rounding=precision_rounding,
+            ) == 1:
+                rule = rules_by_id[rule_id]
+                scope = ", ".join(rule.category_ids.mapped("display_name"))
+                raise UserError(
+                    "Discount Not Matched with Discount Reason. "
+                    "Discounts for category rule '%s' exceed fixed amount %.2f."
+                    % (scope, fixed_amount)
+                )
+
+        return sum(totals_by_rule.values())
 
     def _get_reason_category_rules(self, reason):
         if not reason or "category_discount_line_ids" not in reason._fields:
@@ -578,14 +648,14 @@ class SaleOrder(models.Model):
             current = current.parent_id
         return chain
 
-    def _get_reason_category_cap_for_product(self, reason, product):
+    def _get_reason_category_rule_for_product(self, reason, product):
         rules = self._get_reason_category_rules(reason)
         if not self._reason_has_category_scope(reason) or not rules:
-            return None
+            return self.env["discount.reason.category.line"]
 
         category_chain = self._get_category_chain_ids(product.categ_id)
         if not category_chain:
-            return None
+            return self.env["discount.reason.category.line"]
 
         product_family = getattr(product.product_tmpl_id, "family_id", False)
         product_family_id = product_family.id if product_family else False
@@ -615,10 +685,14 @@ class SaleOrder(models.Model):
                         specificity,
                         depth,
                         rule.sequence,
-                        rule.discount_percentage,
+                        rule,
                     )
 
-        return best_match[3] if best_match else None
+        return best_match[3] if best_match else self.env["discount.reason.category.line"]
+
+    def _get_reason_category_cap_for_product(self, reason, product):
+        rule = self._get_reason_category_rule_for_product(reason, product)
+        return rule.discount_percentage if rule else None
 
     def _get_reason_allowed_categories_display(self, reason):
         display_parts = []
@@ -724,12 +798,7 @@ class SaleOrder(models.Model):
                         % order._get_reason_allowed_categories_display(reason)
                     )
 
-                discounted_total = order._get_order_lines_discount_amount_total(lines)
-                if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
-                    raise UserError(
-                        "Discount Not Matched with Discount Reason. Total line discounts exceed fixed amount %.2f."
-                        % fixed_amount
-                    )
+                discounted_total = order._validate_fixed_reason_discount_totals(reason, lines)
                 if (
                     require_positive_standard
                     and float_compare(fixed_amount, 0.0, precision_rounding=precision_rounding) == 1
@@ -977,11 +1046,7 @@ class SaleOrderLine(models.Model):
                         raise UserError("Discount Not Matched with Discount Reason")
                     if line.order_id.discount_id and reason.id == line.order_id.discount_id.id:
                         lines = line.order_id.order_line.filtered("product_id")
-                        fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
-                        precision_rounding = line.order_id.currency_id.rounding if line.order_id.currency_id else 0.01
-                        discounted_total = line.order_id._get_order_lines_discount_amount_total(lines)
-                        if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
-                            raise UserError("Discount Not Matched with Discount Reason")
+                        line.order_id._validate_fixed_reason_discount_totals(reason, lines)
                     else:
                         base_amount = line.order_id._get_discount_reason_line_base_amount(line)
                         if float_compare(base_amount, 0.0, precision_rounding=0.01) <= 0:
