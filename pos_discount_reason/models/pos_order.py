@@ -75,14 +75,14 @@ class PosOrder(models.Model):
             current = current.parent_id
         return chain
 
-    def _get_reason_category_cap_for_product(self, reason, product):
+    def _get_reason_category_rule_for_product(self, reason, product):
         rules = reason.category_discount_line_ids.filtered(lambda l: l.category_ids)
         if not reason.use_category_discount or not rules:
-            return None
+            return self.env["discount.reason.category.line"]
 
         category_chain = self._get_category_chain_ids(product.categ_id)
         if not category_chain:
-            return None
+            return self.env["discount.reason.category.line"]
 
         product_family = getattr(product.product_tmpl_id, "family_id", False)
         product_family_id = product_family.id if product_family else False
@@ -112,10 +112,14 @@ class PosOrder(models.Model):
                         specificity,
                         depth,
                         rule.sequence,
-                        rule.discount_percentage,
+                        rule,
                     )
 
-        return best_match[3] if best_match else None
+        return best_match[3] if best_match else self.env["discount.reason.category.line"]
+
+    def _get_reason_category_cap_for_product(self, reason, product):
+        rule = self._get_reason_category_rule_for_product(reason, product)
+        return rule.discount_percentage if rule else None
 
     def _get_reason_category_names(self, reason):
         category_names = reason.category_discount_line_ids.mapped('category_ids').mapped('display_name')
@@ -166,6 +170,8 @@ class PosOrder(models.Model):
         if (reason.discount_type or "percentage") == "fixed_amount":
             fixed_amount = max(reason.fixed_discount_amount or 0.0, 0.0)
             discounted_total = 0.0
+            discounted_totals_by_rule = {}
+            rules_by_id = {}
             precision_rounding = self.env.company.currency_id.rounding
             eligible_line_count = 0
 
@@ -199,8 +205,8 @@ class PosOrder(models.Model):
                                 }
                             )
                         continue
-                    category_cap = self._get_reason_category_cap_for_product(reason, product)
-                    if category_cap is None:
+                    matched_rule = self._get_reason_category_rule_for_product(reason, product)
+                    if not matched_rule:
                         if float_compare(actual_discount, 0.0, precision_digits=2) == 1:
                             raise UserError(
                                 _(
@@ -215,7 +221,15 @@ class PosOrder(models.Model):
                         continue
                     eligible_line_count += 1
 
-                discounted_total += base_amount * (actual_discount / 100.0)
+                line_discount_amount = base_amount * (actual_discount / 100.0)
+                if reason.use_category_discount:
+                    rules_by_id[matched_rule.id] = matched_rule
+                    discounted_totals_by_rule[matched_rule.id] = (
+                        discounted_totals_by_rule.get(matched_rule.id, 0.0)
+                        + line_discount_amount
+                    )
+                else:
+                    discounted_total += line_discount_amount
 
             if reason.use_category_discount and has_category_rules and not eligible_line_count:
                 raise UserError(
@@ -228,7 +242,31 @@ class PosOrder(models.Model):
                     }
                 )
 
-            if float_compare(discounted_total, fixed_amount, precision_rounding=precision_rounding) == 1:
+            if reason.use_category_discount:
+                for rule_id, rule_discounted_total in discounted_totals_by_rule.items():
+                    if float_compare(
+                        rule_discounted_total,
+                        fixed_amount,
+                        precision_rounding=precision_rounding,
+                    ) == 1:
+                        rule = rules_by_id[rule_id]
+                        scope = ", ".join(rule.category_ids.mapped("display_name"))
+                        raise UserError(
+                            _(
+                                "Discounts for category rule '%(scope)s' exceed fixed "
+                                "discount amount %(amount).2f for reason '%(reason)s'."
+                            ) % {
+                                "scope": scope,
+                                "amount": fixed_amount,
+                                "reason": reason.name,
+                            }
+                        )
+                discounted_total = sum(discounted_totals_by_rule.values())
+            elif float_compare(
+                discounted_total,
+                fixed_amount,
+                precision_rounding=precision_rounding,
+            ) == 1:
                 raise UserError(
                     _(
                         "Total line discounts exceed fixed discount amount %(amount).2f "

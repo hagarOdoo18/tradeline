@@ -262,6 +262,7 @@ patch(ControlButtons.prototype, {
                         depth,
                         sequence: rule.sequence,
                         discount: rule.discount_percentage,
+                        rule,
                     };
                 }
             });
@@ -316,11 +317,11 @@ patch(ControlButtons.prototype, {
             .map((line) => {
                 const base = this._getOrderlineBaseAmount(line);
                 if (!useCategoryDiscount) {
-                    return { line, base, eligible: true };
+                    return { line, base, match: null, eligible: true };
                 }
                 const product = line.get_product();
                 const match = this._getMatchedCategoryRule(product, rules, parentMap, order);
-                return { line, base, eligible: match !== null };
+                return { line, base, match, eligible: match !== null };
             })
             .filter(({ base, eligible }) => base > 0 && eligible);
 
@@ -341,23 +342,41 @@ patch(ControlButtons.prototype, {
             };
         }
 
-        const totalBase = eligibleLines.reduce((sum, entry) => sum + entry.base, 0);
-        if (fixedAmount - totalBase > 0.0001) {
-            return {
-                ok: false,
-                message: _t("Fixed discount amount cannot exceed order lines total."),
-            };
+        const eligibleGroups = new Map();
+        eligibleLines.forEach((entry) => {
+            const groupKey = useCategoryDiscount
+                ? entry.match.rule
+                : "order";
+            if (!eligibleGroups.has(groupKey)) {
+                eligibleGroups.set(groupKey, []);
+            }
+            eligibleGroups.get(groupKey).push(entry);
+        });
+
+        for (const groupLines of eligibleGroups.values()) {
+            const totalBase = groupLines.reduce((sum, entry) => sum + entry.base, 0);
+            if (fixedAmount - totalBase > 0.0001) {
+                return {
+                    ok: false,
+                    message: useCategoryDiscount
+                        ? _t("Fixed discount amount cannot exceed eligible category lines total.")
+                        : _t("Fixed discount amount cannot exceed order lines total."),
+                };
+            }
         }
 
-        let remaining = fixedAmount;
-        eligibleLines.forEach((entry, index) => {
-            const lineAmount = (index === eligibleLines.length - 1)
-                ? remaining
-                : fixedAmount * (entry.base / totalBase);
-            remaining -= lineAmount;
-            const pct = entry.base ? (lineAmount / entry.base) * 100 : 0;
-            entry.line.set_discount(Math.max(0, Math.min(pct, 100)));
-        });
+        for (const groupLines of eligibleGroups.values()) {
+            const totalBase = groupLines.reduce((sum, entry) => sum + entry.base, 0);
+            let remaining = fixedAmount;
+            groupLines.forEach((entry, index) => {
+                const lineAmount = (index === groupLines.length - 1)
+                    ? remaining
+                    : fixedAmount * (entry.base / totalBase);
+                remaining -= lineAmount;
+                const pct = entry.base ? (lineAmount / entry.base) * 100 : 0;
+                entry.line.set_discount(Math.max(0, Math.min(pct, 100)));
+            });
+        }
 
         const eligibleSet = new Set(eligibleLines.map(({ line }) => line));
         orderlines.forEach((line) => {
