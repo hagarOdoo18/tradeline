@@ -299,13 +299,18 @@ class SaleOrderSync(models.TransientModel):
             get_shopify_orders(list):list of dictionary with orders values.
         """
         wizard = self.env['sale.order.sync'].sudo().browse(ref)
-        vals = {}
         shopify_instance = instance
         store_name = instance.shop_name
         version = instance.version
         headers = instance._get_shopify_headers()
         for each in shopify_orders:
-
+            # Build a fresh vals dict for every order. Odoo's sale.order
+            # create() writes the generated sequence back into vals
+            # (vals['name'] = 'S00xxx'); a shared dict would keep that name
+            # and reuse the same sequence for every subsequent order. A fresh
+            # dict also prevents fields (shipping/billing, taxes, warehouse)
+            # from leaking between orders.
+            vals = {}
             shopify_id = each['id']
             existing_order = self.env['sale.order'].search(
                 [('shopify_sync_ids.shopify_order_ref', '=', shopify_id)])
