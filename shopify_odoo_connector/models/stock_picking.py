@@ -84,7 +84,7 @@ class StockPicking(models.Model):
             # Warehouses mapped to an active Shopify location for this instance.
             warehouse_ids = self.env['shopify.location'].sudo().search([
                 ('instance_id', '=', instance.id),
-                ('warehouse_id', '!=', False),
+                ('warehouse_id', '=', self.picking_type_id.warehouse_id.id),
                 ('active', '=', True),
             ]).mapped('warehouse_id').ids
             if not warehouse_ids:
