@@ -188,27 +188,28 @@ class SaleOrder(models.Model):
 
     def write(self, vals):
         super().write(vals)
-        if self._context.get('skip_shopify_write'):
-            return True
-        for config in self.env['shopify.configuration'].search(
-                [('company_id', '=', self.env.company.id)]):
-            if self.shopify_sync_ids.shopify_order_ref:
-                order_url = ("https://%s/admin/api/%s/draft_orders/%s.json") % (
-                    config.shop_name, config.version,
-                    self.shopify_sync_ids.shopify_order_ref)
-                line_items = [{
-                    'id': self.shopify_sync_ids.shopify_order_ref,
-                    "title": line.product_id.name,
-                    "price": line.price_unit,
-                    "quantity": int(line.product_uom_qty),
-                } for line in self.order_line]
-                payload = json.dumps({
-                    "draft_order": {
-                        'id': self.shopify_sync_ids.shopify_order_ref,
-                        "line_items": line_items,
-                        "email": self.partner_id.email
-                    }
-                })
-                requests.request("PUT", order_url,
-                                 headers=config._get_shopify_headers(),
-                                 data=payload)
+        for rec in self:
+            if self._context.get('skip_shopify_write'):
+                return True
+            for config in self.env['shopify.configuration'].search(
+                    [('company_id', '=', self.env.company.id)]):
+                if rec.shopify_sync_ids.shopify_order_ref:
+                    order_url = ("https://%s/admin/api/%s/draft_orders/%s.json") % (
+                        config.shop_name, config.version,
+                        rec.shopify_sync_ids.shopify_order_ref)
+                    line_items = [{
+                        'id': rec.shopify_sync_ids.shopify_order_ref,
+                        "title": line.product_id.name,
+                        "price": line.price_unit,
+                        "quantity": int(line.product_uom_qty),
+                    } for line in rec.order_line]
+                    payload = json.dumps({
+                        "draft_order": {
+                            'id': rec.shopify_sync_ids.shopify_order_ref,
+                            "line_items": line_items,
+                            "email": rec.partner_id.email
+                        }
+                    })
+                    requests.request("PUT", order_url,
+                                     headers=config._get_shopify_headers(),
+                                     data=payload)
