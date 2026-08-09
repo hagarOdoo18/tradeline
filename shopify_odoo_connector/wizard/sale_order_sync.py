@@ -552,6 +552,8 @@ class SaleOrderSync(models.TransientModel):
 
                     vals['branch_id'] = (
                         order_warehouse.branch_id.id if order_warehouse else False)
+                    user_id = self.env['res.users'].search([('branch_id','=',order_warehouse.branch_id.id)])
+                    vals['user_id'] = user_id.id if user_id else False
                     sale_order = self.env['sale.order']
                     so = sale_order.create(vals)
 
