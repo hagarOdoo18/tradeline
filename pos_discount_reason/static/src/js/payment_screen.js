@@ -2,7 +2,26 @@
 
 import { PaymentScreen } from "@point_of_sale/app/screens/payment_screen/payment_screen";
 import { patch } from "@web/core/utils/patch";
-import { AlertDialog, ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { _t } from "@web/core/l10n/translation";
+
+function hasDiscountReason(order) {
+    const reason = order?.discount_reason_id;
+    if (Array.isArray(reason)) {
+        return Boolean(reason[0]);
+    }
+    if (reason && typeof reason === "object") {
+        return Boolean(reason.id);
+    }
+    return Boolean(reason);
+}
+
+function hasPositiveLineDiscount(order) {
+    return order.get_orderlines().some((line) => {
+        const discount = Number(line.discount ?? line.get_discount?.() ?? 0);
+        return Number.isFinite(discount) && discount > 0;
+    });
+}
 
 patch(PaymentScreen.prototype, {
     async _finalizeValidation() {
@@ -43,6 +62,14 @@ patch(PaymentScreen.prototype, {
         const order = this.currentOrder;
         const currentPartner = order.get_partner();
         const total = order.get_total_with_tax();
+
+        if (hasPositiveLineDiscount(order) && !hasDiscountReason(order)) {
+            this.dialog.add(AlertDialog, {
+                title: _t("Missing Discount Reason"),
+                body: _t("Select a Discount Reason before validating a discounted order."),
+            });
+            return false;
+        }
 
         if (!order.sales_rep_id) {
             this.dialog.add(AlertDialog, {
