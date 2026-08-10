@@ -14,7 +14,7 @@
                 <field name="apple_business_category_ids" invisible="1"/>
             </xpath>
             <xpath expr="//field[@name='order_line']//field[@name='product_id']" position="attributes">
-                <attribute name="domain">[('sale_ok', '=', True), ('type', '!=', 'combo')] + (parent.apple_business and [('vendor_id.name', '=ilike', 'ABM'), ('categ_id', 'in', parent.apple_business_category_ids)] or [])</attribute>
+                <attribute name="domain">[('sale_ok', '=', True), ('type', '!=', 'combo')] + (parent.apple_business and ['|', ('categ_id', 'not in', parent.apple_business_category_ids), '&amp;', ('categ_id', 'in', parent.apple_business_category_ids), ('vendor_id.name', '=ilike', 'ABM')] or [])</attribute>
             </xpath>
         </field>
     </record>

@@ -3,6 +3,8 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, ValidationError
 
+from .product_rules import is_apple_business_device
+
 
 class AppleBusiness(models.Model):
     _name = "apple.business"
@@ -116,7 +118,9 @@ class AppleBusiness(models.Model):
             return [(5, 0, 0)]
 
         invoice_lines = self.invoice_id.invoice_line_ids.filtered(
-            lambda line: line.display_type == "product" and line.product_id
+            lambda line: line.display_type == "product"
+            and line.product_id
+            and is_apple_business_device(line.product_id)
         )
         commands = [(5, 0, 0)]
         serialled_product_ids = set()
@@ -126,7 +130,7 @@ class AppleBusiness(models.Model):
             if not lot_id:
                 continue
             lot = self.env["stock.lot"].browse(lot_id).exists()
-            if not lot:
+            if not lot or not is_apple_business_device(lot.product_id):
                 continue
             key = (lot.product_id.id, lot.id)
             if key in seen_serials:

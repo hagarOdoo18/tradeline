@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Apple Business",
-    "version": "18.0.2.2.0",
+    "version": "18.0.2.3.0",
     "category": "Sales",
-    "summary": "Manage Apple Business subscriptions and ABM-only sales orders",
+    "summary": "Manage Apple Business subscriptions and category-scoped ABM devices",
     "author": "Tradeline",
     "license": "LGPL-3",
     "depends": [

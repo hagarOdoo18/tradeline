@@ -3,26 +3,7 @@
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
-APPLE_BUSINESS_CATEGORY_NAMES = {"mac", "ipad", "iphone"}
-
-
-def _category_or_parent_matches(category):
-    seen = set()
-    current = category
-    while current and current.id not in seen:
-        if current.name.strip().lower() in APPLE_BUSINESS_CATEGORY_NAMES:
-            return True
-        seen.add(current.id)
-        current = current.parent_id
-    return False
-
-
-def _is_apple_business_product(product):
-    return bool(
-        product.vendor_id
-        and product.vendor_id.name.strip().lower() == "abm"
-        and _category_or_parent_matches(product.categ_id)
-    )
+from .product_rules import is_apple_business_category, is_apple_business_device
 
 
 class SaleOrder(models.Model):
@@ -73,7 +54,7 @@ class SaleOrder(models.Model):
 
     def _compute_apple_business_category_ids(self):
         categories = self.env["product.category"].search([])
-        allowed_categories = categories.filtered(_category_or_parent_matches)
+        allowed_categories = categories.filtered(is_apple_business_category)
         for order in self:
             order.apple_business_category_ids = allowed_categories
 
@@ -128,7 +109,8 @@ class SaleOrder(models.Model):
             invalid_apple_lines = order.order_line.filtered(
                 lambda line: not line.display_type
                 and line.product_id
-                and not _is_apple_business_product(line.product_id)
+                and is_apple_business_category(line.product_id.categ_id)
+                and not is_apple_business_device(line.product_id)
             )
             if invalid_apple_lines:
                 product_names = "\n".join(
@@ -137,8 +119,9 @@ class SaleOrder(models.Model):
                 )
                 raise UserError(
                     _(
-                        "Apple Business orders can only contain ABM products "
-                        "from the Mac, iPad, or iPhone categories:\n%s"
+                        "Mac, iPad, and iPhone products on an Apple Business order "
+                        "must use vendor ABM. Products from other categories are "
+                        "allowed on the same order:\n%s"
                     )
                     % product_names
                 )
@@ -189,13 +172,15 @@ class SaleOrderLine(models.Model):
         if (
             self.order_id.apple_business
             and self.product_id
-            and not _is_apple_business_product(self.product_id)
+            and is_apple_business_category(self.product_id.categ_id)
+            and not is_apple_business_device(self.product_id)
         ):
             return {
                 "warning": {
-                    "title": _("Eligible Apple Device Required"),
+                    "title": _("ABM Vendor Required"),
                     "message": _(
-                        "Select an ABM product from the Mac, iPad, or iPhone categories."
+                        "Mac, iPad, and iPhone products must use vendor ABM. "
+                        "Products from other categories are allowed on this order."
                     ),
                 }
             }
