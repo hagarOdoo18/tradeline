@@ -27,7 +27,7 @@ class TestApprovalRequestPricing(TransactionCase):
             }
         )
 
-    def test_product_prices_and_margin_default_from_product(self):
+    def test_product_prices_do_not_default_from_product(self):
         line = self.env["approval.product.line"].create(
             {
                 "approval_request_id": self.request.id,
@@ -35,25 +35,34 @@ class TestApprovalRequestPricing(TransactionCase):
             }
         )
 
-        self.assertEqual(line.unit_cost, 80.0)
-        self.assertEqual(line.selling_price, 125.0)
-        self.assertEqual(line.margin, 45.0)
+        self.assertEqual(line.unit_cost, 0.0)
+        self.assertEqual(line.selling_price, 0.0)
+        self.assertEqual(line.margin, 0.0)
 
-    def test_margin_recomputes_after_manual_price_change(self):
+    def test_product_prices_and_margin_are_manual_fields(self):
         line = self.env["approval.product.line"].create(
             {
                 "approval_request_id": self.request.id,
                 "product_id": self.product.id,
                 "unit_cost": 90.0,
                 "selling_price": 140.0,
+                "margin": 35.0,
             }
         )
 
-        self.assertEqual(line.margin, 50.0)
+        self.assertEqual(line.unit_cost, 90.0)
+        self.assertEqual(line.selling_price, 140.0)
+        self.assertEqual(line.margin, 35.0)
 
-    def test_payment_fields_are_dropdown_relations(self):
-        payment_term_field = self.request._fields["payment_term_id"]
-        method_type_field = self.request._fields["payment_method_type_id"]
+    def test_payment_fields_are_standalone_text(self):
+        self.request.write(
+            {
+                "payment_terms": "15 days after delivery",
+                "method_type": "Bank transfer",
+            }
+        )
 
-        self.assertEqual(payment_term_field.comodel_name, "account.payment.term")
-        self.assertEqual(method_type_field.comodel_name, "account.payment.method")
+        self.assertEqual(self.request.payment_terms, "15 days after delivery")
+        self.assertEqual(self.request.method_type, "Bank transfer")
+        self.assertEqual(self.request._fields["payment_terms"].type, "char")
+        self.assertEqual(self.request._fields["method_type"].type, "char")
