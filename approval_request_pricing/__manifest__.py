@@ -1,8 +1,8 @@
 {
     "name": "Approval Request Pricing",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.1.0",
     "category": "Human Resources/Approvals",
-    "summary": "Add payment details and product pricing to RFQ approvals",
+    "summary": "Add standalone payment and pricing inputs to RFQ approvals",
     "author": "Tradeline",
     "license": "LGPL-3",
     "depends": [
