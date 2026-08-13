@@ -6,12 +6,14 @@
         <field name="inherit_id" ref="approvals.approval_request_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//group[@name='request_details']/field[@name='reference']" position="after">
-                <field name="payment_terms"
+                <field name="payment_term_option_id"
                        invisible="approval_type != 'purchase'"
-                       readonly="request_status != 'new'"/>
-                <field name="method_type"
+                       readonly="request_status != 'new'"
+                       options="{'no_create': True, 'no_open': True}"/>
+                <field name="method_type_option_id"
                        invisible="approval_type != 'purchase'"
-                       readonly="request_status != 'new'"/>
+                       readonly="request_status != 'new'"
+                       options="{'no_create': True, 'no_open': True}"/>
             </xpath>
         </field>
     </record>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="approval_payment_term_option_view_list" model="ir.ui.view">
+        <field name="name">approval.payment.term.option.view.list</field>
+        <field name="model">approval.payment.term.option</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="approval_payment_term_option_action" model="ir.actions.act_window">
+        <field name="name">Payment Terms</field>
+        <field name="res_model">approval.payment.term.option</field>
+        <field name="view_mode">list</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <record id="approval_method_type_option_view_list" model="ir.ui.view">
+        <field name="name">approval.method.type.option.view.list</field>
+        <field name="model">approval.method.type.option</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="approval_method_type_option_action" model="ir.actions.act_window">
+        <field name="name">Method Types</field>
+        <field name="res_model">approval.method.type.option</field>
+        <field name="view_mode">list</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <menuitem id="approval_payment_term_option_menu"
+              name="Payment Terms"
+              parent="approvals.approvals_menu_config"
+              action="approval_payment_term_option_action"
+              sequence="30"
+              groups="base.group_system"/>
+    <menuitem id="approval_method_type_option_menu"
+              name="Method Types"
+              parent="approvals.approvals_menu_config"
+              action="approval_method_type_option_action"
+              sequence="40"
+              groups="base.group_system"/>
+</odoo>

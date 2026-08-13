@@ -7,9 +7,9 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='seller_id']" position="after">
                 <field name="currency_id" column_invisible="True"/>
-                <field name="unit_cost" column_invisible="parent.approval_type != 'purchase'"/>
+                <field name="unit_cost" column_invisible="parent.approval_type != 'purchase'" readonly="1"/>
                 <field name="selling_price" column_invisible="parent.approval_type != 'purchase'"/>
-                <field name="margin" column_invisible="parent.approval_type != 'purchase'"/>
+                <field name="margin" column_invisible="parent.approval_type != 'purchase'" readonly="1"/>
             </xpath>
         </field>
     </record>
@@ -21,9 +21,9 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='quantity']" position="after">
                 <field name="currency_id" invisible="1"/>
-                <field name="unit_cost"/>
+                <field name="unit_cost" readonly="1"/>
                 <field name="selling_price"/>
-                <field name="margin"/>
+                <field name="margin" readonly="1"/>
             </xpath>
         </field>
     </record>
