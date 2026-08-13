@@ -1,8 +1,8 @@
 {
     "name": "Approval Request Pricing",
-    "version": "18.0.1.1.0",
+    "version": "18.0.1.2.0",
     "category": "Human Resources/Approvals",
-    "summary": "Add standalone payment and pricing inputs to RFQ approvals",
+    "summary": "Add configurable payment choices and automatic RFQ pricing",
     "author": "Tradeline",
     "license": "LGPL-3",
     "depends": [
@@ -10,6 +10,8 @@
         "approvals_purchase",
     ],
     "data": [
+        "security/ir.model.access.csv",
+        "views/approval_pricing_option_views.xml",
         "views/approval_request_views.xml",
         "views/approval_product_line_views.xml",
     ],

@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_approval_payment_term_option_user,approval.payment.term.option user,model_approval_payment_term_option,base.group_user,1,0,0,0
+access_approval_payment_term_option_system,approval.payment.term.option administrator,model_approval_payment_term_option,base.group_system,1,1,1,1
+access_approval_method_type_option_user,approval.method.type.option user,model_approval_method_type_option,base.group_user,1,0,0,0
+access_approval_method_type_option_system,approval.method.type.option administrator,model_approval_method_type_option,base.group_system,1,1,1,1
