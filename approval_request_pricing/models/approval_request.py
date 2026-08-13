@@ -53,3 +53,8 @@ class ApprovalRequest(models.Model):
                 for line in request.product_line_ids
             )
             request.total_margin = request.total_selling - request.total_cost
+
+    def action_create_purchase_orders(self):
+        action = super().action_create_purchase_orders()
+        self.product_line_ids._apply_approved_unit_cost_to_purchase_order_line()
+        return action

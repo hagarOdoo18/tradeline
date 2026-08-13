@@ -61,3 +61,21 @@ class ApprovalProductLine(models.Model):
     def _compute_margin(self):
         for line in self:
             line.margin = line.selling_price - line.unit_cost
+
+    def _apply_approved_unit_cost_to_purchase_order_line(self):
+        """Use the approved cost as the price of the generated RFQ line."""
+        for line in self.filtered("purchase_order_line_id"):
+            purchase_line = line.purchase_order_line_id
+            source_currency = line.currency_id
+            target_currency = purchase_line.currency_id
+            unit_cost = line.unit_cost
+
+            if source_currency and target_currency and source_currency != target_currency:
+                unit_cost = source_currency._convert(
+                    unit_cost,
+                    target_currency,
+                    line.company_id,
+                    purchase_line.order_id.date_order or fields.Date.context_today(line),
+                )
+
+            purchase_line.price_unit = unit_cost
