@@ -16,7 +16,6 @@ class ApprovalProductLine(models.Model):
         compute="_compute_unit_cost",
         store=True,
         readonly=False,
-        precompute=True,
     )
     selling_price = fields.Monetary(
         string="Selling Price",
@@ -24,7 +23,6 @@ class ApprovalProductLine(models.Model):
         compute="_compute_selling_price",
         store=True,
         readonly=False,
-        precompute=True,
     )
     margin = fields.Monetary(
         string="Margin",

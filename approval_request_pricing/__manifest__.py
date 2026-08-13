@@ -1,6 +1,6 @@
 {
     "name": "Approval Request Pricing",
-    "version": "18.0.1.4.0",
+    "version": "18.0.1.4.1",
     "category": "Human Resources/Approvals",
     "summary": "Add configurable payment choices and automatic RFQ pricing",
     "author": "Tradeline",
