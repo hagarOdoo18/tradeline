@@ -110,3 +110,32 @@ class TestApprovalRequestPricing(TransactionCase):
             self.request._fields["method_type_option_id"].comodel_name,
             "approval.method.type.option",
         )
+
+    def test_approved_unit_cost_is_applied_to_generated_rfq_line(self):
+        vendor = self.env["res.partner"].create(
+            {"name": "Approval Pricing Vendor", "supplier_rank": 1}
+        )
+        purchase_order = self.env["purchase.order"].create(
+            {"partner_id": vendor.id}
+        )
+        purchase_line = self.env["purchase.order.line"].create(
+            {
+                "order_id": purchase_order.id,
+                "product_id": self.product.id,
+                "product_qty": 2.0,
+                "price_unit": 55.0,
+            }
+        )
+        approval_line = self.env["approval.product.line"].create(
+            {
+                "approval_request_id": self.request.id,
+                "product_id": self.product.id,
+                "quantity": 2.0,
+                "unit_cost": 91.0,
+                "purchase_order_line_id": purchase_line.id,
+            }
+        )
+
+        approval_line._apply_approved_unit_cost_to_purchase_order_line()
+
+        self.assertEqual(purchase_line.price_unit, 91.0)
