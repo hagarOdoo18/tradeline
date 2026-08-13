@@ -15,6 +15,7 @@ class ApprovalProductLine(models.Model):
         currency_field="currency_id",
         compute="_compute_unit_cost",
         store=True,
+        readonly=False,
         precompute=True,
     )
     selling_price = fields.Monetary(
