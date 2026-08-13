@@ -65,6 +65,27 @@ class TestApprovalRequestPricing(TransactionCase):
         self.assertEqual(line.selling_price, 125.0)
         self.assertEqual(line.margin, 35.0)
 
+    def test_request_totals_include_quantity_and_recompute(self):
+        line = self.env["approval.product.line"].create(
+            {
+                "approval_request_id": self.request.id,
+                "product_id": self.product.id,
+                "quantity": 3.0,
+                "unit_cost": 90.0,
+                "selling_price": 140.0,
+            }
+        )
+
+        self.assertEqual(self.request.total_cost, 270.0)
+        self.assertEqual(self.request.total_selling, 420.0)
+        self.assertEqual(self.request.total_margin, 150.0)
+
+        line.write({"unit_cost": 100.0, "selling_price": 150.0})
+
+        self.assertEqual(self.request.total_cost, 300.0)
+        self.assertEqual(self.request.total_selling, 450.0)
+        self.assertEqual(self.request.total_margin, 150.0)
+
     def test_payment_fields_use_configurable_options(self):
         payment_term = self.env["approval.payment.term.option"].create(
             {"name": "15 days after delivery"}

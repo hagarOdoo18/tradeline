@@ -15,6 +15,15 @@
                        readonly="request_status != 'new'"
                        options="{'no_create': True, 'no_open': True}"/>
             </xpath>
+            <xpath expr="//field[@name='product_line_ids']" position="after">
+                <group class="oe_subtotal_footer oe_right"
+                       invisible="approval_type != 'purchase'">
+                    <field name="pricing_currency_id" invisible="1"/>
+                    <field name="total_cost" readonly="1"/>
+                    <field name="total_selling" readonly="1"/>
+                    <field name="total_margin" readonly="1" class="oe_subtotal_footer_separator"/>
+                </group>
+            </xpath>
         </field>
     </record>
 </odoo>
