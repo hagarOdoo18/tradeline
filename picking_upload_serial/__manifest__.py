@@ -8,7 +8,6 @@
     'depends': ['stock', 'product'],
     'data': [
         'security/ir.model.access.csv',
-        'data/picking_upload_validate_cron.xml',
         'views/upload_delivery_wizard_view.xml',
     ],
     'installable': True,

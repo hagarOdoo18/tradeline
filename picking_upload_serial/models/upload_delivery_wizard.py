@@ -14,25 +14,7 @@ class UploadDeliveryWizard(models.TransientModel):
     file = fields.Binary(string='Excel File', required=True)
     filename = fields.Char(string='File Name')
     create_if_not_exist = fields.Boolean(string='Create Serial if Not Exist', default=True)
-
-    # kept for backward compatibility with existing automations / data
     auto_confirm = fields.Boolean(string='Confirm Delivery Automatically', default=False)
-
-    validate_mode = fields.Selection(
-        selection=[
-            ('none', 'Do not validate'),
-            ('now', 'Validate now'),
-            ('background', 'Validate in background'),
-        ],
-        string='Validation',
-        default='none',
-        required=True,
-        help="Validate now: you wait for the transfer to be processed.\n"
-             "Validate in background: the upload returns immediately and a "
-             "scheduled job validates the transfer a few seconds later "
-             "(recommended above ~1000 serials). A backorder is created "
-             "automatically in that mode, since no popup can be shown.",
-    )
 
     # ------------------------------------------------------------------
     # Main action
@@ -298,15 +280,7 @@ class UploadDeliveryWizard(models.TransientModel):
         # =============================
         # Validation
         # =============================
-        mode = self.validate_mode
-        if mode == 'none' and self.auto_confirm:
-            mode = 'now'  # backward compatibility
-
-        if mode == 'background':
-            picking.action_queue_upload_validation()
-            return {"type": "ir.actions.client", "tag": "reload"}
-
-        if mode == 'now':
+        if self.auto_confirm:
             # button_validate may return the backorder confirmation popup;
             # return it instead of swallowing it, otherwise the picking
             # silently stays "Ready".
