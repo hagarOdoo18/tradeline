@@ -7,7 +7,8 @@
                 <group>
                     <field name="picking_id"/>
                     <field name="file" filename="filename"/>
-
+                    <field name="create_if_not_exist"/>
+                    <field name="validate_mode" widget="radio"/>
                 </group>
                 <footer>
                     <button string="Upload" name="action_upload_excel" type="object" class="btn-primary"/>
@@ -39,6 +40,19 @@
                         class="btn-secondary"
                         icon="fa-upload"/>
             </header>
+            <xpath expr="//sheet" position="before">
+                <field name="upload_validate_pending" invisible="1"/>
+                <div class="alert alert-info" role="status"
+                     invisible="not upload_validate_pending">
+                    Validation is queued. The scheduled job will validate this
+                    transfer within the next couple of minutes.
+                </div>
+                <div class="alert alert-danger" role="alert"
+                     invisible="not upload_validate_error">
+                    <strong>Background validation failed:</strong>
+                    <field name="upload_validate_error" readonly="1" nolabel="1"/>
+                </div>
+            </xpath>
         </field>
     </record>
 

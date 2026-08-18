@@ -1,6 +1,6 @@
 {
     'name': 'picking_upload_serial',
-    'version': '1.0',
+    'version': '18.0.1.1.0',
     'summary': 'Upload Excel to stock picking (serials & quantities)',
     'description': 'Upload .xlsx file (Code, Serial, Quantity) to update stock picking lines, create lots and optionally confirm the picking.',
     'author': 'ChatGPT (generated)',
@@ -8,6 +8,7 @@
     'depends': ['stock', 'product'],
     'data': [
         'security/ir.model.access.csv',
+        'data/picking_upload_validate_cron.xml',
         'views/upload_delivery_wizard_view.xml',
     ],
     'installable': True,
