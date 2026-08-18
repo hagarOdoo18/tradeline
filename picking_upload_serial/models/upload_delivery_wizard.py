@@ -4,6 +4,7 @@ from odoo.exceptions import UserError
 import base64
 import openpyxl
 from io import BytesIO
+from collections import defaultdict
 
 
 class UploadDeliveryWizard(models.TransientModel):
@@ -17,7 +18,6 @@ class UploadDeliveryWizard(models.TransientModel):
     auto_confirm = fields.Boolean(string='Confirm Delivery Automatically', default=False)
 
     def action_upload_excel(self):
-        from collections import defaultdict
 
         self.ensure_one()
 
