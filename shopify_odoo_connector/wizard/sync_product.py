@@ -169,11 +169,14 @@ class SyncProduct(models.TransientModel):
             ]
 
             # ٢. البحث عن product.template موجود بأي SKU من الـ variants
+            #    المطابقة تتم على barcode أو shopify_variant_sku
             product_id = None
             if shopify_skus:
                 # ابحث في product.product عن variant بنفس الـ SKU
                 matching_variant = self.env['product.product'].sudo().search([
-                    ('barcode', 'in', shopify_skus)
+                    '|',
+                    ('barcode', 'in', shopify_skus),
+                    ('shopify_variant_sku', 'in', shopify_skus),
                 ], limit=1)
                 if matching_variant:
 
@@ -209,10 +212,13 @@ class SyncProduct(models.TransientModel):
                 if not sku:
                     continue
 
+                # المطابقة على مستوى الـ variant: barcode أو shopify_variant_sku
                 odoo_variants = self.env['product.product'].sudo().search([
-                   '|', ('barcode', '=', sku),('shopify_variant_sku','in', shopify_skus),
-                    ('product_tmpl_id', '=', product_id.id)
-                ], )
+                    ('product_tmpl_id', '=', product_id.id),
+                    '|',
+                    ('barcode', '=', sku),
+                    ('shopify_variant_sku', '=', sku),
+                ])
 
                 if not odoo_variants:
                     _logger.warning(
