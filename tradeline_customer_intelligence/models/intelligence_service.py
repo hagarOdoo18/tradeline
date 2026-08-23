@@ -238,6 +238,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 WHERE {anchor_sql}
             )
             SELECT
+                'partner:' || partner.id::text AS customer_key,
                 partner.id AS partner_id,
                 partner.name,
                 partner.email,
@@ -402,19 +403,40 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
                   AND {anchor_sql}
+            ),
+            customer_invoices AS (
+                SELECT
+                    CASE
+                        WHEN partner.id IS NOT NULL THEN 'partner:' || partner.id::text
+                        WHEN invoice.source_partner_id IS NOT NULL THEN 'legacy:' || invoice.source_partner_id::text
+                        WHEN NULLIF(TRIM(invoice.source_partner_mobile), '') IS NOT NULL
+                            THEN 'legacy-mobile:' || REGEXP_REPLACE(invoice.source_partner_mobile, '[^0-9+]', '', 'g')
+                        WHEN NULLIF(TRIM(invoice.source_partner_name), '') IS NOT NULL
+                            THEN 'legacy-name:' || LOWER(TRIM(invoice.source_partner_name))
+                    END AS customer_key,
+                    partner.id AS partner_id,
+                    COALESCE(partner.name, NULLIF(invoice.source_partner_name, ''), 'Legacy customer') AS customer_name,
+                    partner.email,
+                    COALESCE(partner.mobile, NULLIF(invoice.source_partner_mobile, '')) AS mobile,
+                    invoice.id AS basket_id,
+                    invoice.amount_untaxed,
+                    invoice.invoice_date
+                FROM legacy_invoice invoice
+                JOIN anchors ON anchors.id = invoice.id
+                LEFT JOIN res_partner partner ON partner.id = invoice.partner_id
             )
             SELECT
-                partner.id AS partner_id,
-                partner.name,
-                partner.email,
-                partner.mobile,
-                COUNT(DISTINCT invoice.id) AS baskets,
-                SUM(invoice.amount_untaxed) AS revenue,
-                MAX(invoice.invoice_date) AS last_purchase
-            FROM legacy_invoice invoice
-            JOIN anchors ON anchors.id = invoice.id
-            JOIN res_partner partner ON partner.id = invoice.partner_id
-            GROUP BY partner.id, partner.name, partner.email, partner.mobile
+                customer_key,
+                MAX(partner_id) AS partner_id,
+                MAX(customer_name) AS name,
+                MAX(email) AS email,
+                MAX(mobile) AS mobile,
+                COUNT(DISTINCT basket_id) AS baskets,
+                SUM(amount_untaxed) AS revenue,
+                MAX(invoice_date) AS last_purchase
+            FROM customer_invoices
+            WHERE customer_key IS NOT NULL
+            GROUP BY customer_key
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
             """.format(anchor_sql=direct_anchor_sql),
@@ -522,7 +544,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         SELECT COALESCE(
                                    TO_JSONB(team.name)->>'en_US',
                                    TO_JSONB(team.name)->>'en',
-                                   TO_JSONB(team.name)#>>'{}',
+                                   TO_JSONB(team.name)#>>'{{}}',
                                    'Unassigned'
                                ) AS name,
                                COUNT(DISTINCT lines.basket_id) AS baskets,
@@ -590,7 +612,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             WITH anchor_lines AS (
                 SELECT
                     invoice.id AS basket_id,
-                    invoice.partner_id,
+                    CASE
+                        WHEN invoice.partner_id IS NOT NULL THEN 'partner:' || invoice.partner_id::text
+                        WHEN invoice.source_partner_id IS NOT NULL THEN 'legacy:' || invoice.source_partner_id::text
+                        WHEN NULLIF(TRIM(invoice.source_partner_mobile), '') IS NOT NULL
+                            THEN 'legacy-mobile:' || REGEXP_REPLACE(invoice.source_partner_mobile, '[^0-9+]', '', 'g')
+                        WHEN NULLIF(TRIM(invoice.source_partner_name), '') IS NOT NULL
+                            THEN 'legacy-name:' || LOWER(TRIM(invoice.source_partner_name))
+                    END AS customer_key,
                     invoice.invoice_date,
                     line.price_subtotal AS revenue,
                     COALESCE(line.discount, 0.0) AS discount,
@@ -615,8 +644,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 (
                     SELECT JSONB_BUILD_OBJECT(
                         'baskets', COUNT(DISTINCT basket_id),
-                        'identified_baskets', COUNT(DISTINCT basket_id) FILTER (WHERE partner_id IS NOT NULL),
-                        'identified_customers', COUNT(DISTINCT partner_id) FILTER (WHERE partner_id IS NOT NULL)
+                        'identified_baskets', COUNT(DISTINCT basket_id) FILTER (WHERE customer_key IS NOT NULL),
+                        'identified_customers', COUNT(DISTINCT customer_key) FILTER (WHERE customer_key IS NOT NULL)
                     )
                     FROM anchor_lines
                 ) AS scope_summary,
@@ -943,7 +972,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         dimensions["trend_direction"] = "up" if trend_change > 0 else ("down" if trend_change < 0 else "flat")
 
         top = max(companions, key=lambda row: row.get("opportunity_score", 0.0), default=None)
-        display_name = entity["name"] if entity["type"] != "query" else (first.get("anchor_name") or query)
+        display_name = entity["name"] if entity["type"] != "query" else query
         grain_labels = {
             "category": "Category (including child categories)",
             "product": "Product family",

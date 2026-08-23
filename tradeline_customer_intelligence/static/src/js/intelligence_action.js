@@ -25,7 +25,7 @@ export class TradelineCustomerIntelligence extends Component {
             endDate: "2025-12-31",
             bundle: null,
             selectedCompanionKey: null,
-            selectedCustomerId: null,
+            selectedCustomerKey: null,
             audienceOpen: false,
             navCollapsed: false,
         });
@@ -61,7 +61,7 @@ export class TradelineCustomerIntelligence extends Component {
         return this.companions.find(row => row.product_key === this.state.selectedCompanionKey) || this.companions[0] || null;
     }
     get selectedCustomer() {
-        return this.customers.find(row => Number(row.partner_id) === Number(this.state.selectedCustomerId)) || this.customers[0] || null;
+        return this.customers.find(row => row.customer_key === this.state.selectedCustomerKey) || this.customers[0] || null;
     }
     get maxAttachRate() {
         return Math.max(...this.companions.map(row => Number(row.attach_rate || 0)), 1);
@@ -142,7 +142,7 @@ export class TradelineCustomerIntelligence extends Component {
             );
             this.state.bundle = bundle;
             this.state.selectedCompanionKey = bundle.companions?.[0]?.product_key || null;
-            this.state.selectedCustomerId = bundle.customers?.[0]?.partner_id || null;
+            this.state.selectedCustomerKey = bundle.customers?.[0]?.customer_key || null;
         } catch (error) {
             this.state.error = this.extractError(error);
         } finally {
@@ -216,7 +216,7 @@ export class TradelineCustomerIntelligence extends Component {
         this.state.selectedCompanionKey = ev.currentTarget.dataset.key;
     }
     onSelectCustomer(ev) {
-        this.state.selectedCustomerId = Number(ev.currentTarget.dataset.id);
+        this.state.selectedCustomerKey = ev.currentTarget.dataset.key;
     }
     onBuildAudience() {
         this.state.audienceOpen = true;
