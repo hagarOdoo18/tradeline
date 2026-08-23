@@ -54,6 +54,9 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertIn("REGEXP_REPLACE", clause)
         self.assertIn("LEFT", clause)
         self.assertEqual(params, [["AB123"]])
+        scoped_clause, scoped_params = self.service._anchor_clause(entity, "", source="legacy", scoped=True)
+        self.assertIn("COALESCE(item_code, '')", scoped_clause)
+        self.assertEqual(scoped_params, [["AB123"]])
 
     def test_prefix_prefers_item_barcode_and_normalizes(self):
         entity = self.service._normalize_entity(
