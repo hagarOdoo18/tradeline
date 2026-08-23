@@ -15,6 +15,17 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         cls.variant = cls.template.product_variant_id
         cls.variant.write({"barcode": "ab-12 3/xyz", "default_code": "fallback-code"})
+        cls.legacy_fact = cls.env["legacy.product.month.fact"].create(
+            {
+                "source_db": "intelligence_test",
+                "source_product_id": 991001,
+                "period_month": "2025-01-01",
+                "source_default_code": "ab-12 3-old",
+                "source_name": "Legacy Intelligence Phone",
+                "legacy_sales_qty": 2,
+                "legacy_sales_amount": 100,
+            }
+        )
         cls.service = cls.env["tradeline.customer.intelligence.service"]
 
     def test_category_scope_includes_descendants(self):
@@ -72,12 +83,60 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(entity["type"], "query")
         self.assertEqual(entity["id"], 0)
 
+    def test_legacy_variant_keeps_prefix_without_claiming_current_record(self):
+        entity = self.service._normalize_entity(
+            {
+                "type": "legacy_variant",
+                "id": 0,
+                "name": "Legacy Intelligence Phone",
+                "item_code": "ab-12 3-old",
+                "prefix5": "AB123",
+            },
+            "",
+        )
+        self.assertEqual(entity["type"], "legacy_variant")
+        self.assertEqual(entity["id"], 0)
+        self.assertEqual(entity["prefixes"], ["AB123"])
+        current_clause, current_params = self.service._anchor_clause(
+            entity, "", source="current", scoped=False
+        )
+        self.assertIn("product.barcode", current_clause)
+        self.assertEqual(current_params, [["AB123"]])
+
+    def test_variant_identity_uses_catalog_existence_not_sales_activity(self):
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        identity = self.service._comparison_identity_rows(["AB123"], entity)[0]
+        self.assertEqual(identity["state"], "matched")
+        self.assertTrue(identity["legacy_exists"])
+        self.assertTrue(identity["current_exists"])
+        self.assertEqual(identity["current_variant_id"], self.variant.id)
+        self.assertEqual(identity["current_catalog_status"], "Active")
+
+    def test_operating_company_filter_is_limited_to_allowed_companies(self):
+        normalized = self.service._normalize_filters(
+            {"operating_company_id": self.env.company.id}
+        )
+        self.assertEqual(normalized["operating_company_id"], self.env.company.id)
+        self.assertEqual(self.service._company_ids(normalized), [self.env.company.id])
+        invalid = self.service._normalize_filters({"operating_company_id": 999999999})
+        self.assertEqual(invalid["operating_company_id"], 0)
+        self.assertEqual(set(self.service._company_ids(invalid)), set(self.env.user.company_ids.ids))
+
     def test_search_contract_exposes_all_three_grains(self):
         results = self.service.search_entities("Intelligence Test", 12)
         result_pairs = {(item["type"], item["id"]) for item in results}
         self.assertIn(("category", self.parent_category.id), result_pairs)
         self.assertIn(("product", self.template.id), result_pairs)
         self.assertIn(("variant", self.variant.id), result_pairs)
+
+    def test_search_exposes_legacy_monthly_variant_without_fake_odoo18_id(self):
+        results = self.service.search_entities("Legacy Intelligence Phone", 12)
+        legacy = next(item for item in results if item["type"] == "legacy_variant")
+        self.assertEqual(legacy["id"], 0)
+        self.assertEqual(legacy["prefix5"], "AB123")
+        self.assertEqual(legacy["source"], "legacy")
 
     def test_search_accepts_human_name_or_full_item_code(self):
         results = self.service.search_entities("ab-12 3", 12)

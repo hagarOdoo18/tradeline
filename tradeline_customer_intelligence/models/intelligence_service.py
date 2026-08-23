@@ -40,8 +40,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             start, end = end, start
         return start, end
 
-    def _company_ids(self):
-        return self.env.user.company_ids.ids or [self.env.company.id]
+    def _company_ids(self, filters=None):
+        """Resolve the operating-company scope without trusting client supplied ids."""
+        allowed_ids = self.env.user.company_ids.ids or [self.env.company.id]
+        filters = filters or {}
+        try:
+            company_id = int(filters.get("operating_company_id") or 0)
+        except (TypeError, ValueError):
+            company_id = 0
+        return [company_id] if company_id in allowed_ids else allowed_ids
 
     def _normalize_filters(self, filters=None):
         filters = dict(filters or {})
@@ -52,6 +59,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             customer_company_id = int(filters.get("customer_company_id") or 0)
         except (TypeError, ValueError):
             customer_company_id = 0
+        try:
+            operating_company_id = int(filters.get("operating_company_id") or 0)
+        except (TypeError, ValueError):
+            operating_company_id = 0
+        allowed_company_ids = self.env.user.company_ids.ids or [self.env.company.id]
+        if operating_company_id not in allowed_company_ids:
+            operating_company_id = 0
+        operating_company = self.env["res.company"].sudo().browse(operating_company_id).exists()
         customer_company = self.env["res.partner"].sudo().browse(customer_company_id).exists()
         if customer_company_id and not customer_company:
             customer_company_id = 0
@@ -60,6 +75,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "customer_company_id": customer_company_id,
             "customer_company_name": customer_company.name if customer_company else "",
             "customer_company_vat": customer_company.vat if customer_company else "",
+            "operating_company_id": operating_company_id,
+            "operating_company_name": operating_company.name if operating_company else "",
         }
 
     def _audience_sql(self, basket_alias, filters, source="current"):
@@ -125,13 +142,17 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
     def _normalize_entity(self, entity, query):
         entity = dict(entity or {})
-        entity_type = entity.get("type") if entity.get("type") in {"category", "product", "variant"} else "query"
+        entity_type = (
+            entity.get("type")
+            if entity.get("type") in {"category", "product", "variant", "legacy_variant"}
+            else "query"
+        )
         try:
             entity_id = int(entity.get("id") or 0) if entity_type != "query" else 0
         except (TypeError, ValueError):
             entity_id = 0
         name = (entity.get("name") or query or "").strip()
-        if entity_type != "query":
+        if entity_type in {"category", "product", "variant"}:
             model_name = {
                 "category": "product.category",
                 "product": "product.template",
@@ -148,7 +169,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             category_ids = self.env["product.category"].sudo().search([("id", "child_of", entity_id)]).ids
             category_ids = category_ids or [entity_id]
         prefixes = []
-        if entity_type != "query":
+        if entity_type in {"category", "product", "variant"}:
             product_domain = {
                 "variant": [("id", "=", entity_id)],
                 "product": [("product_tmpl_id", "=", entity_id)],
@@ -162,6 +183,13 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     if self._code_prefix(variant.barcode or variant.default_code)
                 }
             )
+        elif entity_type == "legacy_variant":
+            prefix = self._code_prefix(entity.get("prefix5") or entity.get("item_code"))
+            if not prefix:
+                entity_type = "query"
+                entity_id = 0
+            else:
+                prefixes = [prefix]
         return {
             "type": entity_type,
             "id": entity_id,
@@ -176,8 +204,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         return normalized[:length] or ""
 
     def _anchor_clause(self, entity, query, *, source, scoped=True):
-        if source == "legacy" and entity["type"] != "query" and entity.get("prefixes"):
+        if entity["type"] != "query" and entity.get("prefixes") and (
+            source == "legacy" or entity["type"] == "legacy_variant"
+        ):
             item_code = "item_code" if scoped else "line.item_code"
+            if source == "current":
+                item_code = "item_code" if scoped else "COALESCE(product.barcode, product.default_code, '')"
             normalized_prefix = (
                 f"LEFT(REGEXP_REPLACE(UPPER(COALESCE({item_code}, '')), '[^A-Z0-9]+', '', 'g'), 5)"
             )
@@ -214,7 +246,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="current", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         audience_sql, audience_params = self._audience_sql("move", filters)
-        company_ids = self._company_ids()
+        company_ids = self._company_ids(filters)
         self.env.cr.execute(
             """
             WITH scope_lines AS (
@@ -231,7 +263,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         NULLIF(product.default_code, ''),
                         'Product ' || line.product_id::text
                     ) AS product_name,
-                    COALESCE(product.default_code, '') AS item_code,
+                    COALESCE(product.barcode, product.default_code, '') AS item_code,
                     line.quantity,
                     line.price_subtotal AS revenue
                 FROM account_move_line line
@@ -419,7 +451,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
-        company_ids = self._company_ids()
+        company_ids = self._company_ids(filters)
         self.env.cr.execute(
             """
             WITH scope_lines AS (
@@ -731,7 +763,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     ) discount_rows
                 ) AS discount_mix
             """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
-            [start, end, self._company_ids(), *audience_params, *anchor_params],
+            [start, end, self._company_ids(filters), *audience_params, *anchor_params],
         )
         row = self.env.cr.fetchone() or ({}, [], [], [], [])
         return {
@@ -854,7 +886,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     ) channel_rows
                 ) AS channel_mix
             """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
-            [start, end, self._company_ids(), *audience_params, *anchor_params],
+            [start, end, self._company_ids(filters), *audience_params, *anchor_params],
         )
         row = self.env.cr.fetchone() or ({}, [], [], [], [], [])
         return {
@@ -872,7 +904,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         current_audience_sql, current_audience_params = self._audience_sql("move", filters)
         legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters, source="legacy")
         counts = {"current": 0, "legacy": 0}
-        company_ids = self._company_ids()
+        company_ids = self._company_ids(filters)
         self.env.cr.execute(
             """
             SELECT COUNT(DISTINCT move.id)
@@ -942,12 +974,136 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "rule": "Best available source; Odoo 18 and Odoo 12 facts are not added together.",
         }
 
+    def _comparison_identity_rows(self, prefixes, entity):
+        """Prove catalog/fact existence independently from monthly sales activity."""
+        prefixes = sorted({prefix for prefix in prefixes if prefix})
+        if not prefixes:
+            return []
+        legacy_prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
+            "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                {legacy_prefix_sql} AS prefix5,
+                COUNT(DISTINCT source_product_id) AS variant_count,
+                MIN(source_name) AS sample_name,
+                MIN(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS sample_code
+            FROM legacy_product_month_fact
+            WHERE {legacy_prefix_sql} = ANY(%s)
+              AND period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            GROUP BY {legacy_prefix_sql}
+            """,
+            [prefixes],
+        )
+        legacy = {
+            row[0]: {"count": int(row[1] or 0), "name": row[2] or "", "code": row[3] or ""}
+            for row in self.env.cr.fetchall()
+        }
+
+        current_prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
+            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                {current_prefix_sql} AS prefix5,
+                COUNT(DISTINCT product.id) AS variant_count,
+                COUNT(DISTINCT product.id) FILTER (WHERE product.active AND template.active) AS active_variant_count,
+                MIN(product.id) AS sample_id,
+                MIN(COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, '')) AS sample_name,
+                MIN(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''))) AS sample_code
+            FROM product_product product
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            WHERE {current_prefix_sql} = ANY(%s)
+            GROUP BY {current_prefix_sql}
+            """,
+            [prefixes],
+        )
+        current = {
+            row[0]: {
+                "count": int(row[1] or 0),
+                "active_count": int(row[2] or 0),
+                "id": int(row[3] or 0),
+                "name": row[4] or "",
+                "code": row[5] or "",
+            }
+            for row in self.env.cr.fetchall()
+        }
+
+        selected_variant = self.env["product.product"]
+        if entity.get("type") == "variant" and entity.get("id"):
+            selected_variant = (
+                self.env["product.product"].sudo().with_context(active_test=False).browse(entity["id"]).exists()
+            )
+        rows = []
+        for prefix in prefixes:
+            legacy_row = legacy.get(prefix, {})
+            current_row = current.get(prefix, {})
+            has_legacy = bool(legacy_row.get("count"))
+            has_current = bool(current_row.get("count"))
+            current_is_active = (
+                bool(selected_variant.active)
+                if selected_variant and prefix in entity.get("prefixes", [])
+                else bool(current_row.get("active_count"))
+            )
+            if has_legacy and has_current:
+                state = "matched"
+                state_label = (
+                    "Matched; Odoo 18 catalog is archived"
+                    if not current_is_active
+                    else "Matched in Odoo 12 and Odoo 18"
+                )
+            elif has_legacy:
+                state = "legacy_only"
+                state_label = "Odoo 12 only"
+            elif has_current:
+                state = "live_only"
+                state_label = "Odoo 18 only"
+            else:
+                state = "unresolved"
+                state_label = "No catalog/fact identity found"
+            rows.append(
+                {
+                    "prefix5": prefix,
+                    "state": state,
+                    "state_label": state_label,
+                    "legacy_exists": has_legacy,
+                    "legacy_variant_count": int(legacy_row.get("count") or 0),
+                    "legacy_name": legacy_row.get("name") or "",
+                    "legacy_item_code": legacy_row.get("code") or "",
+                    "current_exists": has_current,
+                    "current_variant_count": int(current_row.get("count") or 0),
+                    "current_active_variant_count": int(current_row.get("active_count") or 0),
+                    "current_catalog_status": "Active" if current_is_active else ("Archived" if has_current else "Missing"),
+                    "current_variant_id": (
+                        entity.get("id")
+                        if entity.get("type") == "variant" and prefix in entity.get("prefixes", [])
+                        else int(current_row.get("id") or 0)
+                    ),
+                    "current_name": (
+                        selected_variant.display_name
+                        if selected_variant and prefix in entity.get("prefixes", [])
+                        else current_row.get("name") or ""
+                    ),
+                    "current_item_code": (
+                        (selected_variant.barcode or selected_variant.default_code or "")
+                        if selected_variant and prefix in entity.get("prefixes", [])
+                        else current_row.get("code") or ""
+                    ),
+                }
+            )
+        return rows
+
     @api.model
-    def get_legacy_comparison(self, query, entity=None):
+    def get_legacy_comparison(self, query, entity=None, filters=None):
         """Compare the full legacy fact history with live Odoo using Tradeline's prefix-5 item identity."""
         self._ensure_access()
         query = (query or "").strip()
         entity = self._normalize_entity(entity, query)
+        filters = self._normalize_filters(filters)
         if entity["type"] == "query" and len(query) < 2:
             raise UserError("Choose a product or enter at least two search characters.")
         if not self._has_table("legacy_current_product_history"):
@@ -967,6 +1123,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             scope_sql = "(history.bucket_name ILIKE %s OR history.sample_item_code ILIKE %s)"
             scope_params = [pattern, pattern]
 
+        current_company_sql = ""
+        company_params = []
+        if filters["operating_company_id"]:
+            current_company_sql = "AND (history.source_system <> 'current' OR history.company_id = %s)"
+            company_params = [filters["operating_company_id"]]
         self.env.cr.execute(
             """
             SELECT
@@ -983,14 +1144,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 ARRAY_REMOVE(ARRAY_AGG(DISTINCT history.bucket_code_prefix5), NULL) AS observed_prefixes
             FROM legacy_current_product_history history
             WHERE {scope_sql}
+              {current_company_sql}
               AND (
                     (history.source_system = 'legacy' AND history.period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31')
                  OR (history.source_system = 'current' AND history.period_month >= DATE '2026-01-01')
               )
             GROUP BY history.source_system, EXTRACT(MONTH FROM history.period_month)::integer
             ORDER BY month_number, history.source_system
-            """.format(scope_sql=scope_sql),
-            scope_params,
+            """.format(scope_sql=scope_sql, current_company_sql=current_company_sql),
+            [*scope_params, *company_params],
         )
         columns = [column[0] for column in self.env.cr.description]
         rows = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
@@ -1063,7 +1225,19 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             for source in ("legacy", "current")
         }
         selected_prefixes = entity.get("prefixes") or sorted(set(observed["legacy"]) | set(observed["current"]))
-        shared_prefixes = sorted(set(observed["legacy"]) & set(observed["current"]))
+        identity_rows = self._comparison_identity_rows(selected_prefixes, entity)
+        shared_prefixes = [row["prefix5"] for row in identity_rows if row["state"] == "matched"]
+        legacy_only_prefixes = [row["prefix5"] for row in identity_rows if row["state"] == "legacy_only"]
+        current_only_prefixes = [row["prefix5"] for row in identity_rows if row["state"] == "live_only"]
+        identity_states = {row["state"] for row in identity_rows}
+        identity_state = next(iter(identity_states)) if len(identity_states) == 1 else ("mixed" if identity_states else "unresolved")
+        identity_labels = {
+            "matched": "Matched variant identity",
+            "legacy_only": "Legacy-only variant identity",
+            "live_only": "Odoo 18-only variant identity",
+            "mixed": "Mixed identity coverage",
+            "unresolved": "Identity unresolved",
+        }
         return {
             "available": True,
             "match_rule": "prefix5_only",
@@ -1074,8 +1248,22 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "prefixes": selected_prefixes,
             "prefix_count": len(selected_prefixes),
             "shared_prefix_count": len(shared_prefixes),
-            "legacy_only_prefix_count": len(set(observed["legacy"]) - set(observed["current"])),
-            "current_only_prefix_count": len(set(observed["current"]) - set(observed["legacy"])),
+            "legacy_only_prefix_count": len(legacy_only_prefixes),
+            "current_only_prefix_count": len(current_only_prefixes),
+            "identity_state": identity_state,
+            "identity_state_label": identity_labels[identity_state],
+            "identity_rows": identity_rows,
+            "company_scope": {
+                "id": filters["operating_company_id"],
+                "name": filters["operating_company_name"] or "All operating companies",
+                "current_activity_scoped": bool(filters["operating_company_id"]),
+                "legacy_company_dimension_available": False,
+                "note": (
+                    "Odoo 18 activity is filtered to this company. Odoo 12 monthly product facts do not carry an operating-company dimension, so legacy totals remain all-company."
+                    if filters["operating_company_id"]
+                    else "Odoo 18 activity includes every allowed operating company. Odoo 12 monthly facts are all-company."
+                ),
+            },
             "legacy": {
                 "full_year_qty": legacy_full_qty,
                 "full_year_amount": legacy_full_amount,
@@ -1154,7 +1342,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             append_item(
                 template,
                 "product",
-                f"{category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}",
+                f"{category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}"
+                + (" · Archived in Odoo 18" if not template.active else ""),
             )
 
         variant_quota = max(3, limit - product_quota - 2)
@@ -1165,10 +1354,57 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             append_item(
                 variant,
                 "variant",
-                f"{variant.categ_id.display_name or 'Uncategorized'}" + (f" · {item_code}" if item_code else ""),
+                f"{variant.categ_id.display_name or 'Uncategorized'}"
+                + (f" · {item_code}" if item_code else "")
+                + (" · Archived in Odoo 18" if not variant.active else ""),
                 item_code,
                 match_hint,
             )
+
+        if len(output) < limit and self._has_table("legacy_product_month_fact"):
+            legacy_prefix_sql = (
+                "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
+                "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+            )
+            self.env.cr.execute(
+                f"""
+                SELECT
+                    {legacy_prefix_sql} AS prefix5,
+                    MIN(COALESCE(NULLIF(source_name, ''), NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS label,
+                    MIN(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS item_code,
+                    COUNT(DISTINCT source_product_id) AS variant_count
+                FROM legacy_product_month_fact
+                WHERE period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+                  AND (
+                        source_name ILIKE %s
+                     OR source_default_code ILIKE %s
+                     OR source_barcode ILIKE %s
+                  )
+                GROUP BY {legacy_prefix_sql}
+                HAVING NULLIF({legacy_prefix_sql}, '') IS NOT NULL
+                ORDER BY COUNT(*) DESC, label
+                LIMIT %s
+                """,
+                [f"%{query}%", f"%{query}%", f"%{query}%", max(2, limit // 3)],
+            )
+            for prefix5, label, item_code, variant_count in self.env.cr.fetchall():
+                key = f"legacy-variant:{prefix5}"
+                if not label or key in seen or len(output) >= limit:
+                    continue
+                seen.add(key)
+                output.append(
+                    {
+                        "key": key,
+                        "id": 0,
+                        "name": label,
+                        "type": "legacy_variant",
+                        "source": "legacy",
+                        "subtitle": f"Odoo 12 monthly product · {item_code or 'no item code'} · {variant_count} source variant{'s' if variant_count != 1 else ''}",
+                        "item_code": item_code or "",
+                        "prefix5": prefix5,
+                        "match_hint": "Compared by normalized prefix-5",
+                    }
+                )
 
         categories = self.env["product.category"].sudo().search([("name", "ilike", query)], limit=3)
         for category in categories:
@@ -1222,6 +1458,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     def get_filter_options(self):
         """Small, human-readable filter dictionary for the command bar."""
         self._ensure_access()
+        operating_companies = self.env.user.company_ids.sorted("name")
+        if not operating_companies:
+            operating_companies = self.env.company
         companies = self.env["res.partner"].sudo().search(
             [("is_company", "=", True), ("active", "=", True), ("customer_rank", ">", 0)],
             order="name",
@@ -1234,6 +1473,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 {"key": "company", "label": "Companies"},
             ],
             "customer_companies": [{"id": company.id, "name": company.display_name} for company in companies],
+            "operating_companies": [
+                {"id": company.id, "name": company.name} for company in operating_companies
+            ],
+            "default_operating_company_id": self.env.company.id,
         }
 
     @api.model
@@ -1353,6 +1596,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "category": "Category (including child categories)",
             "product": "Product family",
             "variant": "Exact variant / SKU",
+            "legacy_variant": "Odoo 12 variant / prefix-5",
             "query": "Search match",
         }
         recommendation = {
@@ -1392,11 +1636,23 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "filters": {
                 "customer_type": filters["customer_type"],
                 "customer_company_id": filters["customer_company_id"],
+                "operating_company_id": filters["operating_company_id"],
+                "operating_company_name": filters["operating_company_name"],
             },
         }
 
     def _evidence_anchor_domain(self, entity, query, source):
         line_prefix = "invoice_line_ids" if source == "current" else "line_ids"
+        if entity["type"] == "legacy_variant" and entity.get("prefixes"):
+            prefix = entity["prefixes"][0]
+            if source == "current":
+                return expression.OR(
+                    [
+                        [(f"{line_prefix}.product_id.barcode", "ilike", prefix)],
+                        [(f"{line_prefix}.product_id.default_code", "ilike", prefix)],
+                    ]
+                )
+            return [(f"{line_prefix}.item_code", "ilike", prefix)]
         if source == "current":
             if entity["type"] == "variant":
                 return [(f"{line_prefix}.product_id", "=", entity["id"])]
@@ -1464,7 +1720,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             domain = [
                 ("invoice_date", ">=", fields.Date.to_string(start)),
                 ("invoice_date", "<=", fields.Date.to_string(end)),
-                ("company_id", "in", self._company_ids()),
+                ("company_id", "in", self._company_ids(filters)),
                 ("invoice_type", "=", "out_invoice"),
                 ("state", "!=", "cancel"),
             ] + legacy_customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
@@ -1494,7 +1750,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             ("move_type", "in", ["out_invoice", "out_receipt"]),
             ("invoice_date", ">=", fields.Date.to_string(start)),
             ("invoice_date", "<=", fields.Date.to_string(end)),
-            ("company_id", "in", self._company_ids()),
+            ("company_id", "in", self._company_ids(filters)),
         ] + current_customer_domain + self._evidence_anchor_domain(entity, query, "current")
         if companion_key and str(companion_key).isdigit():
             domain.append(("invoice_line_ids.product_id", "=", int(companion_key)))
@@ -1524,7 +1780,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if export_mode not in {"current_view", "detail_rows", "customers", "legacy_live"}:
             export_mode = "current_view"
         bundle = self.get_product_360(query, start_date, end_date, source, 100, entity, filters)
-        comparison = self.get_legacy_comparison(query, entity)
+        comparison = self.get_legacy_comparison(query, entity, filters)
         stream = io.BytesIO()
         workbook = xlsxwriter.Workbook(stream, {"in_memory": True})
         title = workbook.add_format({"bold": True, "font_size": 18, "font_color": "#123C2A"})
@@ -1552,6 +1808,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 ("Scope", bundle["product"]["name"]),
                 ("Analysis grain", bundle["product"]["grain_label"]),
                 ("Source", bundle["source_label"]),
+                ("Operating company", bundle["filters"]["operating_company_name"] or "All businesses"),
                 ("Date range", f"{bundle['coverage']['start_date']} to {bundle['coverage']['end_date']}"),
                 ("Customer type", bundle["filters"]["customer_type"]),
                 ("Baskets", bundle["summary"]["baskets"]),
@@ -1599,11 +1856,26 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 sheet.write(2, 1, comparison["rule_label"], cell)
                 sheet.write(3, 0, "Compared prefixes", header)
                 sheet.write(3, 1, comparison["prefix_count"], cell)
+                sheet.write(4, 0, "Variant identity status", header)
+                sheet.write(4, 1, comparison["identity_state_label"], cell)
+                identity_rows = [
+                    [
+                        row["prefix5"], row["state_label"], row["legacy_name"], row["legacy_item_code"],
+                        row["legacy_variant_count"], row["current_name"], row["current_item_code"],
+                        row["current_catalog_status"], row["current_active_variant_count"], row["current_variant_count"],
+                    ]
+                    for row in comparison["identity_rows"]
+                ]
+                next_row = write_table(
+                    sheet, 6,
+                    ["Prefix-5", "State", "Odoo 12 product", "Odoo 12 item code", "Legacy variants", "Odoo 18 product", "Odoo 18 item code", "Odoo 18 status", "Odoo 18 active variants", "Odoo 18 total variants"],
+                    identity_rows,
+                )
                 rows = [
                     [period["label"], period["legacy_qty"], period["legacy_amount"], period["current_qty"], period["current_amount"], period.get("amount_delta_pct")]
                     for period in comparison["months"]
                 ]
-                write_table(sheet, 6, ["Month", "Odoo 12 units", "Odoo 12 revenue", "Odoo 18 units", "Odoo 18 revenue", "Revenue change %"], rows, {2: money, 4: money})
+                write_table(sheet, next_row, ["Month", "Odoo 12 units", "Odoo 12 revenue", "Odoo 18 units", "Odoo 18 revenue", "Revenue change %"], rows, {2: money, 4: money})
             else:
                 sheet.write(2, 0, comparison.get("note") or "Comparison data is unavailable.")
 

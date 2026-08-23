@@ -35,7 +35,8 @@ export class TradelineCustomerIntelligence extends Component {
             exportOpen: false,
             customerType: "all",
             customerCompanyId: 0,
-            filterOptions: { customer_types: [], customer_companies: [] },
+            operatingCompanyId: 0,
+            filterOptions: { customer_types: [], customer_companies: [], operating_companies: [] },
         });
         onWillStart(async () => {
             await this.loadFilterOptions();
@@ -97,6 +98,11 @@ export class TradelineCustomerIntelligence extends Component {
     get priorityCustomers() { return this.customers.filter(customer => customer.segment === "Priority").length; }
     get topStore() { return this.storeMix[0] || null; }
     get customerCompanies() { return this.state.filterOptions.customer_companies || []; }
+    get operatingCompanies() { return this.state.filterOptions.operating_companies || []; }
+    get activeOperatingCompanyLabel() {
+        if (!this.state.operatingCompanyId) return "All businesses";
+        return this.operatingCompanies.find(company => Number(company.id) === Number(this.state.operatingCompanyId))?.name || "Selected business";
+    }
     get activeCustomerTypeLabel() {
         return ({ all: "All customers", individual: "Individuals", company: "Companies" })[this.state.customerType];
     }
@@ -104,6 +110,7 @@ export class TradelineCustomerIntelligence extends Component {
         return {
             customer_type: this.state.customerType,
             customer_company_id: Number(this.state.customerCompanyId || 0),
+            operating_company_id: Number(this.state.operatingCompanyId || 0),
         };
     }
 
@@ -150,6 +157,7 @@ export class TradelineCustomerIntelligence extends Component {
         const amount = Number(value || 0);
         return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`;
     }
+    isNonNegative(value) { return Number(value || 0) >= 0; }
     round(value) { return Math.round(Number(value || 0)); }
     extractError(error) {
         return error?.data?.message || error?.message || "The intelligence engine could not load this scope.";
@@ -162,8 +170,9 @@ export class TradelineCustomerIntelligence extends Component {
                 "get_filter_options",
                 []
             );
+            this.state.operatingCompanyId = Number(this.state.filterOptions.default_operating_company_id || 0);
         } catch {
-            this.state.filterOptions = { customer_types: [], customer_companies: [] };
+            this.state.filterOptions = { customer_types: [], customer_companies: [], operating_companies: [] };
         }
     }
 
@@ -194,7 +203,7 @@ export class TradelineCustomerIntelligence extends Component {
             this.state.comparison = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "get_legacy_comparison",
-                [this.state.query, this.state.selectedEntity]
+                [this.state.query, this.state.selectedEntity, this.analysisFilters]
             );
         } catch (error) {
             this.state.comparisonError = this.extractError(error);
@@ -280,6 +289,8 @@ export class TradelineCustomerIntelligence extends Component {
             id: Number(selected.id || 0),
             name: selected.name,
             source: selected.source,
+            item_code: selected.item_code || "",
+            prefix5: selected.prefix5 || "",
         };
         this.state.comparison = null;
     }
@@ -299,6 +310,12 @@ export class TradelineCustomerIntelligence extends Component {
         this.state.customerCompanyId = Number(ev.target.value || 0);
         if (this.state.customerCompanyId) this.state.customerType = "company";
         await this.loadProduct();
+    }
+    async onOperatingCompanyChange(ev) {
+        this.state.operatingCompanyId = Number(ev.target.value || 0);
+        this.state.comparison = null;
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
     }
     onSelectCompanion(ev) {
         this.state.selectedCompanionKey = ev.currentTarget.dataset.key;
