@@ -363,6 +363,7 @@
 .tl-command-tray-heading { display: grid; gap: 3px; }
 .tl-command-tray-heading strong { font-size: 14px; }
 .tl-command-tray-heading span { color: var(--tli-muted); font-size: 11px; }
+.tl-command-mobile-filters { display: none; }
 .tl-command-tray nav { display: grid; grid-template-columns: repeat(7, minmax(90px, 1fr)); gap: 7px; }
 .tl-command-tray .tl-intel-nav-item {
   height: 60px;
@@ -511,6 +512,9 @@
   .tl-export-btn span { display: none; }
   .tl-export-menu { position: fixed; top: 58px; left: 12px; right: 12px; width: auto; }
   .tl-command-tray { padding: 16px; }
+  .tl-command-mobile-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tl-command-mobile-filters label { display: grid; gap: 5px; color: var(--tli-muted); font-size: 10px; font-weight: 760; text-transform: uppercase; letter-spacing: .06em; }
+  .tl-command-mobile-filters input { width: 100%; height: 40px; padding: 0 9px; border: 1px solid #c8d1cb; border-radius: 4px; color: var(--tli-ink); background: #fff; font-size: 12px; }
   .tl-command-tray nav { grid-template-columns: 1fr 1fr; }
   .tl-command-tray .tl-intel-nav-item { height: 48px; }
   .tl-intel-main { overflow: visible; }

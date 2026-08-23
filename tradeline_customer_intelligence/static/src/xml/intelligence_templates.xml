@@ -7,7 +7,7 @@
             <img src="/tradeline_customer_intelligence/static/description/tradeline_mark.png" alt="Tradeline"/>
             <strong>Tradeline Intelligence</strong>
         </div>
-        <button class="tl-command-toggle" t-on-click="onToggleCommand" t-att-aria-expanded="state.commandOpen ? 'true' : 'false'">
+        <button class="tl-command-toggle" aria-label="Explore intelligence navigation" t-on-click="onToggleCommand" t-att-aria-expanded="state.commandOpen ? 'true' : 'false'">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
             <span>Explore</span>
         </button>
@@ -33,7 +33,7 @@
             <input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/>
         </div>
         <div class="tl-export-wrap">
-            <button class="tl-export-btn" t-on-click="onToggleExport" t-att-disabled="state.exporting ? 'disabled' : null">
+            <button class="tl-export-btn" aria-label="Export to Excel" t-on-click="onToggleExport" t-att-disabled="state.exporting ? 'disabled' : null">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/></svg>
                 <span><t t-esc="state.exporting ? 'Preparing…' : 'Export to Excel'"/></span>
             </button>
@@ -49,6 +49,10 @@
 
     <section class="tl-command-tray" t-if="state.commandOpen">
         <div class="tl-command-tray-heading"><strong>Explore intelligence</strong><span>Switch workspace without giving up analysis space</span></div>
+        <div class="tl-command-mobile-filters" aria-label="Mobile analysis period">
+            <label><span>From</span><input type="date" aria-label="Mobile from date" t-model="state.startDate" t-on-change="onDateChange"/></label>
+            <label><span>To</span><input type="date" aria-label="Mobile to date" t-model="state.endDate" t-on-change="onDateChange"/></label>
+        </div>
         <nav>
             <button t-att-class="navClass('product')" data-view="product" t-on-click="onNavigate">
                 <svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7v10l8 4 8-4V7M12 11v10"/></svg><span>Product 360</span>
