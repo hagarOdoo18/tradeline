@@ -24,6 +24,9 @@ export class TradelineCustomerIntelligence extends Component {
             startDate: "2025-12-01",
             endDate: "2025-12-31",
             bundle: null,
+            comparison: null,
+            comparisonLoading: false,
+            comparisonError: "",
             selectedCompanionKey: null,
             selectedCustomerKey: null,
             audienceOpen: false,
@@ -35,6 +38,7 @@ export class TradelineCustomerIntelligence extends Component {
     get navItems() {
         return [
             { key: "product", label: "Product 360" },
+            { key: "comparison", label: "Legacy vs Live" },
             { key: "customer", label: "Customer 360" },
             { key: "bundle", label: "Bundle Lab" },
             { key: "audience", label: "Audience Builder" },
@@ -57,6 +61,8 @@ export class TradelineCustomerIntelligence extends Component {
     get customerSegments() { return this.bundle.customer_segments || []; }
     get coverageSources() { return this.bundle.coverage?.sources || []; }
     get recommendation() { return this.bundle.recommendation || {}; }
+    get comparison() { return this.state.comparison || {}; }
+    get comparisonMonths() { return this.comparison.months || []; }
     get selectedCompanion() {
         return this.companions.find(row => row.product_key === this.state.selectedCompanionKey) || this.companions[0] || null;
     }
@@ -122,6 +128,7 @@ export class TradelineCustomerIntelligence extends Component {
         return `${Number(value || 0).toFixed(2)}×`;
     }
     formatSignedPercent(value) {
+        if (value === null || value === undefined) return "—";
         const amount = Number(value || 0);
         return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`;
     }
@@ -150,8 +157,27 @@ export class TradelineCustomerIntelligence extends Component {
         }
     }
 
-    onNavigate(ev) {
+    async loadComparison() {
+        this.state.comparisonLoading = true;
+        this.state.comparisonError = "";
+        try {
+            this.state.comparison = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_legacy_comparison",
+                [this.state.query, this.state.selectedEntity]
+            );
+        } catch (error) {
+            this.state.comparisonError = this.extractError(error);
+        } finally {
+            this.state.comparisonLoading = false;
+        }
+    }
+
+    async onNavigate(ev) {
         this.state.activeView = ev.currentTarget.dataset.view;
+        if (this.state.activeView === "comparison" && !this.state.comparison) {
+            await this.loadComparison();
+        }
     }
     onToggleNav() {
         this.state.navCollapsed = !this.state.navCollapsed;
@@ -185,7 +211,9 @@ export class TradelineCustomerIntelligence extends Component {
             if (query.length >= 2) {
                 this.state.query = query;
                 this.state.selectedEntity = { type: "query", id: 0, name: query, source: "auto" };
+                this.state.comparison = null;
                 await this.loadProduct();
+                if (this.state.activeView === "comparison") await this.loadComparison();
             }
         } else if (ev.key === "Escape") {
             this.state.suggestionsOpen = false;
@@ -203,7 +231,9 @@ export class TradelineCustomerIntelligence extends Component {
             name: selected.name,
             source: selected.source,
         };
+        this.state.comparison = null;
         await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
     }
     async onDateChange() {
         await this.loadProduct();

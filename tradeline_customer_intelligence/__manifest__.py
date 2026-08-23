@@ -1,7 +1,7 @@
 {
     "name": "Tradeline Customer Intelligence",
     "summary": "Product, customer, bundle and launch intelligence for Tradeline executives",
-    "version": "18.0.1.1.0",
+    "version": "18.0.1.2.0",
     "category": "Sales/CRM",
     "author": "Tradeline",
     "license": "LGPL-3",
@@ -11,6 +11,7 @@
         "sale_management",
         "legacy_invoice_archive",
         "legacy_invoice_lines",
+        "legacy_current_product_comparison",
     ],
     "data": [
         "security/security.xml",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
+import re
 from datetime import date
 from math import sqrt
 
@@ -65,9 +66,41 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if entity_type == "category":
             category_ids = self.env["product.category"].sudo().search([("id", "child_of", entity_id)]).ids
             category_ids = category_ids or [entity_id]
-        return {"type": entity_type, "id": entity_id, "name": name, "category_ids": category_ids}
+        prefixes = []
+        if entity_type != "query":
+            product_domain = {
+                "variant": [("id", "=", entity_id)],
+                "product": [("product_tmpl_id", "=", entity_id)],
+                "category": [("product_tmpl_id.categ_id", "in", category_ids)],
+            }[entity_type]
+            variants = self.env["product.product"].sudo().with_context(active_test=False).search(product_domain)
+            prefixes = sorted(
+                {
+                    self._code_prefix(variant.barcode or variant.default_code)
+                    for variant in variants
+                    if self._code_prefix(variant.barcode or variant.default_code)
+                }
+            )
+        return {
+            "type": entity_type,
+            "id": entity_id,
+            "name": name,
+            "category_ids": category_ids,
+            "prefixes": prefixes,
+        }
+
+    @staticmethod
+    def _code_prefix(value, length=5):
+        normalized = re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+        return normalized[:length] or ""
 
     def _anchor_clause(self, entity, query, *, source, scoped=True):
+        if source == "legacy" and entity["type"] != "query" and entity.get("prefixes"):
+            item_code = "item_code" if scoped else "line.item_code"
+            normalized_prefix = (
+                f"LEFT(REGEXP_REPLACE(UPPER(COALESCE({item_code}, '')), '[^A-Z0-9]+', '', 'g'), 5)"
+            )
+            return f"{normalized_prefix} = ANY(%s)", [entity["prefixes"]]
         if scoped:
             product_id = "product_id"
             template_id = "product_tmpl_id"
@@ -309,6 +342,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     line.product_category_id AS category_id,
                     COALESCE(
                         'product:' || line.product_id::text,
+                        'source:' || line.product_source_id::text,
                         'code:' || LOWER(NULLIF(line.item_code, '')),
                         'name:' || LOWER(COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, '')))
                     ) AS product_key,
@@ -775,13 +809,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     "anchor_baskets": counts[key],
                 }
             )
+        comparison_available = self._has_table("legacy_current_product_history")
         coverage.append(
             {
                 "key": "history",
-                "label": "Full history",
-                "status": "pending",
+                "label": "Product comparison history",
+                "status": "available" if comparison_available else "pending",
                 "anchor_baskets": 0,
-                "note": "Validated backfill coverage is shown explicitly; unverified periods are never implied complete.",
+                "note": (
+                    "Full January–December 2025 monthly product facts are available and compared to Odoo 18 by the normalized five-character item-code prefix."
+                    if comparison_available
+                    else "The prefix-based legacy/current comparison view is not installed in this database."
+                ),
             }
         )
         return {
@@ -789,6 +828,166 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "end_date": fields.Date.to_string(end),
             "sources": coverage,
             "rule": "Best available source; Odoo 18 and Odoo 12 facts are not added together.",
+        }
+
+    @api.model
+    def get_legacy_comparison(self, query, entity=None):
+        """Compare the full legacy fact history with live Odoo using Tradeline's prefix-5 item identity."""
+        self._ensure_access()
+        query = (query or "").strip()
+        entity = self._normalize_entity(entity, query)
+        if entity["type"] == "query" and len(query) < 2:
+            raise UserError("Choose a product or enter at least two search characters.")
+        if not self._has_table("legacy_current_product_history"):
+            return {
+                "available": False,
+                "match_rule": "prefix5_only",
+                "rule_label": "First 5 normalized item-code characters",
+                "note": "The legacy/current product history view is not installed in this database.",
+                "months": [],
+            }
+
+        if entity.get("prefixes"):
+            scope_sql = "history.bucket_code_prefix5 = ANY(%s)"
+            scope_params = [entity["prefixes"]]
+        else:
+            pattern = f"%{query}%"
+            scope_sql = "(history.bucket_name ILIKE %s OR history.sample_item_code ILIKE %s)"
+            scope_params = [pattern, pattern]
+
+        self.env.cr.execute(
+            """
+            SELECT
+                history.source_system,
+                EXTRACT(MONTH FROM history.period_month)::integer AS month_number,
+                MIN(history.period_month) AS period_month,
+                COALESCE(SUM(history.sales_qty), 0.0) AS sales_qty,
+                COALESCE(SUM(history.sales_amount), 0.0) AS sales_amount,
+                COALESCE(SUM(history.return_qty), 0.0) AS return_qty,
+                COALESCE(SUM(history.return_amount), 0.0) AS return_amount,
+                COALESCE(SUM(history.discount_amount), 0.0) AS discount_amount,
+                COALESCE(SUM(history.gross_sales_amount), 0.0) AS gross_sales_amount,
+                COUNT(DISTINCT NULLIF(history.bucket_code_prefix5, '')) AS prefix_count,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT history.bucket_code_prefix5), NULL) AS observed_prefixes
+            FROM legacy_current_product_history history
+            WHERE {scope_sql}
+              AND (
+                    (history.source_system = 'legacy' AND history.period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31')
+                 OR (history.source_system = 'current' AND history.period_month >= DATE '2026-01-01')
+              )
+            GROUP BY history.source_system, EXTRACT(MONTH FROM history.period_month)::integer
+            ORDER BY month_number, history.source_system
+            """.format(scope_sql=scope_sql),
+            scope_params,
+        )
+        columns = [column[0] for column in self.env.cr.description]
+        rows = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
+
+        self.env.cr.execute(
+            """
+            SELECT COUNT(*), COUNT(DISTINCT period_month), MIN(period_month), MAX(period_month)
+            FROM legacy_product_month_fact
+            WHERE period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            """
+        )
+        fact_rows, fact_months, fact_start, fact_end = self.env.cr.fetchone() or (0, 0, None, None)
+
+        by_source_month = {(row["source_system"], row["month_number"]): row for row in rows}
+        current_months = [row["month_number"] for row in rows if row["source_system"] == "current"]
+        comparable_month = max(current_months, default=0)
+
+        def sum_metric(source, metric, through_month=12):
+            return float(
+                sum(
+                    float(row.get(metric) or 0.0)
+                    for row in rows
+                    if row["source_system"] == source and row["month_number"] <= through_month
+                )
+            )
+
+        def pct_delta(current_value, legacy_value):
+            if not legacy_value:
+                return None
+            return round((current_value - legacy_value) / legacy_value * 100.0, 2)
+
+        legacy_full_qty = sum_metric("legacy", "sales_qty")
+        legacy_full_amount = sum_metric("legacy", "sales_amount")
+        legacy_ytd_qty = sum_metric("legacy", "sales_qty", comparable_month) if comparable_month else 0.0
+        legacy_ytd_amount = sum_metric("legacy", "sales_amount", comparable_month) if comparable_month else 0.0
+        current_ytd_qty = sum_metric("current", "sales_qty", comparable_month) if comparable_month else 0.0
+        current_ytd_amount = sum_metric("current", "sales_amount", comparable_month) if comparable_month else 0.0
+
+        month_labels = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        months = []
+        for month_number, label in enumerate(month_labels, 1):
+            legacy = by_source_month.get(("legacy", month_number), {})
+            current = by_source_month.get(("current", month_number), {})
+            legacy_amount = float(legacy.get("sales_amount") or 0.0)
+            current_amount = float(current.get("sales_amount") or 0.0)
+            months.append(
+                {
+                    "month": month_number,
+                    "label": label,
+                    "legacy_qty": float(legacy.get("sales_qty") or 0.0),
+                    "legacy_amount": legacy_amount,
+                    "current_qty": float(current.get("sales_qty") or 0.0),
+                    "current_amount": current_amount,
+                    "amount_delta_pct": pct_delta(current_amount, legacy_amount),
+                    "has_current": bool(current),
+                    "has_legacy": bool(legacy),
+                }
+            )
+
+        observed = {
+            source: sorted(
+                {
+                    prefix
+                    for row in rows
+                    if row["source_system"] == source
+                    for prefix in (row.get("observed_prefixes") or [])
+                    if prefix
+                }
+            )
+            for source in ("legacy", "current")
+        }
+        selected_prefixes = entity.get("prefixes") or sorted(set(observed["legacy"]) | set(observed["current"]))
+        shared_prefixes = sorted(set(observed["legacy"]) & set(observed["current"]))
+        return {
+            "available": True,
+            "match_rule": "prefix5_only",
+            "rule_label": "First 5 normalized item-code characters",
+            "normalization": "Use the first available item code, remove non-alphanumeric characters, uppercase it, then take the first five characters.",
+            "scope_type": entity["type"],
+            "scope_name": entity["name"] if entity["type"] != "query" else query,
+            "prefixes": selected_prefixes,
+            "prefix_count": len(selected_prefixes),
+            "shared_prefix_count": len(shared_prefixes),
+            "legacy_only_prefix_count": len(set(observed["legacy"]) - set(observed["current"])),
+            "current_only_prefix_count": len(set(observed["current"]) - set(observed["legacy"])),
+            "legacy": {
+                "full_year_qty": legacy_full_qty,
+                "full_year_amount": legacy_full_amount,
+                "comparable_ytd_qty": legacy_ytd_qty,
+                "comparable_ytd_amount": legacy_ytd_amount,
+            },
+            "current": {
+                "through_month": comparable_month,
+                "ytd_qty": current_ytd_qty,
+                "ytd_amount": current_ytd_amount,
+            },
+            "delta": {
+                "qty_pct": pct_delta(current_ytd_qty, legacy_ytd_qty),
+                "amount_pct": pct_delta(current_ytd_amount, legacy_ytd_amount),
+            },
+            "months": months,
+            "coverage": {
+                "legacy_fact_rows": int(fact_rows or 0),
+                "legacy_fact_months": int(fact_months or 0),
+                "legacy_fact_start": fields.Date.to_string(fact_start) if fact_start else "",
+                "legacy_fact_end": fields.Date.to_string(fact_end) if fact_end else "",
+                "legacy_level": "Monthly product facts",
+                "basket_level": "Migrated invoice lines (currently December 2025 pilot)",
+            },
         }
 
     @api.model
@@ -1019,6 +1218,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     def export_product_insight(self, query, start_date=None, end_date=None, source="auto", entity=None):
         self._ensure_access()
         bundle = self.get_product_360(query, start_date, end_date, source, 100, entity)
+        comparison = self.get_legacy_comparison(query, entity)
         stream = io.StringIO()
         writer = csv.writer(stream)
         writer.writerow(["Tradeline Product Intelligence", bundle["product"]["name"]])
@@ -1026,6 +1226,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         writer.writerow(["Analysis grain", bundle["product"]["grain_label"]])
         writer.writerow(["Date from", bundle["coverage"]["start_date"]])
         writer.writerow(["Date to", bundle["coverage"]["end_date"]])
+        if comparison.get("available"):
+            writer.writerow(["Cross-version product identity", comparison["rule_label"]])
+            writer.writerow(["Compared prefixes", comparison["prefix_count"]])
+            writer.writerow(["Legacy 2025 full-year revenue", comparison["legacy"]["full_year_amount"]])
+            writer.writerow(["Odoo 18 2026 YTD revenue", comparison["current"]["ytd_amount"]])
+            writer.writerow(["Comparable revenue change %", comparison["delta"]["amount_pct"]])
         writer.writerow([])
         writer.writerow(["Companion", "Co-baskets", "Attach rate %", "Lift", "Confidence"])
         for row in bundle["companions"]:

@@ -14,6 +14,7 @@ class TestIntelligenceEntityGrain(TransactionCase):
             {"name": "Intelligence Test Phone", "categ_id": cls.child_category.id}
         )
         cls.variant = cls.template.product_variant_id
+        cls.variant.write({"barcode": "ab-12 3/xyz", "default_code": "fallback-code"})
         cls.service = cls.env["tradeline.customer.intelligence.service"]
 
     def test_category_scope_includes_descendants(self):
@@ -24,6 +25,7 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(entity["name"], self.parent_category.display_name)
         self.assertIn(self.parent_category.id, entity["category_ids"])
         self.assertIn(self.child_category.id, entity["category_ids"])
+        self.assertIn("AB123", entity["prefixes"])
         clause, params = self.service._anchor_clause(entity, "", source="current", scoped=True)
         self.assertEqual(clause, "category_id = ANY(%s)")
         self.assertEqual(params, [entity["category_ids"]])
@@ -43,6 +45,22 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         self.assertEqual((product_clause, product_params), ("product_tmpl_id = %s", [self.template.id]))
         self.assertEqual((variant_clause, variant_params), ("product_id = %s", [self.variant.id]))
+
+    def test_legacy_exact_grains_use_normalized_prefix5(self):
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        clause, params = self.service._anchor_clause(entity, "", source="legacy", scoped=False)
+        self.assertIn("REGEXP_REPLACE", clause)
+        self.assertIn("LEFT", clause)
+        self.assertEqual(params, [["AB123"]])
+
+    def test_prefix_prefers_item_barcode_and_normalizes(self):
+        entity = self.service._normalize_entity(
+            {"type": "product", "id": self.template.id}, self.template.name
+        )
+        self.assertEqual(entity["prefixes"], ["AB123"])
+        self.assertEqual(self.service._code_prefix(" mf-ym4/af/a "), "MFYM4")
 
     def test_invalid_exact_entity_falls_back_to_safe_query(self):
         entity = self.service._normalize_entity(

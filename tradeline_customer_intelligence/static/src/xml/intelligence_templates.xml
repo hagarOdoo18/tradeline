@@ -38,6 +38,9 @@
             <button t-att-class="navClass('product')" data-view="product" t-on-click="onNavigate">
                 <svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7v10l8 4 8-4V7M12 11v10"/></svg><span>Product 360</span>
             </button>
+            <button t-att-class="navClass('comparison')" data-view="comparison" t-on-click="onNavigate">
+                <svg viewBox="0 0 24 24"><path d="M4 5h6v6H4zM14 13h6v6h-6z"/><path d="M10 8h4m-2-2 2 2-2 2M14 16h-4m2-2-2 2 2 2"/></svg><span>Legacy vs Live</span>
+            </button>
             <button t-att-class="navClass('customer')" data-view="customer" t-on-click="onNavigate">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-5 3.3-7 8-7s7.3 2 8 7"/></svg><span>Customer 360</span>
             </button>
@@ -161,6 +164,36 @@
                         </div>
                         <div class="tl-channel-chips" t-if="channelMix.length"><span t-foreach="channelMix" t-as="channel" t-key="channel.name"><t t-esc="channel.name"/> · <b><t t-esc="formatNumber(channel.baskets)"/></b></span></div>
                     </article>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'comparison'">
+                <section class="tl-workspace-view tl-comparison-view">
+                    <div class="tl-section-title"><div><h2>Legacy vs Odoo 18</h2><p>Product performance joined with Tradeline’s authoritative five-character item-code prefix.</p></div><span>Prefix-5 identity</span></div>
+                    <div t-if="state.comparisonLoading" class="tl-comparison-loading"><span></span><p>Building the full 2025-to-live product comparison…</p></div>
+                    <div t-elif="state.comparisonError" class="tl-intel-error"><strong>Comparison unavailable</strong><span><t t-esc="state.comparisonError"/></span><button t-on-click="loadComparison">Try again</button></div>
+                    <div t-elif="!comparison.available" class="tl-comparison-empty"><strong>Comparison view unavailable</strong><p><t t-esc="comparison.note"/></p></div>
+                    <t t-else="">
+                        <div class="tl-prefix-rule">
+                            <div><small>Cross-version identity</small><strong><t t-esc="comparison.rule_label"/></strong><p><t t-esc="comparison.normalization"/></p></div>
+                            <div class="tl-prefix-chips"><span t-foreach="(comparison.prefixes || []).slice(0, 16)" t-as="prefix" t-key="prefix"><t t-esc="prefix"/></span><em t-if="comparison.prefix_count &gt; 16">+<t t-esc="formatNumber(comparison.prefix_count - 16)"/> more</em></div>
+                        </div>
+                        <div class="tl-comparison-kpis">
+                            <article><small>Odoo 12 · full 2025</small><strong><t t-esc="formatCurrency(comparison.legacy.full_year_amount)"/></strong><span><t t-esc="formatNumber(comparison.legacy.full_year_qty)"/> net units</span></article>
+                            <article><small>Odoo 18 · 2026 YTD</small><strong><t t-esc="formatCurrency(comparison.current.ytd_amount)"/></strong><span>Through month <t t-esc="comparison.current.through_month || '—'"/> · <t t-esc="formatNumber(comparison.current.ytd_qty)"/> units</span></article>
+                            <article t-att-class="Number(comparison.delta.amount_pct || 0) &gt;= 0 ? 'is-positive' : 'is-negative'"><small>Revenue vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.amount_pct)"/></strong><span>Comparable-period change</span></article>
+                            <article t-att-class="Number(comparison.delta.qty_pct || 0) &gt;= 0 ? 'is-positive' : 'is-negative'"><small>Units vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.qty_pct)"/></strong><span>Comparable-period change</span></article>
+                            <article><small>Shared product prefixes</small><strong><t t-esc="formatNumber(comparison.shared_prefix_count)"/> / <t t-esc="formatNumber(comparison.prefix_count)"/></strong><span><t t-esc="formatNumber(comparison.legacy_only_prefix_count)"/> legacy-only · <t t-esc="formatNumber(comparison.current_only_prefix_count)"/> live-only</span></article>
+                            <article><small>Legacy fact coverage</small><strong><t t-esc="formatNumber(comparison.coverage.legacy_fact_rows)"/></strong><span><t t-esc="comparison.coverage.legacy_fact_months"/> months · <t t-esc="comparison.coverage.legacy_fact_start"/> to <t t-esc="comparison.coverage.legacy_fact_end"/></span></article>
+                        </div>
+                        <div class="tl-comparison-table-wrap">
+                            <table class="tl-comparison-table">
+                                <thead><tr><th>Month</th><th class="is-number">Odoo 12 units</th><th class="is-number">Odoo 12 revenue</th><th class="is-number">Odoo 18 units</th><th class="is-number">Odoo 18 revenue</th><th class="is-number">Revenue change</th></tr></thead>
+                                <tbody><tr t-foreach="comparisonMonths" t-as="period" t-key="period.month"><td><strong><t t-esc="period.label"/></strong></td><td class="is-number"><t t-esc="period.has_legacy ? formatNumber(period.legacy_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_legacy ? formatCurrency(period.legacy_amount) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatNumber(period.current_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatCurrency(period.current_amount) : '—'"/></td><td class="is-number"><strong t-att-class="Number(period.amount_delta_pct || 0) &gt;= 0 ? 'is-positive' : 'is-negative'"><t t-esc="period.has_current ? formatSignedPercent(period.amount_delta_pct) : '—'"/></strong></td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="tl-comparison-provenance"><strong>Decision-grade separation</strong><p>Product comparison uses full monthly facts and the prefix-5 identity. Bundles, customer lists, payment behavior and basket affinity use invoice-level records for the selected dates; they are never silently inferred from monthly facts.</p></div>
+                    </t>
                 </section>
             </t>
 
