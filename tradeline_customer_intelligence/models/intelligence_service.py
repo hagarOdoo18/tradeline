@@ -953,7 +953,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     "anchor_baskets": counts[key],
                 }
             )
-        comparison_available = self._has_table("legacy_current_product_history")
+        comparison_available = self._has_table("legacy_product_month_fact")
         coverage.append(
             {
                 "key": "history",
@@ -963,7 +963,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "note": (
                     "Full January–December 2025 monthly product facts are available and compared to Odoo 18 by the normalized five-character item-code prefix."
                     if comparison_available
-                    else "The prefix-based legacy/current comparison view is not installed in this database."
+                    else "The migrated monthly product facts are not installed in this database."
                 ),
             }
         )
@@ -1180,6 +1180,138 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             return entity["prefixes"], "selected_entity"
         return self._comparison_query_prefixes(query, limit=limit), "bounded_query"
 
+    def _comparison_legacy_metric_rows(self, prefixes):
+        """Aggregate only the requested legacy prefixes from the physical fact table."""
+        prefixes = sorted({prefix for prefix in prefixes if prefix})
+        if not prefixes:
+            return []
+        prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(fact.source_default_code, ''), "
+            "NULLIF(fact.source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                'legacy'::text AS source_system,
+                EXTRACT(MONTH FROM fact.period_month)::integer AS month_number,
+                MIN(fact.period_month) AS period_month,
+                COALESCE(SUM(fact.legacy_sales_qty), 0.0) AS sales_qty,
+                COALESCE(SUM(fact.legacy_sales_amount), 0.0) AS sales_amount,
+                COALESCE(SUM(fact.legacy_return_qty), 0.0) AS return_qty,
+                COALESCE(SUM(fact.legacy_return_amount), 0.0) AS return_amount,
+                COALESCE(SUM(fact.legacy_discount_amount), 0.0) AS discount_amount,
+                COALESCE(SUM(fact.legacy_gross_sales_amount), 0.0) AS gross_sales_amount,
+                COUNT(DISTINCT NULLIF({prefix_sql}, '')) AS prefix_count,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT {prefix_sql}), NULL) AS observed_prefixes
+            FROM legacy_product_month_fact fact
+            WHERE {prefix_sql} = ANY(%s)
+              AND fact.period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+            GROUP BY EXTRACT(MONTH FROM fact.period_month)::integer
+            ORDER BY month_number
+            """,
+            [prefixes],
+        )
+        columns = [column[0] for column in self.env.cr.description]
+        return [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
+
+    def _comparison_current_product_ids(self, prefixes, entity):
+        """Resolve prefix identity to product ids before reading invoice activity.
+
+        A selected variant remains exact on the Odoo 18 side. Product and category
+        selections also retain their catalog grain; only free-text and legacy-only
+        selections expand to every current variant carrying a resolved prefix.
+        """
+        prefixes = sorted({prefix for prefix in prefixes if prefix})
+        if not prefixes:
+            return []
+        prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
+            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        scope_sql = ""
+        scope_params = []
+        if entity.get("type") == "variant" and entity.get("id"):
+            scope_sql = "AND product.id = %s"
+            scope_params = [entity["id"]]
+        elif entity.get("type") == "product" and entity.get("id"):
+            scope_sql = "AND product.product_tmpl_id = %s"
+            scope_params = [entity["id"]]
+        elif entity.get("type") == "category" and entity.get("category_ids"):
+            scope_sql = "AND template.categ_id = ANY(%s)"
+            scope_params = [entity["category_ids"]]
+        self.env.cr.execute(
+            f"""
+            SELECT product.id
+            FROM product_product product
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            WHERE {prefix_sql} = ANY(%s)
+              {scope_sql}
+            ORDER BY product.id
+            """,
+            [prefixes, *scope_params],
+        )
+        return [int(row[0]) for row in self.env.cr.fetchall()]
+
+    def _comparison_invoice_report_source(self):
+        """Render Odoo's authoritative invoice-analysis query for bounded reuse."""
+        report = self.env["account.invoice.report"]
+        try:
+            table_query = report._table_query
+            rendered = self.env.cr.mogrify(table_query.code, table_query.params).decode()
+        except Exception:
+            return None
+        return f"(\n{rendered}\n)"
+
+    def _comparison_current_metric_rows(self, prefixes, entity, filters):
+        """Aggregate current metrics after product/company/date restriction."""
+        product_ids = self._comparison_current_product_ids(prefixes, entity)
+        report_source = self._comparison_invoice_report_source()
+        metadata = {
+            "source": "account.invoice.report",
+            "product_count": len(product_ids),
+            "available": bool(report_source),
+            "quantity_metric": "Signed net invoiced quantity",
+            "amount_metric": "Signed untaxed invoice subtotal",
+        }
+        if not product_ids or not report_source:
+            return [], metadata
+        company_ids = self._company_ids(filters)
+        current_prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
+            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                'current'::text AS source_system,
+                EXTRACT(MONTH FROM report.invoice_date)::integer AS month_number,
+                MIN(report.invoice_date) AS period_month,
+                COALESCE(SUM(report.quantity), 0.0) AS sales_qty,
+                COALESCE(SUM(report.price_subtotal), 0.0) AS sales_amount,
+                COALESCE(SUM(
+                    CASE WHEN report.move_type = 'out_refund' THEN report.quantity ELSE 0.0 END
+                ), 0.0) AS return_qty,
+                COALESCE(SUM(
+                    CASE WHEN report.move_type = 'out_refund' THEN report.price_subtotal ELSE 0.0 END
+                ), 0.0) AS return_amount,
+                0.0::double precision AS discount_amount,
+                0.0::double precision AS gross_sales_amount,
+                COUNT(DISTINCT NULLIF({current_prefix_sql}, '')) AS prefix_count,
+                ARRAY_REMOVE(ARRAY_AGG(DISTINCT {current_prefix_sql}), NULL) AS observed_prefixes
+            FROM {report_source} report
+            JOIN product_product product ON product.id = report.product_id
+            WHERE report.product_id = ANY(%s)
+              AND report.company_id = ANY(%s)
+              AND report.move_type IN ('out_invoice', 'out_refund')
+              AND report.invoice_date BETWEEN DATE '2026-01-01' AND CURRENT_DATE
+            GROUP BY EXTRACT(MONTH FROM report.invoice_date)::integer
+            ORDER BY month_number
+            """,
+            [product_ids, company_ids],
+        )
+        columns = [column[0] for column in self.env.cr.description]
+        return [dict(zip(columns, row)) for row in self.env.cr.fetchall()], metadata
+
     @api.model
     def get_legacy_comparison(self, query, entity=None, filters=None):
         """Compare the full legacy fact history with live Odoo using Tradeline's prefix-5 item identity."""
@@ -1189,54 +1321,21 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         filters = self._normalize_filters(filters)
         if entity["type"] == "query" and len(query) < 2:
             raise UserError("Choose a product or enter at least two search characters.")
-        if not self._has_table("legacy_current_product_history"):
+        if not self._has_table("legacy_product_month_fact"):
             return {
                 "available": False,
                 "match_rule": "prefix5_only",
                 "rule_label": "First 5 normalized item-code characters",
-                "note": "The legacy/current product history view is not installed in this database.",
+                "note": "The migrated monthly product fact table is not installed in this database.",
                 "months": [],
             }
 
         resolved_prefixes, resolution_mode = self._resolve_comparison_prefixes(entity, query, limit=16)
-        scope_sql = "history.bucket_code_prefix5 = ANY(%s)"
-        scope_params = [resolved_prefixes]
-
-        current_company_sql = ""
-        company_params = []
-        if filters["operating_company_id"]:
-            current_company_sql = "AND (history.source_system <> 'current' OR history.company_id = %s)"
-            company_params = [filters["operating_company_id"]]
-        rows = []
-        if resolved_prefixes:
-            self.env.cr.execute(
-                """
-            SELECT
-                history.source_system,
-                EXTRACT(MONTH FROM history.period_month)::integer AS month_number,
-                MIN(history.period_month) AS period_month,
-                COALESCE(SUM(history.sales_qty), 0.0) AS sales_qty,
-                COALESCE(SUM(history.sales_amount), 0.0) AS sales_amount,
-                COALESCE(SUM(history.return_qty), 0.0) AS return_qty,
-                COALESCE(SUM(history.return_amount), 0.0) AS return_amount,
-                COALESCE(SUM(history.discount_amount), 0.0) AS discount_amount,
-                COALESCE(SUM(history.gross_sales_amount), 0.0) AS gross_sales_amount,
-                COUNT(DISTINCT NULLIF(history.bucket_code_prefix5, '')) AS prefix_count,
-                ARRAY_REMOVE(ARRAY_AGG(DISTINCT history.bucket_code_prefix5), NULL) AS observed_prefixes
-            FROM legacy_current_product_history history
-            WHERE {scope_sql}
-              {current_company_sql}
-              AND (
-                    (history.source_system = 'legacy' AND history.period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31')
-                 OR (history.source_system = 'current' AND history.period_month >= DATE '2026-01-01')
-              )
-            GROUP BY history.source_system, EXTRACT(MONTH FROM history.period_month)::integer
-            ORDER BY month_number, history.source_system
-                """.format(scope_sql=scope_sql, current_company_sql=current_company_sql),
-                [*scope_params, *company_params],
-            )
-            columns = [column[0] for column in self.env.cr.description]
-            rows = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
+        legacy_rows = self._comparison_legacy_metric_rows(resolved_prefixes)
+        current_rows, current_metric_metadata = self._comparison_current_metric_rows(
+            resolved_prefixes, entity, filters
+        )
+        rows = [*legacy_rows, *current_rows]
 
         self.env.cr.execute(
             """
@@ -1353,6 +1452,21 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     if filters["operating_company_id"]
                     else "Odoo 18 activity includes every allowed operating company. Odoo 12 monthly facts are all-company."
                 ),
+            },
+            "metric_provenance": {
+                "legacy_source": "legacy.product.month.fact",
+                "legacy_quantity_metric": "legacy_sales_qty",
+                "legacy_amount_metric": "legacy_sales_amount",
+                "current_source": current_metric_metadata["source"],
+                "current_source_available": current_metric_metadata["available"],
+                "current_product_count": current_metric_metadata["product_count"],
+                "current_quantity_metric": current_metric_metadata["quantity_metric"],
+                "current_amount_metric": current_metric_metadata["amount_metric"],
+                "limitations": [
+                    "Odoo 18 amount is signed untaxed subtotal from Invoices Analysis; it excludes tax and is not the tax-inclusive invoice total.",
+                    "Odoo 18 discount and gross-sales components are not used by this comparison UI; quantity and amount/deltas are authoritative.",
+                    "Odoo 12 monthly product facts have no operating-company dimension.",
+                ],
             },
             "legacy": {
                 "full_year_qty": legacy_full_qty,

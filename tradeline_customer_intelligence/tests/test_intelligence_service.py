@@ -143,6 +143,39 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(mode, "selected_entity")
         self.assertEqual(prefixes, ["AB123"])
 
+    def test_selected_variant_keeps_exact_current_activity_product(self):
+        sibling_template = self.env["product.template"].create(
+            {"name": "Same-prefix sibling", "categ_id": self.child_category.id}
+        )
+        sibling = sibling_template.product_variant_id
+        sibling.barcode = "AB123-sibling"
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        product_ids = self.service._comparison_current_product_ids(["AB123"], entity)
+        self.assertEqual(product_ids, [self.variant.id])
+        self.assertNotIn(sibling.id, product_ids)
+
+    def test_legacy_comparison_metrics_read_physical_month_fact(self):
+        rows = self.service._comparison_legacy_metric_rows(["AB123"])
+        january = next(row for row in rows if row["month_number"] == 1)
+        self.assertEqual(january["source_system"], "legacy")
+        self.assertEqual(january["sales_qty"], 2)
+        self.assertEqual(january["sales_amount"], 100)
+        self.assertEqual(january["observed_prefixes"], ["AB123"])
+
+    def test_current_comparison_uses_invoice_report_after_product_resolution(self):
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        rows, metadata = self.service._comparison_current_metric_rows(
+            ["AB123"], entity, {"operating_company_id": self.env.company.id}
+        )
+        self.assertEqual(rows, [])
+        self.assertEqual(metadata["source"], "account.invoice.report")
+        self.assertEqual(metadata["product_count"], 1)
+        self.assertTrue(metadata["available"])
+
     def test_query_prefix_resolution_normalizes_formatted_item_codes(self):
         prefixes = self.service._comparison_query_prefixes("ab123", limit=2)
         self.assertIn("AB123", prefixes)
