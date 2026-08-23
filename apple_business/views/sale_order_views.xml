@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_order_view_form_apple_business" model="ir.ui.view">
+        <field name="name">sale.order.form.apple.business</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="apple_business_customer_eligible" invisible="1"/>
+                <field name="apple_business" widget="apple_business_boolean"
+                       readonly="not apple_business_customer_eligible"/>
+                <field name="apple_business_id" invisible="not apple_business" options="{'no_create': True}"/>
+                <field name="apple_business_company_id" invisible="1"/>
+                <field name="apple_business_category_ids" invisible="1"/>
+            </xpath>
+            <xpath expr="//field[@name='order_line']//field[@name='product_id']" position="attributes">
+                <attribute name="domain">[('sale_ok', '=', True), ('type', '!=', 'combo')] + (parent.apple_business and ['|', ('categ_id', 'not in', parent.apple_business_category_ids), '&amp;', ('categ_id', 'in', parent.apple_business_category_ids), ('vendor_id.name', '=ilike', 'ABM')] or [])</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>
