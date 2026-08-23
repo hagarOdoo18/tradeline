@@ -90,7 +90,7 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertNotIn("Exact SKU · Exact SKU", variant_result["subtitle"])
 
     def test_customer_population_filter_is_sql_scoped(self):
-        company = self.env["res.partner"].create({"name": "Intelligence Company", "is_company": True})
+        company = self.env.company.partner_id
         normalized = self.service._normalize_filters(
             {"customer_type": "company", "customer_company_id": company.id}
         )
