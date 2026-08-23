@@ -48,6 +48,13 @@ export class TradelineCustomerIntelligence extends Component {
     get companions() { return this.bundle.companions || []; }
     get customers() { return this.bundle.customers || []; }
     get paymentMix() { return this.bundle.payment_mix || []; }
+    get dimensions() { return this.bundle.dimensions || {}; }
+    get trend() { return this.dimensions.trend || []; }
+    get storeMix() { return this.dimensions.store_mix || []; }
+    get salespersonMix() { return this.dimensions.salesperson_mix || []; }
+    get discountMix() { return this.dimensions.discount_mix || []; }
+    get channelMix() { return this.dimensions.channel_mix || []; }
+    get customerSegments() { return this.bundle.customer_segments || []; }
     get coverageSources() { return this.bundle.coverage?.sources || []; }
     get recommendation() { return this.bundle.recommendation || {}; }
     get selectedCompanion() {
@@ -73,6 +80,8 @@ export class TradelineCustomerIntelligence extends Component {
     }
     get emailReady() { return this.customers.filter(customer => customer.email).length; }
     get mobileReady() { return this.customers.filter(customer => customer.mobile).length; }
+    get priorityCustomers() { return this.customers.filter(customer => customer.segment === "Priority").length; }
+    get topStore() { return this.storeMix[0] || null; }
 
     navClass(key) {
         return `tl-intel-nav-item ${this.state.activeView === key ? "is-active" : ""}`;
@@ -93,6 +102,13 @@ export class TradelineCustomerIntelligence extends Component {
         const key = String(row.name || "other").toLowerCase().replace(/[^a-z]/g, "");
         return `tl-payment-segment is-${key || "other"}`;
     }
+    segmentClass(segment) {
+        return `tl-segment is-${String(segment || "core").toLowerCase()}`;
+    }
+    dimensionWidth(row, rows) {
+        const maximum = Math.max(...rows.map(item => Number(item.baskets || 0)), 1);
+        return `${Math.max(3, Number(row.baskets || 0) / maximum * 100)}%`;
+    }
     formatNumber(value) {
         return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
     }
@@ -104,6 +120,10 @@ export class TradelineCustomerIntelligence extends Component {
     }
     formatLift(value) {
         return `${Number(value || 0).toFixed(2)}×`;
+    }
+    formatSignedPercent(value) {
+        const amount = Number(value || 0);
+        return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`;
     }
     round(value) { return Math.round(Number(value || 0)); }
     extractError(error) {

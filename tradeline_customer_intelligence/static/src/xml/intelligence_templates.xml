@@ -99,7 +99,7 @@
                     </div>
                     <div class="tl-affinity-table-wrap">
                         <table class="tl-affinity-table">
-                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Signal</th></tr></thead>
+                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th></tr></thead>
                             <tbody>
                                 <tr t-foreach="companions" t-as="row" t-key="row.product_key" t-att-class="rowClass(row)" t-att-data-key="row.product_key" t-on-click="onSelectCompanion">
                                     <td><t t-esc="row_index + 1"/></td>
@@ -107,8 +107,8 @@
                                     <td class="is-number"><t t-esc="formatNumber(row.co_baskets)"/></td>
                                     <td><div class="tl-rate-cell"><span><t t-esc="formatPercent(row.attach_rate)"/></span><i><b t-att-style="'width:' + attachWidth(row)"></b></i></div></td>
                                     <td class="is-number"><t t-esc="formatLift(row.lift)"/></td>
-                                    <td><t t-esc="row.confidence"/></td>
-                                    <td><div class="tl-signal"><i t-foreach="[1,2,3,4]" t-as="signal" t-key="signal" t-att-class="signal &lt;= row.signal ? 'is-on' : ''"></i></div></td>
+                                    <td class="tl-confidence-cell"><strong><t t-esc="row.confidence"/></strong><small>95% CI <t t-esc="formatPercent(row.attach_ci_low)"/>–<t t-esc="formatPercent(row.attach_ci_high)"/></small></td>
+                                    <td><div class="tl-score-cell"><strong><t t-esc="round(row.opportunity_score)"/></strong><i><b t-att-style="'width:' + row.opportunity_score + '%'"/></i></div></td>
                                 </tr>
                                 <tr t-if="!companions.length"><td colspan="7" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
                             </tbody>
@@ -137,6 +137,31 @@
                         </div>
                     </div>
                 </section>
+
+                <section class="tl-dimension-grid">
+                    <article class="tl-dimension-card is-trend">
+                        <div class="tl-dimension-heading"><div><small>Momentum</small><h3>Sales trend</h3></div><strong t-att-class="'is-' + dimensions.trend_direction"><t t-esc="formatSignedPercent(dimensions.trend_change_pct)"/></strong></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="trend" t-as="period" t-key="period.period"><span><t t-esc="period.label"/></span><i><b t-att-style="'width:' + dimensionWidth(period, trend)"/></i><strong><t t-esc="formatNumber(period.baskets)"/></strong></div>
+                            <p t-if="!trend.length">No monthly trend is available for this scope.</p>
+                        </div>
+                    </article>
+                    <article class="tl-dimension-card">
+                        <div class="tl-dimension-heading"><div><small>Distribution</small><h3>Top stores / teams</h3></div><strong><t t-esc="formatNumber(storeMix.length)"/></strong></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="storeMix" t-as="store" t-key="store.name"><span><t t-esc="store.name"/></span><i><b t-att-style="'width:' + dimensionWidth(store, storeMix)"/></i><strong><t t-esc="formatNumber(store.baskets)"/></strong></div>
+                            <p t-if="!storeMix.length">No store attribution is available.</p>
+                        </div>
+                    </article>
+                    <article class="tl-dimension-card">
+                        <div class="tl-dimension-heading"><div><small>Commercial behavior</small><h3>Discount posture</h3></div></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="discountMix" t-as="discount" t-key="discount.name"><span><t t-esc="discount.name"/></span><i><b t-att-style="'width:' + dimensionWidth(discount, discountMix)"/></i><strong><t t-esc="formatNumber(discount.baskets)"/></strong></div>
+                            <p t-if="!discountMix.length">No discount signal is available.</p>
+                        </div>
+                        <div class="tl-channel-chips" t-if="channelMix.length"><span t-foreach="channelMix" t-as="channel" t-key="channel.name"><t t-esc="channel.name"/> · <b><t t-esc="formatNumber(channel.baskets)"/></b></span></div>
+                    </article>
+                </section>
             </t>
 
             <t t-if="state.activeView === 'customer'">
@@ -146,7 +171,7 @@
                         <div class="tl-customer-list">
                             <button t-foreach="customers" t-as="customer" t-key="customer.partner_id" t-att-data-id="customer.partner_id" t-on-click="onSelectCustomer" t-att-class="selectedCustomer?.partner_id === customer.partner_id ? 'is-selected' : ''">
                                 <span class="tl-avatar"><t t-esc="(customer.name || '?').slice(0,1).toUpperCase()"/></span>
-                                <span><strong><t t-esc="customer.name"/></strong><small><t t-esc="formatNumber(customer.baskets)"/> baskets · last <t t-esc="customer.last_purchase"/></small></span>
+                                <span><strong><t t-esc="customer.name"/> <em t-att-class="segmentClass(customer.segment)"><t t-esc="customer.segment"/></em></strong><small><t t-esc="formatNumber(customer.baskets)"/> baskets · last <t t-esc="customer.last_purchase"/></small></span>
                                 <b><t t-esc="formatCurrency(customer.revenue)"/></b>
                             </button>
                             <div t-if="!customers.length" class="tl-table-empty">No identified customer links are available in this scope.</div>
@@ -155,7 +180,7 @@
                             <span class="tl-avatar is-large"><t t-esc="(selectedCustomer.name || '?').slice(0,1).toUpperCase()"/></span>
                             <h3><t t-esc="selectedCustomer.name"/></h3>
                             <p><t t-esc="selectedCustomer.email || 'No email on file'"/></p><p><t t-esc="selectedCustomer.mobile || 'No mobile on file'"/></p>
-                            <dl><div><dt>Product baskets</dt><dd><t t-esc="formatNumber(selectedCustomer.baskets)"/></dd></div><div><dt>Observed value</dt><dd><t t-esc="formatCurrency(selectedCustomer.revenue)"/></dd></div><div><dt>Last purchase</dt><dd><t t-esc="selectedCustomer.last_purchase"/></dd></div></dl>
+                            <dl><div><dt>Activation score</dt><dd><t t-esc="selectedCustomer.activation_score"/>/100</dd></div><div><dt>Product baskets</dt><dd><t t-esc="formatNumber(selectedCustomer.baskets)"/></dd></div><div><dt>Observed value</dt><dd><t t-esc="formatCurrency(selectedCustomer.revenue)"/></dd></div><div><dt>Average basket</dt><dd><t t-esc="formatCurrency(selectedCustomer.avg_basket_value)"/></dd></div><div><dt>Last purchase</dt><dd><t t-esc="selectedCustomer.last_purchase"/></dd></div><div><dt>Reachability</dt><dd><t t-esc="selectedCustomer.contact_status"/></dd></div></dl>
                             <button class="tl-primary-button" t-on-click="onBuildAudience">Add to audience preview</button>
                         </div>
                     </div>
@@ -165,9 +190,9 @@
             <t t-if="state.activeView === 'audience'">
                 <section class="tl-workspace-view tl-audience-view">
                     <div class="tl-section-title"><div><h2>Audience Builder</h2><p>Preview the reachable owners behind this product signal before activating a campaign.</p></div><span>Preview only</span></div>
-                    <div class="tl-audience-summary"><div><strong><t t-esc="formatNumber(summary.identified_customers)"/></strong><span>identified customers</span></div><div><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>basket coverage</span></div><div><strong><t t-esc="formatNumber(emailReady)"/></strong><span>email-ready</span></div><div><strong><t t-esc="formatNumber(mobileReady)"/></strong><span>mobile-ready</span></div></div>
+                    <div class="tl-audience-summary"><div><strong><t t-esc="formatNumber(summary.identified_customers)"/></strong><span>identified customers</span></div><div><strong><t t-esc="formatNumber(priorityCustomers)"/></strong><span>priority candidates</span></div><div><strong><t t-esc="formatNumber(emailReady)"/></strong><span>email-ready</span></div><div><strong><t t-esc="formatNumber(mobileReady)"/></strong><span>mobile-ready</span></div></div>
                     <div class="tl-audience-rule"><strong>Audience definition</strong><span>Bought within <t t-esc="product.name"/> between <t t-esc="state.startDate"/> and <t t-esc="state.endDate"/></span><span>Grain: <t t-esc="product.grain_label"/></span><span>Identified customer only</span><span>Source: <t t-esc="bundle.source_label"/></span></div>
-                    <table class="tl-audience-table"><thead><tr><th>Customer</th><th>Email</th><th>Mobile</th><th>Baskets</th><th>Last purchase</th></tr></thead><tbody><tr t-foreach="customers" t-as="customer" t-key="customer.partner_id"><td><t t-esc="customer.name"/></td><td><t t-esc="customer.email || '—'"/></td><td><t t-esc="customer.mobile || '—'"/></td><td><t t-esc="formatNumber(customer.baskets)"/></td><td><t t-esc="customer.last_purchase"/></td></tr></tbody></table>
+                    <table class="tl-audience-table"><thead><tr><th>Customer</th><th>Segment</th><th>Score</th><th>Contact readiness</th><th>Baskets</th><th>Last purchase</th></tr></thead><tbody><tr t-foreach="customers" t-as="customer" t-key="customer.partner_id"><td><t t-esc="customer.name"/></td><td><em t-att-class="segmentClass(customer.segment)"><t t-esc="customer.segment"/></em></td><td><strong><t t-esc="customer.activation_score"/>/100</strong></td><td><t t-esc="customer.contact_status"/></td><td><t t-esc="formatNumber(customer.baskets)"/></td><td><t t-esc="customer.last_purchase"/></td></tr></tbody></table>
                     <div class="tl-activation-note"><strong>Activation guardrail</strong><p>The engine prepares the segment; it does not send email or SMS until an authorized campaign owner reviews consent, exclusions and message content.</p></div>
                 </section>
             </t>
@@ -176,7 +201,7 @@
                 <section class="tl-workspace-view tl-launch-view">
                     <div class="tl-section-title"><div><h2>Launch Cockpit</h2><p>Turn product affinity and owner coverage into an iPhone 18 launch decision.</p></div><span>Decision draft</span></div>
                     <div class="tl-launch-hero"><span>Recommended commercial move</span><h3><t t-esc="recommendation.title"/></h3><p><t t-esc="recommendation.rationale"/> across <strong><t t-esc="formatNumber(recommendation.reachable_baskets)"/></strong> observed co-baskets.</p></div>
-                    <div class="tl-launch-steps"><div><b>01</b><strong>Merchandising</strong><p>Validate stock and margin for the top charger and care companions.</p></div><div><b>02</b><strong>CRM</strong><p>Review <t t-esc="formatNumber(summary.identified_customers)"/> identified owners for trade-in eligibility.</p></div><div><b>03</b><strong>Offer test</strong><p>Compare attach-rate uplift against a holdout before scaling the bundle.</p></div></div>
+                    <div class="tl-launch-steps"><div><b>01</b><strong>Merchandising</strong><p>Validate stock and margin for the highest decision-score companion.</p></div><div><b>02</b><strong>CRM</strong><p>Start with <t t-esc="formatNumber(priorityCustomers)"/> priority owners, then review the growth segment.</p></div><div><b>03</b><strong>Store test</strong><p t-if="topStore">Pilot in <t t-esc="topStore.name"/>, the leading observed store/team for this scope.</p><p t-else="">Choose a pilot store after source attribution is available.</p></div></div>
                     <div class="tl-decision-statement"><strong>Executive readout</strong><p><t t-esc="launchSentence"/></p></div>
                 </section>
             </t>

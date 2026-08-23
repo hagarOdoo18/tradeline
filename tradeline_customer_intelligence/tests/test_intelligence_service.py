@@ -50,3 +50,10 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         self.assertEqual(entity["type"], "query")
         self.assertEqual(entity["id"], 0)
+
+    def test_search_contract_exposes_all_three_grains(self):
+        results = self.service.search_entities("Intelligence Test", 12)
+        result_pairs = {(item["type"], item["id"]) for item in results}
+        self.assertIn(("category", self.parent_category.id), result_pairs)
+        self.assertIn(("product", self.template.id), result_pairs)
+        self.assertIn(("variant", self.variant.id), result_pairs)

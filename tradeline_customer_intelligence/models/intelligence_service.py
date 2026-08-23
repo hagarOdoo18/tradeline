@@ -4,6 +4,7 @@ import base64
 import csv
 import io
 from datetime import date
+from math import sqrt
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError
@@ -452,6 +453,248 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
 
+    def _query_current_dimensions(self, query, start, end, entity):
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
+        self.env.cr.execute(
+            """
+            WITH anchor_lines AS (
+                SELECT
+                    move.id AS basket_id,
+                    move.partner_id,
+                    move.invoice_date,
+                    line.price_subtotal AS revenue,
+                    COALESCE(line.discount, 0.0) AS discount,
+                    move.team_id,
+                    move.invoice_user_id
+                FROM account_move_line line
+                JOIN account_move move ON move.id = line.move_id
+                JOIN product_product product ON product.id = line.product_id
+                JOIN product_template template ON template.id = product.product_tmpl_id
+                WHERE move.state = 'posted'
+                  AND move.move_type IN ('out_invoice', 'out_receipt')
+                  AND move.invoice_date BETWEEN %s AND %s
+                  AND move.company_id = ANY(%s)
+                  AND line.quantity > 0
+                  AND (line.display_type = 'product' OR line.display_type IS NULL)
+                  AND {anchor_sql}
+            ),
+            basket_discount AS (
+                SELECT basket_id, BOOL_OR(discount > 0) AS discounted
+                FROM anchor_lines
+                GROUP BY basket_id
+            )
+            SELECT
+                (
+                    SELECT JSONB_BUILD_OBJECT(
+                        'baskets', COUNT(DISTINCT basket_id),
+                        'identified_baskets', COUNT(DISTINCT basket_id) FILTER (WHERE partner_id IS NOT NULL),
+                        'identified_customers', COUNT(DISTINCT partner_id) FILTER (WHERE partner_id IS NOT NULL)
+                    )
+                    FROM anchor_lines
+                ) AS scope_summary,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT(
+                                'period', TO_CHAR(month, 'YYYY-MM'),
+                                'label', TO_CHAR(month, 'Mon YYYY'),
+                                'baskets', baskets,
+                                'revenue', revenue
+                            ) ORDER BY month
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT DATE_TRUNC('month', invoice_date)::date AS month,
+                               COUNT(DISTINCT basket_id) AS baskets,
+                               COALESCE(SUM(revenue), 0.0) AS revenue
+                        FROM anchor_lines
+                        GROUP BY DATE_TRUNC('month', invoice_date)::date
+                    ) trend_rows
+                ) AS trend,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT('name', name, 'baskets', baskets, 'revenue', revenue)
+                            ORDER BY baskets DESC, name
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT COALESCE(
+                                   TO_JSONB(team.name)->>'en_US',
+                                   TO_JSONB(team.name)->>'en',
+                                   TO_JSONB(team.name)#>>'{}',
+                                   'Unassigned'
+                               ) AS name,
+                               COUNT(DISTINCT lines.basket_id) AS baskets,
+                               COALESCE(SUM(lines.revenue), 0.0) AS revenue
+                        FROM anchor_lines lines
+                        LEFT JOIN crm_team team ON team.id = lines.team_id
+                        GROUP BY name
+                        ORDER BY baskets DESC, name
+                        LIMIT 8
+                    ) store_rows
+                ) AS store_mix,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT('name', name, 'baskets', baskets, 'revenue', revenue)
+                            ORDER BY baskets DESC, name
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT COALESCE(partner.name, 'Unassigned') AS name,
+                               COUNT(DISTINCT lines.basket_id) AS baskets,
+                               COALESCE(SUM(lines.revenue), 0.0) AS revenue
+                        FROM anchor_lines lines
+                        LEFT JOIN res_users users ON users.id = lines.invoice_user_id
+                        LEFT JOIN res_partner partner ON partner.id = users.partner_id
+                        GROUP BY COALESCE(partner.name, 'Unassigned')
+                        ORDER BY baskets DESC, name
+                        LIMIT 8
+                    ) salesperson_rows
+                ) AS salesperson_mix,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT(
+                                'name', CASE WHEN discounted THEN 'Discounted basket' ELSE 'Full-price basket' END,
+                                'baskets', baskets
+                            ) ORDER BY discounted
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT discounted, COUNT(*) AS baskets
+                        FROM basket_discount
+                        GROUP BY discounted
+                    ) discount_rows
+                ) AS discount_mix
+            """.format(anchor_sql=anchor_sql),
+            [start, end, self._company_ids(), *anchor_params],
+        )
+        row = self.env.cr.fetchone() or ({}, [], [], [], [])
+        return {
+            "scope_summary": row[0] or {},
+            "trend": row[1] or [],
+            "store_mix": row[2] or [],
+            "salesperson_mix": row[3] or [],
+            "discount_mix": row[4] or [],
+            "channel_mix": [],
+        }
+
+    def _query_legacy_dimensions(self, query, start, end, entity):
+        if not self._has_table("legacy_invoice_line"):
+            return {"scope_summary": {}, "trend": [], "store_mix": [], "salesperson_mix": [], "discount_mix": [], "channel_mix": []}
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
+        self.env.cr.execute(
+            """
+            WITH anchor_lines AS (
+                SELECT
+                    invoice.id AS basket_id,
+                    invoice.partner_id,
+                    invoice.invoice_date,
+                    line.price_subtotal AS revenue,
+                    COALESCE(line.discount, 0.0) AS discount,
+                    COALESCE(line.source_branch_name, invoice.source_team_name, 'Unassigned') AS store_name,
+                    COALESCE(line.source_salesperson_name, invoice.source_sales_rep_name, invoice.source_user_name, 'Unassigned') AS salesperson_name,
+                    COALESCE(line.source_channel, 'Unspecified') AS channel_name
+                FROM legacy_invoice_line line
+                JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
+                WHERE invoice.invoice_date BETWEEN %s AND %s
+                  AND invoice.company_id = ANY(%s)
+                  AND invoice.invoice_type = 'out_invoice'
+                  AND invoice.state <> 'cancel'
+                  AND line.quantity > 0
+                  AND {anchor_sql}
+            ),
+            basket_discount AS (
+                SELECT basket_id, BOOL_OR(discount > 0) AS discounted
+                FROM anchor_lines
+                GROUP BY basket_id
+            )
+            SELECT
+                (
+                    SELECT JSONB_BUILD_OBJECT(
+                        'baskets', COUNT(DISTINCT basket_id),
+                        'identified_baskets', COUNT(DISTINCT basket_id) FILTER (WHERE partner_id IS NOT NULL),
+                        'identified_customers', COUNT(DISTINCT partner_id) FILTER (WHERE partner_id IS NOT NULL)
+                    )
+                    FROM anchor_lines
+                ) AS scope_summary,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT(
+                                'period', TO_CHAR(month, 'YYYY-MM'),
+                                'label', TO_CHAR(month, 'Mon YYYY'),
+                                'baskets', baskets,
+                                'revenue', revenue
+                            ) ORDER BY month
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT DATE_TRUNC('month', invoice_date)::date AS month,
+                               COUNT(DISTINCT basket_id) AS baskets,
+                               COALESCE(SUM(revenue), 0.0) AS revenue
+                        FROM anchor_lines
+                        GROUP BY DATE_TRUNC('month', invoice_date)::date
+                    ) trend_rows
+                ) AS trend,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(JSONB_BUILD_OBJECT('name', store_name, 'baskets', baskets, 'revenue', revenue) ORDER BY baskets DESC, store_name),
+                        '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT store_name, COUNT(DISTINCT basket_id) AS baskets, COALESCE(SUM(revenue), 0.0) AS revenue
+                        FROM anchor_lines GROUP BY store_name ORDER BY baskets DESC, store_name LIMIT 8
+                    ) store_rows
+                ) AS store_mix,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(JSONB_BUILD_OBJECT('name', salesperson_name, 'baskets', baskets, 'revenue', revenue) ORDER BY baskets DESC, salesperson_name),
+                        '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT salesperson_name, COUNT(DISTINCT basket_id) AS baskets, COALESCE(SUM(revenue), 0.0) AS revenue
+                        FROM anchor_lines GROUP BY salesperson_name ORDER BY baskets DESC, salesperson_name LIMIT 8
+                    ) salesperson_rows
+                ) AS salesperson_mix,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(
+                            JSONB_BUILD_OBJECT(
+                                'name', CASE WHEN discounted THEN 'Discounted basket' ELSE 'Full-price basket' END,
+                                'baskets', baskets
+                            ) ORDER BY discounted
+                        ), '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT discounted, COUNT(*) AS baskets FROM basket_discount GROUP BY discounted
+                    ) discount_rows
+                ) AS discount_mix,
+                (
+                    SELECT COALESCE(
+                        JSONB_AGG(JSONB_BUILD_OBJECT('name', channel_name, 'baskets', baskets) ORDER BY baskets DESC, channel_name),
+                        '[]'::jsonb
+                    )
+                    FROM (
+                        SELECT channel_name, COUNT(DISTINCT basket_id) AS baskets
+                        FROM anchor_lines GROUP BY channel_name ORDER BY baskets DESC, channel_name LIMIT 8
+                    ) channel_rows
+                ) AS channel_mix
+            """.format(anchor_sql=anchor_sql),
+            [start, end, self._company_ids(), *anchor_params],
+        )
+        row = self.env.cr.fetchone() or ({}, [], [], [], [], [])
+        return {
+            "scope_summary": row[0] or {},
+            "trend": row[1] or [],
+            "store_mix": row[2] or [],
+            "salesperson_mix": row[3] or [],
+            "discount_mix": row[4] or [],
+            "channel_mix": row[5] or [],
+        }
+
     def _source_counts(self, query, start, end, entity):
         current_anchor_sql, current_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         legacy_anchor_sql, legacy_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
@@ -606,25 +849,49 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             source_used = source
         if source_used == "legacy":
             companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20), entity)
+            dimensions = self._query_legacy_dimensions(query, start, end, entity)
         else:
             companions, customers, payments = self._query_current(query, start, end, int(limit or 20), entity)
+            dimensions = self._query_current_dimensions(query, start, end, entity)
 
         first = companions[0] if companions else {}
-        baskets = int(first.get("anchor_baskets") or counts.get(source_used) or 0)
+        scope_summary = dimensions.get("scope_summary") or {}
+        baskets = int(scope_summary.get("baskets") or first.get("anchor_baskets") or counts.get(source_used) or 0)
         all_baskets = int(first.get("all_baskets") or 0)
-        identified_baskets = int(first.get("identified_baskets") or 0)
-        identified_customers = int(first.get("identified_customers") or 0)
+        identified_baskets = int(scope_summary.get("identified_baskets") or first.get("identified_baskets") or 0)
+        identified_customers = int(scope_summary.get("identified_customers") or first.get("identified_customers") or 0)
         for row in companions:
             co_baskets = int(row.get("co_baskets") or 0)
             base_baskets = int(row.get("base_baskets") or 0)
             attach_rate = (co_baskets / baskets * 100.0) if baskets else 0.0
             base_rate = (base_baskets / all_baskets) if all_baskets else 0.0
             lift = ((co_baskets / baskets) / base_rate) if baskets and base_rate else 0.0
+            probability = co_baskets / baskets if baskets else 0.0
+            if baskets:
+                z = 1.96
+                denominator = 1.0 + (z * z / baskets)
+                center = (probability + (z * z / (2.0 * baskets))) / denominator
+                margin = z * sqrt(
+                    (probability * (1.0 - probability) / baskets) + (z * z / (4.0 * baskets * baskets))
+                ) / denominator
+                confidence_low = max(0.0, center - margin) * 100.0
+                confidence_high = min(1.0, center + margin) * 100.0
+            else:
+                confidence_low = confidence_high = 0.0
+            opportunity_score = min(
+                100.0,
+                (min(attach_rate, 100.0) * 0.45)
+                + (min(lift, 4.0) / 4.0 * 30.0)
+                + (min(co_baskets, 100) / 100.0 * 25.0),
+            )
             row.update(
                 {
                     "co_baskets": co_baskets,
                     "attach_rate": round(attach_rate, 2),
                     "lift": round(lift, 2),
+                    "attach_ci_low": round(confidence_low, 2),
+                    "attach_ci_high": round(confidence_high, 2),
+                    "opportunity_score": round(opportunity_score, 1),
                     "confidence": "High" if co_baskets >= 100 else ("Medium" if co_baskets >= 30 else "Exploratory"),
                     "signal": 4 if co_baskets >= 100 and lift >= 1.2 else (3 if co_baskets >= 30 else 2),
                 }
@@ -633,12 +900,49 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         payment_total = sum(int(row["baskets"]) for row in payments) or 1
         for row in payments:
             row["pct"] = round(int(row["baskets"]) / payment_total * 100.0, 2)
+        max_customer_revenue = max((float(row.get("revenue") or 0.0) for row in customers), default=1.0) or 1.0
+        max_customer_baskets = max((int(row.get("baskets") or 0) for row in customers), default=1) or 1
+        period_days = max((end - start).days, 1)
+        customer_segment_counts = {"Priority": 0, "Growth": 0, "Core": 0}
         for customer in customers:
-            if isinstance(customer.get("last_purchase"), date):
-                customer["last_purchase"] = fields.Date.to_string(customer["last_purchase"])
-            customer["revenue"] = float(customer.get("revenue") or 0.0)
+            last_purchase = customer.get("last_purchase")
+            recency_days = max((end - last_purchase).days, 0) if isinstance(last_purchase, date) else period_days
+            revenue = float(customer.get("revenue") or 0.0)
+            customer_baskets = int(customer.get("baskets") or 0)
+            contactable = bool(customer.get("email") or customer.get("mobile"))
+            recency_component = max(0.0, 1.0 - (recency_days / period_days))
+            score = round(
+                (revenue / max_customer_revenue * 40.0)
+                + (customer_baskets / max_customer_baskets * 30.0)
+                + (recency_component * 25.0)
+                + (5.0 if contactable else 0.0)
+            )
+            segment = "Priority" if score >= 70 else ("Growth" if score >= 45 else "Core")
+            customer_segment_counts[segment] += 1
+            customer.update(
+                {
+                    "last_purchase": fields.Date.to_string(last_purchase) if isinstance(last_purchase, date) else "",
+                    "revenue": revenue,
+                    "avg_basket_value": round(revenue / customer_baskets, 2) if customer_baskets else 0.0,
+                    "recency_days": recency_days,
+                    "activation_score": min(score, 100),
+                    "segment": segment,
+                    "contact_status": "Email + mobile" if customer.get("email") and customer.get("mobile") else (
+                        "Email" if customer.get("email") else ("Mobile" if customer.get("mobile") else "Unreachable")
+                    ),
+                }
+            )
 
-        top = companions[0] if companions else None
+        trend = dimensions.get("trend") or []
+        trend_change = 0.0
+        if len(trend) >= 2:
+            previous_baskets = int(trend[-2].get("baskets") or 0)
+            current_baskets = int(trend[-1].get("baskets") or 0)
+            trend_change = ((current_baskets - previous_baskets) / previous_baskets * 100.0) if previous_baskets else 0.0
+        dimensions["trend_change_pct"] = round(trend_change, 2)
+        dimensions["trend_direction"] = "up" if trend_change > 0 else ("down" if trend_change < 0 else "flat")
+
+        top = max(companions, key=lambda row: row.get("opportunity_score", 0.0), default=None)
         display_name = entity["name"] if entity["type"] != "query" else (first.get("anchor_name") or query)
         grain_labels = {
             "category": "Category (including child categories)",
@@ -669,7 +973,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             },
             "companions": companions,
             "customers": customers,
+            "customer_segments": [
+                {"name": name, "customers": customer_segment_counts[name]}
+                for name in ("Priority", "Growth", "Core")
+            ],
             "payment_mix": payments,
+            "dimensions": dimensions,
             "recommendation": recommendation,
             "coverage": self._coverage(counts, source_used, start, end),
             "source_requested": source,
@@ -691,7 +1000,33 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         writer.writerow([])
         writer.writerow(["Companion", "Co-baskets", "Attach rate %", "Lift", "Confidence"])
         for row in bundle["companions"]:
-            writer.writerow([row["product_name"], row["co_baskets"], row["attach_rate"], row["lift"], row["confidence"]])
+            writer.writerow(
+                [
+                    row["product_name"],
+                    row["co_baskets"],
+                    row["attach_rate"],
+                    row["lift"],
+                    f"{row['confidence']} ({row['attach_ci_low']:.2f}%–{row['attach_ci_high']:.2f}%)",
+                ]
+            )
+        writer.writerow([])
+        writer.writerow(["Customer", "Segment", "Activation score", "Baskets", "Observed value", "Last purchase", "Contact readiness"])
+        for customer in bundle["customers"]:
+            writer.writerow(
+                [
+                    customer["name"],
+                    customer["segment"],
+                    customer["activation_score"],
+                    customer["baskets"],
+                    customer["revenue"],
+                    customer["last_purchase"],
+                    customer["contact_status"],
+                ]
+            )
+        writer.writerow([])
+        writer.writerow(["Store / team", "Baskets", "Selected-scope revenue"])
+        for store in bundle["dimensions"]["store_mix"]:
+            writer.writerow([store["name"], store["baskets"], store["revenue"]])
         content = stream.getvalue().encode("utf-8-sig")
         filename = f"tradeline_product_intelligence_{fields.Date.today()}.csv"
         attachment = self.env["ir.attachment"].sudo().create(
