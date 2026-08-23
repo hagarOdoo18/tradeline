@@ -52,16 +52,57 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             customer_company_id = int(filters.get("customer_company_id") or 0)
         except (TypeError, ValueError):
             customer_company_id = 0
-        if customer_company_id and not self.env["res.partner"].sudo().browse(customer_company_id).exists():
+        customer_company = self.env["res.partner"].sudo().browse(customer_company_id).exists()
+        if customer_company_id and not customer_company:
             customer_company_id = 0
         return {
             "customer_type": customer_type,
             "customer_company_id": customer_company_id,
+            "customer_company_name": customer_company.name if customer_company else "",
+            "customer_company_vat": customer_company.vat if customer_company else "",
         }
 
-    def _audience_sql(self, basket_alias, filters):
+    def _audience_sql(self, basket_alias, filters, source="current"):
         """Return a safe partner-population predicate shared by live and archive SQL."""
         filters = self._normalize_filters(filters)
+        if source == "legacy":
+            conditions = []
+            params = []
+            linked_company = (
+                "EXISTS (SELECT 1 FROM res_partner audience_partner "
+                "JOIN res_partner commercial ON commercial.id = audience_partner.commercial_partner_id "
+                f"WHERE audience_partner.id = {basket_alias}.partner_id AND {{condition}})"
+            )
+            if filters["customer_type"] == "company":
+                conditions.append(
+                    f"(LOWER(COALESCE({basket_alias}.source_partner_type, '')) = 'company' OR "
+                    + linked_company.format(condition="COALESCE(commercial.is_company, FALSE)")
+                    + ")"
+                )
+            elif filters["customer_type"] == "individual":
+                conditions.append(
+                    f"(LOWER(COALESCE({basket_alias}.source_partner_type, '')) IN ('person', 'individual') OR "
+                    + linked_company.format(condition="NOT COALESCE(commercial.is_company, FALSE)")
+                    + ")"
+                )
+            if filters["customer_company_id"]:
+                identity_conditions = [
+                    linked_company.format(condition="commercial.id = %s"),
+                ]
+                params.append(filters["customer_company_id"])
+                if filters["customer_company_vat"]:
+                    identity_conditions.append(
+                        f"REGEXP_REPLACE(UPPER(COALESCE({basket_alias}.source_partner_tax_id, '')), '[^A-Z0-9]+', '', 'g') = %s"
+                    )
+                    params.append(re.sub(r"[^A-Z0-9]+", "", filters["customer_company_vat"].upper()))
+                if filters["customer_company_name"]:
+                    identity_conditions.append(f"LOWER(TRIM(COALESCE({basket_alias}.source_partner_name, ''))) = %s")
+                    params.append(filters["customer_company_name"].strip().lower())
+                conditions.append(f"({' OR '.join(identity_conditions)})")
+            if not conditions:
+                return "", []
+            return f" AND {' AND '.join(conditions)}", params
+
         conditions = []
         params = []
         if filters["customer_type"] == "company":
@@ -377,7 +418,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             return [], [], []
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
-        audience_sql, audience_params = self._audience_sql("invoice", filters)
+        audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
         company_ids = self._company_ids()
         self.env.cr.execute(
             """
@@ -503,8 +544,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     COALESCE(partner.name, NULLIF(invoice.source_partner_name, ''), 'Legacy customer') AS customer_name,
                     partner.email,
                     COALESCE(partner.mobile, NULLIF(invoice.source_partner_mobile, '')) AS mobile,
-                    COALESCE(commercial.is_company, FALSE) AS is_company,
-                    CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
+                    (
+                        COALESCE(commercial.is_company, FALSE)
+                        OR LOWER(COALESCE(invoice.source_partner_type, '')) = 'company'
+                    ) AS is_company,
+                    CASE
+                        WHEN COALESCE(commercial.is_company, FALSE) THEN commercial.name
+                        WHEN LOWER(COALESCE(invoice.source_partner_type, '')) = 'company' THEN invoice.source_partner_name
+                    END AS company_name,
                     invoice.id AS basket_id,
                     invoice.amount_untaxed,
                     invoice.invoice_date
@@ -700,7 +747,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if not self._has_table("legacy_invoice_line"):
             return {"scope_summary": {}, "trend": [], "store_mix": [], "salesperson_mix": [], "discount_mix": [], "channel_mix": []}
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
-        audience_sql, audience_params = self._audience_sql("invoice", filters)
+        audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
         self.env.cr.execute(
             """
             WITH anchor_lines AS (
@@ -823,7 +870,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         current_anchor_sql, current_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         legacy_anchor_sql, legacy_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         current_audience_sql, current_audience_params = self._audience_sql("move", filters)
-        legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters)
+        legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters, source="legacy")
         counts = {"current": 0, "legacy": 0}
         company_ids = self._company_ids()
         self.env.cr.execute(
@@ -1342,7 +1389,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "source_requested": source,
             "source_used": source_used,
             "source_label": self.SOURCE_LABELS[source_used],
-            "filters": filters,
+            "filters": {
+                "customer_type": filters["customer_type"],
+                "customer_company_id": filters["customer_company_id"],
+            },
         }
 
     def _evidence_anchor_domain(self, entity, query, source):
@@ -1378,22 +1428,34 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         start, end = self._date_range(start_date, end_date)
         counts = self._source_counts(query, start, end, entity, filters)
         source_used = source if source in {"current", "legacy"} else ("legacy" if counts["legacy"] else "current")
-        customer_domain = []
+        current_customer_domain = []
         if filters["customer_type"] == "company":
-            customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", True))
+            current_customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", True))
         elif filters["customer_type"] == "individual":
-            customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", False))
+            current_customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", False))
         if filters["customer_company_id"]:
-            customer_domain.append(("partner_id.commercial_partner_id", "=", filters["customer_company_id"]))
+            current_customer_domain.append(("partner_id.commercial_partner_id", "=", filters["customer_company_id"]))
 
         if source_used == "legacy":
+            legacy_customer_domain = []
+            if filters["customer_type"] == "company":
+                legacy_customer_domain.append(("source_partner_type", "=", "company"))
+            elif filters["customer_type"] == "individual":
+                legacy_customer_domain.append(("source_partner_type", "in", ["person", "individual"]))
+            if filters["customer_company_id"]:
+                identity_domains = [[("partner_id.commercial_partner_id", "=", filters["customer_company_id"])]]
+                if filters["customer_company_vat"]:
+                    identity_domains.append([("source_partner_tax_id", "ilike", filters["customer_company_vat"])])
+                if filters["customer_company_name"]:
+                    identity_domains.append([("source_partner_name", "=ilike", filters["customer_company_name"])])
+                legacy_customer_domain += expression.OR(identity_domains)
             domain = [
                 ("invoice_date", ">=", fields.Date.to_string(start)),
                 ("invoice_date", "<=", fields.Date.to_string(end)),
                 ("company_id", "in", self._company_ids()),
                 ("invoice_type", "=", "out_invoice"),
                 ("state", "!=", "cancel"),
-            ] + customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
+            ] + legacy_customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
             if companion_key:
                 key = str(companion_key)
                 if key.startswith("product:") and key.split(":", 1)[1].isdigit():
@@ -1420,7 +1482,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             ("invoice_date", ">=", fields.Date.to_string(start)),
             ("invoice_date", "<=", fields.Date.to_string(end)),
             ("company_id", "in", self._company_ids()),
-        ] + customer_domain + self._evidence_anchor_domain(entity, query, "current")
+        ] + current_customer_domain + self._evidence_anchor_domain(entity, query, "current")
         if companion_key and str(companion_key).isdigit():
             domain.append(("invoice_line_ids.product_id", "=", int(companion_key)))
         return {

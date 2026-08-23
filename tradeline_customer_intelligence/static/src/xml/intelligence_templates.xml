@@ -131,11 +131,6 @@
                 <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>Identified-customer coverage</span><small><t t-esc="formatNumber(summary.identified_baskets)"/> linked baskets</small></div>
             </section>
 
-            <section class="tl-recommendation-strip" t-if="recommendation.title">
-                <div><span>Recommended next move</span><strong><t t-esc="recommendation.title"/></strong><p><t t-esc="recommendation.rationale"/> · <t t-esc="formatNumber(recommendation.reachable_baskets)"/> observed co-baskets</p></div>
-                <div><button class="tl-secondary-button" t-on-click="onBuildAudience">Build audience</button><button class="tl-primary-button" t-on-click="onOpenLaunch">Open Launch Cockpit</button></div>
-            </section>
-
             <t t-if="state.activeView === 'product' or state.activeView === 'bundle'">
                 <section class="tl-affinity-section">
                     <div class="tl-section-title">
@@ -160,6 +155,11 @@
                             </tbody>
                         </table>
                     </div>
+                </section>
+
+                <section class="tl-recommendation-strip" t-if="recommendation.title">
+                    <div><span>Recommended next move</span><strong><t t-esc="recommendation.title"/></strong><p><t t-esc="recommendation.rationale"/> · <t t-esc="formatNumber(recommendation.reachable_baskets)"/> observed co-baskets</p></div>
+                    <div><button class="tl-secondary-button" t-on-click="onBuildAudience">Build audience</button><button class="tl-primary-button" t-on-click="onOpenLaunch">Open Launch Cockpit</button></div>
                 </section>
 
                 <section class="tl-lower-band">

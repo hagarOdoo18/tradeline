@@ -99,6 +99,11 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertIn("commercial.id = %s", clause)
         self.assertEqual(params, [company.id])
 
+        legacy_clause, legacy_params = self.service._audience_sql("invoice", normalized, source="legacy")
+        self.assertIn("invoice.source_partner_type", legacy_clause)
+        self.assertIn("invoice.source_partner_name", legacy_clause)
+        self.assertIn(company.name.strip().lower(), legacy_params)
+
         all_clause, all_params = self.service._audience_sql("move", {"customer_type": "all"})
         self.assertEqual(all_clause, "")
         self.assertEqual(all_params, [])
