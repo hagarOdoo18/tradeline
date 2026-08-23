@@ -377,6 +377,7 @@
   font-size: 11px;
 }
 .tl-command-tray .tl-intel-nav-item svg { width: 20px; height: 20px; }
+.tl-command-tray .tl-intel-nav-item span { display: inline; }
 .tl-command-tray .tl-intel-nav-item:hover { border-color: #c7d7cc; background: #fff; }
 .tl-command-tray .tl-intel-nav-item.is-active { color: #fff; background: var(--tli-green); }
 .tl-command-tray .tl-intel-nav-item.is-active::before { display: none; }
