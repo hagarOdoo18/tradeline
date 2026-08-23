@@ -1000,28 +1000,71 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         output = []
         seen = set()
 
-        def append_records(model_name, entity_type, result_limit):
-            for record_id, name in self.env[model_name].sudo().name_search(
-                query, operator="ilike", limit=result_limit
-            ):
-                key = f"{entity_type}:{record_id}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                output.append(
-                    {
-                        "key": key,
-                        "id": record_id,
-                        "name": name,
-                        "type": entity_type,
-                        "source": "current",
-                    }
-                )
+        def append_item(record, entity_type, subtitle, item_code="", match_hint=""):
+            key = f"{entity_type}:{record.id}"
+            if key in seen or len(output) >= limit:
+                return
+            seen.add(key)
+            output.append(
+                {
+                    "key": key,
+                    "id": record.id,
+                    "name": record.display_name,
+                    "type": entity_type,
+                    "source": "current",
+                    "subtitle": subtitle,
+                    "item_code": item_code or "",
+                    "match_hint": match_hint or "",
+                }
+            )
 
-        base_quota = max(1, limit // 3)
-        append_records("product.category", "category", base_quota)
-        append_records("product.template", "product", base_quota)
-        append_records("product.product", "variant", max(1, limit - (base_quota * 2)))
+        variant_domain = [
+            "|", "|", "|",
+            ("name", "ilike", query),
+            ("product_tmpl_id.name", "ilike", query),
+            ("barcode", "ilike", query),
+            ("default_code", "ilike", query),
+        ]
+        variants = self.env["product.product"].sudo().with_context(active_test=False).search(
+            variant_domain, limit=max(limit * 2, 20)
+        )
+        templates = self.env["product.template"].sudo().with_context(active_test=False).search(
+            [("name", "ilike", query)], limit=max(limit, 12)
+        )
+        template_ids = set(templates.ids)
+        templates |= variants.mapped("product_tmpl_id").filtered(lambda template: template.id not in template_ids)
+
+        normalized_query = re.sub(r"[^A-Z0-9]+", "", query.upper())
+        product_quota = max(2, limit // 3)
+        for template in templates[:product_quota]:
+            variant_count = len(template.with_context(active_test=False).product_variant_ids)
+            category_name = template.categ_id.display_name or "Uncategorized"
+            append_item(
+                template,
+                "product",
+                f"Product family · {category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}",
+            )
+
+        variant_quota = max(3, limit - product_quota - 2)
+        for variant in variants[:variant_quota]:
+            item_code = variant.barcode or variant.default_code or ""
+            normalized_code = re.sub(r"[^A-Z0-9]+", "", item_code.upper())
+            match_hint = "Matched by item code" if normalized_query and normalized_query in normalized_code else ""
+            append_item(
+                variant,
+                "variant",
+                f"Exact SKU · {variant.categ_id.display_name or 'Uncategorized'}" + (f" · {item_code}" if item_code else ""),
+                item_code,
+                match_hint,
+            )
+
+        categories = self.env["product.category"].sudo().search([("name", "ilike", query)], limit=3)
+        for category in categories:
+            family_count = self.env["product.template"].sudo().with_context(active_test=False).search_count(
+                [("categ_id", "child_of", category.id)]
+            )
+            append_item(category, "category", f"Category · {family_count} product families")
+
         if len(output) < limit and self._has_table("legacy_invoice_line"):
             self.env.cr.execute(
                 """
@@ -1049,6 +1092,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         "name": label,
                         "type": "query",
                         "source": "legacy",
+                        "subtitle": "Legacy archive text match · basket search",
+                        "item_code": "",
+                        "match_hint": "",
                     }
                 )
                 if len(output) >= limit:

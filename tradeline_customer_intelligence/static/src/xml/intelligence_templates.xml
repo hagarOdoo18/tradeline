@@ -9,13 +9,14 @@
         </div>
         <div class="tl-intel-search-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
-            <input aria-label="Search category, product, or variant" t-att-value="state.searchInput" placeholder="Search category, product, or exact variant" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
+            <input aria-label="Search category, product, or variant" t-att-value="state.searchInput" placeholder="Search model, color, capacity, barcode, or item code" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
             <svg class="tl-search-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
             <t t-if="state.suggestionsOpen">
                 <div class="tl-search-results">
+                    <div class="tl-search-guide"><strong>Choose the level you want to analyze</strong><span>Product family</span><span>Exact SKU</span><span>Category</span></div>
                     <button t-foreach="state.suggestions" t-as="suggestion" t-key="suggestion.key" t-att-data-key="suggestion.key" t-on-click="onSelectSuggestion">
-                        <span><t t-esc="suggestion.name"/></span>
-                        <small><b><t t-esc="suggestion.type === 'category' ? 'Category' : (suggestion.type === 'product' ? 'Product' : (suggestion.type === 'variant' ? 'Variant' : 'Archive match'))"/></b> · <t t-esc="suggestion.source === 'legacy' ? 'Odoo 12' : 'Odoo 18'"/></small>
+                        <span><t t-esc="suggestion.name"/><em t-if="suggestion.match_hint"><t t-esc="suggestion.match_hint"/></em></span>
+                        <small><b><t t-esc="suggestion.type === 'category' ? 'Category' : (suggestion.type === 'product' ? 'Product family' : (suggestion.type === 'variant' ? 'Exact SKU' : 'Archive match'))"/></b><t t-if="suggestion.subtitle"> · <t t-esc="suggestion.subtitle"/></t></small>
                     </button>
                     <div t-if="!state.suggestions.length" class="tl-search-empty">No matching products</div>
                 </div>

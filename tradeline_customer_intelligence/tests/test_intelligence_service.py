@@ -78,3 +78,12 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertIn(("category", self.parent_category.id), result_pairs)
         self.assertIn(("product", self.template.id), result_pairs)
         self.assertIn(("variant", self.variant.id), result_pairs)
+
+    def test_search_accepts_human_name_or_full_item_code(self):
+        results = self.service.search_entities("ab-12 3", 12)
+        variant_result = next(
+            item for item in results if item["type"] == "variant" and item["id"] == self.variant.id
+        )
+        self.assertEqual(variant_result["item_code"], "ab-12 3/xyz")
+        self.assertEqual(variant_result["match_hint"], "Matched by item code")
+        self.assertIn("Exact SKU", variant_result["subtitle"])

@@ -209,6 +209,19 @@ export class TradelineCustomerIntelligence extends Component {
             ev.preventDefault();
             const query = this.state.searchInput.trim();
             if (query.length >= 2) {
+                const normalized = query.toLowerCase();
+                const preferred = this.state.suggestions.find(item => {
+                    const name = String(item.name || "").toLowerCase();
+                    const code = String(item.item_code || "").toLowerCase();
+                    return (item.type === "variant" && code === normalized)
+                        || (item.type === "product" && (name === normalized || name.endsWith(normalized)));
+                });
+                if (preferred) {
+                    this.applySuggestion(preferred);
+                    await this.loadProduct();
+                    if (this.state.activeView === "comparison") await this.loadComparison();
+                    return;
+                }
                 this.state.query = query;
                 this.state.selectedEntity = { type: "query", id: 0, name: query, source: "auto" };
                 this.state.comparison = null;
@@ -223,6 +236,11 @@ export class TradelineCustomerIntelligence extends Component {
         const key = ev.currentTarget.dataset.key;
         const selected = this.state.suggestions.find(item => item.key === key);
         if (!selected) return;
+        this.applySuggestion(selected);
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
+    }
+    applySuggestion(selected) {
         this.state.searchInput = selected.name;
         this.state.query = selected.name;
         this.state.selectedEntity = {
@@ -232,8 +250,6 @@ export class TradelineCustomerIntelligence extends Component {
             source: selected.source,
         };
         this.state.comparison = null;
-        await this.loadProduct();
-        if (this.state.activeView === "comparison") await this.loadComparison();
     }
     async onDateChange() {
         await this.loadProduct();
