@@ -7,7 +7,8 @@ Primary concept: `static/description/design/product-360-concept.png` (1536 × 10
 - Tradeline Intelligence
 - Product 360, Customer 360, Bundle Lab, Audience Builder, Launch Cockpit, Data Quality
 - Export insight
-- What customers buy with this product, who they are, and what to do next.
+- What customers buy with this scope, who they are, and what to do next.
+- Category (including child categories), Product family, Exact variant / SKU, Search match
 - Baskets, Companion attach rate, Baskets with companions, Identified-customer coverage
 - Frequently bought together, Customer & payment mix, Data coverage
 - Next best action, Audience opportunity, Build audience
@@ -28,4 +29,4 @@ Dynamic product names, dates, measures, customer names, source labels and recomm
 
 ## Core interaction path
 
-Search product → select suggestion → set dates/source → inspect ranked companions → select a companion → preview identified audience → open customer, bundle, audience, launch and coverage views → export recomputed CSV.
+Search → select a category, product family, or exact variant → set dates/source → inspect ranked companions → select a companion → preview identified audience → open customer, bundle, audience, launch and coverage views → export recomputed CSV. Category scope includes all child categories; product scope includes every variant; variant scope matches only that SKU.

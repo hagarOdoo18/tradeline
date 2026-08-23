@@ -17,6 +17,7 @@ export class TradelineCustomerIntelligence extends Component {
             error: "",
             query: "iPhone 17",
             searchInput: "iPhone 17",
+            selectedEntity: { type: "query", id: 0, name: "iPhone 17", source: "auto" },
             suggestions: [],
             suggestionsOpen: false,
             source: "auto",
@@ -42,7 +43,7 @@ export class TradelineCustomerIntelligence extends Component {
         ];
     }
     get bundle() { return this.state.bundle || {}; }
-    get product() { return this.bundle.product || { name: this.state.query }; }
+    get product() { return this.bundle.product || { name: this.state.query, grain_label: "Search match" }; }
     get summary() { return this.bundle.summary || {}; }
     get companions() { return this.bundle.companions || []; }
     get customers() { return this.bundle.customers || []; }
@@ -117,7 +118,7 @@ export class TradelineCustomerIntelligence extends Component {
             const bundle = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "get_product_360",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20]
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity]
             );
             this.state.bundle = bundle;
             this.state.selectedCompanionKey = bundle.companions?.[0]?.product_key || null;
@@ -148,7 +149,7 @@ export class TradelineCustomerIntelligence extends Component {
             try {
                 this.state.suggestions = await this.orm.call(
                     "tradeline.customer.intelligence.service",
-                    "search_products",
+                    "search_entities",
                     [query, 10]
                 );
                 this.state.suggestionsOpen = true;
@@ -163,6 +164,7 @@ export class TradelineCustomerIntelligence extends Component {
             const query = this.state.searchInput.trim();
             if (query.length >= 2) {
                 this.state.query = query;
+                this.state.selectedEntity = { type: "query", id: 0, name: query, source: "auto" };
                 await this.loadProduct();
             }
         } else if (ev.key === "Escape") {
@@ -170,9 +172,17 @@ export class TradelineCustomerIntelligence extends Component {
         }
     }
     async onSelectSuggestion(ev) {
-        const name = ev.currentTarget.dataset.name;
-        this.state.searchInput = name;
-        this.state.query = name;
+        const key = ev.currentTarget.dataset.key;
+        const selected = this.state.suggestions.find(item => item.key === key);
+        if (!selected) return;
+        this.state.searchInput = selected.name;
+        this.state.query = selected.name;
+        this.state.selectedEntity = {
+            type: selected.type,
+            id: Number(selected.id || 0),
+            name: selected.name,
+            source: selected.source,
+        };
         await this.loadProduct();
     }
     async onDateChange() {
@@ -204,7 +214,7 @@ export class TradelineCustomerIntelligence extends Component {
             const action = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "export_product_insight",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source]
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity]
             );
             await this.action.doAction(action);
         } catch (error) {

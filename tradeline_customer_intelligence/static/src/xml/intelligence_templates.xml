@@ -9,13 +9,13 @@
         </div>
         <div class="tl-intel-search-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
-            <input aria-label="Search product" t-att-value="state.searchInput" placeholder="Search any product" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
+            <input aria-label="Search category, product, or variant" t-att-value="state.searchInput" placeholder="Search category, product, or exact variant" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
             <svg class="tl-search-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
             <t t-if="state.suggestionsOpen">
                 <div class="tl-search-results">
-                    <button t-foreach="state.suggestions" t-as="suggestion" t-key="suggestion.key" t-att-data-name="suggestion.name" t-on-click="onSelectSuggestion">
+                    <button t-foreach="state.suggestions" t-as="suggestion" t-key="suggestion.key" t-att-data-key="suggestion.key" t-on-click="onSelectSuggestion">
                         <span><t t-esc="suggestion.name"/></span>
-                        <small><t t-esc="suggestion.source === 'legacy' ? 'Odoo 12 archive' : 'Odoo 18 live'"/></small>
+                        <small><b><t t-esc="suggestion.type === 'category' ? 'Category' : (suggestion.type === 'product' ? 'Product' : (suggestion.type === 'variant' ? 'Variant' : 'Archive match'))"/></b> · <t t-esc="suggestion.source === 'legacy' ? 'Odoo 12' : 'Odoo 18'"/></small>
                     </button>
                     <div t-if="!state.suggestions.length" class="tl-search-empty">No matching products</div>
                 </div>
@@ -69,8 +69,9 @@
         <t t-else="">
             <section class="tl-product-heading">
                 <div>
+                    <span class="tl-grain-badge"><t t-esc="product.grain_label"/></span>
                     <h1><t t-esc="product.name"/></h1>
-                    <p>What customers buy with this product, who they are, and what to do next.</p>
+                    <p>What customers buy with this scope, who they are, and what to do next.</p>
                 </div>
                 <label class="tl-source-select">
                     <span>Source</span>
@@ -109,7 +110,7 @@
                                     <td><t t-esc="row.confidence"/></td>
                                     <td><div class="tl-signal"><i t-foreach="[1,2,3,4]" t-as="signal" t-key="signal" t-att-class="signal &lt;= row.signal ? 'is-on' : ''"></i></div></td>
                                 </tr>
-                                <tr t-if="!companions.length"><td colspan="7" class="tl-table-empty">No companion products were found for this product and period.</td></tr>
+                                <tr t-if="!companions.length"><td colspan="7" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -165,7 +166,7 @@
                 <section class="tl-workspace-view tl-audience-view">
                     <div class="tl-section-title"><div><h2>Audience Builder</h2><p>Preview the reachable owners behind this product signal before activating a campaign.</p></div><span>Preview only</span></div>
                     <div class="tl-audience-summary"><div><strong><t t-esc="formatNumber(summary.identified_customers)"/></strong><span>identified customers</span></div><div><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>basket coverage</span></div><div><strong><t t-esc="formatNumber(emailReady)"/></strong><span>email-ready</span></div><div><strong><t t-esc="formatNumber(mobileReady)"/></strong><span>mobile-ready</span></div></div>
-                    <div class="tl-audience-rule"><strong>Audience definition</strong><span>Bought <t t-esc="product.name"/> between <t t-esc="state.startDate"/> and <t t-esc="state.endDate"/></span><span>Identified customer only</span><span>Source: <t t-esc="bundle.source_label"/></span></div>
+                    <div class="tl-audience-rule"><strong>Audience definition</strong><span>Bought within <t t-esc="product.name"/> between <t t-esc="state.startDate"/> and <t t-esc="state.endDate"/></span><span>Grain: <t t-esc="product.grain_label"/></span><span>Identified customer only</span><span>Source: <t t-esc="bundle.source_label"/></span></div>
                     <table class="tl-audience-table"><thead><tr><th>Customer</th><th>Email</th><th>Mobile</th><th>Baskets</th><th>Last purchase</th></tr></thead><tbody><tr t-foreach="customers" t-as="customer" t-key="customer.partner_id"><td><t t-esc="customer.name"/></td><td><t t-esc="customer.email || '—'"/></td><td><t t-esc="customer.mobile || '—'"/></td><td><t t-esc="formatNumber(customer.baskets)"/></td><td><t t-esc="customer.last_purchase"/></td></tr></tbody></table>
                     <div class="tl-activation-note"><strong>Activation guardrail</strong><p>The engine prepares the segment; it does not send email or SMS until an authorized campaign owner reviews consent, exclusions and message content.</p></div>
                 </section>

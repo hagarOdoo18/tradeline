@@ -40,8 +40,64 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     def _company_ids(self):
         return self.env.user.company_ids.ids or [self.env.company.id]
 
-    def _query_current(self, query, start, end, limit):
+    def _normalize_entity(self, entity, query):
+        entity = dict(entity or {})
+        entity_type = entity.get("type") if entity.get("type") in {"category", "product", "variant"} else "query"
+        try:
+            entity_id = int(entity.get("id") or 0) if entity_type != "query" else 0
+        except (TypeError, ValueError):
+            entity_id = 0
+        name = (entity.get("name") or query or "").strip()
+        if entity_type != "query":
+            model_name = {
+                "category": "product.category",
+                "product": "product.template",
+                "variant": "product.product",
+            }[entity_type]
+            record = self.env[model_name].sudo().browse(entity_id).exists()
+            if not record:
+                entity_type = "query"
+                entity_id = 0
+            else:
+                name = record.display_name
+        category_ids = []
+        if entity_type == "category":
+            category_ids = self.env["product.category"].sudo().search([("id", "child_of", entity_id)]).ids
+            category_ids = category_ids or [entity_id]
+        return {"type": entity_type, "id": entity_id, "name": name, "category_ids": category_ids}
+
+    def _anchor_clause(self, entity, query, *, source, scoped=True):
+        if scoped:
+            product_id = "product_id"
+            template_id = "product_tmpl_id"
+            category_id = "category_id"
+            product_name = "product_name"
+            item_code = "item_code"
+        elif source == "current":
+            product_id = "line.product_id"
+            template_id = "product.product_tmpl_id"
+            category_id = "template.categ_id"
+            product_name = "COALESCE(template.name->>'en_US', template.name->>'en', '')"
+            item_code = "COALESCE(product.default_code, '')"
+        else:
+            product_id = "line.product_id"
+            template_id = "line.product_tmpl_id"
+            category_id = "line.product_category_id"
+            product_name = "COALESCE(line.product_name, line.name, '')"
+            item_code = "COALESCE(line.item_code, '')"
+
+        if entity["type"] == "variant":
+            return f"{product_id} = %s", [entity["id"]]
+        if entity["type"] == "product":
+            return f"{template_id} = %s", [entity["id"]]
+        if entity["type"] == "category":
+            return f"{category_id} = ANY(%s)", [entity["category_ids"]]
         pattern = f"%{query.strip()}%"
+        return f"({product_name} ILIKE %s OR {item_code} ILIKE %s)", [pattern, pattern]
+
+    def _query_current(self, query, start, end, limit, entity):
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source="current", scoped=True)
+        direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         company_ids = self._company_ids()
         self.env.cr.execute(
             """
@@ -51,6 +107,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     move.partner_id,
                     move.invoice_date,
                     line.product_id,
+                    product.product_tmpl_id,
+                    template.categ_id AS category_id,
                     COALESCE(
                         NULLIF(template.name->>'en_US', ''),
                         NULLIF(template.name->>'en', ''),
@@ -75,13 +133,13 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             anchor_baskets AS (
                 SELECT DISTINCT basket_id
                 FROM scope_lines
-                WHERE product_name ILIKE %s OR item_code ILIKE %s
+                WHERE {anchor_sql}
             ),
             anchor_names AS (
                 SELECT product_name, COUNT(DISTINCT basket_id) AS baskets
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
-                  AND (product_name ILIKE %s OR item_code ILIKE %s)
+                  AND {anchor_sql}
                 GROUP BY product_name
                 ORDER BY baskets DESC, product_name
                 LIMIT 1
@@ -90,7 +148,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 SELECT DISTINCT basket_id, product_id, product_name
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
-                  AND NOT (product_name ILIKE %s OR item_code ILIKE %s)
+                  AND NOT ({anchor_sql})
             ),
             companion_totals AS (
                 SELECT product_id, product_name, COUNT(DISTINCT basket_id) AS co_baskets
@@ -133,17 +191,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """,
+            """.format(anchor_sql=anchor_sql),
             [
                 start,
                 end,
                 company_ids,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
-                pattern,
+                *anchor_params,
+                *anchor_params,
+                *anchor_params,
                 limit,
             ],
         )
@@ -159,6 +214,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     move.invoice_date,
                     move.journal_id,
                     line.product_id,
+                    product.product_tmpl_id,
+                    template.categ_id AS category_id,
                     COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, '') AS product_name,
                     COALESCE(product.default_code, '') AS item_code,
                     line.price_subtotal AS revenue
@@ -177,7 +234,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             anchors AS (
                 SELECT DISTINCT basket_id
                 FROM scope_lines
-                WHERE product_name ILIKE %s OR item_code ILIKE %s
+                WHERE {anchor_sql}
             )
             SELECT
                 partner.id AS partner_id,
@@ -193,8 +250,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             GROUP BY partner.id, partner.name, partner.email, partner.mobile
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
-            """,
-            [start, end, company_ids, pattern, pattern],
+            """.format(anchor_sql=anchor_sql),
+            [start, end, company_ids, *anchor_params],
         )
         customer_columns = [column[0] for column in self.env.cr.description]
         customers = [dict(zip(customer_columns, row)) for row in self.env.cr.fetchall()]
@@ -212,10 +269,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND move.invoice_date BETWEEN %s AND %s
                   AND move.company_id = ANY(%s)
                   AND line.quantity > 0
-                  AND (
-                    COALESCE(template.name->>'en_US', template.name->>'en', '') ILIKE %s
-                    OR COALESCE(product.default_code, '') ILIKE %s
-                  )
+                  AND {anchor_sql}
             )
             SELECT
                 CASE
@@ -229,16 +283,17 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             LEFT JOIN account_journal journal ON journal.id = move.journal_id
             GROUP BY payment_group
             ORDER BY baskets DESC
-            """,
-            [start, end, company_ids, pattern, pattern],
+            """.format(anchor_sql=direct_anchor_sql),
+            [start, end, company_ids, *direct_anchor_params],
         )
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
 
-    def _query_legacy(self, query, start, end, limit):
+    def _query_legacy(self, query, start, end, limit, entity):
         if not self._has_table("legacy_invoice_line"):
             return [], [], []
-        pattern = f"%{query.strip()}%"
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=True)
+        direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         company_ids = self._company_ids()
         self.env.cr.execute(
             """
@@ -247,6 +302,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     invoice.id AS basket_id,
                     invoice.partner_id,
                     invoice.invoice_date,
+                    line.product_id,
+                    line.product_tmpl_id,
+                    line.product_category_id AS category_id,
                     COALESCE(
                         'product:' || line.product_id::text,
                         'code:' || LOWER(NULLIF(line.item_code, '')),
@@ -267,13 +325,13 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             anchor_baskets AS (
                 SELECT DISTINCT basket_id
                 FROM scope_lines
-                WHERE product_name ILIKE %s OR item_code ILIKE %s
+                WHERE {anchor_sql}
             ),
             anchor_names AS (
                 SELECT product_name, COUNT(DISTINCT basket_id) AS baskets
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
-                  AND (product_name ILIKE %s OR item_code ILIKE %s)
+                  AND {anchor_sql}
                 GROUP BY product_name
                 ORDER BY baskets DESC, product_name
                 LIMIT 1
@@ -282,7 +340,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 SELECT DISTINCT basket_id, product_key, product_name
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
-                  AND NOT (product_name ILIKE %s OR item_code ILIKE %s)
+                  AND NOT ({anchor_sql})
             ),
             companion_totals AS (
                 SELECT product_key, product_name, COUNT(DISTINCT basket_id) AS co_baskets
@@ -325,8 +383,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """,
-            [start, end, company_ids, pattern, pattern, pattern, pattern, pattern, pattern, limit],
+            """.format(anchor_sql=anchor_sql),
+            [start, end, company_ids, *anchor_params, *anchor_params, *anchor_params, limit],
         )
         columns = [column[0] for column in self.env.cr.description]
         companions = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
@@ -342,7 +400,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
-                  AND (COALESCE(line.product_name, line.name, '') ILIKE %s OR COALESCE(line.item_code, '') ILIKE %s)
+                  AND {anchor_sql}
             )
             SELECT
                 partner.id AS partner_id,
@@ -358,8 +416,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             GROUP BY partner.id, partner.name, partner.email, partner.mobile
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
-            """,
-            [start, end, company_ids, pattern, pattern],
+            """.format(anchor_sql=direct_anchor_sql),
+            [start, end, company_ids, *direct_anchor_params],
         )
         customer_columns = [column[0] for column in self.env.cr.description]
         customers = [dict(zip(customer_columns, row)) for row in self.env.cr.fetchall()]
@@ -375,7 +433,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
-                  AND (COALESCE(line.product_name, line.name, '') ILIKE %s OR COALESCE(line.item_code, '') ILIKE %s)
+                  AND {anchor_sql}
             )
             SELECT
                 CASE
@@ -388,14 +446,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             FROM anchors
             GROUP BY payment_group
             ORDER BY baskets DESC
-            """,
-            [start, end, company_ids, pattern, pattern],
+            """.format(anchor_sql=direct_anchor_sql),
+            [start, end, company_ids, *direct_anchor_params],
         )
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
 
-    def _source_counts(self, query, start, end):
-        pattern = f"%{query.strip()}%"
+    def _source_counts(self, query, start, end, entity):
+        current_anchor_sql, current_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
+        legacy_anchor_sql, legacy_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         counts = {"current": 0, "legacy": 0}
         company_ids = self._company_ids()
         self.env.cr.execute(
@@ -410,9 +469,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
               AND move.invoice_date BETWEEN %s AND %s
               AND move.company_id = ANY(%s)
               AND line.quantity > 0
-              AND (COALESCE(template.name->>'en_US', template.name->>'en', '') ILIKE %s OR COALESCE(product.default_code, '') ILIKE %s)
-            """,
-            [start, end, company_ids, pattern, pattern],
+              AND {anchor_sql}
+            """.format(anchor_sql=current_anchor_sql),
+            [start, end, company_ids, *current_anchor_params],
         )
         counts["current"] = self.env.cr.fetchone()[0]
         if self._has_table("legacy_invoice_line"):
@@ -426,9 +485,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
-                  AND (COALESCE(line.product_name, line.name, '') ILIKE %s OR COALESCE(line.item_code, '') ILIKE %s)
-                """,
-                [start, end, company_ids, pattern, pattern],
+                  AND {anchor_sql}
+                """.format(anchor_sql=legacy_anchor_sql),
+                [start, end, company_ids, *legacy_anchor_params],
             )
             counts["legacy"] = self.env.cr.fetchone()[0]
         return counts
@@ -461,19 +520,37 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         }
 
     @api.model
-    def search_products(self, query, limit=12):
+    def search_entities(self, query, limit=12):
         self._ensure_access()
         query = (query or "").strip()
         if len(query) < 2:
             return []
+        limit = max(3, min(int(limit or 12), 30))
         output = []
         seen = set()
-        for product_id, name in self.env["product.product"].sudo().name_search(query, operator="ilike", limit=limit):
-            key = name.strip().lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            output.append({"key": f"current:{product_id}", "name": name, "source": "current"})
+
+        def append_records(model_name, entity_type, result_limit):
+            for record_id, name in self.env[model_name].sudo().name_search(
+                query, operator="ilike", limit=result_limit
+            ):
+                key = f"{entity_type}:{record_id}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                output.append(
+                    {
+                        "key": key,
+                        "id": record_id,
+                        "name": name,
+                        "type": entity_type,
+                        "source": "current",
+                    }
+                )
+
+        base_quota = max(1, limit // 3)
+        append_records("product.category", "category", base_quota)
+        append_records("product.template", "product", base_quota)
+        append_records("product.product", "variant", max(1, limit - (base_quota * 2)))
         if len(output) < limit and self._has_table("legacy_invoice_line"):
             self.env.cr.execute(
                 """
@@ -490,20 +567,37 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             for label, _line_count in self.env.cr.fetchall():
                 if not label or label.strip().lower() in seen:
                     continue
-                seen.add(label.strip().lower())
-                output.append({"key": f"legacy:{len(output)}", "name": label, "source": "legacy"})
+                legacy_key = f"legacy-query:{label.strip().lower()}"
+                if legacy_key in seen:
+                    continue
+                seen.add(legacy_key)
+                output.append(
+                    {
+                        "key": legacy_key,
+                        "id": 0,
+                        "name": label,
+                        "type": "query",
+                        "source": "legacy",
+                    }
+                )
                 if len(output) >= limit:
                     break
-        return output
+        return output[:limit]
 
     @api.model
-    def get_product_360(self, query, start_date=None, end_date=None, source="auto", limit=20):
+    def search_products(self, query, limit=12):
+        """Compatibility alias for clients deployed before hierarchical search."""
+        return self.search_entities(query, limit)
+
+    @api.model
+    def get_product_360(self, query, start_date=None, end_date=None, source="auto", limit=20, entity=None):
         self._ensure_access()
         query = (query or "").strip()
-        if len(query) < 2:
+        entity = self._normalize_entity(entity, query)
+        if entity["type"] == "query" and len(query) < 2:
             raise UserError("Choose a product or enter at least two search characters.")
         start, end = self._date_range(start_date, end_date)
-        counts = self._source_counts(query, start, end)
+        counts = self._source_counts(query, start, end, entity)
         if source not in {"auto", "current", "legacy"}:
             source = "auto"
         if source == "auto":
@@ -511,9 +605,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         else:
             source_used = source
         if source_used == "legacy":
-            companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20))
+            companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20), entity)
         else:
-            companions, customers, payments = self._query_current(query, start, end, int(limit or 20))
+            companions, customers, payments = self._query_current(query, start, end, int(limit or 20), entity)
 
         first = companions[0] if companions else {}
         baskets = int(first.get("anchor_baskets") or counts.get(source_used) or 0)
@@ -545,13 +639,26 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             customer["revenue"] = float(customer.get("revenue") or 0.0)
 
         top = companions[0] if companions else None
+        display_name = entity["name"] if entity["type"] != "query" else (first.get("anchor_name") or query)
+        grain_labels = {
+            "category": "Category (including child categories)",
+            "product": "Product family",
+            "variant": "Exact variant / SKU",
+            "query": "Search match",
+        }
         recommendation = {
-            "title": f"Bundle {first.get('anchor_name') or query} + {top['product_name']}" if top else "Expand the date range",
+            "title": f"Bundle {display_name} + {top['product_name']}" if top else "Expand the date range",
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
             "reachable_baskets": int(top.get("co_baskets") or 0) if top else 0,
         }
         return {
-            "product": {"name": first.get("anchor_name") or query, "query": query},
+            "product": {
+                "name": display_name,
+                "query": query,
+                "type": entity["type"],
+                "id": entity["id"],
+                "grain_label": grain_labels[entity["type"]],
+            },
             "summary": {
                 "baskets": baskets,
                 "companion_baskets": companion_baskets,
@@ -571,13 +678,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         }
 
     @api.model
-    def export_product_insight(self, query, start_date=None, end_date=None, source="auto"):
+    def export_product_insight(self, query, start_date=None, end_date=None, source="auto", entity=None):
         self._ensure_access()
-        bundle = self.get_product_360(query, start_date, end_date, source, 100)
+        bundle = self.get_product_360(query, start_date, end_date, source, 100, entity)
         stream = io.StringIO()
         writer = csv.writer(stream)
         writer.writerow(["Tradeline Product Intelligence", bundle["product"]["name"]])
         writer.writerow(["Data source", bundle["source_label"]])
+        writer.writerow(["Analysis grain", bundle["product"]["grain_label"]])
         writer.writerow(["Date from", bundle["coverage"]["start_date"]])
         writer.writerow(["Date to", bundle["coverage"]["end_date"]])
         writer.writerow([])
