@@ -1097,6 +1097,89 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             )
         return rows
 
+    def _comparison_query_prefixes(self, query, limit=16):
+        """Resolve free text to a bounded prefix set before touching the history view.
+
+        `legacy.current.product.history` contains windowed/aggregated live sales. An
+        ILIKE predicate against that view forces PostgreSQL to build a broad history
+        result before filtering it. The two small identity sources below are cheaper
+        and preserve legacy-only as well as current-only catalog candidates.
+        """
+        limit = max(1, min(int(limit or 16), 24))
+        per_source_limit = max(1, (limit + 1) // 2)
+        pattern = f"%{(query or '').strip()}%"
+        normalized_query = re.sub(r"[^A-Z0-9]+", "", (query or "").upper())
+        code_pattern = f"{normalized_query}%" if normalized_query else "#NO_MATCH#"
+        legacy_prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
+            "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                {legacy_prefix_sql} AS prefix5,
+                MAX(CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s THEN 1 ELSE 0 END) AS code_match,
+                SUM(ABS(COALESCE(legacy_sales_qty, 0.0))) AS sales_weight
+            FROM legacy_product_month_fact
+            WHERE period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
+              AND (
+                    source_name ILIKE %s
+                 OR source_default_code ILIKE %s
+                 OR source_barcode ILIKE %s
+                 OR REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s
+              )
+            GROUP BY {legacy_prefix_sql}
+            HAVING NULLIF({legacy_prefix_sql}, '') IS NOT NULL
+            ORDER BY code_match DESC, sales_weight DESC, prefix5
+            LIMIT %s
+            """,
+            [code_pattern, pattern, pattern, pattern, code_pattern, per_source_limit],
+        )
+        legacy_prefixes = [row[0] for row in self.env.cr.fetchall() if row[0]]
+
+        current_prefix_sql = (
+            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
+            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        )
+        self.env.cr.execute(
+            f"""
+            SELECT
+                {current_prefix_sql} AS prefix5,
+                MAX(CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s THEN 1 ELSE 0 END) AS code_match,
+                COUNT(*) FILTER (WHERE product.active AND template.active) AS active_count
+            FROM product_product product
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            WHERE (
+                    COALESCE(template.name->>'en_US', template.name->>'en', '') ILIKE %s
+                 OR product.default_code ILIKE %s
+                 OR product.barcode ILIKE %s
+                 OR REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s
+            )
+            GROUP BY {current_prefix_sql}
+            HAVING NULLIF({current_prefix_sql}, '') IS NOT NULL
+            ORDER BY code_match DESC, active_count DESC, prefix5
+            LIMIT %s
+            """,
+            [code_pattern, pattern, pattern, pattern, code_pattern, per_source_limit],
+        )
+        current_prefixes = [row[0] for row in self.env.cr.fetchall() if row[0]]
+
+        # Interleave both sources so a broad current catalog cannot crowd out
+        # legacy-only products (and vice versa), while retaining deterministic order.
+        prefixes = []
+        for index in range(max(len(legacy_prefixes), len(current_prefixes))):
+            for candidates in (legacy_prefixes, current_prefixes):
+                if index < len(candidates) and candidates[index] not in prefixes:
+                    prefixes.append(candidates[index])
+                    if len(prefixes) >= limit:
+                        return prefixes
+        return prefixes
+
+    def _resolve_comparison_prefixes(self, entity, query, limit=16):
+        if entity.get("prefixes"):
+            return entity["prefixes"], "selected_entity"
+        return self._comparison_query_prefixes(query, limit=limit), "bounded_query"
+
     @api.model
     def get_legacy_comparison(self, query, entity=None, filters=None):
         """Compare the full legacy fact history with live Odoo using Tradeline's prefix-5 item identity."""
@@ -1115,21 +1198,19 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "months": [],
             }
 
-        if entity.get("prefixes"):
-            scope_sql = "history.bucket_code_prefix5 = ANY(%s)"
-            scope_params = [entity["prefixes"]]
-        else:
-            pattern = f"%{query}%"
-            scope_sql = "(history.bucket_name ILIKE %s OR history.sample_item_code ILIKE %s)"
-            scope_params = [pattern, pattern]
+        resolved_prefixes, resolution_mode = self._resolve_comparison_prefixes(entity, query, limit=16)
+        scope_sql = "history.bucket_code_prefix5 = ANY(%s)"
+        scope_params = [resolved_prefixes]
 
         current_company_sql = ""
         company_params = []
         if filters["operating_company_id"]:
             current_company_sql = "AND (history.source_system <> 'current' OR history.company_id = %s)"
             company_params = [filters["operating_company_id"]]
-        self.env.cr.execute(
-            """
+        rows = []
+        if resolved_prefixes:
+            self.env.cr.execute(
+                """
             SELECT
                 history.source_system,
                 EXTRACT(MONTH FROM history.period_month)::integer AS month_number,
@@ -1151,11 +1232,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
               )
             GROUP BY history.source_system, EXTRACT(MONTH FROM history.period_month)::integer
             ORDER BY month_number, history.source_system
-            """.format(scope_sql=scope_sql, current_company_sql=current_company_sql),
-            [*scope_params, *company_params],
-        )
-        columns = [column[0] for column in self.env.cr.description]
-        rows = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
+                """.format(scope_sql=scope_sql, current_company_sql=current_company_sql),
+                [*scope_params, *company_params],
+            )
+            columns = [column[0] for column in self.env.cr.description]
+            rows = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
 
         self.env.cr.execute(
             """
@@ -1224,7 +1305,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             )
             for source in ("legacy", "current")
         }
-        selected_prefixes = entity.get("prefixes") or sorted(set(observed["legacy"]) | set(observed["current"]))
+        selected_prefixes = resolved_prefixes
         identity_rows = self._comparison_identity_rows(selected_prefixes, entity)
         shared_prefixes = [row["prefix5"] for row in identity_rows if row["state"] == "matched"]
         legacy_only_prefixes = [row["prefix5"] for row in identity_rows if row["state"] == "legacy_only"]
@@ -1242,11 +1323,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "available": True,
             "match_rule": "prefix5_only",
             "rule_label": "First 5 normalized item-code characters",
-            "normalization": "Use the first available item code, remove non-alphanumeric characters, uppercase it, then take the first five characters.",
+            "normalization": (
+                "Use the first available item code, remove non-alphanumeric characters, uppercase it, then take the first five characters. "
+                + (
+                    "This free-text scope uses at most 16 ranked prefixes resolved from the Odoo 12 facts and Odoo 18 catalog; choose a variant for an exact one-prefix comparison."
+                    if resolution_mode == "bounded_query"
+                    else "The selected entity supplies the exact comparison prefix set."
+                )
+            ),
             "scope_type": entity["type"],
             "scope_name": entity["name"] if entity["type"] != "query" else query,
             "prefixes": selected_prefixes,
             "prefix_count": len(selected_prefixes),
+            "prefix_resolution_mode": resolution_mode,
+            "prefix_resolution_limit": 16,
             "shared_prefix_count": len(shared_prefixes),
             "legacy_only_prefix_count": len(legacy_only_prefixes),
             "current_only_prefix_count": len(current_only_prefixes),

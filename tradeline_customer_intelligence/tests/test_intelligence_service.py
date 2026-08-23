@@ -114,6 +114,39 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(identity["current_variant_id"], self.variant.id)
         self.assertEqual(identity["current_catalog_status"], "Active")
 
+    def test_query_comparison_resolves_a_bounded_prefix_scope(self):
+        for index in range(6):
+            self.env["legacy.product.month.fact"].create(
+                {
+                    "source_db": "intelligence_test",
+                    "source_product_id": 992000 + index,
+                    "period_month": "2025-02-01",
+                    "source_default_code": f"BQ{index:03d}-legacy",
+                    "source_name": f"Bounded Query Phone {index}",
+                    "legacy_sales_qty": index + 1,
+                }
+            )
+        query_entity = self.service._normalize_entity(None, "Bounded Query Phone")
+        prefixes, mode = self.service._resolve_comparison_prefixes(
+            query_entity, "Bounded Query Phone", limit=3
+        )
+        self.assertEqual(mode, "bounded_query")
+        self.assertLessEqual(len(prefixes), 3)
+        self.assertTrue(prefixes)
+        self.assertTrue(all(len(prefix) == 5 for prefix in prefixes))
+
+    def test_selected_variant_bypasses_free_text_prefix_resolution(self):
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        prefixes, mode = self.service._resolve_comparison_prefixes(entity, "unrelated text", limit=1)
+        self.assertEqual(mode, "selected_entity")
+        self.assertEqual(prefixes, ["AB123"])
+
+    def test_query_prefix_resolution_normalizes_formatted_item_codes(self):
+        prefixes = self.service._comparison_query_prefixes("ab123", limit=2)
+        self.assertIn("AB123", prefixes)
+
     def test_operating_company_filter_is_limited_to_allowed_companies(self):
         normalized = self.service._normalize_filters(
             {"operating_company_id": self.env.company.id}
