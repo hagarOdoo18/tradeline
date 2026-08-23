@@ -1404,10 +1404,22 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 return [(f"{line_prefix}.product_id.product_tmpl_id", "=", entity["id"])]
             if entity["type"] == "category":
                 return [(f"{line_prefix}.product_id.product_tmpl_id.categ_id", "in", entity["category_ids"])]
-            return [(f"{line_prefix}.name", "ilike", query)]
+            return expression.OR(
+                [
+                    [(f"{line_prefix}.product_id.product_tmpl_id.name", "ilike", query)],
+                    [(f"{line_prefix}.product_id.default_code", "ilike", query)],
+                    [(f"{line_prefix}.name", "ilike", query)],
+                ]
+            )
         if entity.get("prefixes"):
             return expression.OR([[(f"{line_prefix}.item_code", "ilike", f"{prefix}%")] for prefix in entity["prefixes"]])
-        return [(f"{line_prefix}.product_search_text", "ilike", query)]
+        return expression.OR(
+            [
+                [(f"{line_prefix}.product_name", "ilike", query)],
+                [(f"{line_prefix}.item_code", "ilike", query)],
+                [(f"{line_prefix}.name", "ilike", query)],
+            ]
+        )
 
     @api.model
     def open_evidence(

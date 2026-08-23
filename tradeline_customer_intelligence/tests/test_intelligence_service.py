@@ -107,3 +107,18 @@ class TestIntelligenceEntityGrain(TransactionCase):
         all_clause, all_params = self.service._audience_sql("move", {"customer_type": "all"})
         self.assertEqual(all_clause, "")
         self.assertEqual(all_params, [])
+
+    def test_query_evidence_uses_the_same_searchable_product_fields(self):
+        query_entity = self.service._normalize_entity(None, "iPhone 17")
+
+        legacy_domain = self.service._evidence_anchor_domain(query_entity, "iPhone 17", "legacy")
+        self.assertIn(("line_ids.product_name", "ilike", "iPhone 17"), legacy_domain)
+        self.assertIn(("line_ids.item_code", "ilike", "iPhone 17"), legacy_domain)
+        self.assertNotIn(("line_ids.product_search_text", "ilike", "iPhone 17"), legacy_domain)
+
+        current_domain = self.service._evidence_anchor_domain(query_entity, "iPhone 17", "current")
+        self.assertIn(
+            ("invoice_line_ids.product_id.product_tmpl_id.name", "ilike", "iPhone 17"),
+            current_domain,
+        )
+        self.assertIn(("invoice_line_ids.product_id.default_code", "ilike", "iPhone 17"), current_domain)
