@@ -122,3 +122,12 @@ class TestIntelligenceEntityGrain(TransactionCase):
             current_domain,
         )
         self.assertIn(("invoice_line_ids.product_id.default_code", "ilike", "iPhone 17"), current_domain)
+
+    def test_evidence_action_declares_odoo18_list_and_form_views(self):
+        action = self.service.open_evidence(
+            self.template.name,
+            source="current",
+            entity={"type": "variant", "id": self.variant.id},
+        )
+        self.assertEqual(action["res_model"], "account.move")
+        self.assertEqual(action["views"], [(False, "list"), (False, "form")])
