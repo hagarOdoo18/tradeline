@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import csv
 import io
 import re
 from datetime import date
@@ -9,6 +8,8 @@ from math import sqrt
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError
+from odoo.osv import expression
+from odoo.tools.misc import xlsxwriter
 
 
 class TradelineCustomerIntelligenceService(models.AbstractModel):
@@ -41,6 +42,45 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
     def _company_ids(self):
         return self.env.user.company_ids.ids or [self.env.company.id]
+
+    def _normalize_filters(self, filters=None):
+        filters = dict(filters or {})
+        customer_type = filters.get("customer_type")
+        if customer_type not in {"individual", "company"}:
+            customer_type = "all"
+        try:
+            customer_company_id = int(filters.get("customer_company_id") or 0)
+        except (TypeError, ValueError):
+            customer_company_id = 0
+        if customer_company_id and not self.env["res.partner"].sudo().browse(customer_company_id).exists():
+            customer_company_id = 0
+        return {
+            "customer_type": customer_type,
+            "customer_company_id": customer_company_id,
+        }
+
+    def _audience_sql(self, basket_alias, filters):
+        """Return a safe partner-population predicate shared by live and archive SQL."""
+        filters = self._normalize_filters(filters)
+        conditions = []
+        params = []
+        if filters["customer_type"] == "company":
+            conditions.append("COALESCE(commercial.is_company, FALSE)")
+        elif filters["customer_type"] == "individual":
+            conditions.append("NOT COALESCE(commercial.is_company, FALSE)")
+        if filters["customer_company_id"]:
+            conditions.append("commercial.id = %s")
+            params.append(filters["customer_company_id"])
+        if not conditions:
+            return "", []
+        return (
+            " AND EXISTS ("
+            "SELECT 1 FROM res_partner audience_partner "
+            "JOIN res_partner commercial ON commercial.id = audience_partner.commercial_partner_id "
+            f"WHERE audience_partner.id = {basket_alias}.partner_id AND {' AND '.join(conditions)}"
+            ")",
+            params,
+        )
 
     def _normalize_entity(self, entity, query):
         entity = dict(entity or {})
@@ -129,9 +169,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         pattern = f"%{query.strip()}%"
         return f"({product_name} ILIKE %s OR {item_code} ILIKE %s)", [pattern, pattern]
 
-    def _query_current(self, query, start, end, limit, entity):
+    def _query_current(self, query, start, end, limit, entity, filters=None):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="current", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
+        audience_sql, audience_params = self._audience_sql("move", filters)
         company_ids = self._company_ids()
         self.env.cr.execute(
             """
@@ -160,6 +201,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice', 'out_receipt')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND move.company_id = ANY(%s)
+                  {audience_sql}
                   AND line.product_id IS NOT NULL
                   AND line.quantity > 0
                   AND (line.display_type = 'product' OR line.display_type IS NULL)
@@ -225,11 +267,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """.format(anchor_sql=anchor_sql),
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
             [
                 start,
                 end,
                 company_ids,
+                *audience_params,
                 *anchor_params,
                 *anchor_params,
                 *anchor_params,
@@ -261,6 +304,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice', 'out_receipt')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND move.company_id = ANY(%s)
+                  {audience_sql}
                   AND line.product_id IS NOT NULL
                   AND line.quantity > 0
                   AND (line.display_type = 'product' OR line.display_type IS NULL)
@@ -276,17 +320,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 partner.name,
                 partner.email,
                 partner.mobile,
+                COALESCE(commercial.is_company, FALSE) AS is_company,
+                CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
                 COUNT(DISTINCT lines.basket_id) AS baskets,
                 SUM(lines.revenue) AS revenue,
                 MAX(lines.invoice_date) AS last_purchase
             FROM scope_lines lines
             JOIN anchors ON anchors.basket_id = lines.basket_id
             JOIN res_partner partner ON partner.id = lines.partner_id
-            GROUP BY partner.id, partner.name, partner.email, partner.mobile
+            JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
+            GROUP BY partner.id, partner.name, partner.email, partner.mobile, commercial.is_company, commercial.name
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
-            """.format(anchor_sql=anchor_sql),
-            [start, end, company_ids, *anchor_params],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+            [start, end, company_ids, *audience_params, *anchor_params],
         )
         customer_columns = [column[0] for column in self.env.cr.description]
         customers = [dict(zip(customer_columns, row)) for row in self.env.cr.fetchall()]
@@ -303,6 +350,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice', 'out_receipt')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND move.company_id = ANY(%s)
+                  {audience_sql}
                   AND line.quantity > 0
                   AND {anchor_sql}
             )
@@ -318,17 +366,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             LEFT JOIN account_journal journal ON journal.id = move.journal_id
             GROUP BY payment_group
             ORDER BY baskets DESC
-            """.format(anchor_sql=direct_anchor_sql),
-            [start, end, company_ids, *direct_anchor_params],
+            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql),
+            [start, end, company_ids, *audience_params, *direct_anchor_params],
         )
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
 
-    def _query_legacy(self, query, start, end, limit, entity):
+    def _query_legacy(self, query, start, end, limit, entity, filters=None):
         if not self._has_table("legacy_invoice_line"):
             return [], [], []
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
+        audience_sql, audience_params = self._audience_sql("invoice", filters)
         company_ids = self._company_ids()
         self.env.cr.execute(
             """
@@ -354,6 +403,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
                   AND invoice.company_id = ANY(%s)
+                  {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
@@ -419,8 +469,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """.format(anchor_sql=anchor_sql),
-            [start, end, company_ids, *anchor_params, *anchor_params, *anchor_params, limit],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+            [start, end, company_ids, *audience_params, *anchor_params, *anchor_params, *anchor_params, limit],
         )
         columns = [column[0] for column in self.env.cr.description]
         companions = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
@@ -433,6 +483,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
                   AND invoice.company_id = ANY(%s)
+                  {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
@@ -452,12 +503,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     COALESCE(partner.name, NULLIF(invoice.source_partner_name, ''), 'Legacy customer') AS customer_name,
                     partner.email,
                     COALESCE(partner.mobile, NULLIF(invoice.source_partner_mobile, '')) AS mobile,
+                    COALESCE(commercial.is_company, FALSE) AS is_company,
+                    CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
                     invoice.id AS basket_id,
                     invoice.amount_untaxed,
                     invoice.invoice_date
                 FROM legacy_invoice invoice
                 JOIN anchors ON anchors.id = invoice.id
                 LEFT JOIN res_partner partner ON partner.id = invoice.partner_id
+                LEFT JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
             )
             SELECT
                 customer_key,
@@ -465,6 +519,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 MAX(customer_name) AS name,
                 MAX(email) AS email,
                 MAX(mobile) AS mobile,
+                BOOL_OR(is_company) AS is_company,
+                MAX(company_name) AS company_name,
                 COUNT(DISTINCT basket_id) AS baskets,
                 SUM(amount_untaxed) AS revenue,
                 MAX(invoice_date) AS last_purchase
@@ -473,8 +529,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             GROUP BY customer_key
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
-            """.format(anchor_sql=direct_anchor_sql),
-            [start, end, company_ids, *direct_anchor_params],
+            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql),
+            [start, end, company_ids, *audience_params, *direct_anchor_params],
         )
         customer_columns = [column[0] for column in self.env.cr.description]
         customers = [dict(zip(customer_columns, row)) for row in self.env.cr.fetchall()]
@@ -487,6 +543,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
                   AND invoice.company_id = ANY(%s)
+                  {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
@@ -503,14 +560,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             FROM anchors
             GROUP BY payment_group
             ORDER BY baskets DESC
-            """.format(anchor_sql=direct_anchor_sql),
-            [start, end, company_ids, *direct_anchor_params],
+            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql),
+            [start, end, company_ids, *audience_params, *direct_anchor_params],
         )
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
 
-    def _query_current_dimensions(self, query, start, end, entity):
+    def _query_current_dimensions(self, query, start, end, entity, filters=None):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
+        audience_sql, audience_params = self._audience_sql("move", filters)
         self.env.cr.execute(
             """
             WITH anchor_lines AS (
@@ -530,6 +588,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND move.move_type IN ('out_invoice', 'out_receipt')
                   AND move.invoice_date BETWEEN %s AND %s
                   AND move.company_id = ANY(%s)
+                  {audience_sql}
                   AND line.quantity > 0
                   AND (line.display_type = 'product' OR line.display_type IS NULL)
                   AND {anchor_sql}
@@ -624,8 +683,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         GROUP BY discounted
                     ) discount_rows
                 ) AS discount_mix
-            """.format(anchor_sql=anchor_sql),
-            [start, end, self._company_ids(), *anchor_params],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+            [start, end, self._company_ids(), *audience_params, *anchor_params],
         )
         row = self.env.cr.fetchone() or ({}, [], [], [], [])
         return {
@@ -637,10 +696,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "channel_mix": [],
         }
 
-    def _query_legacy_dimensions(self, query, start, end, entity):
+    def _query_legacy_dimensions(self, query, start, end, entity, filters=None):
         if not self._has_table("legacy_invoice_line"):
             return {"scope_summary": {}, "trend": [], "store_mix": [], "salesperson_mix": [], "discount_mix": [], "channel_mix": []}
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
+        audience_sql, audience_params = self._audience_sql("invoice", filters)
         self.env.cr.execute(
             """
             WITH anchor_lines AS (
@@ -664,6 +724,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
                   AND invoice.company_id = ANY(%s)
+                  {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
@@ -745,8 +806,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         FROM anchor_lines GROUP BY channel_name ORDER BY baskets DESC, channel_name LIMIT 8
                     ) channel_rows
                 ) AS channel_mix
-            """.format(anchor_sql=anchor_sql),
-            [start, end, self._company_ids(), *anchor_params],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+            [start, end, self._company_ids(), *audience_params, *anchor_params],
         )
         row = self.env.cr.fetchone() or ({}, [], [], [], [], [])
         return {
@@ -758,9 +819,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "channel_mix": row[5] or [],
         }
 
-    def _source_counts(self, query, start, end, entity):
+    def _source_counts(self, query, start, end, entity, filters=None):
         current_anchor_sql, current_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         legacy_anchor_sql, legacy_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
+        current_audience_sql, current_audience_params = self._audience_sql("move", filters)
+        legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters)
         counts = {"current": 0, "legacy": 0}
         company_ids = self._company_ids()
         self.env.cr.execute(
@@ -774,10 +837,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
               AND move.move_type IN ('out_invoice', 'out_receipt')
               AND move.invoice_date BETWEEN %s AND %s
               AND move.company_id = ANY(%s)
+              {audience_sql}
               AND line.quantity > 0
               AND {anchor_sql}
-            """.format(anchor_sql=current_anchor_sql),
-            [start, end, company_ids, *current_anchor_params],
+            """.format(anchor_sql=current_anchor_sql, audience_sql=current_audience_sql),
+            [start, end, company_ids, *current_audience_params, *current_anchor_params],
         )
         counts["current"] = self.env.cr.fetchone()[0]
         if self._has_table("legacy_invoice_line"):
@@ -788,12 +852,13 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
                   AND invoice.company_id = ANY(%s)
+                  {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
                   AND {anchor_sql}
-                """.format(anchor_sql=legacy_anchor_sql),
-                [start, end, company_ids, *legacy_anchor_params],
+                """.format(anchor_sql=legacy_anchor_sql, audience_sql=legacy_audience_sql),
+                [start, end, company_ids, *legacy_audience_params, *legacy_anchor_params],
             )
             counts["legacy"] = self.env.cr.fetchone()[0]
         return counts
@@ -1042,7 +1107,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             append_item(
                 template,
                 "product",
-                f"Product family · {category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}",
+                f"{category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}",
             )
 
         variant_quota = max(3, limit - product_quota - 2)
@@ -1053,7 +1118,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             append_item(
                 variant,
                 "variant",
-                f"Exact SKU · {variant.categ_id.display_name or 'Uncategorized'}" + (f" · {item_code}" if item_code else ""),
+                f"{variant.categ_id.display_name or 'Uncategorized'}" + (f" · {item_code}" if item_code else ""),
                 item_code,
                 match_hint,
             )
@@ -1063,7 +1128,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             family_count = self.env["product.template"].sudo().with_context(active_test=False).search_count(
                 [("categ_id", "child_of", category.id)]
             )
-            append_item(category, "category", f"Category · {family_count} product families")
+            append_item(category, "category", f"{family_count} product families")
 
         if len(output) < limit and self._has_table("legacy_invoice_line"):
             self.env.cr.execute(
@@ -1107,14 +1172,33 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         return self.search_entities(query, limit)
 
     @api.model
-    def get_product_360(self, query, start_date=None, end_date=None, source="auto", limit=20, entity=None):
+    def get_filter_options(self):
+        """Small, human-readable filter dictionary for the command bar."""
+        self._ensure_access()
+        companies = self.env["res.partner"].sudo().search(
+            [("is_company", "=", True), ("active", "=", True), ("customer_rank", ">", 0)],
+            order="name",
+            limit=200,
+        )
+        return {
+            "customer_types": [
+                {"key": "all", "label": "All customers"},
+                {"key": "individual", "label": "Individuals"},
+                {"key": "company", "label": "Companies"},
+            ],
+            "customer_companies": [{"id": company.id, "name": company.display_name} for company in companies],
+        }
+
+    @api.model
+    def get_product_360(self, query, start_date=None, end_date=None, source="auto", limit=20, entity=None, filters=None):
         self._ensure_access()
         query = (query or "").strip()
         entity = self._normalize_entity(entity, query)
+        filters = self._normalize_filters(filters)
         if entity["type"] == "query" and len(query) < 2:
             raise UserError("Choose a product or enter at least two search characters.")
         start, end = self._date_range(start_date, end_date)
-        counts = self._source_counts(query, start, end, entity)
+        counts = self._source_counts(query, start, end, entity, filters)
         if source not in {"auto", "current", "legacy"}:
             source = "auto"
         if source == "auto":
@@ -1122,11 +1206,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         else:
             source_used = source
         if source_used == "legacy":
-            companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20), entity)
-            dimensions = self._query_legacy_dimensions(query, start, end, entity)
+            companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20), entity, filters)
+            dimensions = self._query_legacy_dimensions(query, start, end, entity, filters)
         else:
-            companions, customers, payments = self._query_current(query, start, end, int(limit or 20), entity)
-            dimensions = self._query_current_dimensions(query, start, end, entity)
+            companions, customers, payments = self._query_current(query, start, end, int(limit or 20), entity, filters)
+            dimensions = self._query_current_dimensions(query, start, end, entity, filters)
 
         first = companions[0] if companions else {}
         scope_summary = dimensions.get("scope_summary") or {}
@@ -1258,63 +1342,203 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "source_requested": source,
             "source_used": source_used,
             "source_label": self.SOURCE_LABELS[source_used],
+            "filters": filters,
+        }
+
+    def _evidence_anchor_domain(self, entity, query, source):
+        line_prefix = "invoice_line_ids" if source == "current" else "line_ids"
+        if source == "current":
+            if entity["type"] == "variant":
+                return [(f"{line_prefix}.product_id", "=", entity["id"])]
+            if entity["type"] == "product":
+                return [(f"{line_prefix}.product_id.product_tmpl_id", "=", entity["id"])]
+            if entity["type"] == "category":
+                return [(f"{line_prefix}.product_id.product_tmpl_id.categ_id", "in", entity["category_ids"])]
+            return [(f"{line_prefix}.name", "ilike", query)]
+        if entity.get("prefixes"):
+            return expression.OR([[(f"{line_prefix}.item_code", "ilike", f"{prefix}%")] for prefix in entity["prefixes"]])
+        return [(f"{line_prefix}.product_search_text", "ilike", query)]
+
+    @api.model
+    def open_evidence(
+        self,
+        query,
+        start_date=None,
+        end_date=None,
+        source="auto",
+        entity=None,
+        companion_key=None,
+        filters=None,
+    ):
+        """Open the actual live/archive invoices supporting the displayed metric."""
+        self._ensure_access()
+        query = (query or "").strip()
+        entity = self._normalize_entity(entity, query)
+        filters = self._normalize_filters(filters)
+        start, end = self._date_range(start_date, end_date)
+        counts = self._source_counts(query, start, end, entity, filters)
+        source_used = source if source in {"current", "legacy"} else ("legacy" if counts["legacy"] else "current")
+        customer_domain = []
+        if filters["customer_type"] == "company":
+            customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", True))
+        elif filters["customer_type"] == "individual":
+            customer_domain.append(("partner_id.commercial_partner_id.is_company", "=", False))
+        if filters["customer_company_id"]:
+            customer_domain.append(("partner_id.commercial_partner_id", "=", filters["customer_company_id"]))
+
+        if source_used == "legacy":
+            domain = [
+                ("invoice_date", ">=", fields.Date.to_string(start)),
+                ("invoice_date", "<=", fields.Date.to_string(end)),
+                ("company_id", "in", self._company_ids()),
+                ("invoice_type", "=", "out_invoice"),
+                ("state", "!=", "cancel"),
+            ] + customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
+            if companion_key:
+                key = str(companion_key)
+                if key.startswith("product:") and key.split(":", 1)[1].isdigit():
+                    domain.append(("line_ids.product_id", "=", int(key.split(":", 1)[1])))
+                elif key.startswith("source:") and key.split(":", 1)[1].isdigit():
+                    domain.append(("line_ids.product_source_id", "=", int(key.split(":", 1)[1])))
+                elif key.startswith("code:"):
+                    domain.append(("line_ids.item_code", "ilike", key.split(":", 1)[1]))
+                elif key.startswith("name:"):
+                    domain.append(("line_ids.product_name", "ilike", key.split(":", 1)[1]))
+            return {
+                "type": "ir.actions.act_window",
+                "name": f"Evidence · {entity['name'] or query} · Odoo 12",
+                "res_model": "legacy.invoice",
+                "view_mode": "list,form",
+                "domain": domain,
+                "target": "current",
+                "context": {"search_default_group_by_invoice_date": 1},
+            }
+
+        domain = [
+            ("state", "=", "posted"),
+            ("move_type", "in", ["out_invoice", "out_receipt"]),
+            ("invoice_date", ">=", fields.Date.to_string(start)),
+            ("invoice_date", "<=", fields.Date.to_string(end)),
+            ("company_id", "in", self._company_ids()),
+        ] + customer_domain + self._evidence_anchor_domain(entity, query, "current")
+        if companion_key and str(companion_key).isdigit():
+            domain.append(("invoice_line_ids.product_id", "=", int(companion_key)))
+        return {
+            "type": "ir.actions.act_window",
+            "name": f"Evidence · {entity['name'] or query} · Odoo 18",
+            "res_model": "account.move",
+            "view_mode": "list,form",
+            "domain": domain,
+            "target": "current",
+            "context": {"search_default_group_by_invoice_date": 1},
         }
 
     @api.model
-    def export_product_insight(self, query, start_date=None, end_date=None, source="auto", entity=None):
+    def export_product_insight(
+        self,
+        query,
+        start_date=None,
+        end_date=None,
+        source="auto",
+        entity=None,
+        filters=None,
+        export_mode="current_view",
+    ):
         self._ensure_access()
-        bundle = self.get_product_360(query, start_date, end_date, source, 100, entity)
+        if export_mode not in {"current_view", "detail_rows", "customers", "legacy_live"}:
+            export_mode = "current_view"
+        bundle = self.get_product_360(query, start_date, end_date, source, 100, entity, filters)
         comparison = self.get_legacy_comparison(query, entity)
-        stream = io.StringIO()
-        writer = csv.writer(stream)
-        writer.writerow(["Tradeline Product Intelligence", bundle["product"]["name"]])
-        writer.writerow(["Data source", bundle["source_label"]])
-        writer.writerow(["Analysis grain", bundle["product"]["grain_label"]])
-        writer.writerow(["Date from", bundle["coverage"]["start_date"]])
-        writer.writerow(["Date to", bundle["coverage"]["end_date"]])
-        if comparison.get("available"):
-            writer.writerow(["Cross-version product identity", comparison["rule_label"]])
-            writer.writerow(["Compared prefixes", comparison["prefix_count"]])
-            writer.writerow(["Legacy 2025 full-year revenue", comparison["legacy"]["full_year_amount"]])
-            writer.writerow(["Odoo 18 2026 YTD revenue", comparison["current"]["ytd_amount"]])
-            writer.writerow(["Comparable revenue change %", comparison["delta"]["amount_pct"]])
-        writer.writerow([])
-        writer.writerow(["Companion", "Co-baskets", "Attach rate %", "Lift", "Confidence"])
-        for row in bundle["companions"]:
-            writer.writerow(
-                [
-                    row["product_name"],
-                    row["co_baskets"],
-                    row["attach_rate"],
-                    row["lift"],
-                    f"{row['confidence']} ({row['attach_ci_low']:.2f}%–{row['attach_ci_high']:.2f}%)",
-                ]
-            )
-        writer.writerow([])
-        writer.writerow(["Customer", "Segment", "Activation score", "Baskets", "Observed value", "Last purchase", "Contact readiness"])
-        for customer in bundle["customers"]:
-            writer.writerow(
+        stream = io.BytesIO()
+        workbook = xlsxwriter.Workbook(stream, {"in_memory": True})
+        title = workbook.add_format({"bold": True, "font_size": 18, "font_color": "#123C2A"})
+        section = workbook.add_format({"bold": True, "font_color": "#FFFFFF", "bg_color": "#17663C", "border": 1})
+        header = workbook.add_format({"bold": True, "font_color": "#123C2A", "bg_color": "#EAF5ED", "border": 1})
+        cell = workbook.add_format({"border": 1, "border_color": "#D8E0DA"})
+        money = workbook.add_format({"border": 1, "border_color": "#D8E0DA", "num_format": '#,##0.00 "EGP"'})
+        percent = workbook.add_format({"border": 1, "border_color": "#D8E0DA", "num_format": "0.00%"})
+
+        def write_table(sheet, row, headers, rows, formats=None):
+            for column, label in enumerate(headers):
+                sheet.write(row, column, label, header)
+            for row_offset, values in enumerate(rows, start=1):
+                for column, value in enumerate(values):
+                    sheet.write(row + row_offset, column, value, (formats or {}).get(column, cell))
+            sheet.autofilter(row, 0, row + len(rows), len(headers) - 1)
+            return row + len(rows) + 2
+
+        if export_mode in {"current_view", "detail_rows"}:
+            sheet = workbook.add_worksheet("Executive view")
+            sheet.set_column("A:A", 34)
+            sheet.set_column("B:H", 20)
+            sheet.write(0, 0, "Tradeline Product Intelligence", title)
+            metadata = [
+                ("Scope", bundle["product"]["name"]),
+                ("Analysis grain", bundle["product"]["grain_label"]),
+                ("Source", bundle["source_label"]),
+                ("Date range", f"{bundle['coverage']['start_date']} to {bundle['coverage']['end_date']}"),
+                ("Customer type", bundle["filters"]["customer_type"]),
+                ("Baskets", bundle["summary"]["baskets"]),
+                ("Companion attach rate", bundle["summary"]["attach_rate"] / 100.0),
+                ("Identified customers", bundle["summary"]["identified_customers"]),
+            ]
+            sheet.write(2, 0, "Evidence-backed summary", section)
+            for index, (label, value) in enumerate(metadata, start=3):
+                sheet.write(index, 0, label, header)
+                sheet.write(index, 1, value, percent if label == "Companion attach rate" else cell)
+            companion_rows = [
+                [row["product_name"], row["co_baskets"], row["attach_rate"] / 100.0, row["lift"], row["confidence"], row["opportunity_score"]]
+                for row in bundle["companions"]
+            ]
+            write_table(sheet, 13, ["Companion", "Co-baskets", "Attach rate", "Lift", "Confidence", "Decision score"], companion_rows, {2: percent})
+
+        if export_mode in {"current_view", "detail_rows", "customers"}:
+            sheet = workbook.add_worksheet("Customers")
+            sheet.set_column("A:C", 28)
+            sheet.set_column("D:J", 18)
+            customer_rows = [
                 [
                     customer["name"],
+                    "Company" if customer.get("is_company") else "Individual",
+                    customer.get("company_name") or "",
                     customer["segment"],
                     customer["activation_score"],
                     customer["baskets"],
                     customer["revenue"],
                     customer["last_purchase"],
-                    customer["contact_status"],
+                    customer["email"] or "",
+                    customer["mobile"] or "",
                 ]
-            )
-        writer.writerow([])
-        writer.writerow(["Store / team", "Baskets", "Selected-scope revenue"])
-        for store in bundle["dimensions"]["store_mix"]:
-            writer.writerow([store["name"], store["baskets"], store["revenue"]])
-        content = stream.getvalue().encode("utf-8-sig")
-        filename = f"tradeline_product_intelligence_{fields.Date.today()}.csv"
+                for customer in bundle["customers"]
+            ]
+            write_table(sheet, 0, ["Customer", "Customer type", "Company", "Segment", "Activation score", "Baskets", "Observed value", "Last purchase", "Email", "Mobile"], customer_rows, {6: money})
+
+        if export_mode in {"current_view", "legacy_live"}:
+            sheet = workbook.add_worksheet("Legacy vs Live")
+            sheet.set_column("A:A", 22)
+            sheet.set_column("B:F", 20)
+            sheet.write(0, 0, "Legacy vs Odoo 18", title)
+            if comparison.get("available"):
+                sheet.write(2, 0, "Cross-version identity", header)
+                sheet.write(2, 1, comparison["rule_label"], cell)
+                sheet.write(3, 0, "Compared prefixes", header)
+                sheet.write(3, 1, comparison["prefix_count"], cell)
+                rows = [
+                    [period["label"], period["legacy_qty"], period["legacy_amount"], period["current_qty"], period["current_amount"], period.get("amount_delta_pct")]
+                    for period in comparison["months"]
+                ]
+                write_table(sheet, 6, ["Month", "Odoo 12 units", "Odoo 12 revenue", "Odoo 18 units", "Odoo 18 revenue", "Revenue change %"], rows, {2: money, 4: money})
+            else:
+                sheet.write(2, 0, comparison.get("note") or "Comparison data is unavailable.")
+
+        workbook.close()
+        content = stream.getvalue()
+        filename = f"tradeline_intelligence_{export_mode}_{fields.Date.today()}.xlsx"
         attachment = self.env["ir.attachment"].sudo().create(
             {
                 "name": filename,
                 "datas": base64.b64encode(content),
-                "mimetype": "text/csv",
+                "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }
         )
         return {"type": "ir.actions.act_url", "url": f"/web/content/{attachment.id}?download=true", "target": "self"}

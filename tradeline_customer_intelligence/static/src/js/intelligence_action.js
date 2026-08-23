@@ -14,6 +14,7 @@ export class TradelineCustomerIntelligence extends Component {
             activeView: "product",
             loading: true,
             exporting: false,
+            evidenceLoading: false,
             error: "",
             query: "iPhone 17",
             searchInput: "iPhone 17",
@@ -30,9 +31,16 @@ export class TradelineCustomerIntelligence extends Component {
             selectedCompanionKey: null,
             selectedCustomerKey: null,
             audienceOpen: false,
-            navCollapsed: false,
+            commandOpen: false,
+            exportOpen: false,
+            customerType: "all",
+            customerCompanyId: 0,
+            filterOptions: { customer_types: [], customer_companies: [] },
         });
-        onWillStart(async () => this.loadProduct());
+        onWillStart(async () => {
+            await this.loadFilterOptions();
+            await this.loadProduct();
+        });
     }
 
     get navItems() {
@@ -88,6 +96,16 @@ export class TradelineCustomerIntelligence extends Component {
     get mobileReady() { return this.customers.filter(customer => customer.mobile).length; }
     get priorityCustomers() { return this.customers.filter(customer => customer.segment === "Priority").length; }
     get topStore() { return this.storeMix[0] || null; }
+    get customerCompanies() { return this.state.filterOptions.customer_companies || []; }
+    get activeCustomerTypeLabel() {
+        return ({ all: "All customers", individual: "Individuals", company: "Companies" })[this.state.customerType];
+    }
+    get analysisFilters() {
+        return {
+            customer_type: this.state.customerType,
+            customer_company_id: Number(this.state.customerCompanyId || 0),
+        };
+    }
 
     navClass(key) {
         return `tl-intel-nav-item ${this.state.activeView === key ? "is-active" : ""}`;
@@ -137,6 +155,18 @@ export class TradelineCustomerIntelligence extends Component {
         return error?.data?.message || error?.message || "The intelligence engine could not load this scope.";
     }
 
+    async loadFilterOptions() {
+        try {
+            this.state.filterOptions = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_filter_options",
+                []
+            );
+        } catch {
+            this.state.filterOptions = { customer_types: [], customer_companies: [] };
+        }
+    }
+
     async loadProduct() {
         this.state.loading = true;
         this.state.error = "";
@@ -145,7 +175,7 @@ export class TradelineCustomerIntelligence extends Component {
             const bundle = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "get_product_360",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity]
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity, this.analysisFilters]
             );
             this.state.bundle = bundle;
             this.state.selectedCompanionKey = bundle.companions?.[0]?.product_key || null;
@@ -175,12 +205,14 @@ export class TradelineCustomerIntelligence extends Component {
 
     async onNavigate(ev) {
         this.state.activeView = ev.currentTarget.dataset.view;
+        this.state.commandOpen = false;
         if (this.state.activeView === "comparison" && !this.state.comparison) {
             await this.loadComparison();
         }
     }
-    onToggleNav() {
-        this.state.navCollapsed = !this.state.navCollapsed;
+    onToggleCommand() {
+        this.state.commandOpen = !this.state.commandOpen;
+        this.state.exportOpen = false;
     }
     onSearchInput(ev) {
         this.state.searchInput = ev.target.value;
@@ -258,6 +290,16 @@ export class TradelineCustomerIntelligence extends Component {
         this.state.source = ev.target.value;
         await this.loadProduct();
     }
+    async onCustomerTypeChange(ev) {
+        this.state.customerType = ev.currentTarget.dataset.type;
+        if (this.state.customerType === "individual") this.state.customerCompanyId = 0;
+        await this.loadProduct();
+    }
+    async onCustomerCompanyChange(ev) {
+        this.state.customerCompanyId = Number(ev.target.value || 0);
+        if (this.state.customerCompanyId) this.state.customerType = "company";
+        await this.loadProduct();
+    }
     onSelectCompanion(ev) {
         this.state.selectedCompanionKey = ev.currentTarget.dataset.key;
     }
@@ -274,19 +316,42 @@ export class TradelineCustomerIntelligence extends Component {
     onOpenLaunch() {
         this.state.activeView = "launch";
     }
-    async onExport() {
+    onToggleExport() {
+        this.state.exportOpen = !this.state.exportOpen;
+        this.state.commandOpen = false;
+    }
+    async onExport(ev) {
+        const exportMode = ev?.currentTarget?.dataset?.mode || "current_view";
+        this.state.exportOpen = false;
         this.state.exporting = true;
         try {
             const action = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "export_product_insight",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity]
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity, this.analysisFilters, exportMode]
             );
             await this.action.doAction(action);
         } catch (error) {
             this.notification.add(this.extractError(error), { type: "danger" });
         } finally {
             this.state.exporting = false;
+        }
+    }
+    async onOpenEvidence(ev) {
+        ev.stopPropagation();
+        const companionKey = ev.currentTarget.dataset.companion || null;
+        this.state.evidenceLoading = true;
+        try {
+            const action = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "open_evidence",
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity, companionKey, this.analysisFilters]
+            );
+            await this.action.doAction(action);
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "danger" });
+        } finally {
+            this.state.evidenceLoading = false;
         }
     }
 }

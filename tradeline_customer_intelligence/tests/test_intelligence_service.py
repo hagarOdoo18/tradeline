@@ -86,4 +86,19 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         self.assertEqual(variant_result["item_code"], "ab-12 3/xyz")
         self.assertEqual(variant_result["match_hint"], "Matched by item code")
-        self.assertIn("Exact SKU", variant_result["subtitle"])
+        self.assertIn(self.child_category.display_name, variant_result["subtitle"])
+        self.assertNotIn("Exact SKU · Exact SKU", variant_result["subtitle"])
+
+    def test_customer_population_filter_is_sql_scoped(self):
+        company = self.env["res.partner"].create({"name": "Intelligence Company", "is_company": True})
+        normalized = self.service._normalize_filters(
+            {"customer_type": "company", "customer_company_id": company.id}
+        )
+        clause, params = self.service._audience_sql("move", normalized)
+        self.assertIn("commercial.is_company", clause)
+        self.assertIn("commercial.id = %s", clause)
+        self.assertEqual(params, [company.id])
+
+        all_clause, all_params = self.service._audience_sql("move", {"customer_type": "all"})
+        self.assertEqual(all_clause, "")
+        self.assertEqual(all_params, [])

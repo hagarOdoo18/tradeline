@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
 <t t-name="tradeline_customer_intelligence.Main">
-<div t-att-class="'tl-intel-app ' + (state.navCollapsed ? 'is-nav-collapsed' : '')">
+<div class="tl-intel-app">
     <header class="tl-intel-topbar">
         <div class="tl-intel-brand">
             <img src="/tradeline_customer_intelligence/static/description/tradeline_mark.png" alt="Tradeline"/>
             <strong>Tradeline Intelligence</strong>
         </div>
+        <button class="tl-command-toggle" t-on-click="onToggleCommand" t-att-aria-expanded="state.commandOpen ? 'true' : 'false'">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+            <span>Explore</span>
+        </button>
         <div class="tl-intel-search-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
             <input aria-label="Search category, product, or variant" t-att-value="state.searchInput" placeholder="Search model, color, capacity, barcode, or item code" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
@@ -28,13 +32,23 @@
             <span>—</span>
             <input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/>
         </div>
-        <button class="tl-export-btn" t-on-click="onExport" t-att-disabled="state.exporting ? 'disabled' : null">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/></svg>
-            <span><t t-esc="state.exporting ? 'Preparing…' : 'Export insight'"/></span>
-        </button>
+        <div class="tl-export-wrap">
+            <button class="tl-export-btn" t-on-click="onToggleExport" t-att-disabled="state.exporting ? 'disabled' : null">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/></svg>
+                <span><t t-esc="state.exporting ? 'Preparing…' : 'Export to Excel'"/></span>
+            </button>
+            <div class="tl-export-menu" t-if="state.exportOpen">
+                <strong>Choose workbook</strong>
+                <button data-mode="current_view" t-on-click="onExport"><span>Executive view</span><small>Summary, companions, customers and lineage</small></button>
+                <button data-mode="detail_rows" t-on-click="onExport"><span>Detail rows</span><small>Full companion and customer tables</small></button>
+                <button data-mode="customers" t-on-click="onExport"><span>Customers</span><small>Company / individual segmentation and contacts</small></button>
+                <button data-mode="legacy_live" t-on-click="onExport"><span>Legacy vs live</span><small>Odoo 12 and Odoo 18 monthly comparison</small></button>
+            </div>
+        </div>
     </header>
 
-    <aside class="tl-intel-sidebar">
+    <section class="tl-command-tray" t-if="state.commandOpen">
+        <div class="tl-command-tray-heading"><strong>Explore intelligence</strong><span>Switch workspace without giving up analysis space</span></div>
         <nav>
             <button t-att-class="navClass('product')" data-view="product" t-on-click="onNavigate">
                 <svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7v10l8 4 8-4V7M12 11v10"/></svg><span>Product 360</span>
@@ -58,10 +72,7 @@
                 <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 2.5 2.5L16 9"/></svg><span>Data Quality</span>
             </button>
         </nav>
-        <button class="tl-collapse-nav" t-on-click="onToggleNav">
-            <svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg><span>Collapse</span>
-        </button>
-    </aside>
+    </section>
 
     <main class="tl-intel-main">
         <t t-if="state.error">
@@ -77,8 +88,15 @@
                     <h1><t t-esc="product.name"/></h1>
                     <p>What customers buy with this scope, who they are, and what to do next.</p>
                 </div>
+                <button class="tl-evidence-button is-primary" t-on-click="onOpenEvidence" t-att-disabled="state.evidenceLoading ? 'disabled' : null">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>
+                    <span><t t-esc="state.evidenceLoading ? 'Opening records…' : 'View source records'"/></span>
+                </button>
+            </section>
+
+            <section class="tl-filter-rail" aria-label="Analysis filters">
                 <label class="tl-source-select">
-                    <span>Source</span>
+                    <span>Data source</span>
                     <select t-model="state.source" t-on-change="onSourceChange">
                         <option value="auto">Best available source</option>
                         <option value="current">Odoo 18 live</option>
@@ -86,13 +104,36 @@
                     </select>
                     <small><t t-esc="bundle.source_label"/></small>
                 </label>
+                <div class="tl-customer-type-filter">
+                    <span>Customer type</span>
+                    <div>
+                        <button data-type="all" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'all' ? 'is-active' : ''">All</button>
+                        <button data-type="individual" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'individual' ? 'is-active' : ''">Individuals</button>
+                        <button data-type="company" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'company' ? 'is-active' : ''">Companies</button>
+                    </div>
+                    <small><t t-esc="activeCustomerTypeLabel"/></small>
+                </div>
+                <label class="tl-company-filter">
+                    <span>Specific company</span>
+                    <select t-model="state.customerCompanyId" t-on-change="onCustomerCompanyChange" t-att-disabled="state.customerType === 'individual' ? 'disabled' : null">
+                        <option value="0">All companies</option>
+                        <option t-foreach="customerCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
+                    </select>
+                    <small>Optional account-level filter</small>
+                </label>
+                <div class="tl-filter-summary"><span>Applied population</span><strong><t t-esc="activeCustomerTypeLabel"/></strong><small>All metrics and evidence use this population</small></div>
             </section>
 
             <section class="tl-kpi-rail">
-                <div><strong><t t-esc="formatNumber(summary.baskets)"/></strong><span>Baskets</span><small><t t-esc="state.startDate"/> — <t t-esc="state.endDate"/></small></div>
-                <div><strong><t t-esc="formatPercent(summary.attach_rate)"/></strong><span>Companion attach rate</span><small>Distinct baskets, no double counting</small></div>
-                <div><strong><t t-esc="formatNumber(summary.companion_baskets)"/></strong><span>Baskets with companions</span><small>At least one non-anchor item</small></div>
-                <div><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>Identified-customer coverage</span><small><t t-esc="formatNumber(summary.identified_baskets)"/> linked baskets</small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatNumber(summary.baskets)"/></strong><span>Baskets</span><small><t t-esc="state.startDate"/> — <t t-esc="state.endDate"/></small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.attach_rate)"/></strong><span>Companion attach rate</span><small>Distinct baskets, no double counting</small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatNumber(summary.companion_baskets)"/></strong><span>Baskets with companions</span><small>At least one non-anchor item</small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>Identified-customer coverage</span><small><t t-esc="formatNumber(summary.identified_baskets)"/> linked baskets</small></div>
+            </section>
+
+            <section class="tl-recommendation-strip" t-if="recommendation.title">
+                <div><span>Recommended next move</span><strong><t t-esc="recommendation.title"/></strong><p><t t-esc="recommendation.rationale"/> · <t t-esc="formatNumber(recommendation.reachable_baskets)"/> observed co-baskets</p></div>
+                <div><button class="tl-secondary-button" t-on-click="onBuildAudience">Build audience</button><button class="tl-primary-button" t-on-click="onOpenLaunch">Open Launch Cockpit</button></div>
             </section>
 
             <t t-if="state.activeView === 'product' or state.activeView === 'bundle'">
@@ -103,7 +144,7 @@
                     </div>
                     <div class="tl-affinity-table-wrap">
                         <table class="tl-affinity-table">
-                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th></tr></thead>
+                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th><th>Source</th></tr></thead>
                             <tbody>
                                 <tr t-foreach="companions" t-as="row" t-key="row.product_key" t-att-class="rowClass(row)" t-att-data-key="row.product_key" t-on-click="onSelectCompanion">
                                     <td><t t-esc="row_index + 1"/></td>
@@ -113,8 +154,9 @@
                                     <td class="is-number"><t t-esc="formatLift(row.lift)"/></td>
                                     <td class="tl-confidence-cell"><strong><t t-esc="row.confidence"/></strong><small>95% CI <t t-esc="formatPercent(row.attach_ci_low)"/>–<t t-esc="formatPercent(row.attach_ci_high)"/></small></td>
                                     <td><div class="tl-score-cell"><strong><t t-esc="round(row.opportunity_score)"/></strong><i><b t-att-style="'width:' + row.opportunity_score + '%'"/></i></div></td>
+                                    <td><button class="tl-evidence-button is-row" t-att-data-companion="row.product_key" t-on-click="onOpenEvidence">Evidence</button></td>
                                 </tr>
-                                <tr t-if="!companions.length"><td colspan="7" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
+                                <tr t-if="!companions.length"><td colspan="8" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -140,6 +182,19 @@
                             <div t-foreach="coverageSources" t-as="source" t-key="source.key"><i t-att-class="sourceClass(source)"></i><strong><t t-esc="source.label"/></strong><small><t t-esc="source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' anchor baskets' : (source.status === 'pending' ? 'Backfill pending' : 'No anchor baskets')"/></small></div>
                         </div>
                     </div>
+                </section>
+
+                <section class="tl-evidence-lineage">
+                    <div class="tl-section-title"><div><h2>Evidence &amp; lineage</h2><p>See which system and records support the decision. Product identity stays prefix-based behind the scenes.</p></div><button class="tl-evidence-button" t-on-click="onOpenEvidence">Open supporting records</button></div>
+                    <div class="tl-lineage-grid">
+                        <article t-foreach="coverageSources" t-as="source" t-key="source.key">
+                            <i t-att-class="sourceClass(source)"></i>
+                            <div><strong><t t-esc="source.label"/></strong><p><t t-esc="source.note || (source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' matching baskets in this filtered population.' : 'No matching records in this filtered population.')"/></p></div>
+                            <button t-if="source.key !== 'history'" t-on-click="onOpenEvidence">View evidence</button>
+                            <button t-if="source.key === 'history'" data-view="comparison" t-on-click="onNavigate">Open comparison</button>
+                        </article>
+                    </div>
+                    <div class="tl-lineage-rule"><strong>Cross-system product key</strong><span>First five normalized item-code characters</span><p>Executives search by product name, capacity, color, barcode or full item code. The technical prefix is kept only for Odoo 12 ↔ Odoo 18 matching and auditability.</p></div>
                 </section>
 
                 <section class="tl-dimension-grid">
@@ -249,17 +304,6 @@
             </t>
         </t>
     </main>
-
-    <aside class="tl-insight-rail" t-if="!state.loading and !state.error">
-        <section><h2>Next best action</h2><small>Recommendation</small><h3><t t-esc="recommendation.title"/></h3><small>Rationale</small><p><t t-esc="recommendation.rationale"/></p><div class="tl-reachable"><small>Projected reachable baskets</small><strong><t t-esc="formatNumber(recommendation.reachable_baskets)"/></strong></div></section>
-        <section><h2>Audience opportunity</h2><div class="tl-audience-count"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M2.5 20c.6-4.2 2.7-6 6.5-6s5.9 1.8 6.5 6M15 15c3.7-.5 5.7 1.1 6.5 4"/></svg><div><span>Trade-in candidates</span><strong><t t-esc="formatNumber(summary.identified_customers)"/></strong><small>identified customers</small></div></div><button t-on-click="onBuildAudience">Build audience <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button></section>
-    </aside>
-
-    <footer class="tl-decision-strip" t-if="!state.loading and !state.error">
-        <div class="tl-target-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="m14 10 6-6"/></svg></div>
-        <div><strong>Recommended launch action</strong><p><t t-esc="launchSentence"/></p></div>
-        <button t-on-click="onOpenLaunch">Open Launch Cockpit <svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button>
-    </footer>
 </div>
 </t>
 </templates>
