@@ -119,6 +119,16 @@ class TestApprovalRequestPricing(TransactionCase):
             group.category_id,
             self.env.ref("base.module_category_human_resources_approvals"),
         )
+        self.assertIn(
+            self.env.ref("approvals.group_approval_user"), group.implied_ids
+        )
+        self.assertNotIn(
+            group, self.env.ref("base.group_system").implied_ids
+        )
+        self.assertEqual(
+            self.env.ref("approvals.approvals_menu_root").group_ids,
+            group,
+        )
 
         restricted_fields = {
             "payment_term_option_id",
