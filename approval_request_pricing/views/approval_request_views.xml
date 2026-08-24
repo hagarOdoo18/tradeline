@@ -7,16 +7,19 @@
         <field name="arch" type="xml">
             <xpath expr="//group[@name='request_details']/field[@name='reference']" position="after">
                 <field name="payment_term_option_id"
+                       groups="approval_request_pricing.group_approvals"
                        invisible="approval_type != 'purchase'"
                        readonly="request_status != 'new'"
                        options="{'no_create': True, 'no_open': True}"/>
                 <field name="method_type_option_id"
+                       groups="approval_request_pricing.group_approvals"
                        invisible="approval_type != 'purchase'"
                        readonly="request_status != 'new'"
                        options="{'no_create': True, 'no_open': True}"/>
             </xpath>
             <xpath expr="//field[@name='product_line_ids']" position="after">
                 <group class="oe_subtotal_footer oe_right"
+                       groups="approval_request_pricing.group_approvals"
                        invisible="approval_type != 'purchase'">
                     <field name="pricing_currency_id" invisible="1"/>
                     <field name="total_cost" readonly="1"/>

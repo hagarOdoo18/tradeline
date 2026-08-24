@@ -6,10 +6,10 @@
         <field name="inherit_id" ref="approvals_purchase.approval_purchase_product_line_view_tree_inherit"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='seller_id']" position="after">
-                <field name="currency_id" column_invisible="True"/>
-                <field name="unit_cost" column_invisible="parent.approval_type != 'purchase'"/>
-                <field name="selling_price" column_invisible="parent.approval_type != 'purchase'"/>
-                <field name="margin" column_invisible="parent.approval_type != 'purchase'" readonly="1"/>
+                <field name="currency_id" groups="approval_request_pricing.group_approvals" column_invisible="True"/>
+                <field name="unit_cost" groups="approval_request_pricing.group_approvals" column_invisible="parent.approval_type != 'purchase'"/>
+                <field name="selling_price" groups="approval_request_pricing.group_approvals" column_invisible="parent.approval_type != 'purchase'"/>
+                <field name="margin" groups="approval_request_pricing.group_approvals" column_invisible="parent.approval_type != 'purchase'" readonly="1"/>
             </xpath>
         </field>
     </record>
@@ -20,10 +20,10 @@
         <field name="inherit_id" ref="approvals.approval_product_line_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='quantity']" position="after">
-                <field name="currency_id" invisible="1"/>
-                <field name="unit_cost"/>
-                <field name="selling_price"/>
-                <field name="margin" readonly="1"/>
+                <field name="currency_id" groups="approval_request_pricing.group_approvals" invisible="1"/>
+                <field name="unit_cost" groups="approval_request_pricing.group_approvals"/>
+                <field name="selling_price" groups="approval_request_pricing.group_approvals"/>
+                <field name="margin" groups="approval_request_pricing.group_approvals" readonly="1"/>
             </xpath>
         </field>
     </record>

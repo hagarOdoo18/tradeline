@@ -9,6 +9,7 @@ class ApprovalProductLine(models.Model):
         related="company_id.currency_id",
         store=True,
         readonly=True,
+        groups="approval_request_pricing.group_approvals",
     )
     unit_cost = fields.Monetary(
         string="Unit Cost",
@@ -16,6 +17,7 @@ class ApprovalProductLine(models.Model):
         compute="_compute_unit_cost",
         store=True,
         readonly=False,
+        groups="approval_request_pricing.group_approvals",
     )
     selling_price = fields.Monetary(
         string="Selling Price",
@@ -23,12 +25,14 @@ class ApprovalProductLine(models.Model):
         compute="_compute_selling_price",
         store=True,
         readonly=False,
+        groups="approval_request_pricing.group_approvals",
     )
     margin = fields.Monetary(
         string="Margin",
         currency_field="currency_id",
         compute="_compute_margin",
         store=True,
+        groups="approval_request_pricing.group_approvals",
     )
 
     @api.depends("product_id", "company_id")
@@ -62,7 +66,7 @@ class ApprovalProductLine(models.Model):
 
     def _apply_approved_unit_cost_to_purchase_order_line(self):
         """Use the approved cost as the price of the generated RFQ line."""
-        for line in self.filtered("purchase_order_line_id"):
+        for line in self.sudo().filtered("purchase_order_line_id"):
             purchase_line = line.purchase_order_line_id
             source_currency = line.currency_id
             target_currency = purchase_line.currency_id
