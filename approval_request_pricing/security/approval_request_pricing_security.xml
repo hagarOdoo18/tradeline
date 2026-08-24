@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_approvals" model="res.groups">
+        <field name="name">Approvals</field>
+        <field name="category_id" ref="base.module_category_human_resources_approvals"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">See the custom payment, cost, selling price, margin, and total fields on RFQ approval requests.</field>
+    </record>
+
+    <record id="base.group_system" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('approval_request_pricing.group_approvals'))]"/>
+    </record>
+</odoo>
