@@ -126,7 +126,7 @@ class TestApprovalRequestPricing(TransactionCase):
             group, self.env.ref("base.group_system").implied_ids
         )
         self.assertEqual(
-            self.env.ref("approvals.approvals_menu_root").group_ids,
+            self.env.ref("approvals.approvals_menu_root").groups_id,
             group,
         )
 
