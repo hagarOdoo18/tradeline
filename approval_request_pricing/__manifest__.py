@@ -1,6 +1,6 @@
 {
     "name": "Approval Request Pricing",
-    "version": "18.0.1.5.0",
+    "version": "18.0.1.5.1",
     "category": "Human Resources/Approvals",
     "summary": "Add configurable payment choices and automatic RFQ pricing",
     "author": "Tradeline",
@@ -18,5 +18,7 @@
     ],
     "installable": True,
     "application": False,
-    "auto_install": False,
+    # Keep the customization active when Odoo.sh rebuilds staging from a
+    # database snapshot where this addon has not yet been installed.
+    "auto_install": True,
 }
