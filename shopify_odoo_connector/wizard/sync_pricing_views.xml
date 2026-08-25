@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+<!--    form view for sync pricing-->
+    <record id="sync_pricing_view_form" model="ir.ui.view">
+        <field name="name">sync.pricing.view.form</field>
+        <field name="model">sync.pricing</field>
+        <field name="arch" type="xml">
+            <form string="Sync Pricing">
+                <group>
+                    <group>
+                        <field name="shopify_instance_id"/>
+                        <field name="pricelist_id"/>
+                        <field name="currency_id"/>
+                    </group>
+                    <group>
+                        <field name="batch_size"/>
+                    </group>
+                </group>
+                <group string="Products">
+                    <field name="product_ids"
+                           nolabel="1"
+                           widget="many2many_tags"
+                           placeholder="Leave empty to push every synced product"/>
+                </group>
+                <div class="alert alert-info" role="alert">
+                    The selected pricelist price of every synced variant is
+                    pushed to the matching Shopify variant price. The push is
+                    queued as background jobs and processed by the Shopify job
+                    cron, so it will not time out on a large catalogue.
+                </div>
+                <footer>
+                    <button name="action_sync_pricing"
+                            string="Push Prices to Shopify"
+                            class="btn-primary"
+                            type="object"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+<!--   action for sync pricing -->
+    <record id="sync_pricing_action" model="ir.actions.act_window">
+        <field name="name">Sync Pricing</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">sync.pricing</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="sync_pricing_view_form"/>
+        <field name="target">new</field>
+    </record>
+<!--    menu for sync pricing-->
+    <menuitem
+            id="sync_pricing_menu_action"
+            action="sync_pricing_action"
+            name="Sync Pricing"
+            parent="shopify_odoo_connector.product_template_menu_root"
+            sequence="6"/>
+</odoo>

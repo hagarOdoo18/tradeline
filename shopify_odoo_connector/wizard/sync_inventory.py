@@ -65,11 +65,10 @@ class SyncInventory(models.TransientModel):
     def _get_odoo_qty(self, product, company_id,location):
         """Sum on-hand quantity across all selected warehouses."""
         total = 0.0
-
-        quants = self.env['stock.quant'].sudo().search([
-            ('location_id', '=', location.id),
-            ('product_id',  '=', product.id),
-            ('company_id',  '=', company_id),
+        related_products = self.env['product.product'].search([('shopify_variant_sku', '=', product.barcode)]).ids
+        quants = self.env['stock.quant'].sudo().search(['|',
+            ('product_id',  '=', product.id),('product_id', 'in', related_products),
+            ('company_id',  '=', company_id),   ('location_id', '=', location.id),
         ])
 
         total += sum(quants.mapped('quantity'))
@@ -253,54 +252,56 @@ class SyncInventory(models.TransientModel):
             sync_records = self.env['shopify.sync'].sudo().search([
                 ('instance_id','=', shopify_instance.id),
                 ('shopify_variant_id', '!=', False),
-                ('product_prod_id',   '!=', False),
+                ('product_prod_id',   '!=', False),('product_prod_id.shopify_variant_sku','=','')
             ])
 
         set_url = ("https://%s/admin/api/%s/inventory_levels/set.json"
                    % (store_name, version))
 
         for sync in sync_records:
-            inventory_item_id = variant_to_inv_item.get(
-                str(sync.shopify_variant_id))
-            if not inventory_item_id:
-                continue
+            if not sync.product_prod_id.shopify_variant_sku:
+                inventory_item_id = variant_to_inv_item.get(
+                    str(sync.shopify_variant_id))
+                if not inventory_item_id:
+                    continue
 
-            # 4. Compute total on-hand qty across selected warehouses
+                # 4. Compute total on-hand qty across selected warehouses
 
-            # 5. Set inventory level for every active Shopify location
-            for location in shopify_locations:
-                total_qty = int(self._get_odoo_qty(
-                    sync.product_prod_id, company_id, location.warehouse_id.lot_stock_id))
+                # 5. Set inventory level for every active Shopify location
+                for location in shopify_locations:
 
-                payload = json.dumps({
-                    'location_id':        location.shopify_location_id,
-                    'inventory_item_id':  inventory_item_id,
-                    'available':          total_qty if total_qty > 3 else 0,
-                })
-                resp = requests.post(set_url, headers=headers, data=payload)
-                if resp.status_code not in (200, 201):
-                    self.env['log.message'].sudo().create([{
-                        'name': (
-                            'Inventory push failed for variant %s '
-                            '(location %s): %s'
-                            % (sync.shopify_variant_id,
-                               location.shopify_location_id, resp.text)
-                        ),
-                        'shopify_instance_id': shopify_instance.id,
-                        'model': 'Stock Quantity',
-                    }])
-                else:
-                    self.env['log.message'].sudo().create([{
-                        'name': (
-                                'Inventory push done for variant %s,product %s, '
-                                '(location %s): %s qty %s'
-                                % (sync.shopify_variant_id,sync.product_prod_id.id,
-                                   location.shopify_location_id, resp.text,total_qty)
-                        ),
-                        'shopify_instance_id': shopify_instance.id,
-                        'model': 'Stock Quantity',
-                    }])
-                    self._cr.commit()
+                    total_qty = int(self._get_odoo_qty(
+                        sync.product_prod_id, company_id, location.warehouse_id.lot_stock_id))
+
+                    payload = json.dumps({
+                        'location_id':        location.shopify_location_id,
+                        'inventory_item_id':  inventory_item_id,
+                        'available':          total_qty if total_qty > 3 else 0,
+                    })
+                    resp = requests.post(set_url, headers=headers, data=payload)
+                    if resp.status_code not in (200, 201):
+                        self.env['log.message'].sudo().create([{
+                            'name': (
+                                'Inventory push failed for variant %s '
+                                '(location %s): %s'
+                                % (sync.shopify_variant_id,
+                                   location.shopify_location_id, resp.text)
+                            ),
+                            'shopify_instance_id': shopify_instance.id,
+                            'model': 'Stock Quantity',
+                        }])
+                    else:
+                        self.env['log.message'].sudo().create([{
+                            'name': (
+                                    'Inventory push done for variant %s,product %s, '
+                                    '(location %s): %s qty %s'
+                                    % (sync.shopify_variant_id,sync.product_prod_id.id,
+                                       location.shopify_location_id, resp.text,total_qty)
+                            ),
+                            'shopify_instance_id': shopify_instance.id,
+                            'model': 'Stock Quantity',
+                        }])
+                        self._cr.commit()
 
 
 

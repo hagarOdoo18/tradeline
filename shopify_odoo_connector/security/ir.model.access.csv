@@ -11,3 +11,4 @@ access_shopify_sync_user,access.shopify.sync.user,model_shopify_sync,base.group_
 access_job_cron_user,access.job.cron.user,model_job_cron,base.group_user,1,1,1,1
 access_shopify_location_user,access.shopify.location.user,model_shopify_location,base.group_user,1,1,1,1
 access_sync_location_user,access.sync.location.user,model_sync_location,base.group_user,1,1,1,1
+access_sync_pricing_user,access.sync.pricing.user,model_sync_pricing,base.group_user,1,1,1,1

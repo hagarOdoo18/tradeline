@@ -24,4 +24,5 @@ from . import sale_order_sync
 from . import sync_customer
 from . import sync_inventory
 from . import sync_location
+from . import sync_pricing
 from . import sync_product
