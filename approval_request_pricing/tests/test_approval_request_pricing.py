@@ -1,4 +1,5 @@
 from odoo.tests import TransactionCase, tagged
+from odoo.tests.common import new_test_user
 
 
 @tagged("post_install", "-at_install")
@@ -110,6 +111,79 @@ class TestApprovalRequestPricing(TransactionCase):
             self.request._fields["method_type_option_id"].comodel_name,
             "approval.method.type.option",
         )
+
+    def test_custom_fields_require_approvals_group(self):
+        group = self.env.ref("approval_request_pricing.group_approvals")
+        self.assertEqual(group.name, "Approvals")
+        self.assertEqual(
+            group.category_id,
+            self.env.ref("base.module_category_human_resources_approvals"),
+        )
+        self.assertIn(
+            self.env.ref("approvals.group_approval_user"), group.implied_ids
+        )
+        self.assertNotIn(
+            group, self.env.ref("base.group_system").implied_ids
+        )
+        self.assertEqual(
+            self.env.ref("approvals.approvals_menu_root").groups_id,
+            group,
+        )
+
+        restricted_fields = {
+            "payment_term_option_id",
+            "method_type_option_id",
+            "pricing_currency_id",
+            "total_cost",
+            "total_selling",
+            "total_margin",
+        }
+        for field_name in restricted_fields:
+            self.assertEqual(
+                self.request._fields[field_name].groups,
+                "approval_request_pricing.group_approvals",
+            )
+
+        line_fields = {"currency_id", "unit_cost", "selling_price", "margin"}
+        for field_name in line_fields:
+            self.assertEqual(
+                self.env["approval.product.line"]._fields[field_name].groups,
+                "approval_request_pricing.group_approvals",
+            )
+
+        user_without_access = new_test_user(
+            self.env,
+            login="approval_pricing_hidden",
+            groups="base.group_user,approvals.group_approval_user",
+        )
+        user_with_access = new_test_user(
+            self.env,
+            login="approval_pricing_visible",
+            groups=(
+                "base.group_user,approvals.group_approval_user,"
+                "approval_request_pricing.group_approvals"
+            ),
+        )
+
+        hidden_request_fields = self.env["approval.request"].with_user(
+            user_without_access
+        ).fields_get()
+        visible_request_fields = self.env["approval.request"].with_user(
+            user_with_access
+        ).fields_get()
+        for field_name in restricted_fields:
+            self.assertNotIn(field_name, hidden_request_fields)
+            self.assertIn(field_name, visible_request_fields)
+
+        hidden_line_fields = self.env["approval.product.line"].with_user(
+            user_without_access
+        ).fields_get()
+        visible_line_fields = self.env["approval.product.line"].with_user(
+            user_with_access
+        ).fields_get()
+        for field_name in line_fields:
+            self.assertNotIn(field_name, hidden_line_fields)
+            self.assertIn(field_name, visible_line_fields)
 
     def test_approved_unit_cost_is_applied_to_generated_rfq_line(self):
         vendor = self.env["res.partner"].create(

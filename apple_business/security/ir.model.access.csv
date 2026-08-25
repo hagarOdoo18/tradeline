@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_apple_business_user,apple.business.user,model_apple_business,apple_business.group_apple_business_user,1,1,1,0
+access_apple_business_manager,apple.business.manager,model_apple_business,apple_business.group_apple_business_manager,1,1,1,1
+access_apple_business_device_line_user,apple.business.device.line.user,model_apple_business_device_line,apple_business.group_apple_business_user,1,0,0,0
+access_apple_business_device_line_manager,apple.business.device.line.manager,model_apple_business_device_line,apple_business.group_apple_business_manager,1,1,1,1
