@@ -62,17 +62,41 @@ class SyncInventory(models.TransientModel):
     # helpers
     # ------------------------------------------------------------------
 
-    def _get_odoo_qty(self, product, company_id,location):
-        """Sum on-hand quantity across all selected warehouses."""
-        total = 0.0
-        related_products = self.env['product.product'].search([('shopify_variant_sku', '=', product.barcode)]).ids
-        quants = self.env['stock.quant'].sudo().search(['|',
-            ('product_id',  '=', product.id),('product_id', 'in', related_products),
-            ('company_id',  '=', company_id),   ('location_id', '=', location.id),
+    def _get_odoo_qty(self, product, company_id, location):
+        """Return the sellable quantity of `product` at `location`.
+
+        The total is the product's own stock plus the stock of any "alias"
+        variants that point back to it through
+        `shopify_variant_sku` == product.barcode. Quantities already reserved
+        for other outgoing moves are excluded, and child locations of
+        `location` are included.
+        """
+        if not product or not location:
+            return 0.0
+
+        product_ids = list(product.ids)
+        # Only look for alias variants when the product actually has a barcode.
+        # With an empty barcode the domain degrades to
+        # ('shopify_variant_sku', '=', False), which matches every product that
+        # has no Shopify SKU set and pulls unrelated stock into the total.
+        if product.barcode:
+            product_ids += self.env['product.product'].sudo().search([
+                ('shopify_variant_sku', '=', product.barcode),
+                ('id', 'not in', product_ids),
+            ]).ids
+
+        quants = self.env['stock.quant'].sudo().search([
+            ('product_id', 'in', product_ids),
+            ('company_id', '=', company_id),
+            ('location_id', '=', location.id),
+
         ])
 
-        total += sum(quants.mapped('quantity'))
-        return total
+        # `quantity` is on hand; subtract what is already reserved so the same
+        # units are not offered again on Shopify.
+        total = (sum(quants.mapped('quantity'))
+                 - sum(quants.mapped('reserved_quantity')))
+        return max(total, 0.0)
 
     def _apply_inventory_for_warehouse(self, warehouse, product, qty, company_id):
         """Create or update a stock.quant for one warehouse."""
