@@ -257,7 +257,7 @@ class SaleOrderSync(models.TransientModel):
                 if order_link and rel is not None:
                     rec += 1
 
-    def _get_shopify_order_warehouse(self, each, instance):
+    def _get_shopify_order_warehouse(self, code, instance):
         """Resolve the Odoo warehouse a Shopify order should be assigned to.
 
         Shopify orders carry the fulfillment location either as the
@@ -276,33 +276,18 @@ class SaleOrderSync(models.TransientModel):
         """
         location_model = self.env['shopify.location'].sudo()
 
-        location_id = each.get('location_id')
+        location_id = code
         if location_id:
             loc = location_model.search([
-                ('shopify_location_id', '=', str(location_id)),
+                ('name', '=', str(location_id)),
                 ('instance_id', '=', instance.id),
             ], limit=1)
             if loc.warehouse_id:
                 return loc.warehouse_id
 
-        selected_location = False
-        for attr in each.get('note_attributes') or []:
-            if attr.get('name') == '_selected_location':
-                selected_location = attr.get('value')
-                break
 
-        if selected_location:
-            loc = location_model.search([
-                ('instance_id', '=', instance.id),
-                ('name', '=', selected_location),
-            ], limit=1)
-            if not loc:
-                loc = location_model.search([
-                    ('instance_id', '=', instance.id),
-                    ('name', 'ilike', selected_location),
-                ], limit=1)
-            if loc.warehouse_id:
-                return loc.warehouse_id
+
+
 
         return instance.warehouse_id
 
@@ -314,13 +299,18 @@ class SaleOrderSync(models.TransientModel):
             get_shopify_orders(list):list of dictionary with orders values.
         """
         wizard = self.env['sale.order.sync'].sudo().browse(ref)
-        vals = {}
         shopify_instance = instance
         store_name = instance.shop_name
         version = instance.version
         headers = instance._get_shopify_headers()
         for each in shopify_orders:
-
+            # Build a fresh vals dict for every order. Odoo's sale.order
+            # create() writes the generated sequence back into vals
+            # (vals['name'] = 'S00xxx'); a shared dict would keep that name
+            # and reuse the same sequence for every subsequent order. A fresh
+            # dict also prevents fields (shipping/billing, taxes, warehouse)
+            # from leaking between orders.
+            vals = {}
             shopify_id = each['id']
             existing_order = self.env['sale.order'].search(
                 [('shopify_sync_ids.shopify_order_ref', '=', shopify_id)])
@@ -515,19 +505,18 @@ class SaleOrderSync(models.TransientModel):
                     vals["reference_number"] = each['name']
                     # vals["name"] = each['name']
                     vals['shopify_instance_id'] = shopify_instance.id
-                    order_warehouse = self._get_shopify_order_warehouse(
-                        each, shopify_instance)
-                    vals['warehouse_id'] = (
-                        order_warehouse.id if order_warehouse else False)
-                    team = self.env['crm.team'].search(
-                        [('branch_id', '=',  order_warehouse.branch_id.id), ('company_id', '=', self.env.company.id)])
-                    vals['team_id'] = team.id if team else False
-                    sales_rep = self.env['sales.rep'].search(
-                        [('company_id', '=', instance.company_id.id),
-                         ('is_online', '=', True)], limit=1)
-                    vals['branch_id'] = (
-                        order_warehouse.branch_id.id if order_warehouse else False)
-                    vals['sales_rep_id'] = sales_rep.id if sales_rep else False
+                    note_parts = []
+                    if each.get('note'):
+                        note_parts.append(each['note'])
+                    for attr in each.get('note_attributes') or []:
+                        note_parts.append('%s: %s' % (
+                            attr.get('name') or '', attr.get('value') or ''))
+                    if each.get('payment_gateway_names'):
+                        note_parts.append('Payment Gateway: %s' % ', '.join(
+                            each['payment_gateway_names']))
+                    if note_parts:
+                        vals['note'] = '\n'.join(note_parts)
+
                     fulfillment_status = each['fulfillment_status']
                     payment_status = each['financial_status']
                     fulfillment = 'fulfilled' \
@@ -542,8 +531,33 @@ class SaleOrderSync(models.TransientModel):
                         if payment_status == 'partially_refunded' \
                         else 'refunded' if payment_status == 'refunded' \
                         else 'unpaid'
+                    shipping_lines = each['shipping_lines']
+
+                    product_id = self.env.ref(
+                        'shopify_odoo_connector.product_shopify_shipping_cost')
+                    line = shipping_lines[0]
+
+                    order_warehouse = self._get_shopify_order_warehouse(
+                        line['code'], shopify_instance)
+                    vals['warehouse_id'] = (
+                        order_warehouse.id if order_warehouse else False)
+                    team = self.env['crm.team'].search(
+                        [('branch_id', '=', order_warehouse.branch_id.id),
+                         ('company_id', '=', self.env.company.id)])
+                    vals['team_id'] = team.id if team else False
+                    sales_rep = self.env['sales.rep'].search(
+                        [('company_id', '=', instance.company_id.id),
+                         ('is_online', '=', True)], limit=1)
+                    vals['sales_rep_id'] = sales_rep.id if sales_rep else False
+
+                    vals['branch_id'] = (
+                        order_warehouse.branch_id.id if order_warehouse else False)
+                    user_id = self.env['res.users'].search([('branch_id','=',order_warehouse.branch_id.id)]).id if  order_warehouse.branch_id.id !=88 else 66
+                    vals['user_id'] = user_id if user_id else False
+                    vals['invoice_journal_id'] = self.env['account.journal'].search([('type', '=', 'sale'),('branch_id', '=',  order_warehouse.branch_id.id)], limit=1).id
                     sale_order = self.env['sale.order']
                     so = sale_order.create(vals)
+
                     so.shopify_sync_ids.sudo().create(
                         {
                             'instance_id': instance.id,
@@ -695,27 +709,7 @@ class SaleOrderSync(models.TransientModel):
                                         line_vals['product_uom_qty'] -= \
                                             refund_line['quantity']
                         line_vals_list.append(line_vals)
-                    if each['shipping_lines']:
-                        shipping_lines = each['shipping_lines']
 
-                        product_id = self.env.ref(
-                            'shopify_odoo_connector.product_shopify_shipping_cost')
-                        for line in shipping_lines:
-                            price = float(line['price'])
-
-                            shipping_line_vals = {
-                                'product_id': product_id.id,
-                                'name': line['title'] if line[
-                                    'title'] else product_id.name,
-                                'price_unit':price,
-                                'product_uom_qty': 1,
-                                'shopify_line_ref': line['id'],
-                                'tax_id': [(6, 0, tax_name.ids)] if tax_name else False,
-                                'order_id': so.id,
-                                'shopify_instance_id': shopify_instance.id,
-                                'company_id': shopify_instance.company_id.id,
-                            }
-                            line_vals_list.append(shipping_line_vals)
                     if float(each['current_total_discounts']) != 0.00:
                         discount_lines = each['current_total_discounts_set']
                         product_id = self.env.ref(
@@ -739,8 +733,7 @@ class SaleOrderSync(models.TransientModel):
                             new_lines = self.env['sale.order.line'].sudo().create(
                                 line_vals_list)
                         except Exception as e:
-                            print('ezzat')
-                            print(e)
+                            continue
                     else:
                         new_lines = self.env['sale.order.line'].browse()
                     # if not wizard.draft:

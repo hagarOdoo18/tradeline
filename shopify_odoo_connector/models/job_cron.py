@@ -89,6 +89,16 @@ class JobCron(models.Model):
                         'Some error has been occurred in the processing'
                         ' of function:export_inventory_to_shopify')
                     job.state = "failed"
+            if job.function == "export_pricing_to_shopify":
+                try:
+                    model.export_pricing_to_shopify(job.data,
+                                                    job.instance_id)
+                    job.state = "done"
+                except Exception:
+                    _logger.error(
+                        'Some error has been occurred in the processing'
+                        ' of function:export_pricing_to_shopify')
+                    job.state = "failed"
             if job.function == "export_partners_to_shopify":
                 try:
                     model.export_partners_to_shopify(job.data, job.instance_id)

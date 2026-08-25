@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from collections import OrderedDict
 import base64
 import openpyxl
 from io import BytesIO
@@ -37,68 +38,84 @@ class UploadSerialOnlyWizard(models.TransientModel):
         if 'serial' not in header_map:
             raise UserError(_('Excel must contain a column named "serial".'))
 
-        processed, errors = 0, []
+        # ------------------------------------------------------------------
+        # 1) Read the file first and group VALID serials by product, so each
+        #    product gets ONE move with the correct demand (instead of
+        #    bumping product_uom_qty one row at a time).
+        # ------------------------------------------------------------------
+        lots_by_product = OrderedDict()   # product -> [lot, lot, ...]
+        seen_serials = set()
+        errors = []
 
         for row in sheet.iter_rows(min_row=2):
             serial_name = str(row[header_map['serial']].value or '').strip()
             if not serial_name:
                 continue
+            if serial_name in seen_serials:
+                # same serial listed twice in the file -> ignore the duplicate
+                continue
+            seen_serials.add(serial_name)
 
-            lot = self.env['stock.lot'].search([('name', '=', serial_name),('location_id','=',self.picking_id.location_id.id)], limit=1)
+            lot = self.env['stock.lot'].search([
+                ('name', '=', serial_name),
+                ('location_id', '=', picking.location_id.id),
+            ], limit=1)
 
             if not lot:
+                errors.append(_('Not Found serial %s at this stock') % serial_name)
+                continue
 
-                    errors.append(f'Not Found serial {serial_name} at This Stock')
-                    continue
+            lots_by_product.setdefault(lot.product_id, []).append(lot)
 
+        if errors:
+            raise UserError(_('Upload aborted. Fix these and try again:\n\n') + '\n'.join(errors))
 
-            else:
-                product = lot.product_id
+        # ------------------------------------------------------------------
+        # 2) One move per product, one move line per serial.
+        #    Odoo 18: stock.move.line has NO qty_done / reserved_uom_qty.
+        #      - 'quantity' = the reserved quantity for this line
+        #      - 'picked'   = mark the line as done
+        #    Filling 'quantity' up to the move demand means the move is fully
+        #    reserved, so "Check Availability" / confirm will NOT generate its
+        #    own extra reservation lines.
+        # ------------------------------------------------------------------
+        MoveLine = self.env['stock.move.line']
+        processed = 0
 
-            move = picking.move_ids_without_package.filtered(lambda mv: mv.product_id == product)
+        for product, lots in lots_by_product.items():
+            move = picking.move_ids_without_package.filtered(
+                lambda mv: mv.product_id == product)[:1]
+
             if not move:
                 move = self.env['stock.move'].create({
                     'picking_id': picking.id,
                     'product_id': product.id,
                     'name': product.display_name,
-                    'product_uom_qty': 1.0,
+                    'product_uom_qty': len(lots),
                     'product_uom': product.uom_id.id,
                     'location_id': picking.location_id.id,
                     'location_dest_id': picking.location_dest_id.id,
                     'company_id': picking.company_id.id,
                 })
-
-
-                self.env['stock.move.line'].create({
-                    'picking_id': picking.id,
-                    'move_id': move.id,
-                    'product_id': product.id,
-                    'product_uom_id': product.uom_id.id,
-                    'lot_id': lot.id,
-                    'lot_name': lot.name,
-                    'qty_done': 1.0,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
-                })
             else:
-                move.product_uom_qty+=1
+                move.product_uom_qty += len(lots)
 
-                self.env['stock.move.line'].create({
+            for lot in lots:
+                # safe re-run: skip a serial already on this move
+                if move.move_line_ids.filtered(lambda ml: ml.lot_id == lot):
+                    continue
+
+                MoveLine.create({
                     'picking_id': picking.id,
                     'move_id': move.id,
                     'product_id': product.id,
                     'product_uom_id': product.uom_id.id,
                     'lot_id': lot.id,
-                    'lot_name': lot.name,
-                    'qty_done': 1.0,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
+                    'quantity': 1.0,   # Odoo 18: reserved quantity for this line
+                    'picked': True,    # Odoo 18: mark the line as done
+                    'location_id': move.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
                 })
+                processed += 1
 
-            processed += 1
-
-        msg = f'Upload completed successfully. Serials processed: {processed}'
-        if errors:
-            msg += '\n\nErrors:\n' + '\n'.join(errors)
-
-            raise UserError(_(msg))
+        return {'type': 'ir.actions.client', 'tag': 'reload'}

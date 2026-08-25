@@ -29,7 +29,7 @@
                             <field name="function"/>
                         </group>
                         <group>
-                            <field name="data"/>
+                            <field name="data" widget="jsonb"/>
                         </group>
                     </group>
                 </sheet>

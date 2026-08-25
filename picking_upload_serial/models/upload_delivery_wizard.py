@@ -5,6 +5,7 @@ import base64
 import openpyxl
 from io import BytesIO
 
+
 class UploadDeliveryWizard(models.TransientModel):
     _name = 'upload.delivery.wizard'
     _description = 'Upload Excel to Delivery Lines'
@@ -15,132 +16,13 @@ class UploadDeliveryWizard(models.TransientModel):
     create_if_not_exist = fields.Boolean(string='Create Serial if Not Exist', default=True)
     auto_confirm = fields.Boolean(string='Confirm Delivery Automatically', default=False)
 
-    # def action_upload_excel(self):
-    #     if not self.file:
-    #         raise UserError(_("Please upload an Excel file."))
-    #
-    #     try:
-    #         data = base64.b64decode(self.file)
-    #         wb = openpyxl.load_workbook(filename=BytesIO(data), data_only=True)
-    #         sheet = wb.active
-    #     except Exception as e:
-    #         raise UserError(_("Invalid Excel file. Make sure it's .xlsx format.\n\nError: %s") % str(e))
-    #
-    #     headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
-    #     header_map = {str(h).lower(): i for i, h in enumerate(headers) if h}
-    #
-    #     required = ['code', 'serial', 'quantity']
-    #     for col in required:
-    #         if col not in header_map:
-    #             raise UserError(_("Missing column '%s' in Excel file.") % col)
-    #
-    #     not_found_products = []
-    #     processed = 0
-    #     errors = []
-    #
-    #     for row in sheet.iter_rows(min_row=2):
-    #         code = str(row[header_map['code']].value or '').strip()
-    #         serial_name = str(row[header_map['serial']].value or '').strip()
-    #         qcell = row[header_map['quantity']].value
-    #         try:
-    #             quantity = float(qcell or 0)
-    #         except Exception:
-    #             quantity = 0
-    #
-    #         if not code:
-    #             continue
-    #
-    #         product = self.env['product.product'].search([('barcode', '=', code)], limit=1)
-    #         if not product:
-    #             not_found_products.append(code)
-    #             continue
-    #
-    #         move_line = self.picking_id.move_line_ids_without_package.filtered(lambda ml: ml.product_id == product)
-    #         move = self.picking_id.move_ids_without_package.filtered(lambda ml: ml.product_id == product)
-    #         move.lot_ids=[]
-    #         if not move_line:
-    #             errors.append(f"Product {code} not found in this Delivery.")
-    #             continue
-    #
-    #         try:
-    #             # handle serial-tracked products
-    #             if product.tracking == 'serial':
-    #                 if not serial_name:
-    #                     errors.append(f"Missing serial number for product '{code}'.")
-    #                     continue
-    #
-    #                 lot = self.env['stock.lot'].search([
-    #                     ('name', '=', serial_name),
-    #                     ('product_id', '=', product.id)
-    #                 ], limit=1)
-    #
-    #                 if not lot:
-    #                     if self.picking_id.picking_type_code =='incoming':
-    #                         lot = self.env['stock.lot'].create({
-    #                             'name': serial_name,
-    #                             'product_id': product.id,
-    #                             'company_id': self.picking_id.company_id.id,
-    #                         })
-    #                     else:
-    #                         errors.append(f"Serial '{serial_name}' not found for product '{code}'.")
-    #                         continue
-    #
-    #                 existing_line = move_line.filtered(lambda ml: ml.lot_id == lot)
-    #                 if existing_line:
-    #                     line = existing_line[0]
-    #                 else:
-    #
-    #                     line = move_line[0].copy({
-    #                         'lot_id': lot.id,
-    #                         'lot_name': lot.name,
-    #                         'qty_done': 1.0,
-    #                     })
-    #                     move_line[0].unlink()
-    #
-    #             else:
-    #                 # for non-serial products
-    #                 if quantity <= 0:
-    #                     errors.append(f"Invalid quantity for product '{code}'.")
-    #                     continue
-    #
-    #                 line = move_line[0]
-    #                 line.qty_done = quantity
-    #
-    #             processed += 1
-    #         except Exception as e:
-    #             errors.append(f"Error processing product '{code}': {str(e)}")
-    #
-    #     # show missing products in one message (do not stop the process)
-    #     result_msgs = []
-    #     result_msgs.append(f"Upload Completed. Processed lines: {processed}")
-    #     if not_found_products:
-    #         result_msgs.append("Products not found in system:")
-    #         result_msgs.extend(not_found_products)
-    #         raise UserError("\n".join(result_msgs))
-    #     if errors:
-    #         result_msgs.append("Errors:")
-    #         result_msgs.extend(errors)
-    #         raise UserError("\n".join(result_msgs))
-    #
-    #     # auto confirm delivery is now moved to separate function and will be called if requested
-    #     if self.auto_confirm:
-    #         try:
-    #             self.action_auto_confirm()
-    #         except UserError as e:
-    #             result_msgs.append(f"Auto-confirm failed: {e.name if hasattr(e,'name') else str(e)}")
-    #
-    #     # raise a user friendly message with summary
-    #     return {
-    #         "type": "ir.actions.client",
-    #         "tag": "reload",
-    #     }
+    # ------------------------------------------------------------------
+    # Main action
+    # ------------------------------------------------------------------
     def action_upload_excel(self):
         from collections import defaultdict
-        from io import BytesIO
-        import base64
-        import openpyxl
-        from odoo.exceptions import UserError
-        from odoo.tools.translate import _
+
+        self.ensure_one()
 
         if not self.file:
             raise UserError(_("Please upload an Excel file."))
@@ -189,6 +71,11 @@ class UploadDeliveryWizard(models.TransientModel):
             return {"type": "ir.actions.client", "tag": "reload"}
 
         picking = self.picking_id
+        is_incoming = picking.picking_type_code == 'incoming'
+
+        # PERFORMANCE: no chatter tracking / no auto-subscribe while we
+        # rewrite thousands of operation lines.
+        MoveLine = self.env['stock.move.line'].with_context(tracking_disable=True)
 
         # =============================
         # Batch fetch
@@ -196,33 +83,26 @@ class UploadDeliveryWizard(models.TransientModel):
         products = self.env['product.product'].search([('barcode', 'in', list(barcodes))])
         product_map = {p.barcode: p for p in products}
 
-        moves = picking.move_ids_without_package
-        move_map = {m.product_id.id: m for m in moves}
+        # NOTE: the same product can sit on SEVERAL moves of one picking,
+        # so keep every move per product instead of only the last one.
+        moves_by_product = defaultdict(lambda: self.env['stock.move'])
+        for mv in picking.move_ids_without_package:
+            moves_by_product[mv.product_id.id] |= mv
 
-        move_lines = picking.move_line_ids_without_package
-        move_line_map = defaultdict(list)
-        for ml in move_lines:
-            move_line_map[ml.product_id.id].append(ml)
+        # prefetch every operation line of the picking in one query
+        picking.move_line_ids_without_package.mapped('lot_id')
 
         lots = self.env['stock.lot'].sudo().search([
             ('name', 'in', list(excel_serials)),
-            ('product_id', 'in', products.ids)
+            ('product_id', 'in', products.ids),
+            ('company_id', 'in', [picking.company_id.id, False]),
         ])
         lot_map = {(l.product_id.id, l.name): l for l in lots}
 
         # =============================
-        # Existing serials in picking
-        # =============================
-        existing_serials = set(
-            picking.move_line_ids_without_package
-            .filtered(lambda l: l.lot_id)
-            .mapped(lambda l: (l.product_id.id, l.lot_id.name))
-        )
-
-        # =============================
         # Collect data (NO duplication)
         # =============================
-        qty_map = defaultdict(float)  # product_id -> total qty
+        qty_map = defaultdict(float)   # product_id -> total qty
         serial_map = defaultdict(set)  # product_id -> set(serials)
 
         not_found_products = []
@@ -236,98 +116,177 @@ class UploadDeliveryWizard(models.TransientModel):
 
             if product.tracking == 'serial':
                 if not serial_name:
-                    errors.append(f"Missing serial for product '{code}'.")
+                    errors.append(_("Missing serial for product '%s'.") % code)
                     continue
                 serial_map[product.id].add(serial_name)
             else:
                 try:
                     qty_map[product.id] += float(quantity or 0)
                 except Exception:
-                    errors.append(f"Invalid quantity for product '{code}'.")
+                    errors.append(_("Invalid quantity for product '%s'.") % code)
 
         processed = 0
 
-        # =============================
-        # Process non-serial products
-        # =============================
+        # PERFORMANCE: everything is accumulated and flushed in a handful of
+        # SQL statements instead of one write()/create()/unlink() per serial.
+        lines_to_unlink = MoveLine.browse()
+        lines_to_pick = MoveLine.browse()
+        move_line_vals = []
+
+        # =============================================================
+        # NON-serial products
+        #
+        # Odoo 17/18: stock.move.line no longer has `qty_done`; the done
+        # quantity is `quantity` (+ `picked`). Writing `qty_done` on a
+        # record was a silent no-op, so the reservation lines kept their
+        # own quantity and the uploaded quantity was added on top of it
+        # -> the doubled quantity on the move.
+        # We OVERWRITE the existing line instead of adding a new one.
+        # =============================================================
         for product_id, total_qty in qty_map.items():
             if total_qty <= 0:
                 continue
 
-            lines = move_line_map.get(product_id)
-            if not lines:
-                errors.append(f"Product not found in picking.")
+            moves = moves_by_product.get(product_id)
+            if not moves:
+                product = self.env['product.product'].browse(product_id)
+                errors.append(_("Product '%s' not found in picking.") % product.display_name)
                 continue
 
-            lines[0].qty_done = total_qty
-            processed += 1
+            move = moves[0]
+            lines = move.move_line_ids
 
-        # =============================
-        # Process serial products
-        # =============================
-        for product_id, serials in serial_map.items():
-            product = self.env['product.product'].browse(product_id)
-            move = move_map.get(product_id)
-
-            if not move:
-                errors.append(f"Product '{product.display_name}' not found in picking.")
-                continue
-
-            for serial_name in serials:
-                key = (product_id, serial_name)
-
-                # 🔒 Prevent duplicate serial in picking
-                if key in existing_serials:
-                    # errors.append(
-                    #     f"Serial '{serial_name}' already exists in picking "
-                    #     f"for '{product.display_name}'."
-                    # )
-                    continue
-
-                lot = lot_map.get(key)
-                if not lot:
-                    if picking.picking_type_code == 'incoming':
-                        lot = self.env['stock.lot'].create({
-                            'name': serial_name,
-                            'product_id': product_id,
-
-                        })
-                        lot_map[key] = lot
-                    else:
-                        errors.append(
-                            f"Serial '{serial_name}' not found for '{product.display_name}'."
-                        )
-                        continue
-
-                self.env['stock.move.line'].create({
+            if lines:
+                # keep exactly ONE line: the move quantity then equals the
+                # file, never file + reservation.
+                lines[0].write({'quantity': total_qty, 'picked': True})
+                lines_to_unlink |= lines[1:]
+            else:
+                move_line_vals.append({
                     'move_id': move.id,
                     'picking_id': picking.id,
                     'product_id': product_id,
-                    'lot_id': lot.id,
-                    'qty_done': 1.0,
+                    'product_uom_id': move.product_uom.id,
+                    'quantity': total_qty,
+                    'picked': True,
                     'location_id': move.location_id.id,
                     'location_dest_id': move.location_dest_id.id,
                 })
 
-                existing_serials.add(key)
+            # other moves of the same product must not add quantity again
+            for extra_move in moves[1:]:
+                lines_to_unlink |= extra_move.move_line_ids
+
+            processed += 1
+
+        # =============================================================
+        # SERIAL products
+        # =============================================================
+
+        # ---- Pass 1: create the missing lots (single DB call) ----
+        missing_lot_vals = []
+        missing_lot_keys = []
+
+        if is_incoming and self.create_if_not_exist:
+            for product_id, serials in serial_map.items():
+                for serial_name in serials:
+                    key = (product_id, serial_name)
+                    if key in lot_map:
+                        continue
+                    missing_lot_keys.append(key)
+                    missing_lot_vals.append({
+                        'name': serial_name,
+                        'product_id': product_id,
+                        'company_id': picking.company_id.id,
+                    })
+
+        if missing_lot_vals:
+            new_lots = self.env['stock.lot'].with_context(tracking_disable=True).create(missing_lot_vals)
+            for key, lot in zip(missing_lot_keys, new_lots):
+                lot_map[key] = lot
+
+        # ---- Pass 2: exactly one move line per serial.
+        # The empty reservation lines Odoo created when the picking was
+        # reserved are dropped, otherwise their quantity is counted on top
+        # of the uploaded serials -> the duplicated quantity. ----
+        for product_id, serials in serial_map.items():
+            moves = moves_by_product.get(product_id)
+            if not moves:
+                product = self.env['product.product'].browse(product_id)
+                errors.append(_("Product '%s' not found in picking.") % product.display_name)
+                continue
+
+            move = moves[0]
+            move_location_id = move.location_id.id
+            move_dest_id = move.location_dest_id.id
+            uom_id = move.product_uom.id
+
+            already_there = set()
+            for ml in moves.move_line_ids:
+                if ml.lot_id:
+                    already_there.add(ml.lot_id.name)
+                    if ml.quantity != 1.0 or not ml.picked:
+                        lines_to_pick |= ml
+                else:
+                    lines_to_unlink |= ml
+
+            for serial_name in sorted(serials):
+                if serial_name in already_there:
+                    continue  # already on the picking -> never add it twice
+
+                lot = lot_map.get((product_id, serial_name))
+                if not lot:
+                    product = self.env['product.product'].browse(product_id)
+                    errors.append(
+                        _("Serial '%s' not found for '%s'.") % (serial_name, product.display_name)
+                    )
+                    continue
+
+                move_line_vals.append({
+                    'move_id': move.id,
+                    'picking_id': picking.id,
+                    'product_id': product_id,
+                    'product_uom_id': uom_id,
+                    'lot_id': lot.id,
+                    'quantity': 1.0,
+                    'picked': True,
+                    'location_id': move_location_id,
+                    'location_dest_id': move_dest_id,
+                })
                 processed += 1
+
+        # ---- Flush everything in three statements ----
+        if lines_to_pick:
+            lines_to_pick.write({'quantity': 1.0, 'picked': True})
+        if lines_to_unlink:
+            lines_to_unlink.unlink()
+        if move_line_vals:
+            MoveLine.create(move_line_vals)
 
         # =============================
         # Results
         # =============================
-        messages = [f"Upload completed. Processed lines: {processed}"]
+        messages = [_("Upload completed. Processed lines: %s") % processed]
 
         if not_found_products:
-            messages.append("Products not found:")
+            messages.append(_("Products not found:"))
             messages.extend(sorted(set(not_found_products)))
 
         if errors:
-            messages.append("Errors:")
+            messages.append(_("Errors:"))
             messages.extend(errors)
             raise UserError("\n".join(messages))
 
+        # =============================
+        # Validation
+        # =============================
         if self.auto_confirm:
-            self.action_auto_confirm()
+            # button_validate may return the backorder confirmation popup;
+            # return it instead of swallowing it, otherwise the picking
+            # silently stays "Ready".
+            action = self.action_auto_confirm()
+            if isinstance(action, dict):
+                return action
 
         return {
             "type": "ir.actions.client",
@@ -335,8 +294,12 @@ class UploadDeliveryWizard(models.TransientModel):
         }
 
     def action_auto_confirm(self):
-        """Separate confirm function - can be called from the wizard or elsewhere."""
+        """Validate the picking now. Returns the backorder popup if Odoo asks
+        for one, so the user keeps deciding what happens with the remainder."""
+        self.ensure_one()
         try:
-            self.picking_id.button_validate()
+            return self.picking_id._upload_validate_now()
+        except UserError:
+            raise
         except Exception as e:
             raise UserError(_("Confirmation failed: %s") % str(e))

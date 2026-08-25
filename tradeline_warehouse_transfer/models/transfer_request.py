@@ -504,28 +504,45 @@ class StockPicking(models.Model):
             serials_dic ={}
             qty ={}
             if rec.request_id:
-                if len(rec.request_id.lines) != len(rec.move_ids_without_package) and  str(rec.origin).find('Return of ') == -1:
-                    raise UserError("check products must be same that in request")
-                for rq_line in rec.request_id.lines:
-                    check =False
-                    if rq_line.product_id.tracking == 'serial':
-                        for serial in rq_line.serial_ids:
-                            serials.append(serial.name)
-                    for line in rec.move_line_ids_without_package:
-                        if rq_line.product_id.tracking == 'serial' and  rq_line.product_id.id == line.product_id.id:
-                            for serial in rq_line.serial_ids:
-                                if line.lot_id.id == serial.id:
-                                    check = True
-                                    serials.remove(serial.name)
-                                    break
+                # -----------------------------------------------------------------
+                # PERFORMANCE: precompute lookups ONCE instead of rescanning
+                # rec.move_line_ids_without_package inside every nested loop.
+                #   - picking_lot_ids     : set of lot ids present on the picking
+                #   - qty_done_by_product : product_id -> set of qty_done values
+                # This turns the old O(request_lines x move_lines x serials) scan
+                # into plain set / dict lookups.
+                # -----------------------------------------------------------------
+                is_return = str(rec.origin).find('Return of ') != -1
+                picking_move_lines = rec.move_line_ids_without_package
+                picking_lot_ids = set(
+                    picking_move_lines.filtered(lambda l: l.lot_id).mapped('lot_id').ids
+                )
+                qty_done_by_product = {}
+                for line in picking_move_lines:
+                    qty_done_by_product.setdefault(line.product_id.id, set()).add(line.qty_done)
 
-                        elif rq_line.product_id.tracking != 'serial' and rq_line.product_id.id == line.product_id.id:
-                            if line.qty_done == rq_line.qty:
+                if len(rec.request_id.lines) != len(rec.move_ids_without_package) and not is_return:
+                    raise UserError("check products must be same that in request")
+
+                for rq_line in rec.request_id.lines:
+                    check = False
+                    product = rq_line.product_id
+                    if product.tracking == 'serial':
+                        # keep only the requested serials that are NOT on the picking;
+                        # a match sets check=True. Same net result as the old
+                        # append-all-then-remove-matched logic, without the scan.
+                        for serial in rq_line.serial_ids:
+                            if serial.id in picking_lot_ids:
                                 check = True
-                                break
+                            else:
+                                serials.append(serial.name)
+                    else:
+                        if rq_line.qty in qty_done_by_product.get(product.id, ()):
+                            check = True
+
                     if check:
                         continue
-                    elif not check and  str(rec.origin).find('Return of ') == -1:
+                    elif not is_return:
                         if len(serials)> 0:
                             s = ','.join(str(x) for x in serials)
                             raise UserError("Check Serials "+ s)
@@ -546,16 +563,11 @@ class StockPicking(models.Model):
                             qty[str(line.product_id.id)] += line.qty
 
                 if len(serials)>0:
-                    for serial, product in serials_dic.items():
-                        serial_check = False
-                        for line in rec.move_line_ids_without_package:
-                            if serial:
-                                if line.lot_id.id == int(serial):
-                                    serial_check = True
-                        if not serial_check and  str(rec.origin).find('Return of ') == -1:
+                    for serial in serials_dic:
+                        if int(serial) not in picking_lot_ids and not is_return:
                             raise UserError("check serials")
-            for order in rec.backorder_ids:
-                rec.request_id.sudo().transfer_ids = [(4,order.id)]
+            if rec.backorder_ids:
+                rec.request_id.sudo().transfer_ids = [(4, order.id) for order in rec.backorder_ids]
             if rec.request_id:
                 rec.request_id._tradeline_refresh_source_documents()
 

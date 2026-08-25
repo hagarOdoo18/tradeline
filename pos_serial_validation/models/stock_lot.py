@@ -78,17 +78,41 @@ class StockLot(models.Model):
 
     @api.constrains('name', 'product_id', 'company_id')
     def _check_unique_serial_per_product(self):
-        """منع تكرار نفس الـ Serial لنفس المنتج في نفس الشركة"""
-        for lot in self:
-            if lot.product_id.tracking != 'serial':
-                continue
-            duplicate = self.search([
-                ('name',       '=', lot.name),
-                ('product_id', '=', lot.product_id.id),
-                ('company_id', '=', lot.company_id.id),
-                ('id',         '!=', lot.id),
-            ], limit=1)
-            if duplicate:
+        """منع تكرار نفس الـ Serial لنفس المنتج في نفس الشركة
+
+        PERFORMANCE: this used to run one search() per record, so importing
+        N serials cost N queries (and importing 2000 serials was unusable).
+        It now checks the whole batch with a single grouped query.
+        """
+        serial_lots = self.filtered(lambda l: l.product_id.tracking == 'serial')
+        if not serial_lots:
+            return
+
+        names = list({l.name for l in serial_lots if l.name})
+        if not names:
+            return
+
+        groups = self.sudo()._read_group(
+            [
+                ('name', 'in', names),
+                ('product_id', 'in', serial_lots.product_id.ids),
+                ('company_id', 'in', serial_lots.company_id.ids + [False]),
+            ],
+            ['name', 'product_id', 'company_id'],
+            ['__count'],
+        )
+
+        duplicates = {
+            (name, product.id, company.id if company else False)
+            for name, product, company, count in groups
+            if count > 1
+        }
+        if not duplicates:
+            return
+
+        for lot in serial_lots:
+            key = (lot.name, lot.product_id.id, lot.company_id.id or False)
+            if key in duplicates:
                 raise ValidationError(_(
                     'الرقم التسلسلي "%s" مسجل مسبقاً للمنتج "%s".\n'
                     'لا يمكن تكرار الأرقام التسلسلية.'
