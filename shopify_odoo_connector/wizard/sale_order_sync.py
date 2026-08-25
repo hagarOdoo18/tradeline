@@ -291,6 +291,60 @@ class SaleOrderSync(models.TransientModel):
 
         return instance.warehouse_id
 
+    def _pick_product_with_stock(self, product, warehouse, company_id,
+                                 qty_needed):
+        """Return the variant that can actually be served from `warehouse`.
+
+        One Shopify variant can be mirrored by several Odoo products: the
+        "master" product carries the barcode, its aliases carry that same
+        value in `shopify_variant_sku`. They are interchangeable for
+        fulfilment, so when the product resolved from the Shopify payload has
+        no free stock in the order's warehouse, switch to a sibling that does.
+        Falls back to the originally resolved product when no sibling can
+        cover the line either, so behaviour is unchanged for single-variant
+        products.
+        """
+        if not product or not warehouse or not warehouse.lot_stock_id:
+            return product
+
+        barcode = product.barcode or product.shopify_variant_sku
+        if not barcode:
+            return product
+
+        siblings = self.env['product.product'].sudo().search([
+            '|',
+            ('barcode', '=', barcode),
+            ('shopify_variant_sku', '=', barcode),
+            ('id', 'not in', product.ids),
+            ('company_id', 'in', [company_id, False]),
+        ])
+        if not siblings:
+            return product
+
+        location = warehouse.lot_stock_id
+
+        def _free_qty(candidate):
+            quants = self.env['stock.quant'].sudo().search([
+                ('product_id', '=', candidate.id),
+                ('company_id', '=', company_id),
+                ('location_id', 'child_of', location.id),
+            ])
+            return (sum(quants.mapped('quantity'))
+                    - sum(quants.mapped('reserved_quantity')))
+
+        # Keep the resolved product when it can cover the line itself.
+        if _free_qty(product) >= qty_needed:
+            return product
+
+        # Otherwise take the sibling with the most free stock that still
+        # covers the ordered quantity.
+        scored = [(candidate, _free_qty(candidate)) for candidate in siblings]
+        scored.sort(key=lambda item: item[1], reverse=True)
+        for candidate, free in scored:
+            if free >= qty_needed:
+                return candidate
+        return product
+
     def import_confirmed_orders_from_shopify(self, shopify_orders, instance,
                                              ref):
         """ Method to import confirmed orders from shopify to odoo.
@@ -649,6 +703,13 @@ class SaleOrderSync(models.TransientModel):
                                 'model': 'sale.order',
                             }])
                             continue
+                        # Several Odoo products can mirror the same
+                        # Shopify variant; prefer the one that actually
+                        # has free stock in this order's warehouse.
+                        product_id = self._pick_product_with_stock(
+                            product_id, order_warehouse,
+                            shopify_instance.company_id.id,
+                            float(line['quantity']))
                         str_list = []
                         for desc_index in line['discount_allocations']:
                             discount_type = \
