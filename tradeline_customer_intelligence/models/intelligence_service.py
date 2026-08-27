@@ -1252,28 +1252,25 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         )
         return [int(row[0]) for row in self.env.cr.fetchall()]
 
-    def _comparison_invoice_report_source(self):
-        """Render Odoo's authoritative invoice-analysis query for bounded reuse."""
-        report = self.env["account.invoice.report"]
-        try:
-            table_query = report._table_query
-            rendered = self.env.cr.mogrify(table_query.code, table_query.params).decode()
-        except Exception:
-            return None
-        return f"(\n{rendered}\n)"
-
     def _comparison_current_metric_rows(self, prefixes, entity, filters):
-        """Aggregate current metrics after product/company/date restriction."""
+        """Aggregate current metrics from indexed posted customer invoice lines.
+
+        ``account.invoice.report`` is a virtual model whose custom table query also
+        computes stock-valuation and margin fields that this comparison never uses.
+        Expanding that full query made a bounded 14-variant comparison take around
+        a minute on stage.  These two measures come directly from the same posted
+        invoice-line evidence: signed UoM-normalized quantity and signed untaxed
+        company-currency balance.
+        """
         product_ids = self._comparison_current_product_ids(prefixes, entity)
-        report_source = self._comparison_invoice_report_source()
         metadata = {
-            "source": "account.invoice.report",
+            "source": "account.move.line",
             "product_count": len(product_ids),
-            "available": bool(report_source),
+            "available": True,
             "quantity_metric": "Signed net invoiced quantity",
-            "amount_metric": "Signed untaxed invoice subtotal",
+            "amount_metric": "Signed untaxed company-currency invoice balance",
         }
-        if not product_ids or not report_source:
+        if not product_ids:
             return [], metadata
         company_ids = self._company_ids(filters)
         current_prefix_sql = (
@@ -1284,27 +1281,49 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             f"""
             SELECT
                 'current'::text AS source_system,
-                EXTRACT(MONTH FROM report.invoice_date)::integer AS month_number,
-                MIN(report.invoice_date) AS period_month,
-                COALESCE(SUM(report.quantity), 0.0) AS sales_qty,
-                COALESCE(SUM(report.price_subtotal), 0.0) AS sales_amount,
+                EXTRACT(MONTH FROM move.invoice_date)::integer AS month_number,
+                MIN(move.invoice_date) AS period_month,
                 COALESCE(SUM(
-                    CASE WHEN report.move_type = 'out_refund' THEN report.quantity ELSE 0.0 END
+                    COALESCE(line.quantity, 0.0)
+                    / NULLIF(
+                        COALESCE(line_uom.factor, 1.0)
+                        / COALESCE(template_uom.factor, 1.0),
+                        0.0
+                    )
+                    * CASE WHEN move.move_type = 'out_refund' THEN -1.0 ELSE 1.0 END
+                ), 0.0) AS sales_qty,
+                COALESCE(SUM(-COALESCE(line.balance, 0.0)), 0.0) AS sales_amount,
+                COALESCE(SUM(
+                    CASE WHEN move.move_type = 'out_refund' THEN
+                        COALESCE(line.quantity, 0.0)
+                        / NULLIF(
+                            COALESCE(line_uom.factor, 1.0)
+                            / COALESCE(template_uom.factor, 1.0),
+                            0.0
+                        )
+                        * -1.0
+                    ELSE 0.0 END
                 ), 0.0) AS return_qty,
                 COALESCE(SUM(
-                    CASE WHEN report.move_type = 'out_refund' THEN report.price_subtotal ELSE 0.0 END
+                    CASE WHEN move.move_type = 'out_refund' THEN -COALESCE(line.balance, 0.0) ELSE 0.0 END
                 ), 0.0) AS return_amount,
                 0.0::double precision AS discount_amount,
                 0.0::double precision AS gross_sales_amount,
                 COUNT(DISTINCT NULLIF({current_prefix_sql}, '')) AS prefix_count,
                 ARRAY_REMOVE(ARRAY_AGG(DISTINCT {current_prefix_sql}), NULL) AS observed_prefixes
-            FROM {report_source} report
-            JOIN product_product product ON product.id = report.product_id
-            WHERE report.product_id = ANY(%s)
-              AND report.company_id = ANY(%s)
-              AND report.move_type IN ('out_invoice', 'out_refund')
-              AND report.invoice_date BETWEEN DATE '2026-01-01' AND CURRENT_DATE
-            GROUP BY EXTRACT(MONTH FROM report.invoice_date)::integer
+            FROM account_move_line line
+            JOIN account_move move ON move.id = line.move_id
+            JOIN product_product product ON product.id = line.product_id
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            LEFT JOIN uom_uom line_uom ON line_uom.id = line.product_uom_id
+            LEFT JOIN uom_uom template_uom ON template_uom.id = template.uom_id
+            WHERE line.product_id = ANY(%s)
+              AND line.company_id = ANY(%s)
+              AND move.state = 'posted'
+              AND move.move_type IN ('out_invoice', 'out_refund')
+              AND move.invoice_date BETWEEN DATE '2026-01-01' AND CURRENT_DATE
+              AND line.display_type = 'product'
+            GROUP BY EXTRACT(MONTH FROM move.invoice_date)::integer
             ORDER BY month_number
             """,
             [product_ids, company_ids],

@@ -164,7 +164,7 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(january["sales_amount"], 100)
         self.assertEqual(january["observed_prefixes"], ["AB123"])
 
-    def test_current_comparison_uses_invoice_report_after_product_resolution(self):
+    def test_current_comparison_uses_posted_invoice_lines_after_product_resolution(self):
         entity = self.service._normalize_entity(
             {"type": "variant", "id": self.variant.id}, self.variant.display_name
         )
@@ -172,7 +172,7 @@ class TestIntelligenceEntityGrain(TransactionCase):
             ["AB123"], entity, {"operating_company_id": self.env.company.id}
         )
         self.assertEqual(rows, [])
-        self.assertEqual(metadata["source"], "account.invoice.report")
+        self.assertEqual(metadata["source"], "account.move.line")
         self.assertEqual(metadata["product_count"], 1)
         self.assertTrue(metadata["available"])
 
