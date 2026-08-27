@@ -1604,7 +1604,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "legacy_fact_start": fields.Date.to_string(fact_start) if fact_start else "",
                 "legacy_fact_end": fields.Date.to_string(fact_end) if fact_end else "",
                 "legacy_level": "Monthly product facts",
-                "basket_level": "Migrated invoice lines (September–December 2025)",
+                "basket_level": "Full 2025 invoice-level basket and customer evidence",
             },
         }
 
