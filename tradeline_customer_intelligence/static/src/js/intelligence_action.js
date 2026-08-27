@@ -153,7 +153,7 @@ export class TradelineCustomerIntelligence extends Component {
         return `${Number(value || 0).toFixed(2)}×`;
     }
     formatSignedPercent(value) {
-        if (value === null || value === undefined) return "—";
+        if (value === null || value === undefined || value === false) return "—";
         const amount = Number(value || 0);
         return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`;
     }

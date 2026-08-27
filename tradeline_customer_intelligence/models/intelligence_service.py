@@ -1462,7 +1462,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
         def pct_delta(current_value, legacy_value):
             if not legacy_value:
-                return None
+                # Odoo XML-RPC cannot marshal ``None``; False is its standard
+                # transport-safe representation for an unavailable scalar.
+                return False
             return round((current_value - legacy_value) / legacy_value * 100.0, 2)
 
         legacy_full_qty = sum_metric("legacy", "sales_qty")
