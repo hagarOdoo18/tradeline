@@ -719,7 +719,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             WITH anchors AS (
                 SELECT DISTINCT
                     invoice.id,
-                    COALESCE(
+                    CONCAT_WS(
+                        ' ',
                         CASE
                             WHEN LOWER(BTRIM(COALESCE(invoice.payment_method_summary, '')))
                                  IN ('', 'false', 'none', 'null') THEN NULL
@@ -741,8 +742,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                             )
                             FROM legacy_invoice_payment_link payment
                             WHERE payment.invoice_id = invoice.id
-                        ),
-                        ''
+                        )
                     ) AS payment_text
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
