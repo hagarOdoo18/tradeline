@@ -192,7 +192,7 @@ class ProductProduct(models.Model):
 
     barcode = fields.Char(
         'Item Code', copy=False,
-        help="International Article Number used for product identification.", required=True)
+        help="International Article Number used for product identification.", required=False)
 
     product_point = fields.Float(
         string='Product point', company_dependent=True,
