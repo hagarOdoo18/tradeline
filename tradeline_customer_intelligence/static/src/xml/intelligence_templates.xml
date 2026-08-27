@@ -42,7 +42,7 @@
                 <button data-mode="current_view" t-on-click="onExport"><span>Executive view</span><small>Summary, companions, customers and lineage</small></button>
                 <button data-mode="detail_rows" t-on-click="onExport"><span>Detail rows</span><small>Full companion and customer tables</small></button>
                 <button data-mode="customers" t-on-click="onExport"><span>Customers</span><small>Company / individual segmentation and contacts</small></button>
-                <button data-mode="legacy_live" t-on-click="onExport"><span>Legacy vs live</span><small>Odoo 12 and Odoo 18 monthly comparison</small></button>
+                <button data-mode="legacy_live" t-on-click="onExport"><span>Sales timeline</span><small>2025 history and 2026 current performance</small></button>
             </div>
         </div>
     </header>
@@ -58,7 +58,7 @@
                 <svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7v10l8 4 8-4V7M12 11v10"/></svg><span>Product 360</span>
             </button>
             <button t-att-class="navClass('comparison')" data-view="comparison" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="M4 5h6v6H4zM14 13h6v6h-6z"/><path d="M10 8h4m-2-2 2 2-2 2M14 16h-4m2-2-2 2 2 2"/></svg><span>Legacy vs Live</span>
+                <svg viewBox="0 0 24 24"><path d="M4 5h6v6H4zM14 13h6v6h-6z"/><path d="M10 8h4m-2-2 2 2-2 2M14 16h-4m2-2-2 2 2 2"/></svg><span>Sales Timeline</span>
             </button>
             <button t-att-class="navClass('customer')" data-view="customer" t-on-click="onNavigate">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-5 3.3-7 8-7s7.3 2 8 7"/></svg><span>Customer 360</span>
@@ -105,16 +105,16 @@
                         <option value="0">All businesses</option>
                         <option t-foreach="operatingCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
                     </select>
-                    <small>Odoo 18 company · inferred from preserved legacy business markers</small>
+                    <small>Applied consistently across historical and current records</small>
                 </label>
                 <label class="tl-source-select">
-                    <span>Data source</span>
+                    <span>Data timeline</span>
                     <select t-model="state.source" t-on-change="onSourceChange">
-                        <option value="auto">Best available source</option>
-                        <option value="current">Odoo 18 live</option>
-                        <option value="legacy">Odoo 12 archive</option>
+                        <option value="auto">Unified timeline</option>
+                        <option value="current">Current operations</option>
+                        <option value="legacy">Historical sales</option>
                     </select>
-                    <small><t t-esc="bundle.source_label"/></small>
+                    <small><t t-esc="state.source === 'auto' ? 'The engine selects the authoritative ledger for this period' : bundle.source_label"/></small>
                 </label>
                 <div class="tl-customer-type-filter">
                     <span>Customer type</span>
@@ -206,7 +206,7 @@
                             <button t-if="source.key === 'history'" data-view="comparison" t-on-click="onNavigate">Open comparison</button>
                         </article>
                     </div>
-                    <div class="tl-lineage-rule"><strong>Cross-system product key</strong><span>First five normalized item-code characters</span><p>Executives search by product name, capacity, color, barcode or full item code. The technical prefix is kept only for Odoo 12 ↔ Odoo 18 matching and auditability.</p></div>
+                    <div class="tl-lineage-rule"><strong>Cross-system product key</strong><span>First five normalized item-code characters</span><p>Executives search by product name, capacity, color, barcode or full item code. The technical prefix links historical and current catalogs behind the scenes and remains visible here for auditability.</p></div>
                 </section>
 
                 <section class="tl-dimension-grid">
@@ -237,13 +237,13 @@
 
             <t t-if="state.activeView === 'comparison'">
                 <section class="tl-workspace-view tl-comparison-view">
-                    <div class="tl-section-title"><div><h2>Legacy vs Odoo 18</h2><p>Product performance joined with Tradeline’s authoritative five-character item-code prefix.</p></div><span>Prefix-5 identity</span></div>
-                    <div t-if="state.comparisonLoading" class="tl-comparison-loading"><span></span><p>Building the full 2025-to-live product comparison…</p></div>
+                    <div class="tl-section-title"><div><h2>Sales history and current performance</h2><p>One product timeline, joined with Tradeline’s authoritative five-character item-code key.</p></div><span>Unified product identity</span></div>
+                    <div t-if="state.comparisonLoading" class="tl-comparison-loading"><span></span><p>Building the 2025 history-to-current product timeline…</p></div>
                     <div t-elif="state.comparisonError" class="tl-intel-error"><strong>Comparison unavailable</strong><span><t t-esc="state.comparisonError"/></span><button t-on-click="loadComparison">Try again</button></div>
                     <div t-elif="!comparison.available" class="tl-comparison-empty"><strong>Comparison view unavailable</strong><p><t t-esc="comparison.note"/></p></div>
                     <t t-else="">
                         <div t-att-class="'tl-identity-status is-' + (comparison.identity_state || 'unresolved')">
-                            <div><small>Variant identity status</small><strong><t t-esc="comparison.identity_state_label"/></strong><p>Existence is checked independently in the Odoo 12 monthly facts and the Odoo 18 product catalog. Monthly zeroes mean no sales activity, not a missing product.</p></div>
+                            <div><small>Variant identity status</small><strong><t t-esc="comparison.identity_state_label"/></strong><p>Existence is checked independently in the historical facts and current catalog. Monthly zeroes mean no sales activity, not a missing product.</p></div>
                             <span><t t-esc="comparison.company_scope.name"/></span>
                         </div>
                         <div class="tl-prefix-rule">
@@ -253,21 +253,21 @@
                         <div class="tl-identity-grid">
                             <article t-foreach="comparison.identity_rows || []" t-as="identity" t-key="identity.prefix5" t-att-class="'is-' + identity.state">
                                 <header><code><t t-esc="identity.prefix5"/></code><span><t t-esc="identity.state_label"/></span></header>
-                                <div><small>Odoo 12</small><strong><t t-esc="identity.legacy_exists ? (identity.legacy_name || 'Legacy variant') : 'Not found'"/></strong><em><t t-esc="identity.legacy_item_code || '—'"/> · <t t-esc="formatNumber(identity.legacy_variant_count)"/> variant<t t-if="identity.legacy_variant_count !== 1">s</t></em></div>
-                                <div><small>Odoo 18 catalog · <t t-esc="identity.current_catalog_status"/></small><strong><t t-esc="identity.current_exists ? (identity.current_name || 'Current variant') : 'Not found'"/></strong><em><t t-esc="identity.current_item_code || '—'"/> · <t t-esc="formatNumber(identity.current_active_variant_count)"/> active / <t t-esc="formatNumber(identity.current_variant_count)"/> total</em></div>
+                                <div><small>Historical product</small><strong><t t-esc="identity.legacy_exists ? (identity.legacy_name || 'Historical variant') : 'Not found'"/></strong><em><t t-esc="identity.legacy_item_code || '—'"/> · <t t-esc="formatNumber(identity.legacy_variant_count)"/> variant<t t-if="identity.legacy_variant_count !== 1">s</t></em></div>
+                                <div><small>Current catalog · <t t-esc="identity.current_catalog_status"/></small><strong><t t-esc="identity.current_exists ? (identity.current_name || 'Current variant') : 'Not found'"/></strong><em><t t-esc="identity.current_item_code || '—'"/> · <t t-esc="formatNumber(identity.current_active_variant_count)"/> active / <t t-esc="formatNumber(identity.current_variant_count)"/> total</em></div>
                             </article>
                         </div>
                         <div class="tl-comparison-kpis">
-                            <article><small>Odoo 12 · full 2025</small><strong><t t-esc="formatCurrency(comparison.legacy.full_year_amount)"/></strong><span><t t-esc="formatNumber(comparison.legacy.full_year_qty)"/> net units</span></article>
-                            <article><small>Odoo 18 · 2026 YTD</small><strong><t t-esc="formatCurrency(comparison.current.ytd_amount)"/></strong><span>Through month <t t-esc="comparison.current.through_month || '—'"/> · <t t-esc="formatNumber(comparison.current.ytd_qty)"/> units</span></article>
+                            <article><small>2025 historical sales</small><strong><t t-esc="formatCurrency(comparison.legacy.full_year_amount)"/></strong><span><t t-esc="formatNumber(comparison.legacy.full_year_qty)"/> net units</span></article>
+                            <article><small>2026 current YTD</small><strong><t t-esc="formatCurrency(comparison.current.ytd_amount)"/></strong><span>Through month <t t-esc="comparison.current.through_month || '—'"/> · <t t-esc="formatNumber(comparison.current.ytd_qty)"/> units</span></article>
                             <article t-att-class="isNonNegative(comparison.delta.amount_pct) ? 'is-positive' : 'is-negative'"><small>Revenue vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.amount_pct)"/></strong><span>Comparable-period change</span></article>
                             <article t-att-class="isNonNegative(comparison.delta.qty_pct) ? 'is-positive' : 'is-negative'"><small>Units vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.qty_pct)"/></strong><span>Comparable-period change</span></article>
-                            <article><small>Catalog/fact prefix status</small><strong><t t-esc="formatNumber(comparison.shared_prefix_count)"/> / <t t-esc="formatNumber(comparison.prefix_count)"/></strong><span><t t-esc="formatNumber(comparison.legacy_only_prefix_count)"/> legacy-only · <t t-esc="formatNumber(comparison.current_only_prefix_count)"/> Odoo18-only</span></article>
-                            <article><small>Legacy fact coverage</small><strong><t t-esc="formatNumber(comparison.coverage.legacy_fact_rows)"/></strong><span><t t-esc="comparison.coverage.legacy_fact_months"/> months · <t t-esc="comparison.coverage.legacy_fact_start"/> to <t t-esc="comparison.coverage.legacy_fact_end"/></span></article>
+                            <article><small>Catalog match status</small><strong><t t-esc="formatNumber(comparison.shared_prefix_count)"/> / <t t-esc="formatNumber(comparison.prefix_count)"/></strong><span><t t-esc="formatNumber(comparison.legacy_only_prefix_count)"/> history-only · <t t-esc="formatNumber(comparison.current_only_prefix_count)"/> current-only</span></article>
+                            <article><small>Historical fact coverage</small><strong><t t-esc="formatNumber(comparison.coverage.legacy_fact_rows)"/></strong><span><t t-esc="comparison.coverage.legacy_fact_months"/> months · <t t-esc="comparison.coverage.legacy_fact_start"/> to <t t-esc="comparison.coverage.legacy_fact_end"/></span></article>
                         </div>
                         <div class="tl-comparison-table-wrap">
                             <table class="tl-comparison-table">
-                                <thead><tr><th>Month</th><th class="is-number">Odoo 12 units</th><th class="is-number">Odoo 12 revenue</th><th class="is-number">Odoo 18 units</th><th class="is-number">Odoo 18 revenue</th><th class="is-number">Revenue change</th></tr></thead>
+                                <thead><tr><th>Month</th><th class="is-number">2025 units</th><th class="is-number">2025 revenue</th><th class="is-number">2026 units</th><th class="is-number">2026 revenue</th><th class="is-number">Revenue change</th></tr></thead>
                                 <tbody><tr t-foreach="comparisonMonths" t-as="period" t-key="period.month"><td><strong><t t-esc="period.label"/></strong></td><td class="is-number"><t t-esc="period.has_legacy ? formatNumber(period.legacy_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_legacy ? formatCurrency(period.legacy_amount) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatNumber(period.current_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatCurrency(period.current_amount) : '—'"/></td><td class="is-number"><strong t-att-class="isNonNegative(period.amount_delta_pct) ? 'is-positive' : 'is-negative'"><t t-esc="period.has_current ? formatSignedPercent(period.amount_delta_pct) : '—'"/></strong></td></tr></tbody>
                             </table>
                         </div>

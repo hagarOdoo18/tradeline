@@ -1,3 +1,5 @@
+from datetime import date
+
 from odoo.tests import TransactionCase, tagged
 
 
@@ -82,6 +84,17 @@ class TestIntelligenceEntityGrain(TransactionCase):
             self.service._transport_safe({"value": None, "rows": [1, None]}),
             {"value": False, "rows": [1, False]},
         )
+
+    def test_business_source_labels_hide_technical_versions(self):
+        coverage = self.service._coverage(
+            {"current": 2, "legacy": 3}, "legacy", date(2025, 9, 1), date(2025, 12, 31)
+        )
+        self.assertEqual(
+            [source["label"] for source in coverage["sources"][:2]],
+            ["Current operations", "Historical sales"],
+        )
+        self.assertNotIn("Odoo", coverage["rule"])
+        self.assertIn("authoritative ledger", coverage["rule"])
 
     def test_legacy_prefix_ignores_false_sentinel_and_uses_barcode(self):
         sentinel_fact = self.env["legacy.product.month.fact"].create(

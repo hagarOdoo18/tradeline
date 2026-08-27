@@ -17,8 +17,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     _description = "Tradeline Customer Intelligence Service"
 
     SOURCE_LABELS = {
-        "current": "Odoo 18 live",
-        "legacy": "Odoo 12 migrated archive",
+        "current": "Current operations",
+        "legacy": "Historical sales",
     }
 
     def _ensure_access(self):
@@ -1067,7 +1067,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "status": "available" if comparison_available else "pending",
                 "anchor_baskets": 0,
                 "note": (
-                    "Full January–December 2025 monthly product facts are available and compared to Odoo 18 by the normalized five-character item-code prefix."
+                    "Full January–December 2025 monthly product facts are available and linked to the current catalog by the normalized five-character item-code prefix."
                     if comparison_available
                     else "The migrated monthly product facts are not installed in this database."
                 ),
@@ -1077,7 +1077,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "start_date": fields.Date.to_string(start),
             "end_date": fields.Date.to_string(end),
             "sources": coverage,
-            "rule": "Best available source; Odoo 18 and Odoo 12 facts are not added together.",
+            "rule": "The engine selects the authoritative ledger for the period; overlapping records are never added together.",
         }
 
     def _comparison_identity_rows(self, prefixes, entity):
@@ -1154,16 +1154,16 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             if has_legacy and has_current:
                 state = "matched"
                 state_label = (
-                    "Matched; Odoo 18 catalog is archived"
+                    "Matched across history and an archived current product"
                     if not current_is_active
-                    else "Matched in Odoo 12 and Odoo 18"
+                    else "Matched across historical and current catalogs"
                 )
             elif has_legacy:
                 state = "legacy_only"
-                state_label = "Odoo 12 only"
+                state_label = "Historical catalog only"
             elif has_current:
                 state = "live_only"
-                state_label = "Odoo 18 only"
+                state_label = "Current catalog only"
             else:
                 state = "unresolved"
                 state_label = "No catalog/fact identity found"
@@ -1527,8 +1527,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         identity_state = next(iter(identity_states)) if len(identity_states) == 1 else ("mixed" if identity_states else "unresolved")
         identity_labels = {
             "matched": "Matched variant identity",
-            "legacy_only": "Legacy-only variant identity",
-            "live_only": "Odoo 18-only variant identity",
+            "legacy_only": "Historical-only variant identity",
+            "live_only": "Current-only variant identity",
             "mixed": "Mixed identity coverage",
             "unresolved": "Identity unresolved",
         }
@@ -1539,7 +1539,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "normalization": (
                 "Use the first available item code, remove non-alphanumeric characters, uppercase it, then take the first five characters. "
                 + (
-                    "This free-text scope uses at most 16 ranked prefixes resolved from the Odoo 12 facts and Odoo 18 catalog; choose a variant for an exact one-prefix comparison."
+                    "This free-text scope uses at most 16 ranked prefixes resolved across historical facts and the current catalog; choose a variant for an exact one-prefix comparison."
                     if resolution_mode == "bounded_query"
                     else "The selected entity supplies the exact comparison prefix set."
                 )
@@ -1562,9 +1562,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "current_activity_scoped": bool(filters["operating_company_id"]),
                 "legacy_company_dimension_available": False,
                 "note": (
-                    "Odoo 18 activity is filtered to this company. Odoo 12 monthly product facts do not carry an operating-company dimension, so legacy totals remain all-company."
+                    "Current activity is filtered to this business. Historical monthly product facts do not carry an operating-company dimension, so historical totals remain all-business."
                     if filters["operating_company_id"]
-                    else "Odoo 18 activity includes every allowed operating company. Odoo 12 monthly facts are all-company."
+                    else "Current activity includes every allowed business. Historical monthly facts are all-business."
                 ),
             },
             "metric_provenance": {
@@ -1604,7 +1604,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "legacy_fact_start": fields.Date.to_string(fact_start) if fact_start else "",
                 "legacy_fact_end": fields.Date.to_string(fact_end) if fact_end else "",
                 "legacy_level": "Monthly product facts",
-                "basket_level": "Migrated invoice lines (currently December 2025 pilot)",
+                "basket_level": "Migrated invoice lines (September–December 2025)",
             },
         }
 
@@ -1661,7 +1661,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 template,
                 "product",
                 f"{category_name} · {variant_count} variant{'s' if variant_count != 1 else ''}"
-                + (" · Archived in Odoo 18" if not template.active else ""),
+                + (" · Archived in current catalog" if not template.active else ""),
             )
 
         variant_quota = max(3, limit - product_quota - 2)
@@ -1674,7 +1674,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "variant",
                 f"{variant.categ_id.display_name or 'Uncategorized'}"
                 + (f" · {item_code}" if item_code else "")
-                + (" · Archived in Odoo 18" if not variant.active else ""),
+                + (" · Archived in current catalog" if not variant.active else ""),
                 item_code,
                 match_hint,
             )
@@ -1715,7 +1715,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         "name": label,
                         "type": "legacy_variant",
                         "source": "legacy",
-                        "subtitle": f"Odoo 12 monthly product · {item_code or 'no item code'} · {variant_count} source variant{'s' if variant_count != 1 else ''}",
+                        "subtitle": f"Historical product facts · {item_code or 'no item code'} · {variant_count} source variant{'s' if variant_count != 1 else ''}",
                         "item_code": item_code or "",
                         "prefix5": prefix5,
                         "match_hint": "Compared by normalized prefix-5",
@@ -1756,7 +1756,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         "name": label,
                         "type": "query",
                         "source": "legacy",
-                        "subtitle": "Legacy archive text match · basket search",
+                        "subtitle": "Historical basket text match",
                         "item_code": "",
                         "match_hint": "",
                     }
@@ -1912,7 +1912,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "category": "Category (including child categories)",
             "product": "Product family",
             "variant": "Exact variant / SKU",
-            "legacy_variant": "Odoo 12 variant / prefix-5",
+            "legacy_variant": "Historical SKU / prefix-5",
             "query": "Search match",
         }
         recommendation = {
@@ -1948,7 +1948,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "coverage": self._coverage(counts, source_used, start, end),
             "source_requested": source,
             "source_used": source_used,
-            "source_label": self.SOURCE_LABELS[source_used],
+            "source_label": "Unified timeline" if source == "auto" else self.SOURCE_LABELS[source_used],
             "filters": {
                 "customer_type": filters["customer_type"],
                 "customer_company_id": filters["customer_company_id"],
@@ -2052,7 +2052,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     domain.append(("line_ids.product_name", "ilike", key.split(":", 1)[1]))
             return {
                 "type": "ir.actions.act_window",
-                "name": f"Evidence · {entity['name'] or query} · Odoo 12",
+                "name": f"Evidence · {entity['name'] or query} · Historical sales",
                 "res_model": "legacy.invoice",
                 "view_mode": "list,form",
                 "views": [(False, "list"), (False, "form")],
@@ -2072,7 +2072,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             domain.append(("invoice_line_ids.product_id", "=", int(companion_key)))
         return {
             "type": "ir.actions.act_window",
-            "name": f"Evidence · {entity['name'] or query} · Odoo 18",
+            "name": f"Evidence · {entity['name'] or query} · Current operations",
             "res_model": "account.move",
             "view_mode": "list,form",
             "views": [(False, "list"), (False, "form")],
@@ -2163,10 +2163,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             write_table(sheet, 0, ["Customer", "Customer type", "Company", "Segment", "Activation score", "Baskets", "Observed value", "Last purchase", "Email", "Mobile"], customer_rows, {6: money})
 
         if export_mode in {"current_view", "legacy_live"}:
-            sheet = workbook.add_worksheet("Legacy vs Live")
+            sheet = workbook.add_worksheet("Sales Timeline")
             sheet.set_column("A:A", 22)
             sheet.set_column("B:F", 20)
-            sheet.write(0, 0, "Legacy vs Odoo 18", title)
+            sheet.write(0, 0, "Sales history and current performance", title)
             if comparison.get("available"):
                 sheet.write(2, 0, "Cross-version identity", header)
                 sheet.write(2, 1, comparison["rule_label"], cell)
@@ -2184,14 +2184,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 ]
                 next_row = write_table(
                     sheet, 6,
-                    ["Prefix-5", "State", "Odoo 12 product", "Odoo 12 item code", "Legacy variants", "Odoo 18 product", "Odoo 18 item code", "Odoo 18 status", "Odoo 18 active variants", "Odoo 18 total variants"],
+                    ["Prefix-5", "State", "Historical product", "Historical item code", "Historical variants", "Current product", "Current item code", "Current status", "Current active variants", "Current total variants"],
                     identity_rows,
                 )
                 rows = [
                     [period["label"], period["legacy_qty"], period["legacy_amount"], period["current_qty"], period["current_amount"], period.get("amount_delta_pct")]
                     for period in comparison["months"]
                 ]
-                write_table(sheet, next_row, ["Month", "Odoo 12 units", "Odoo 12 revenue", "Odoo 18 units", "Odoo 18 revenue", "Revenue change %"], rows, {2: money, 4: money})
+                write_table(sheet, next_row, ["Month", "2025 units", "2025 revenue", "2026 units", "2026 revenue", "Revenue change %"], rows, {2: money, 4: money})
             else:
                 sheet.write(2, 0, comparison.get("note") or "Comparison data is unavailable.")
 

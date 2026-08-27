@@ -47,7 +47,7 @@ export class TradelineCustomerIntelligence extends Component {
     get navItems() {
         return [
             { key: "product", label: "Product 360" },
-            { key: "comparison", label: "Legacy vs Live" },
+            { key: "comparison", label: "Sales Timeline" },
             { key: "customer", label: "Customer 360" },
             { key: "bundle", label: "Bundle Lab" },
             { key: "audience", label: "Audience Builder" },
@@ -82,9 +82,9 @@ export class TradelineCustomerIntelligence extends Component {
         return Math.max(...this.companions.map(row => Number(row.attach_rate || 0)), 1);
     }
     get sourceButtonLabel() {
-        if (this.state.source === "current") return "Odoo 18 live";
-        if (this.state.source === "legacy") return "Odoo 12 archive";
-        return "Best available source";
+        if (this.state.source === "current") return "Current operations";
+        if (this.state.source === "legacy") return "Historical sales";
+        return "Unified timeline";
     }
     get launchSentence() {
         if (!this.selectedCompanion) return "Expand the period or select another product to reveal a launch opportunity.";
