@@ -1482,7 +1482,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "current_quantity_metric": current_metric_metadata["quantity_metric"],
                 "current_amount_metric": current_metric_metadata["amount_metric"],
                 "limitations": [
-                    "Odoo 18 amount is signed untaxed subtotal from Invoices Analysis; it excludes tax and is not the tax-inclusive invoice total.",
+                    "Odoo 18 amount is the signed untaxed company-currency balance from posted customer invoice lines; it excludes tax and is not the tax-inclusive invoice total.",
                     "Odoo 18 discount and gross-sales components are not used by this comparison UI; quantity and amount/deltas are authoritative.",
                     "Odoo 12 monthly product facts have no operating-company dimension.",
                 ],
