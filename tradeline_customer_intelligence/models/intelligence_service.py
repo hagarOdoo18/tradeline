@@ -717,7 +717,25 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         self.env.cr.execute(
             """
             WITH anchors AS (
-                SELECT DISTINCT invoice.id, COALESCE(invoice.payment_method_summary, invoice.payment_journal_summary, '') AS payment_text
+                SELECT DISTINCT
+                    invoice.id,
+                    COALESCE(
+                        NULLIF(invoice.payment_method_summary, ''),
+                        NULLIF(invoice.payment_journal_summary, ''),
+                        (
+                            SELECT STRING_AGG(
+                                DISTINCT COALESCE(
+                                    NULLIF(payment.journal_name, ''),
+                                    NULLIF(payment.payment_method_name, ''),
+                                    NULLIF(payment.name, '')
+                                ),
+                                ' '
+                            )
+                            FROM legacy_invoice_payment_link payment
+                            WHERE payment.invoice_id = invoice.id
+                        ),
+                        ''
+                    ) AS payment_text
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
@@ -730,9 +748,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             )
             SELECT
                 CASE
-                    WHEN LOWER(payment_text) LIKE '%%valu%%' THEN 'ValU'
-                    WHEN LOWER(payment_text) LIKE '%%souh%%' THEN 'Souhoola'
-                    WHEN LOWER(payment_text) SIMILAR TO '%%(cash|bank|card|visa)%%' THEN 'Cash / Card'
+                    WHEN LOWER(payment_text) LIKE '%%valu%%'
+                      OR payment_text LIKE '%%ڤاليو%%'
+                      OR payment_text LIKE '%%فاليو%%' THEN 'ValU'
+                    WHEN LOWER(payment_text) LIKE '%%souh%%'
+                      OR payment_text LIKE '%%سهولة%%' THEN 'Souhoola'
+                    WHEN LOWER(payment_text) LIKE '%%tru%%' THEN 'TRU'
+                    WHEN LOWER(payment_text) SIMILAR TO '%%(cash|bank|card|visa)%%'
+                      OR payment_text SIMILAR TO '%%(نقد|ڤيزا|فيزا|تحويل بنك|شيك)%%' THEN 'Cash / Card'
                     ELSE 'Other'
                 END AS payment_group,
                 COUNT(*) AS baskets
