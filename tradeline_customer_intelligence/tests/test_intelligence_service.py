@@ -77,6 +77,12 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(self.service._code_prefix(" mf-ym4/af/a "), "MFYM4")
         self.assertEqual(self.service._code_prefix("False"), "")
 
+    def test_transport_safe_replaces_nested_nulls_for_xmlrpc(self):
+        self.assertEqual(
+            self.service._transport_safe({"value": None, "rows": [1, None]}),
+            {"value": False, "rows": [1, False]},
+        )
+
     def test_legacy_prefix_ignores_false_sentinel_and_uses_barcode(self):
         sentinel_fact = self.env["legacy.product.month.fact"].create(
             {

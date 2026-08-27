@@ -32,6 +32,17 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         self.env.cr.execute("SELECT to_regclass(%s)", (f"public.{table_name}",))
         return bool(self.env.cr.fetchone()[0])
 
+    @classmethod
+    def _transport_safe(cls, value):
+        """Use Odoo's API convention (False) for nullable scalar values."""
+        if value is None:
+            return False
+        if isinstance(value, dict):
+            return {key: cls._transport_safe(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [cls._transport_safe(item) for item in value]
+        return value
+
     def _date_range(self, start_date=None, end_date=None):
         today = fields.Date.context_today(self)
         start = fields.Date.to_date(start_date) if start_date else today.replace(day=1)
@@ -1909,7 +1920,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
             "reachable_baskets": int(top.get("co_baskets") or 0) if top else 0,
         }
-        return {
+        bundle = {
             "product": {
                 "name": display_name,
                 "query": query,
@@ -1945,6 +1956,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "operating_company_name": filters["operating_company_name"],
             },
         }
+        return self._transport_safe(bundle)
 
     def _evidence_anchor_domain(self, entity, query, source):
         line_prefix = "invoice_line_ids" if source == "current" else "line_ids"
