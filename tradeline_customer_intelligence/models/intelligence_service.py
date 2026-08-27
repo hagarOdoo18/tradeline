@@ -200,8 +200,33 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
     @staticmethod
     def _code_prefix(value, length=5):
-        normalized = re.sub(r"[^A-Z0-9]+", "", (value or "").upper())
+        text = str(value or "").strip()
+        if text.lower() in {"", "false", "none", "null"}:
+            return ""
+        normalized = re.sub(r"[^A-Z0-9]+", "", text.upper())
         return normalized[:length] or ""
+
+    @staticmethod
+    def _sql_clean_code_expr(expr):
+        return (
+            "CASE "
+            f"WHEN {expr} IS NULL THEN NULL "
+            f"WHEN LOWER(BTRIM(COALESCE({expr}, ''))) IN ('', 'false', 'none', 'null') THEN NULL "
+            f"ELSE BTRIM({expr}) END"
+        )
+
+    @classmethod
+    def _sql_code_expr(cls, *exprs):
+        return f"COALESCE({', '.join(cls._sql_clean_code_expr(expr) for expr in exprs)})"
+
+    @classmethod
+    def _sql_normalized_code_expr(cls, *exprs):
+        code_expr = cls._sql_code_expr(*exprs)
+        return f"REGEXP_REPLACE(UPPER(COALESCE({code_expr}, '')), '[^A-Z0-9]+', '', 'g')"
+
+    @classmethod
+    def _sql_prefix_expr(cls, *exprs, length=5):
+        return f"LEFT({cls._sql_normalized_code_expr(*exprs)}, {int(length)})"
 
     def _anchor_clause(self, entity, query, *, source, scoped=True):
         if entity["type"] != "query" and entity.get("prefixes") and (
@@ -979,17 +1004,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         prefixes = sorted({prefix for prefix in prefixes if prefix})
         if not prefixes:
             return []
-        legacy_prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
-            "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-        )
+        legacy_code_sql = self._sql_code_expr("source_default_code", "source_barcode")
+        legacy_prefix_sql = self._sql_prefix_expr("source_default_code", "source_barcode")
         self.env.cr.execute(
             f"""
             SELECT
                 {legacy_prefix_sql} AS prefix5,
                 COUNT(DISTINCT source_product_id) AS variant_count,
                 MIN(source_name) AS sample_name,
-                MIN(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS sample_code
+                MIN({legacy_code_sql}) AS sample_code
             FROM legacy_product_month_fact
             WHERE {legacy_prefix_sql} = ANY(%s)
               AND period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
@@ -1002,10 +1025,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             for row in self.env.cr.fetchall()
         }
 
-        current_prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
-            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-        )
+        current_code_sql = self._sql_code_expr("product.barcode", "product.default_code")
+        current_prefix_sql = self._sql_prefix_expr("product.barcode", "product.default_code")
         self.env.cr.execute(
             f"""
             SELECT
@@ -1014,7 +1035,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 COUNT(DISTINCT product.id) FILTER (WHERE product.active AND template.active) AS active_variant_count,
                 MIN(product.id) AS sample_id,
                 MIN(COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, '')) AS sample_name,
-                MIN(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''))) AS sample_code
+                MIN({current_code_sql}) AS sample_code
             FROM product_product product
             JOIN product_template template ON template.id = product.product_tmpl_id
             WHERE {current_prefix_sql} = ANY(%s)
@@ -1110,15 +1131,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         pattern = f"%{(query or '').strip()}%"
         normalized_query = re.sub(r"[^A-Z0-9]+", "", (query or "").upper())
         code_pattern = f"{normalized_query}%" if normalized_query else "#NO_MATCH#"
-        legacy_prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
-            "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        legacy_normalized_code_sql = self._sql_normalized_code_expr(
+            "source_default_code", "source_barcode"
         )
+        legacy_prefix_sql = self._sql_prefix_expr("source_default_code", "source_barcode")
         self.env.cr.execute(
             f"""
             SELECT
                 {legacy_prefix_sql} AS prefix5,
-                MAX(CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s THEN 1 ELSE 0 END) AS code_match,
+                MAX(CASE WHEN {legacy_normalized_code_sql} LIKE %s THEN 1 ELSE 0 END) AS code_match,
                 SUM(ABS(COALESCE(legacy_sales_qty, 0.0))) AS sales_weight
             FROM legacy_product_month_fact
             WHERE period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'
@@ -1126,7 +1147,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     source_name ILIKE %s
                  OR source_default_code ILIKE %s
                  OR source_barcode ILIKE %s
-                 OR REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s
+                 OR {legacy_normalized_code_sql} LIKE %s
               )
             GROUP BY {legacy_prefix_sql}
             HAVING NULLIF({legacy_prefix_sql}, '') IS NOT NULL
@@ -1137,15 +1158,15 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         )
         legacy_prefixes = [row[0] for row in self.env.cr.fetchall() if row[0]]
 
-        current_prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
-            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
+        current_normalized_code_sql = self._sql_normalized_code_expr(
+            "product.barcode", "product.default_code"
         )
+        current_prefix_sql = self._sql_prefix_expr("product.barcode", "product.default_code")
         self.env.cr.execute(
             f"""
             SELECT
                 {current_prefix_sql} AS prefix5,
-                MAX(CASE WHEN REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s THEN 1 ELSE 0 END) AS code_match,
+                MAX(CASE WHEN {current_normalized_code_sql} LIKE %s THEN 1 ELSE 0 END) AS code_match,
                 COUNT(*) FILTER (WHERE product.active AND template.active) AS active_count
             FROM product_product product
             JOIN product_template template ON template.id = product.product_tmpl_id
@@ -1153,7 +1174,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     COALESCE(template.name->>'en_US', template.name->>'en', '') ILIKE %s
                  OR product.default_code ILIKE %s
                  OR product.barcode ILIKE %s
-                 OR REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g') LIKE %s
+                 OR {current_normalized_code_sql} LIKE %s
             )
             GROUP BY {current_prefix_sql}
             HAVING NULLIF({current_prefix_sql}, '') IS NOT NULL
@@ -1185,10 +1206,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         prefixes = sorted({prefix for prefix in prefixes if prefix})
         if not prefixes:
             return []
-        prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(fact.source_default_code, ''), "
-            "NULLIF(fact.source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-        )
+        prefix_sql = self._sql_prefix_expr("fact.source_default_code", "fact.source_barcode")
         self.env.cr.execute(
             f"""
             SELECT
@@ -1224,10 +1242,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         prefixes = sorted({prefix for prefix in prefixes if prefix})
         if not prefixes:
             return []
-        prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
-            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-        )
+        prefix_sql = self._sql_prefix_expr("product.barcode", "product.default_code")
         scope_sql = ""
         scope_params = []
         if entity.get("type") == "variant" and entity.get("id"):
@@ -1273,10 +1288,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if not product_ids:
             return [], metadata
         company_ids = self._company_ids(filters)
-        current_prefix_sql = (
-            "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(product.barcode, ''), "
-            "NULLIF(product.default_code, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-        )
+        current_prefix_sql = self._sql_prefix_expr("product.barcode", "product.default_code")
         self.env.cr.execute(
             f"""
             SELECT
@@ -1585,16 +1597,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             )
 
         if len(output) < limit and self._has_table("legacy_product_month_fact"):
-            legacy_prefix_sql = (
-                "LEFT(REGEXP_REPLACE(UPPER(COALESCE(NULLIF(source_default_code, ''), "
-                "NULLIF(source_barcode, ''), '')), '[^A-Z0-9]+', '', 'g'), 5)"
-            )
+            legacy_code_sql = self._sql_code_expr("source_default_code", "source_barcode")
+            legacy_prefix_sql = self._sql_prefix_expr("source_default_code", "source_barcode")
             self.env.cr.execute(
                 f"""
                 SELECT
                     {legacy_prefix_sql} AS prefix5,
-                    MIN(COALESCE(NULLIF(source_name, ''), NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS label,
-                    MIN(COALESCE(NULLIF(source_default_code, ''), NULLIF(source_barcode, ''))) AS item_code,
+                    MIN(COALESCE(NULLIF(source_name, ''), {legacy_code_sql})) AS label,
+                    MIN({legacy_code_sql}) AS item_code,
                     COUNT(DISTINCT source_product_id) AS variant_count
                 FROM legacy_product_month_fact
                 WHERE period_month BETWEEN DATE '2025-01-01' AND DATE '2025-12-31'

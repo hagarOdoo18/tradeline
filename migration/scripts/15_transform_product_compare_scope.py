@@ -41,6 +41,11 @@ def to_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def clean_optional_text(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return None if text.lower() in {"", "false", "none", "null"} else text
+
+
 def main() -> None:
     args = parse_args()
     in_dir = Path(args.in_dir)
@@ -83,8 +88,8 @@ def main() -> None:
             "source_product_id": source_product_id,
             "period_month": period_month,
             "warehouse_key": warehouse_key,
-            "source_default_code": (row.get("source_default_code") or "").strip() or None,
-            "source_barcode": (row.get("source_barcode") or "").strip() or None,
+            "source_default_code": clean_optional_text(row.get("source_default_code")),
+            "source_barcode": clean_optional_text(row.get("source_barcode")),
             "source_name": (row.get("source_name") or "").strip() or None,
             "source_category_name": (row.get("source_category_name") or "").strip() or None,
             "source_brand_name": (row.get("source_brand_name") or "").strip() or None,

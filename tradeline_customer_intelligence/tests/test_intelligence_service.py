@@ -75,6 +75,28 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         self.assertEqual(entity["prefixes"], ["AB123"])
         self.assertEqual(self.service._code_prefix(" mf-ym4/af/a "), "MFYM4")
+        self.assertEqual(self.service._code_prefix("False"), "")
+
+    def test_legacy_prefix_ignores_false_sentinel_and_uses_barcode(self):
+        sentinel_fact = self.env["legacy.product.month.fact"].create(
+            {
+                "source_db": "intelligence_test",
+                "source_product_id": 991002,
+                "period_month": "2025-01-01",
+                "source_default_code": "False",
+                "source_barcode": "MG6J4AF/A",
+                "source_name": "Legacy Sentinel Phone",
+                "legacy_sales_qty": 3,
+                "legacy_sales_amount": 250,
+            }
+        )
+        self.assertTrue(sentinel_fact)
+        prefixes = self.service._comparison_query_prefixes("Legacy Sentinel Phone", limit=2)
+        self.assertIn("MG6J4", prefixes)
+        self.assertNotIn("FALSE", prefixes)
+        january = self.service._comparison_legacy_metric_rows(["MG6J4"])[0]
+        self.assertEqual(january["sales_qty"], 3)
+        self.assertEqual(january["observed_prefixes"], ["MG6J4"])
 
     def test_invalid_exact_entity_falls_back_to_safe_query(self):
         entity = self.service._normalize_entity(
