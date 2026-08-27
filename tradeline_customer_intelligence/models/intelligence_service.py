@@ -720,8 +720,16 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 SELECT DISTINCT
                     invoice.id,
                     COALESCE(
-                        NULLIF(invoice.payment_method_summary, ''),
-                        NULLIF(invoice.payment_journal_summary, ''),
+                        CASE
+                            WHEN LOWER(BTRIM(COALESCE(invoice.payment_method_summary, '')))
+                                 IN ('', 'false', 'none', 'null') THEN NULL
+                            ELSE BTRIM(invoice.payment_method_summary)
+                        END,
+                        CASE
+                            WHEN LOWER(BTRIM(COALESCE(invoice.payment_journal_summary, '')))
+                                 IN ('', 'false', 'none', 'null') THEN NULL
+                            ELSE BTRIM(invoice.payment_journal_summary)
+                        END,
                         (
                             SELECT STRING_AGG(
                                 DISTINCT COALESCE(
