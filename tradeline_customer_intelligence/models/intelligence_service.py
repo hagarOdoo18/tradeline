@@ -50,6 +50,70 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             company_id = 0
         return [company_id] if company_id in allowed_ids else allowed_ids
 
+    def _legacy_business_sql(self, invoice_alias, filters=None):
+        """Scope legacy invoices using preserved Odoo 12 business markers.
+
+        The archive target ``company_id`` records the Odoo 18 owner of the imported
+        row; it does not preserve the Odoo 12 Tradeline/XPRS business split.  The
+        source journal, team and invoice references do preserve that distinction.
+        """
+        filters = self._normalize_filters(filters)
+        company_id = filters["operating_company_id"]
+        if not company_id:
+            return "", []
+        company_name = (filters["operating_company_name"] or "").strip().lower()
+        marker_fields = (
+            "source_journal_name",
+            "source_journal_code",
+            "source_team_name",
+            "number",
+            "source_name",
+            "source_reference_number",
+        )
+        marker_parts = []
+        marker_params = []
+        for field_name in marker_fields:
+            marker_parts.extend(
+                [
+                    f"COALESCE({invoice_alias}.{field_name}, '') ILIKE %s",
+                    f"COALESCE({invoice_alias}.{field_name}, '') ILIKE %s",
+                ]
+            )
+            marker_params.extend(["%xprs%", "%-x/%"])
+        marker_sql = f"({' OR '.join(marker_parts)})"
+        if "xprs" in company_name:
+            return f" AND {marker_sql}", marker_params
+        if "tradeline" in company_name:
+            return f" AND NOT {marker_sql}", marker_params
+        # Do not silently attribute legacy invoices to an unknown operating company.
+        return " AND FALSE", []
+
+    def _legacy_business_domain(self, filters=None):
+        filters = self._normalize_filters(filters)
+        company_id = filters["operating_company_id"]
+        if not company_id:
+            return []
+        company_name = (filters["operating_company_name"] or "").strip().lower()
+        marker_fields = (
+            "source_journal_name",
+            "source_journal_code",
+            "source_team_name",
+            "number",
+            "source_name",
+            "source_reference_number",
+        )
+        marker_domains = []
+        for field_name in marker_fields:
+            marker_domains.extend(
+                [[(field_name, "ilike", "xprs")], [(field_name, "ilike", "-x/")]]
+            )
+        xprs_domain = expression.OR(marker_domains)
+        if "xprs" in company_name:
+            return xprs_domain
+        if "tradeline" in company_name:
+            return ["!"] + xprs_domain
+        return [("id", "=", 0)]
+
     def _normalize_filters(self, filters=None):
         filters = dict(filters or {})
         customer_type = filters.get("customer_type")
@@ -476,7 +540,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=True)
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
-        company_ids = self._company_ids(filters)
+        business_sql, business_params = self._legacy_business_sql("invoice", filters)
         self.env.cr.execute(
             """
             WITH scope_lines AS (
@@ -500,7 +564,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
-                  AND invoice.company_id = ANY(%s)
+                  {business_sql}
                   {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
@@ -567,8 +631,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
-            [start, end, company_ids, *audience_params, *anchor_params, *anchor_params, *anchor_params, limit],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql, business_sql=business_sql),
+            [start, end, *business_params, *audience_params, *anchor_params, *anchor_params, *anchor_params, limit],
         )
         columns = [column[0] for column in self.env.cr.description]
         companions = [dict(zip(columns, row)) for row in self.env.cr.fetchall()]
@@ -580,7 +644,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
-                  AND invoice.company_id = ANY(%s)
+                  {business_sql}
                   {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
@@ -633,8 +697,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             GROUP BY customer_key
             ORDER BY baskets DESC, revenue DESC
             LIMIT 50
-            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql),
-            [start, end, company_ids, *audience_params, *direct_anchor_params],
+            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql, business_sql=business_sql),
+            [start, end, *business_params, *audience_params, *direct_anchor_params],
         )
         customer_columns = [column[0] for column in self.env.cr.description]
         customers = [dict(zip(customer_columns, row)) for row in self.env.cr.fetchall()]
@@ -646,7 +710,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
-                  AND invoice.company_id = ANY(%s)
+                  {business_sql}
                   {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
@@ -664,8 +728,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             FROM anchors
             GROUP BY payment_group
             ORDER BY baskets DESC
-            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql),
-            [start, end, company_ids, *audience_params, *direct_anchor_params],
+            """.format(anchor_sql=direct_anchor_sql, audience_sql=audience_sql, business_sql=business_sql),
+            [start, end, *business_params, *audience_params, *direct_anchor_params],
         )
         payments = [{"name": row[0], "baskets": row[1]} for row in self.env.cr.fetchall()]
         return companions, customers, payments
@@ -805,6 +869,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             return {"scope_summary": {}, "trend": [], "store_mix": [], "salesperson_mix": [], "discount_mix": [], "channel_mix": []}
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
+        business_sql, business_params = self._legacy_business_sql("invoice", filters)
         self.env.cr.execute(
             """
             WITH anchor_lines AS (
@@ -827,7 +892,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
-                  AND invoice.company_id = ANY(%s)
+                  {business_sql}
                   {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
@@ -910,8 +975,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         FROM anchor_lines GROUP BY channel_name ORDER BY baskets DESC, channel_name LIMIT 8
                     ) channel_rows
                 ) AS channel_mix
-            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
-            [start, end, self._company_ids(filters), *audience_params, *anchor_params],
+            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql, business_sql=business_sql),
+            [start, end, *business_params, *audience_params, *anchor_params],
         )
         row = self.env.cr.fetchone() or ({}, [], [], [], [], [])
         return {
@@ -928,6 +993,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         legacy_anchor_sql, legacy_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         current_audience_sql, current_audience_params = self._audience_sql("move", filters)
         legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters, source="legacy")
+        legacy_business_sql, legacy_business_params = self._legacy_business_sql("invoice", filters)
         counts = {"current": 0, "legacy": 0}
         company_ids = self._company_ids(filters)
         self.env.cr.execute(
@@ -955,14 +1021,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM legacy_invoice_line line
                 JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
                 WHERE invoice.invoice_date BETWEEN %s AND %s
-                  AND invoice.company_id = ANY(%s)
+                  {business_sql}
                   {audience_sql}
                   AND invoice.invoice_type = 'out_invoice'
                   AND invoice.state <> 'cancel'
                   AND line.quantity > 0
                   AND {anchor_sql}
-                """.format(anchor_sql=legacy_anchor_sql, audience_sql=legacy_audience_sql),
-                [start, end, company_ids, *legacy_audience_params, *legacy_anchor_params],
+                """.format(
+                    anchor_sql=legacy_anchor_sql,
+                    audience_sql=legacy_audience_sql,
+                    business_sql=legacy_business_sql,
+                ),
+                [start, end, *legacy_business_params, *legacy_audience_params, *legacy_anchor_params],
             )
             counts["legacy"] = self.env.cr.fetchone()[0]
         return counts
@@ -1953,10 +2023,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             domain = [
                 ("invoice_date", ">=", fields.Date.to_string(start)),
                 ("invoice_date", "<=", fields.Date.to_string(end)),
-                ("company_id", "in", self._company_ids(filters)),
                 ("invoice_type", "=", "out_invoice"),
                 ("state", "!=", "cancel"),
-            ] + legacy_customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
+            ] + self._legacy_business_domain(filters) + legacy_customer_domain + self._evidence_anchor_domain(entity, query, "legacy")
             if companion_key:
                 key = str(companion_key)
                 if key.startswith("product:") and key.split(":", 1)[1].isdigit():

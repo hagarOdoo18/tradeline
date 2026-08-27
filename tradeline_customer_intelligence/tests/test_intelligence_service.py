@@ -212,6 +212,22 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(invalid["operating_company_id"], 0)
         self.assertEqual(set(self.service._company_ids(invalid)), set(self.env.user.company_ids.ids))
 
+    def test_legacy_business_scope_uses_source_markers_not_import_owner(self):
+        xprs = self.env["res.company"].create({"name": "XPRS Intelligence Test"})
+        self.env.user.company_ids |= xprs
+        xprs_sql, xprs_params = self.service._legacy_business_sql(
+            "invoice", {"operating_company_id": xprs.id}
+        )
+        tradeline_sql, tradeline_params = self.service._legacy_business_sql(
+            "invoice", {"operating_company_id": self.env.company.id}
+        )
+        self.assertIn("source_journal_name", xprs_sql)
+        self.assertNotIn("NOT (", xprs_sql)
+        self.assertEqual(xprs_params, ["%xprs%", "%-x/%"] * 6)
+        if "tradeline" in self.env.company.name.lower():
+            self.assertIn("AND NOT", tradeline_sql)
+            self.assertEqual(tradeline_params, ["%xprs%", "%-x/%"] * 6)
+
     def test_search_contract_exposes_all_three_grains(self):
         results = self.service.search_entities("Intelligence Test", 12)
         result_pairs = {(item["type"], item["id"]) for item in results}

@@ -105,7 +105,7 @@
                         <option value="0">All businesses</option>
                         <option t-foreach="operatingCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
                     </select>
-                    <small>Actual Odoo operating company</small>
+                    <small>Odoo 18 company · inferred from preserved legacy business markers</small>
                 </label>
                 <label class="tl-source-select">
                     <span>Data source</span>
