@@ -160,9 +160,9 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
         correction_qty = -totals['current_valuation_qty']
         correction_value = -totals['current_valuation_value']
         description = _(
-            'Neutralization of erroneous Product Quantity Updated for %(serial)s; source SVL %(source)s; reason: %(reason)s',
+            'Neutralization of erroneous Product Quantity Updated for %(serial)s; source SVL %(source_svl)s; reason: %(reason)s',
             serial=source.lot_id.display_name,
-            source=source.id,
+            source_svl=source.id,
             reason=self.reason.strip(),
         )
         correction_svl = self.env['stock.valuation.layer'].sudo().create({
