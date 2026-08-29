@@ -2366,7 +2366,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 GROUP BY partner.id, partner.name, partner.email, partner.mobile,
                          commercial.is_company, commercial.name, invoice.source_partner_id,
                          invoice.source_partner_name, invoice.source_partner_mobile,
-                         invoice.source_partner_type, line.product_id, product_name, prefix5
+                         invoice.source_partner_type, line.product_id,
+                         COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product'),
+                         LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5)
                 ORDER BY last_purchase DESC, revenue DESC
                 LIMIT 3000
                 """.format(

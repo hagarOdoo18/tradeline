@@ -1,7 +1,7 @@
 {
     "name": "Tradeline Customer Intelligence",
     "summary": "Product, customer, bundle and launch intelligence for Tradeline executives",
-    "version": "18.0.1.3.19",
+    "version": "18.0.1.3.20",
     "category": "Sales/CRM",
     "author": "Tradeline",
     "license": "LGPL-3",
