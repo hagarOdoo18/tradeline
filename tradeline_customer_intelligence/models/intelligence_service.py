@@ -1817,13 +1817,41 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         variants = self.env["product.product"].sudo().with_context(active_test=False).search(
             variant_domain, limit=max(limit * 2, 20)
         )
+        # Odoo stores the family name on product.template and storage/color as
+        # variant attributes.  A complete human label therefore cannot always be
+        # matched by one ORM field.  Probe the likely family phrase, then compare
+        # normalized display names so a phrase such as "Apple iPhone 17 256GB
+        # Black" resolves to the exact live variant without exposing item codes.
+        normalized_query = re.sub(r"[^A-Z0-9]+", "", query.upper())
+        query_tokens = re.findall(r"[A-Z0-9]+", query.upper())
+        family_tokens = []
+        for token in query_tokens:
+            if re.search(r"\d+GB$", token) or token in {
+                "BLACK", "WHITE", "BLUE", "GREEN", "PINK", "PURPLE",
+                "RED", "SILVER", "GOLD", "GRAY", "GREY", "NATURAL",
+            }:
+                break
+            family_tokens.append(token)
+        family_probe = " ".join(family_tokens[:4]).strip()
+        if len(family_probe) >= 3 and normalized_query:
+            candidates = self.env["product.product"].sudo().with_context(
+                active_test=False,
+                display_default_code=False,
+            ).search(
+                [("product_tmpl_id.name", "ilike", family_probe)],
+                limit=500,
+            )
+            exact_variants = candidates.filtered(
+                lambda product: normalized_query
+                in re.sub(r"[^A-Z0-9]+", "", product.display_name.upper())
+            )
+            variants = exact_variants | variants
         templates = self.env["product.template"].sudo().with_context(active_test=False).search(
             [("name", "ilike", query)], limit=max(limit, 12)
         )
         template_ids = set(templates.ids)
         templates |= variants.mapped("product_tmpl_id").filtered(lambda template: template.id not in template_ids)
 
-        normalized_query = re.sub(r"[^A-Z0-9]+", "", query.upper())
         product_quota = max(2, limit // 3)
         for template in templates[:product_quota]:
             variant_count = len(template.with_context(active_test=False).product_variant_ids)
