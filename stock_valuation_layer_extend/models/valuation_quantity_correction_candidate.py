@@ -51,30 +51,7 @@ class StockValuationQuantityCorrectionCandidate(models.Model):
         tools.drop_view_if_exists(self.env.cr, self._table)
         self.env.cr.execute(f"""
             CREATE OR REPLACE VIEW {self._table} AS (
-                WITH valuation_totals AS (
-                    SELECT
-                        company_id,
-                        product_id,
-                        lot_id,
-                        SUM(quantity) AS valuation_qty,
-                        SUM(value) AS valuation_value
-                    FROM stock_valuation_layer
-                    WHERE lot_id IS NOT NULL
-                    GROUP BY company_id, product_id, lot_id
-                ),
-                physical_totals AS (
-                    SELECT
-                        sq.company_id,
-                        sq.product_id,
-                        sq.lot_id,
-                        SUM(sq.quantity) AS physical_qty
-                    FROM stock_quant sq
-                    JOIN stock_location location ON location.id = sq.location_id
-                    WHERE sq.lot_id IS NOT NULL
-                      AND location.usage = 'internal'
-                    GROUP BY sq.company_id, sq.product_id, sq.lot_id
-                ),
-                quantity_updates AS (
+                WITH quantity_updates AS (
                     SELECT
                         svl.company_id,
                         svl.product_id,
@@ -107,14 +84,24 @@ class StockValuationQuantityCorrectionCandidate(models.Model):
                 FROM quantity_updates updates
                 JOIN stock_valuation_layer source ON source.id = updates.source_svl_id
                 JOIN stock_move move ON move.id = source.stock_move_id
-                JOIN valuation_totals totals
-                  ON totals.company_id = source.company_id
-                 AND totals.product_id = source.product_id
-                 AND totals.lot_id = source.lot_id
-                LEFT JOIN physical_totals physical
-                  ON physical.company_id = source.company_id
-                 AND physical.product_id = source.product_id
-                 AND physical.lot_id = source.lot_id
+                JOIN LATERAL (
+                    SELECT
+                        SUM(serial_svl.quantity) AS valuation_qty,
+                        SUM(serial_svl.value) AS valuation_value
+                    FROM stock_valuation_layer serial_svl
+                    WHERE serial_svl.company_id = source.company_id
+                      AND serial_svl.product_id = source.product_id
+                      AND serial_svl.lot_id = source.lot_id
+                ) totals ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT SUM(sq.quantity) AS physical_qty
+                    FROM stock_quant sq
+                    JOIN stock_location location ON location.id = sq.location_id
+                    WHERE sq.company_id = source.company_id
+                      AND sq.product_id = source.product_id
+                      AND sq.lot_id = source.lot_id
+                      AND location.usage = 'internal'
+                ) physical ON TRUE
                 JOIN res_company company ON company.id = source.company_id
                 JOIN product_product product ON product.id = source.product_id
                 WHERE updates.source_count = 1
