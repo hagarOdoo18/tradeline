@@ -86,7 +86,7 @@ class StockValuationQuantityCorrectionCandidate(models.Model):
                     WHERE svl.lot_id IS NOT NULL
                       AND move.reference = 'Product Quantity Updated'
                       AND ABS(svl.quantity + 1.0) < 0.000001
-                      AND NOT svl.is_quantity_neutralization
+                      AND NOT COALESCE(svl.is_quantity_neutralization, FALSE)
                     GROUP BY svl.company_id, svl.product_id, svl.lot_id
                 )
                 SELECT
