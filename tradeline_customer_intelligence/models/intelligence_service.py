@@ -335,6 +335,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         return f"LEFT({cls._sql_normalized_code_expr(*exprs)}, {int(length)})"
 
     def _anchor_clause(self, entity, query, *, source, scoped=True):
+        if entity["type"] == "category" and source == "legacy":
+            item_code = "item_code" if scoped else "line.item_code"
+            category_id = "category_id" if scoped else "line.product_category_id"
+            normalized_prefix = (
+                f"LEFT(REGEXP_REPLACE(UPPER(COALESCE({item_code}, '')), '[^A-Z0-9]+', '', 'g'), 5)"
+            )
+            if entity.get("prefixes"):
+                return (
+                    f"({category_id} = ANY(%s) OR {normalized_prefix} = ANY(%s))",
+                    [entity["category_ids"], entity["prefixes"]],
+                )
+            return f"{category_id} = ANY(%s)", [entity["category_ids"]]
         if entity["type"] != "query" and entity.get("prefixes") and (
             source == "legacy" or entity["type"] == "legacy_variant"
         ):

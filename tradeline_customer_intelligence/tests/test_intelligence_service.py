@@ -42,6 +42,12 @@ class TestIntelligenceEntityGrain(TransactionCase):
         clause, params = self.service._anchor_clause(entity, "", source="current", scoped=True)
         self.assertEqual(clause, "category_id = ANY(%s)")
         self.assertEqual(params, [entity["category_ids"]])
+        legacy_clause, legacy_params = self.service._anchor_clause(
+            entity, "", source="legacy", scoped=False
+        )
+        self.assertIn("line.product_category_id = ANY(%s)", legacy_clause)
+        self.assertIn("REGEXP_REPLACE", legacy_clause)
+        self.assertEqual(legacy_params, [entity["category_ids"], entity["prefixes"]])
 
     def test_product_and_variant_are_distinct_exact_grains(self):
         product_entity = self.service._normalize_entity(
