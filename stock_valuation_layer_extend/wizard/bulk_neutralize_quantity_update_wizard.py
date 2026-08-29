@@ -9,6 +9,9 @@ class StockValuationLayerBulkNeutralizeWizard(models.TransientModel):
 
     source_svl_ids = fields.Many2many(
         'stock.valuation.layer',
+        'svl_bulk_neutralize_rel',
+        'wizard_id',
+        'svl_id',
         string='Selected Valuation Layers',
         required=True,
         readonly=True,
