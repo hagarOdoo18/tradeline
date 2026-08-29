@@ -444,14 +444,38 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND NOT ({anchor_sql})
             ),
             companion_totals AS (
-                SELECT product_id, product_name, prefix5, COUNT(DISTINCT basket_id) AS co_baskets
+                SELECT
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE 'product:' || product_id::text
+                    END AS companion_group,
+                    MIN(product_id) AS product_id,
+                    MIN(product_name) AS product_name,
+                    prefix5,
+                    COUNT(DISTINCT basket_id) AS co_baskets
                 FROM basket_companions
-                GROUP BY product_id, product_name, prefix5
+                GROUP BY
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE 'product:' || product_id::text
+                    END,
+                    prefix5
             ),
             base_totals AS (
-                SELECT product_id, prefix5, COUNT(DISTINCT basket_id) AS base_baskets
+                SELECT
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE 'product:' || product_id::text
+                    END AS companion_group,
+                    prefix5,
+                    COUNT(DISTINCT basket_id) AS base_baskets
                 FROM scope_lines
-                GROUP BY product_id, prefix5
+                GROUP BY
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE 'product:' || product_id::text
+                    END,
+                    prefix5
             ),
             totals AS (
                 SELECT
@@ -481,7 +505,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 totals.identified_customers,
                 (SELECT product_name FROM anchor_names) AS anchor_name
             FROM companion_totals companion
-            JOIN base_totals base ON base.product_id = companion.product_id AND base.prefix5 = companion.prefix5
+            JOIN base_totals base ON base.companion_group = companion.companion_group
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
@@ -655,14 +679,38 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                   AND NOT ({anchor_sql})
             ),
             companion_totals AS (
-                SELECT product_key, product_name, prefix5, COUNT(DISTINCT basket_id) AS co_baskets
+                SELECT
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE product_key
+                    END AS companion_group,
+                    MIN(product_key) AS product_key,
+                    MIN(product_name) AS product_name,
+                    prefix5,
+                    COUNT(DISTINCT basket_id) AS co_baskets
                 FROM basket_companions
-                GROUP BY product_key, product_name, prefix5
+                GROUP BY
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE product_key
+                    END,
+                    prefix5
             ),
             base_totals AS (
-                SELECT product_key, prefix5, COUNT(DISTINCT basket_id) AS base_baskets
+                SELECT
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE product_key
+                    END AS companion_group,
+                    prefix5,
+                    COUNT(DISTINCT basket_id) AS base_baskets
                 FROM scope_lines
-                GROUP BY product_key, prefix5
+                GROUP BY
+                    CASE
+                        WHEN NULLIF(prefix5, '') IS NOT NULL THEN 'prefix:' || prefix5
+                        ELSE product_key
+                    END,
+                    prefix5
             ),
             totals AS (
                 SELECT
@@ -692,7 +740,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 totals.identified_customers,
                 (SELECT product_name FROM anchor_names) AS anchor_name
             FROM companion_totals companion
-            JOIN base_totals base ON base.product_key = companion.product_key AND base.prefix5 = companion.prefix5
+            JOIN base_totals base ON base.companion_group = companion.companion_group
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
@@ -2808,6 +2856,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "coverage": coverage,
         }
 
+    @staticmethod
+    def _bounded_probability(successes, observations):
+        """Return a safe basket probability for sparse or imperfect imports.
+
+        Companion queries enforce distinct basket counts and normalize duplicate
+        catalog rows by their five-character prefix.  This final guard keeps the
+        statistical layer defined if a future import violates that invariant.
+        """
+        observations = int(observations or 0)
+        if observations <= 0:
+            return 0.0
+        probability = float(successes or 0) / observations
+        return min(1.0, max(0.0, probability))
+
     @api.model
     def get_product_360(
         self,
@@ -2871,10 +2933,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         for row in companions:
             co_baskets = int(row.get("co_baskets") or 0)
             base_baskets = int(row.get("base_baskets") or 0)
-            attach_rate = (co_baskets / baskets * 100.0) if baskets else 0.0
+            probability = self._bounded_probability(co_baskets, baskets)
+            attach_rate = probability * 100.0
             base_rate = (base_baskets / all_baskets) if all_baskets else 0.0
-            lift = ((co_baskets / baskets) / base_rate) if baskets and base_rate else 0.0
-            probability = co_baskets / baskets if baskets else 0.0
+            lift = (probability / base_rate) if base_rate else 0.0
             if baskets:
                 z = 1.96
                 denominator = 1.0 + (z * z / baskets)

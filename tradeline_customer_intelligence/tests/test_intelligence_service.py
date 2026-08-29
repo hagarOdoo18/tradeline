@@ -325,6 +325,12 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(self.service._catalog_brand("[SKU] iPhone 16 Pro"), "Apple")
         self.assertEqual(self.service._catalog_brand("Belkin BoostCharge 45W"), "Belkin")
 
+    def test_sparse_scope_probability_is_bounded(self):
+        self.assertEqual(self.service._bounded_probability(0, 0), 0.0)
+        self.assertEqual(self.service._bounded_probability(3, 10), 0.3)
+        self.assertEqual(self.service._bounded_probability(12, 10), 1.0)
+        self.assertEqual(self.service._bounded_probability(-1, 10), 0.0)
+
     def test_guided_catalog_resolves_exact_variant_and_hidden_prefix(self):
         catalog = self.service.get_catalog_options({"variant_id": self.variant.id})
         self.assertEqual(catalog["selection"]["variant_id"], self.variant.id)
