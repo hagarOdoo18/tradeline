@@ -4,7 +4,7 @@ import base64
 import io
 import re
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from math import sqrt
 
 from odoo import api, fields, models
@@ -33,6 +33,35 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     def _has_table(self, table_name):
         self.env.cr.execute("SELECT to_regclass(%s)", (f"public.{table_name}",))
         return bool(self.env.cr.fetchone()[0])
+
+    def _unified_source_periods(self, start, end):
+        """Assign every date to one authoritative ledger at the historical cutover."""
+        if not self._has_table("legacy_invoice"):
+            return {
+                "legacy": (start, end),
+                "current": (start, end),
+                "cutover_date": None,
+            }
+        self.env.cr.execute(
+            """
+            SELECT MAX(invoice_date)
+            FROM legacy_invoice
+            WHERE invoice_type = 'out_invoice'
+              AND state <> 'cancel'
+            """
+        )
+        cutover = self.env.cr.fetchone()[0]
+        if not cutover:
+            return {
+                "legacy": (start, end),
+                "current": (start, end),
+                "cutover_date": None,
+            }
+        return {
+            "legacy": (start, min(end, cutover)),
+            "current": (max(start, cutover + timedelta(days=1)), end),
+            "cutover_date": cutover,
+        }
 
     @classmethod
     def _transport_safe(cls, value):
@@ -561,7 +590,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             WITH scope_lines AS (
                 SELECT
                     invoice.id AS basket_id,
-                    invoice.partner_id,
+                    CASE
+                        WHEN invoice.partner_id IS NOT NULL THEN 'partner:' || invoice.partner_id::text
+                        WHEN invoice.source_partner_id IS NOT NULL THEN 'legacy:' || invoice.source_partner_id::text
+                        WHEN NULLIF(TRIM(invoice.source_partner_mobile), '') IS NOT NULL
+                            THEN 'legacy-mobile:' || REGEXP_REPLACE(invoice.source_partner_mobile, '[^0-9+]', '', 'g')
+                        WHEN NULLIF(TRIM(invoice.source_partner_name), '') IS NOT NULL
+                            THEN 'legacy-name:' || LOWER(TRIM(invoice.source_partner_name))
+                    END AS customer_key,
                     invoice.invoice_date,
                     line.product_id,
                     line.product_tmpl_id,
@@ -622,11 +658,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     (SELECT COUNT(DISTINCT basket_id) FROM basket_companions) AS companion_baskets,
                     COUNT(DISTINCT basket_id) AS all_baskets,
                     COUNT(DISTINCT basket_id) FILTER (
-                        WHERE partner_id IS NOT NULL
+                        WHERE customer_key IS NOT NULL
                           AND basket_id IN (SELECT basket_id FROM anchor_baskets)
                     ) AS identified_baskets,
-                    COUNT(DISTINCT partner_id) FILTER (
-                        WHERE partner_id IS NOT NULL
+                    COUNT(DISTINCT customer_key) FILTER (
+                        WHERE customer_key IS NOT NULL
                           AND basket_id IN (SELECT basket_id FROM anchor_baskets)
                     ) AS identified_customers
                 FROM scope_lines
@@ -2139,6 +2175,52 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     current["evidence_sources"].append(source)
         return sorted(merged.values(), key=lambda row: (-row["baskets"], -row["revenue"], row["name"]))[:100]
 
+    def _deduplicated_customer_count(self, query, start, end, entity, filters, source_used, source_periods=None):
+        """Count customers once after resolving identities across both ledgers."""
+        sources = ("current", "legacy") if source_used == "unified" else (source_used,)
+        identities = set()
+        for source in sources:
+            source_start, source_end = (source_periods or {}).get(source, (start, end))
+            for customer in self._query_ownership_customers(
+                source, query, source_start, source_end, entity, filters
+            ):
+                identities.add(self._customer_identity(customer))
+        return len(identities)
+
+    def _product_identity_summary(self, entity):
+        prefixes = entity.get("prefixes") or []
+        if not prefixes or not self._has_table("legacy_product_month_fact"):
+            return {
+                "identity_precision": "current_only",
+                "identity_label": "Current catalog identity",
+                "identity_note": "The selected current-catalog grain is used exactly; no historical comparison identity was resolved.",
+                "legacy_variant_count": 0,
+                "current_variant_count": 1 if entity.get("type") == "variant" else 0,
+            }
+        rows = self._comparison_identity_rows(prefixes, entity)
+        legacy_count = sum(int(row.get("legacy_variant_count") or 0) for row in rows)
+        current_count = sum(int(row.get("current_variant_count") or 0) for row in rows)
+        ambiguous = any(int(row.get("legacy_variant_count") or 0) > 1 for row in rows)
+        if ambiguous:
+            prefix_label = ", ".join(prefixes)
+            return {
+                "identity_precision": "prefix_family",
+                "identity_label": "Exact current variant + historical prefix family",
+                "identity_note": (
+                    f"Current activity uses the exact selected variant. Historical activity combines {legacy_count} "
+                    f"legacy item codes sharing the approved five-character prefix {prefix_label}; evidence remains separately traceable."
+                ),
+                "legacy_variant_count": legacy_count,
+                "current_variant_count": current_count,
+            }
+        return {
+            "identity_precision": "exact",
+            "identity_label": "One-to-one cross-version identity",
+            "identity_note": "The selected current variant resolves to one historical item-code identity using the approved five-character prefix.",
+            "legacy_variant_count": legacy_count,
+            "current_variant_count": current_count,
+        }
+
     @staticmethod
     def _merge_dimension_rows(groups, *, value_fields):
         merged = {}
@@ -2244,7 +2326,6 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         dimensions["scope_summary"].update(
             {
                 "baskets": totals["anchor_baskets"],
-                "identified_baskets": totals["identified_baskets"],
                 "companion_baskets": totals["companion_baskets"],
                 "all_baskets": totals["all_baskets"],
             }
@@ -2580,11 +2661,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         coverage = self._available_period(ownership_entity, ownership_entity.get("name") or query, filters)
         ownership_start = fields.Date.to_date(coverage["start_date"])
         ownership_end = fields.Date.to_date(coverage["end_date"])
+        source_periods = self._unified_source_periods(ownership_start, ownership_end)
         current_rows = self._query_ownership_customers(
-            "current", query, ownership_start, ownership_end, ownership_entity, filters
+            "current", query, *source_periods["current"], ownership_entity, filters
         )
         legacy_rows = self._query_ownership_customers(
-            "legacy", query, ownership_start, ownership_end, ownership_entity, filters
+            "legacy", query, *source_periods["legacy"], ownership_entity, filters
         )
         owners = {}
         for source, rows in (("current", current_rows), ("legacy", legacy_rows)):
@@ -2744,13 +2826,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         else:
             source_used = source
         if source_used == "unified":
+            source_periods = self._unified_source_periods(start, end)
             current_result = (
-                *self._query_current(query, start, end, int(limit or 20), entity, filters),
-                self._query_current_dimensions(query, start, end, entity, filters),
+                *self._query_current(query, *source_periods["current"], int(limit or 20), entity, filters),
+                self._query_current_dimensions(query, *source_periods["current"], entity, filters),
             )
             legacy_result = (
-                *self._query_legacy(query, start, end, int(limit or 20), entity, filters),
-                self._query_legacy_dimensions(query, start, end, entity, filters),
+                *self._query_legacy(query, *source_periods["legacy"], int(limit or 20), entity, filters),
+                self._query_legacy_dimensions(query, *source_periods["legacy"], entity, filters),
             )
             companions, customers, payments, dimensions = self._merge_source_results(
                 current_result, legacy_result, int(limit or 20)
@@ -2768,6 +2851,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         all_baskets = int(first.get("all_baskets") or 0)
         identified_baskets = int(scope_summary.get("identified_baskets") or first.get("identified_baskets") or 0)
         identified_customers = int(scope_summary.get("identified_customers") or first.get("identified_customers") or 0)
+        if source_used == "unified":
+            identified_customers = self._deduplicated_customer_count(
+                query, start, end, entity, filters, source_used, source_periods
+            )
+            dimensions.setdefault("scope_summary", {})["identified_customers"] = identified_customers
         for row in companions:
             co_baskets = int(row.get("co_baskets") or 0)
             base_baskets = int(row.get("base_baskets") or 0)
@@ -2863,6 +2951,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "legacy_variant": "Historical SKU / prefix-5",
             "query": "Search match",
         }
+        identity_summary = self._product_identity_summary(entity)
+        if entity["type"] == "variant" and identity_summary["identity_precision"] == "prefix_family":
+            grain_labels["variant"] = "Exact current variant + historical prefix family"
         recommendation = {
             "title": f"Bundle {display_name} + {top['product_name']}" if top else "Expand the date range",
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
@@ -2883,6 +2974,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "type": entity["type"],
                 "id": entity["id"],
                 "grain_label": grain_labels[entity["type"]],
+                **identity_summary,
             },
             "summary": {
                 "baskets": baskets,

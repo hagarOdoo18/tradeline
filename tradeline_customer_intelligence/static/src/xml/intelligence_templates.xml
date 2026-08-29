@@ -148,7 +148,7 @@
                             <button t-if="source.key === 'history'" data-view="comparison" t-on-click="onNavigate">Open comparison</button>
                         </article>
                     </div>
-                    <div class="tl-lineage-rule"><strong>Unified product identity</strong><span>Matched automatically</span><p>The engine resolves the selected variant across historical sales and current operations. Technical matching details remain in the data-quality workspace for audit users.</p></div>
+                    <div class="tl-lineage-rule"><strong><t t-esc="product.identity_label || 'Unified product identity'"/></strong><span><t t-esc="product.identity_precision === 'prefix_family' ? 'Audited prefix family' : 'Matched automatically'"/></span><p><t t-esc="product.identity_note || 'The engine resolves the selected product across historical sales and current operations while retaining source evidence.'"/></p></div>
                 </section>
 
                 <section class="tl-dimension-grid">

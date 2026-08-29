@@ -340,6 +340,46 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(merged[0]["baskets"], 5)
         self.assertEqual(merged[0]["revenue"], 125)
 
+    def test_unified_merge_keeps_dimension_based_identified_baskets(self):
+        current = (
+            [{"product_key": "c", "product_name": "Case", "prefix5": "CASE1", "co_baskets": 2,
+              "base_baskets": 4, "anchor_baskets": 4, "companion_baskets": 2,
+              "all_baskets": 10, "identified_baskets": 1, "identified_customers": 1}],
+            [], [],
+            {"scope_summary": {"baskets": 4, "identified_baskets": 3, "identified_customers": 2}},
+        )
+        legacy = (
+            [{"product_key": "l", "product_name": "Case", "prefix5": "CASE1", "co_baskets": 3,
+              "base_baskets": 5, "anchor_baskets": 5, "companion_baskets": 3,
+              "all_baskets": 12, "identified_baskets": 0, "identified_customers": 0}],
+            [], [],
+            {"scope_summary": {"baskets": 5, "identified_baskets": 5, "identified_customers": 3}},
+        )
+        _companions, _customers, _payments, dimensions = self.service._merge_source_results(
+            current, legacy, 20
+        )
+        self.assertEqual(dimensions["scope_summary"]["baskets"], 9)
+        self.assertEqual(dimensions["scope_summary"]["identified_baskets"], 8)
+
+    def test_identity_summary_discloses_ambiguous_legacy_prefix_family(self):
+        self.env["legacy.product.month.fact"].create(
+            {
+                "source_db": "intelligence_test",
+                "source_product_id": 991003,
+                "period_month": "2025-02-01",
+                "source_default_code": "AB123-second",
+                "source_name": "Second Legacy Intelligence Phone",
+                "legacy_sales_qty": 1,
+            }
+        )
+        entity = self.service._normalize_entity(
+            {"type": "variant", "id": self.variant.id}, self.variant.display_name
+        )
+        summary = self.service._product_identity_summary(entity)
+        self.assertEqual(summary["identity_precision"], "prefix_family")
+        self.assertEqual(summary["legacy_variant_count"], 2)
+        self.assertIn("historical prefix family", summary["identity_label"].lower())
+
     def test_iphone_generation_drives_upgrade_gap_without_ml_claim(self):
         self.assertEqual(self.service._iphone_generation("Apple iPhone 17 256GB Black"), 17)
         self.assertEqual(self.service._iphone_generation("Apple iPhone SE 64GB"), 0)
