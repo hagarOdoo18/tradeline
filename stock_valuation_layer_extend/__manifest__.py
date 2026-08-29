@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Stock Valuation Layer - Category, Family & Vendor',
-    'version': '18.0.1.0.2',
+    'version': '18.0.1.0.3',
     'summary': 'Add Item Code, Category, Family, Vendor, Last PO Cost, Available Qty to Stock Valuation Layer',
     'category': 'Inventory/Valuation',
     'author': 'Custom',
@@ -10,7 +10,9 @@
         'security/security.xml',
         'security/ir.model.access.csv',
         'wizard/neutralize_quantity_update_wizard_views.xml',
+        'wizard/bulk_neutralize_quantity_update_wizard_views.xml',
         'views/stock_valuation_layer_views.xml',
+        'views/valuation_quantity_correction_candidate_views.xml',
         'views/stock_valuation_layer_report_views.xml',
     ],
     'installable': True,
