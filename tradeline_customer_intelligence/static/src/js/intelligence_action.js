@@ -101,6 +101,12 @@ export class TradelineCustomerIntelligence extends Component {
             || this.product.name
             || "Choose a product";
     }
+    get catalogActionLabel() {
+        if (this.catalogSelection.variant_id) return "Analyze variant";
+        if (this.catalogSelection.product_id) return "Analyze product family";
+        if (this.catalogSelection.category_id) return "Analyze category";
+        return "Choose a category";
+    }
     get comparison() { return this.state.comparison || {}; }
     get comparisonMonths() { return this.comparison.months || []; }
     get selectedCompanion() {
@@ -316,6 +322,36 @@ export class TradelineCustomerIntelligence extends Component {
         this.state.catalogSelection = { brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
         this.state.selectedEntity = null;
         await this.loadCatalogOptions();
+    }
+
+    async onAnalyzeCatalog() {
+        const selection = this.state.catalogSelection;
+        let selected = null;
+        if (selection.variant_id) {
+            const variant = this.catalog.variants?.find(
+                item => Number(item.id) === Number(selection.variant_id)
+            );
+            this.applyCatalogVariant(variant);
+            selected = this.state.selectedEntity;
+        } else if (selection.product_id) {
+            const product = this.catalog.products?.find(
+                item => Number(item.id) === Number(selection.product_id)
+            );
+            if (product) selected = { type: "product", id: Number(product.id), name: product.name, source: "unified" };
+        } else if (selection.category_id) {
+            const category = this.catalog.categories?.find(
+                item => Number(item.id) === Number(selection.category_id)
+            );
+            if (category) selected = { type: "category", id: Number(category.id), name: category.name, source: "unified" };
+        }
+        if (!selected) return;
+        this.state.selectedEntity = selected;
+        this.state.query = selected.name;
+        this.state.comparison = null;
+        await this.useAllAvailableHistory();
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
+        this.state.catalogOpen = false;
     }
 
     async loadProduct() {

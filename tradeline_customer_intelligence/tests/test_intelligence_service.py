@@ -324,6 +324,8 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(self.service._catalog_brand("Apple iPhone 17 256GB Black"), "Apple")
         self.assertEqual(self.service._catalog_brand("[SKU] iPhone 16 Pro"), "Apple")
         self.assertEqual(self.service._catalog_brand("Belkin BoostCharge 45W"), "Belkin")
+        self.assertEqual(self.service._catalog_brand("23% Launch Discount"), "Other")
+        self.assertEqual(self.service._catalog_brand("Assassin's Creed PS5"), "Other")
 
     def test_sparse_scope_probability_is_bounded(self):
         self.assertEqual(self.service._bounded_probability(0, 0), 0.0)
