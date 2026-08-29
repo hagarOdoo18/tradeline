@@ -2390,15 +2390,200 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 row["product_name"] = names.get(row.get("product_id"), row.get("product_name"))
         return rows
 
-    def _ownership_insights(self, query, start, end, entity, filters=None):
+    def _query_ownership_customers(self, source, query, start, end, entity, filters=None):
+        """Return one exact aggregate per owner with every observed product attached."""
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source=source, scoped=False)
+        if source == "current":
+            audience_sql, audience_params = self._audience_sql("move", filters)
+            self.env.cr.execute(
+                """
+                WITH source_lines AS (
+                    SELECT
+                        'partner:' || partner.id::text AS customer_key,
+                        partner.id AS partner_id,
+                        partner.name,
+                        partner.email,
+                        partner.mobile,
+                        COALESCE(commercial.is_company, FALSE) AS is_company,
+                        CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
+                        product.id AS product_id,
+                        COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, 'Product') AS product_name,
+                        LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                        move.id AS basket_id,
+                        move.invoice_date,
+                        line.quantity,
+                        line.price_subtotal AS revenue
+                    FROM account_move_line line
+                    JOIN account_move move ON move.id = line.move_id
+                    JOIN product_product product ON product.id = line.product_id
+                    JOIN product_template template ON template.id = product.product_tmpl_id
+                    JOIN res_partner partner ON partner.id = move.partner_id
+                    JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
+                    WHERE move.state = 'posted'
+                      AND move.move_type IN ('out_invoice', 'out_receipt')
+                      AND move.invoice_date BETWEEN %s AND %s
+                      AND move.company_id = ANY(%s)
+                      {audience_sql}
+                      AND line.quantity > 0
+                      AND {anchor_sql}
+                ),
+                customer_totals AS (
+                    SELECT customer_key, partner_id, MAX(name) AS name, MAX(email) AS email,
+                           MAX(mobile) AS mobile, BOOL_OR(is_company) AS is_company,
+                           MAX(company_name) AS company_name,
+                           COUNT(DISTINCT basket_id) AS baskets, SUM(quantity) AS units,
+                           SUM(revenue) AS revenue, MIN(invoice_date) AS first_purchase,
+                           MAX(invoice_date) AS last_purchase
+                    FROM source_lines
+                    GROUP BY customer_key, partner_id
+                ),
+                product_totals AS (
+                    SELECT customer_key, product_id, product_name, prefix5,
+                           COUNT(DISTINCT basket_id) AS baskets, SUM(revenue) AS revenue,
+                           MAX(invoice_date) AS last_purchase
+                    FROM source_lines
+                    GROUP BY customer_key, product_id, product_name, prefix5
+                ),
+                product_lists AS (
+                    SELECT customer_key,
+                           JSONB_AGG(
+                               JSONB_BUILD_OBJECT(
+                                   'product_id', product_id, 'name', product_name, 'prefix5', prefix5,
+                                   'baskets', baskets, 'revenue', revenue,
+                                   'last_purchase', TO_CHAR(last_purchase, 'YYYY-MM-DD')
+                               ) ORDER BY last_purchase DESC, revenue DESC
+                           ) AS products
+                    FROM product_totals
+                    GROUP BY customer_key
+                )
+                SELECT totals.*, lists.products
+                FROM customer_totals totals
+                JOIN product_lists lists USING (customer_key)
+                ORDER BY totals.last_purchase DESC, totals.revenue DESC
+                """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+                [start, end, self._company_ids(filters), *audience_params, *anchor_params],
+            )
+        else:
+            if not self._has_table("legacy_invoice_line"):
+                return []
+            audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
+            business_sql, business_params = self._legacy_business_sql("invoice", filters)
+            self.env.cr.execute(
+                """
+                WITH source_lines AS (
+                    SELECT
+                        CASE
+                            WHEN partner.id IS NOT NULL THEN 'partner:' || partner.id::text
+                            WHEN invoice.source_partner_id IS NOT NULL THEN 'legacy:' || invoice.source_partner_id::text
+                            WHEN NULLIF(TRIM(invoice.source_partner_mobile), '') IS NOT NULL
+                                THEN 'mobile:' || REGEXP_REPLACE(invoice.source_partner_mobile, '[^0-9+]', '', 'g')
+                            WHEN NULLIF(TRIM(invoice.source_partner_name), '') IS NOT NULL
+                                THEN 'name:' || LOWER(TRIM(invoice.source_partner_name))
+                        END AS customer_key,
+                        partner.id AS partner_id,
+                        COALESCE(partner.name, NULLIF(invoice.source_partner_name, ''), 'Historical customer') AS name,
+                        partner.email,
+                        COALESCE(partner.mobile, NULLIF(invoice.source_partner_mobile, '')) AS mobile,
+                        (COALESCE(commercial.is_company, FALSE) OR LOWER(COALESCE(invoice.source_partner_type, '')) = 'company') AS is_company,
+                        CASE
+                            WHEN COALESCE(commercial.is_company, FALSE) THEN commercial.name
+                            WHEN LOWER(COALESCE(invoice.source_partner_type, '')) = 'company' THEN invoice.source_partner_name
+                        END AS company_name,
+                        line.product_id,
+                        COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product') AS product_name,
+                        LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                        invoice.id AS basket_id,
+                        invoice.invoice_date,
+                        line.quantity,
+                        line.price_subtotal AS revenue
+                    FROM legacy_invoice_line line
+                    JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
+                    LEFT JOIN res_partner partner ON partner.id = invoice.partner_id
+                    LEFT JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
+                    WHERE invoice.invoice_date BETWEEN %s AND %s
+                      {business_sql}
+                      {audience_sql}
+                      AND invoice.invoice_type = 'out_invoice'
+                      AND invoice.state <> 'cancel'
+                      AND line.quantity > 0
+                      AND {anchor_sql}
+                ),
+                identified_lines AS (
+                    SELECT * FROM source_lines WHERE customer_key IS NOT NULL
+                ),
+                customer_totals AS (
+                    SELECT customer_key, MAX(partner_id) AS partner_id, MAX(name) AS name,
+                           MAX(email) AS email, MAX(mobile) AS mobile,
+                           BOOL_OR(is_company) AS is_company, MAX(company_name) AS company_name,
+                           COUNT(DISTINCT basket_id) AS baskets, SUM(quantity) AS units,
+                           SUM(revenue) AS revenue, MIN(invoice_date) AS first_purchase,
+                           MAX(invoice_date) AS last_purchase
+                    FROM identified_lines
+                    GROUP BY customer_key
+                ),
+                product_totals AS (
+                    SELECT customer_key, MAX(product_id) AS product_id, product_name, prefix5,
+                           COUNT(DISTINCT basket_id) AS baskets, SUM(revenue) AS revenue,
+                           MAX(invoice_date) AS last_purchase
+                    FROM identified_lines
+                    GROUP BY customer_key, product_name, prefix5
+                ),
+                product_lists AS (
+                    SELECT customer_key,
+                           JSONB_AGG(
+                               JSONB_BUILD_OBJECT(
+                                   'product_id', product_id, 'name', product_name, 'prefix5', prefix5,
+                                   'baskets', baskets, 'revenue', revenue,
+                                   'last_purchase', TO_CHAR(last_purchase, 'YYYY-MM-DD')
+                               ) ORDER BY last_purchase DESC, revenue DESC
+                           ) AS products
+                    FROM product_totals
+                    GROUP BY customer_key
+                )
+                SELECT totals.*, lists.products
+                FROM customer_totals totals
+                JOIN product_lists lists USING (customer_key)
+                ORDER BY totals.last_purchase DESC, totals.revenue DESC
+                """.format(
+                    anchor_sql=anchor_sql,
+                    audience_sql=audience_sql,
+                    business_sql=business_sql,
+                ),
+                [start, end, *business_params, *audience_params, *anchor_params],
+            )
+        columns = [column[0] for column in self.env.cr.description]
+        rows = [dict(zip(columns, values)) for values in self.env.cr.fetchall()]
+        product_ids = sorted(
+            {
+                int(product["product_id"])
+                for row in rows
+                for product in (row.get("products") or [])
+                if product.get("product_id")
+            }
+        )
+        display_names = {
+            product.id: product.display_name
+            for product in self.env["product.product"].sudo().browse(product_ids).exists()
+        }
+        for row in rows:
+            for product in row.get("products") or []:
+                product["name"] = display_names.get(product.get("product_id"), product.get("name"))
+                product["last_purchase"] = (
+                    fields.Date.to_date(product["last_purchase"])
+                    if product.get("last_purchase")
+                    else None
+                )
+        return rows
+
+    def _ownership_insights(self, query, start, end, entity, filters=None, result_limit=200):
         ownership_entity = self._ownership_entity(entity)
         coverage = self._available_period(ownership_entity, ownership_entity.get("name") or query, filters)
         ownership_start = fields.Date.to_date(coverage["start_date"])
         ownership_end = fields.Date.to_date(coverage["end_date"])
-        current_rows = self._query_ownership_source(
+        current_rows = self._query_ownership_customers(
             "current", query, ownership_start, ownership_end, ownership_entity, filters
         )
-        legacy_rows = self._query_ownership_source(
+        legacy_rows = self._query_ownership_customers(
             "legacy", query, ownership_start, ownership_end, ownership_entity, filters
         )
         owners = {}
@@ -2438,23 +2623,24 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     not owner["last_purchase"] or row["last_purchase"] > owner["last_purchase"]
                 ):
                     owner["last_purchase"] = row["last_purchase"]
-                product_key = row.get("prefix5") or (row.get("product_name") or "").lower()
-                product = owner["products"].setdefault(
-                    product_key,
-                    {
-                        "name": row.get("product_name") or "Product",
-                        "prefix5": row.get("prefix5") or "",
-                        "baskets": 0,
-                        "revenue": 0.0,
-                        "last_purchase": None,
-                    },
-                )
-                product["baskets"] += int(row.get("baskets") or 0)
-                product["revenue"] += float(row.get("revenue") or 0.0)
-                if row.get("last_purchase") and (
-                    not product["last_purchase"] or row["last_purchase"] > product["last_purchase"]
-                ):
-                    product["last_purchase"] = row["last_purchase"]
+                for source_product in row.get("products") or []:
+                    product_key = source_product.get("prefix5") or (source_product.get("name") or "").lower()
+                    product = owner["products"].setdefault(
+                        product_key,
+                        {
+                            "name": source_product.get("name") or "Product",
+                            "prefix5": source_product.get("prefix5") or "",
+                            "baskets": 0,
+                            "revenue": 0.0,
+                            "last_purchase": None,
+                        },
+                    )
+                    product["baskets"] += int(source_product.get("baskets") or 0)
+                    product["revenue"] += float(source_product.get("revenue") or 0.0)
+                    if source_product.get("last_purchase") and (
+                        not product["last_purchase"] or source_product["last_purchase"] > product["last_purchase"]
+                    ):
+                        product["last_purchase"] = source_product["last_purchase"]
                 if source not in owner["evidence_sources"]:
                     owner["evidence_sources"].append(source)
 
@@ -2522,12 +2708,22 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "upgrade_ready": ready,
                 "reachable": reachable,
             },
-            "customers": output[:200],
+            "customers": output[: max(int(result_limit or 200), 1)],
             "coverage": coverage,
         }
 
     @api.model
-    def get_product_360(self, query, start_date=None, end_date=None, source="auto", limit=20, entity=None, filters=None):
+    def get_product_360(
+        self,
+        query,
+        start_date=None,
+        end_date=None,
+        source="auto",
+        limit=20,
+        entity=None,
+        filters=None,
+        ownership_limit=200,
+    ):
         self._ensure_access()
         query = (query or "").strip()
         entity = self._normalize_entity(entity, query)
@@ -2669,7 +2865,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
             "reachable_baskets": int(top.get("co_baskets") or 0) if top else 0,
         }
-        ownership = self._ownership_insights(query, start, end, entity, filters)
+        ownership = self._ownership_insights(
+            query, start, end, entity, filters, result_limit=ownership_limit
+        )
         available_period = self._available_period(entity, query, filters)
         bundle = {
             "product": {
@@ -2890,7 +3088,9 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         self._ensure_access()
         if export_mode not in {"current_view", "detail_rows", "customers", "ownership", "legacy_live"}:
             export_mode = "current_view"
-        bundle = self.get_product_360(query, start_date, end_date, source, 100, entity, filters)
+        bundle = self.get_product_360(
+            query, start_date, end_date, source, 100, entity, filters, 50000
+        )
         comparison = self.get_legacy_comparison(query, entity, filters)
         stream = io.BytesIO()
         workbook = xlsxwriter.Workbook(stream, {"in_memory": True})
