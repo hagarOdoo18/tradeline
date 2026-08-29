@@ -1981,8 +1981,6 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         name = re.sub(r"^\s*\[[^]]+\]\s*", "", (product_name or "").strip())
         if not name:
             return "Other"
-        if re.search(r"\b(iphone|ipad|macbook|imac|airpods|apple watch|mac mini)\b", name, re.I):
-            return "Apple"
         token = re.split(r"[\s\-/|]+", name, maxsplit=1)[0].strip(".,()[]")
         if not token or token.isdigit() or len(token) < 2:
             return "Other"
@@ -2063,6 +2061,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "redmi": "Redmi",
             "sony": "Sony",
         }
+        if token.lower() in {"iphone", "ipad", "macbook", "imac", "airpods"} or re.match(
+            r"^(apple\s+watch|mac\s+mini)\b", name, re.I
+        ):
+            return "Apple"
         # Unknown first words are usually product families, game titles or noisy
         # imported descriptions rather than brands.  Keep them reachable under a
         # single human-readable bucket instead of flooding the executive selector.
