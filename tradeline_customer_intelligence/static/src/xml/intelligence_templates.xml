@@ -13,7 +13,7 @@
         </button>
         <div class="tl-selected-product"><span>Selected product</span><strong><t t-esc="selectedVariantLabel"/></strong></div>
         <details class="tl-history-scope">
-            <summary><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18"/></svg><span>Earliest sale — Latest available</span></summary>
+            <summary><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18"/></svg><span><small>Sales evidence window</small><strong><t t-esc="state.startDate"/> — <t t-esc="state.endDate"/></strong></span></summary>
             <div><label>From<input type="date" aria-label="From date" t-model="state.startDate" t-on-change="onDateChange"/></label><label>To<input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/></label></div>
         </details>
         <select class="tl-top-company" aria-label="Business scope" t-model="state.operatingCompanyId" t-on-change="onOperatingCompanyChange">
@@ -36,17 +36,14 @@
     </header>
 
     <section class="tl-catalog-explorer" t-if="state.catalogOpen">
-        <label><span>1. Brand</span><select data-field="brand" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="" t-att-selected="!catalogSelection.brand ? 'selected' : null">Choose brand</option><option t-foreach="catalog.brands || []" t-as="option" t-key="option.key" t-att-value="option.key" t-att-selected="option.key === catalogSelection.brand ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/></option></select></label>
+        <label class="is-category"><span>1. Category</span><select data-field="category_id" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.category_id ? 'selected' : null">Choose a category</option><option t-foreach="catalog.categories || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.category_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> items</option></select></label>
         <i>›</i>
-        <label><span>2. Vendor</span><select data-field="vendor_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.brand || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.vendor_id ? 'selected' : null">Choose vendor</option><option t-foreach="catalog.vendors || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.vendor_id ? 'selected' : null"><t t-esc="option.name"/></option></select></label>
+        <label class="is-product"><span>2. Item in this category</span><select data-field="product_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.category_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.product_id ? 'selected' : null">Choose an item</option><option t-foreach="catalog.products || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.product_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> option<t t-if="option.count !== 1">s</t></option></select></label>
         <i>›</i>
-        <label><span>3. Category</span><select data-field="category_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.vendor_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.category_id ? 'selected' : null">Choose category</option><option t-foreach="catalog.categories || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.category_id ? 'selected' : null"><t t-esc="option.name"/></option></select></label>
-        <i>›</i>
-        <label><span>4. Product</span><select data-field="product_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.category_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.product_id ? 'selected' : null">Choose product</option><option t-foreach="catalog.products || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.product_id ? 'selected' : null"><t t-esc="option.name"/></option></select></label>
-        <i>›</i>
-        <label class="is-variant"><span>5. Variant</span><select data-field="variant_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.product_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.variant_id ? 'selected' : null">Choose exact variant</option><option t-foreach="catalog.variants || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.variant_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="option.coverage_label"/></option></select></label>
+        <label class="is-variant"><span>3. Exact item / variant <em>Optional</em></span><select data-field="variant_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.product_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.variant_id ? 'selected' : null">All variants for this item</option><option t-foreach="catalog.variants || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.variant_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="option.coverage_label"/></option></select></label>
         <button class="tl-catalog-use" t-on-click="onAnalyzeCatalog" t-att-disabled="!catalogSelection.category_id || state.catalogLoading ? 'disabled' : null"><t t-esc="catalogActionLabel"/></button>
         <button class="tl-catalog-clear" t-on-click="onClearCatalog">Clear all</button>
+        <div class="tl-catalog-window"><span>Data used for this result</span><div><small>Earliest sale</small><strong><t t-esc="availablePeriod.start_date || state.startDate"/></strong><i>→</i><small>Latest sale</small><strong><t t-esc="availablePeriod.end_date || state.endDate"/></strong></div><p>Automatically based on the first and last matching sale.</p></div>
     </section>
 
     <main class="tl-intel-main">
@@ -60,7 +57,7 @@
             <section class="tl-product-heading">
                 <div>
                     <h1><t t-esc="product.name"/></h1>
-                    <p>Scope: All available sales · <t t-esc="availablePeriod.label || (state.startDate + ' — ' + state.endDate)"/></p>
+                    <p>Based on supporting sales · <strong><t t-esc="availablePeriod.start_date || state.startDate"/></strong> — <strong><t t-esc="availablePeriod.end_date || state.endDate"/></strong></p>
                 </div>
                 <div class="tl-scope-tools">
                     <div class="tl-customer-type-filter"><span>Customer type</span><div><button data-type="all" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'all' ? 'is-active' : ''">All</button><button data-type="individual" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'individual' ? 'is-active' : ''">Individuals</button><button data-type="company" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'company' ? 'is-active' : ''">Companies</button></div></div>

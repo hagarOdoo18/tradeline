@@ -2105,14 +2105,17 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
     @api.model
     def get_catalog_options(self, selection=None):
-        """Return a complete Brand → Vendor → Category → Product → Variant path.
+        """Return a human Category → Item → Variant path.
 
-        The visible path is entirely human-readable.  Exact variants include a
-        transport-safe prefix only so the service can join the historical and
-        current ledgers after selection; the UI never needs to display it.
+        The executive UI uses ``category_first`` so old brand/vendor choices can
+        never hide categories or items.  The legacy brand/vendor dictionaries are
+        retained for API compatibility.  Exact variants include a transport-safe
+        prefix only so the service can join the historical and current ledgers
+        after selection; the UI never needs to display it.
         """
         self._ensure_access()
         selection = dict(selection or {})
+        category_first = bool(selection.get("category_first"))
         try:
             variant_id = int(selection.get("variant_id") or 0)
         except (TypeError, ValueError):
@@ -2148,10 +2151,19 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     continue
                 current = grouped.setdefault(
                     option_key,
-                    {"id": option_key, "name": item.get(label) or str(option_key), "count": 0},
+                    {
+                        "id": option_key,
+                        "name": item.get(label) or str(option_key),
+                        "count_values": set(),
+                    },
                 )
-                current["count"] += 1 if item.get(count_key) else 0
-            return sorted(grouped.values(), key=lambda item: (item["name"].lower(), str(item["id"])))
+                if item.get(count_key):
+                    current["count_values"].add(item[count_key])
+            options = [
+                {"id": item["id"], "name": item["name"], "count": len(item["count_values"])}
+                for item in grouped.values()
+            ]
+            return sorted(options, key=lambda item: (item["name"].lower(), str(item["id"])))
 
         brands = []
         for option in option_rows(rows, "brand", "brand"):
@@ -2160,8 +2172,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         brand_rows = [row for row in rows if not brand or row["brand"].lower() == brand.lower()]
         vendors = option_rows(brand_rows, "vendor_id", "vendor_name")
         vendor_rows = [row for row in brand_rows if not vendor_id or int(row["vendor_id"] or 0) == vendor_id]
-        categories = option_rows(vendor_rows, "category_id", "category_name")
-        category_rows = [row for row in vendor_rows if not category_id or int(row["category_id"] or 0) == category_id]
+        category_source_rows = rows if category_first else vendor_rows
+        categories = option_rows(
+            category_source_rows,
+            "category_id",
+            "category_name",
+            count_key="product_id",
+        )
+        category_rows = [
+            row
+            for row in category_source_rows
+            if not category_id or int(row["category_id"] or 0) == category_id
+        ]
         products = option_rows(category_rows, "product_id", "product_name")
         product_rows = [row for row in category_rows if not product_id or int(row["product_id"] or 0) == product_id]
 
@@ -2203,6 +2225,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         return self._transport_safe(
             {
                 "selection": {
+                    "category_first": category_first,
                     "brand": brand,
                     "vendor_id": vendor_id,
                     "category_id": category_id,

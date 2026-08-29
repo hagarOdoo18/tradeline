@@ -348,6 +348,19 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(selected["coverage_label"], "Historical + current")
         self.assertEqual(catalog["join_rule"], "normalized_item_prefix_5")
 
+    def test_category_first_catalog_ignores_hidden_brand_vendor_filters(self):
+        catalog = self.service.get_catalog_options(
+            {
+                "category_first": True,
+                "brand": "Not the product brand",
+                "vendor_id": 999999999,
+                "category_id": self.child_category.id,
+            }
+        )
+        self.assertTrue(catalog["selection"]["category_first"])
+        self.assertIn(self.child_category.id, [row["id"] for row in catalog["categories"]])
+        self.assertIn(self.template.id, [row["id"] for row in catalog["products"]])
+
     def test_dimension_merge_does_not_double_first_source(self):
         merged = self.service._merge_dimension_rows(
             [

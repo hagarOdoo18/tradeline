@@ -24,7 +24,7 @@ export class TradelineCustomerIntelligence extends Component {
             endDate: new Date().toISOString().slice(0, 10),
             catalogOpen: true,
             catalog: { brands: [], vendors: [], categories: [], products: [], variants: [] },
-            catalogSelection: { brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
+            catalogSelection: { category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
             bundle: null,
             comparison: null,
             comparisonLoading: false,
@@ -102,8 +102,8 @@ export class TradelineCustomerIntelligence extends Component {
             || "Choose a product";
     }
     get catalogActionLabel() {
-        if (this.catalogSelection.variant_id) return "Analyze variant";
-        if (this.catalogSelection.product_id) return "Analyze product family";
+        if (this.catalogSelection.variant_id) return "Analyze exact item";
+        if (this.catalogSelection.product_id) return "Analyze item";
         if (this.catalogSelection.category_id) return "Analyze category";
         return "Choose a category";
     }
@@ -299,11 +299,15 @@ export class TradelineCustomerIntelligence extends Component {
         const field = ev.currentTarget.dataset.field;
         const rawValue = ev.target.value;
         const value = field === "brand" ? rawValue : Number(rawValue || 0);
-        const order = ["brand", "vendor_id", "category_id", "product_id", "variant_id"];
+        const order = ["category_id", "product_id", "variant_id"];
         const index = order.indexOf(field);
         this.state.catalogSelection[field] = value;
+        if (field === "category_id") {
+            this.state.catalogSelection.brand = "";
+            this.state.catalogSelection.vendor_id = 0;
+        }
         for (const downstream of order.slice(index + 1)) {
-            this.state.catalogSelection[downstream] = downstream === "brand" ? "" : 0;
+            this.state.catalogSelection[downstream] = 0;
         }
         if (field !== "variant_id") {
             this.state.selectedEntity = null;
@@ -315,11 +319,25 @@ export class TradelineCustomerIntelligence extends Component {
             await this.useAllAvailableHistory();
             await this.loadProduct();
             this.state.catalogOpen = false;
+        } else if (field === "product_id" && value) {
+            const product = this.catalog.products?.find(item => Number(item.id) === value);
+            if (product) {
+                this.state.selectedEntity = {
+                    type: "product",
+                    id: Number(product.id),
+                    name: product.name,
+                    source: "unified",
+                };
+                this.state.query = product.name;
+                this.state.comparison = null;
+                await this.useAllAvailableHistory();
+                await this.loadProduct();
+            }
         }
     }
 
     async onClearCatalog() {
-        this.state.catalogSelection = { brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
+        this.state.catalogSelection = { category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
         this.state.selectedEntity = null;
         await this.loadCatalogOptions();
     }
