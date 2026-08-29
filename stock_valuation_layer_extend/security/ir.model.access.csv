@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_stock_valuation_layer_report,stock.valuation.layer.report,model_stock_valuation_layer_report,stock.group_stock_user,1,0,0,0
 access_stock_valuation_layer_report_manager,stock.valuation.layer.report.manager,model_stock_valuation_layer_report,stock.group_stock_manager,1,0,0,0
+access_stock_valuation_layer_neutralize_wizard,stock.valuation.layer.neutralize.wizard,model_stock_valuation_layer_neutralize_wizard,stock_valuation_layer_extend.group_stock_valuation_quantity_correction,1,1,1,1

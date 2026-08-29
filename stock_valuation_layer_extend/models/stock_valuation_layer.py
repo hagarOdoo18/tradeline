@@ -7,6 +7,14 @@ from .search_helpers import rewrite_product_id_text_domain, search_product_ids_b
 class StockValuationLayer(models.Model):
     _inherit = 'stock.valuation.layer'
 
+    _sql_constraints = [
+        (
+            'quantity_neutralization_source_unique',
+            'unique(quantity_neutralization_source_id)',
+            'An erroneous valuation layer can only be neutralized once.',
+        ),
+    ]
+
     # ── Category / Family / Vendor ─────────────────────────────────────────────
 
 
@@ -59,6 +67,40 @@ class StockValuationLayer(models.Model):
         aggregator=False,
         store=False,
         readonly=True,
+    )
+
+    is_quantity_neutralization = fields.Boolean(
+        string='Quantity Neutralization',
+        readonly=True,
+        copy=False,
+        help='Technical valuation-only correction of an erroneous quantity update.',
+    )
+
+    quantity_neutralization_source_id = fields.Many2one(
+        comodel_name='stock.valuation.layer',
+        string='Neutralizes Valuation Layer',
+        readonly=True,
+        copy=False,
+        index=True,
+    )
+
+    quantity_neutralization_reason = fields.Text(
+        string='Neutralization Reason',
+        readonly=True,
+        copy=False,
+    )
+
+    quantity_neutralization_user_id = fields.Many2one(
+        comodel_name='res.users',
+        string='Neutralized By',
+        readonly=True,
+        copy=False,
+    )
+
+    quantity_neutralization_date = fields.Datetime(
+        string='Neutralized On',
+        readonly=True,
+        copy=False,
     )
 
     # ── Compute methods ────────────────────────────────────────────────────────
