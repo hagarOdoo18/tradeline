@@ -2085,6 +2085,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 REGEXP_REPLACE(COALESCE(NULLIF(category.complete_name, ''), 'Uncategorized'), '^.*/[[:space:]]*', '') AS category_name,
                 product.vendor_id,
                 COALESCE(vendor.name, 'Unassigned vendor') AS vendor_name,
+                COALESCE(product.default_code, '') AS internal_reference,
+                COALESCE(product.barcode, '') AS barcode,
                 COALESCE(product.barcode, product.default_code, '') AS item_code
             FROM product_product product
             JOIN product_template template ON template.id = product.product_tmpl_id
@@ -2105,17 +2107,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
 
     @api.model
     def get_catalog_options(self, selection=None):
-        """Return a human Category → Item → Variant path.
+        """Return a human one-filter → Item → Variant path.
 
-        The executive UI uses ``category_first`` so old brand/vendor choices can
-        never hide categories or items.  The legacy brand/vendor dictionaries are
-        retained for API compatibility.  Exact variants include a transport-safe
-        prefix only so the service can join the historical and current ledgers
-        after selection; the UI never needs to display it.
+        Executives may browse independently by category, brand, or vendor; they
+        never need to complete every dimension.  ``category_first`` remains for
+        API compatibility.  Exact variants include a transport-safe prefix only
+        so the service can join the historical and current ledgers after
+        selection; the UI never needs to display it.
         """
         self._ensure_access()
         selection = dict(selection or {})
         category_first = bool(selection.get("category_first"))
+        browse_by = (selection.get("browse_by") or "").strip().lower()
+        if browse_by not in {"category", "brand", "vendor"}:
+            browse_by = ""
         try:
             variant_id = int(selection.get("variant_id") or 0)
         except (TypeError, ValueError):
@@ -2170,9 +2175,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             brands.append({"key": option["id"], "name": option["name"], "count": option["count"]})
 
         brand_rows = [row for row in rows if not brand or row["brand"].lower() == brand.lower()]
-        vendors = option_rows(brand_rows, "vendor_id", "vendor_name")
+        vendor_source_rows = rows if browse_by else brand_rows
+        vendors = option_rows(vendor_source_rows, "vendor_id", "vendor_name")
         vendor_rows = [row for row in brand_rows if not vendor_id or int(row["vendor_id"] or 0) == vendor_id]
-        category_source_rows = rows if category_first else vendor_rows
+        category_source_rows = rows if category_first or browse_by else vendor_rows
         categories = option_rows(
             category_source_rows,
             "category_id",
@@ -2184,8 +2190,22 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             for row in category_source_rows
             if not category_id or int(row["category_id"] or 0) == category_id
         ]
-        products = option_rows(category_rows, "product_id", "product_name")
-        product_rows = [row for row in category_rows if not product_id or int(row["product_id"] or 0) == product_id]
+        if browse_by == "brand":
+            product_source_rows = brand_rows
+        elif browse_by == "vendor":
+            product_source_rows = [
+                row for row in rows if not vendor_id or int(row["vendor_id"] or 0) == vendor_id
+            ]
+        elif browse_by == "category":
+            product_source_rows = category_rows
+        else:
+            product_source_rows = category_rows
+        products = option_rows(product_source_rows, "product_id", "product_name")
+        product_rows = [
+            row
+            for row in product_source_rows
+            if not product_id or int(row["product_id"] or 0) == product_id
+        ]
 
         variants = []
         if product_id:
@@ -2193,6 +2213,13 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 [row["variant_id"] for row in product_rows]
             ).exists()
             display_names = {record.id: record.display_name for record in variant_records}
+            base_variant_names = {
+                row["variant_id"]: display_names.get(row["variant_id"]) or row["product_name"]
+                for row in product_rows
+            }
+            display_name_counts = defaultdict(int)
+            for name in base_variant_names.values():
+                display_name_counts[name] += 1
             prefixes = sorted({row["prefix5"] for row in product_rows if row["prefix5"]})
             historical_prefixes = set()
             if prefixes and self._has_table("legacy_product_month_fact"):
@@ -2208,10 +2235,18 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 historical_prefixes = {row[0] for row in self.env.cr.fetchall() if row[0]}
             for row in product_rows:
                 prefix = row["prefix5"]
+                variant_name = base_variant_names[row["variant_id"]]
+                if display_name_counts[variant_name] > 1:
+                    identifier = (
+                        row.get("internal_reference")
+                        or row.get("barcode")
+                        or f"catalog option {row['variant_id']}"
+                    )
+                    variant_name = f"{variant_name} — Item {identifier}"
                 variants.append(
                     {
                         "id": row["variant_id"],
-                        "name": display_names.get(row["variant_id"]) or row["product_name"],
+                        "name": variant_name,
                         "item_code": row["item_code"],
                         "prefix5": prefix,
                         "type": "variant",
@@ -2226,6 +2261,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             {
                 "selection": {
                     "category_first": category_first,
+                    "browse_by": browse_by,
                     "brand": brand,
                     "vendor_id": vendor_id,
                     "category_id": category_id,

@@ -24,7 +24,7 @@ export class TradelineCustomerIntelligence extends Component {
             endDate: new Date().toISOString().slice(0, 10),
             catalogOpen: true,
             catalog: { brands: [], vendors: [], categories: [], products: [], variants: [] },
-            catalogSelection: { category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
+            catalogSelection: { browse_by: "category", category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
             bundle: null,
             comparison: null,
             comparisonLoading: false,
@@ -104,8 +104,21 @@ export class TradelineCustomerIntelligence extends Component {
     get catalogActionLabel() {
         if (this.catalogSelection.variant_id) return "Analyze exact item";
         if (this.catalogSelection.product_id) return "Analyze item";
-        if (this.catalogSelection.category_id) return "Analyze category";
-        return "Choose a category";
+        if (this.catalogSelection.browse_by === "category" && this.catalogSelection.category_id) return "Analyze category";
+        return "Choose an item";
+    }
+    get catalogFilterReady() {
+        const selection = this.catalogSelection;
+        if (selection.browse_by === "brand") return Boolean(selection.brand);
+        if (selection.browse_by === "vendor") return Boolean(selection.vendor_id);
+        return Boolean(selection.category_id);
+    }
+    get catalogCanAnalyze() {
+        return Boolean(
+            this.catalogSelection.product_id
+            || this.catalogSelection.variant_id
+            || (this.catalogSelection.browse_by === "category" && this.catalogSelection.category_id)
+        );
     }
     get comparison() { return this.state.comparison || {}; }
     get comparisonMonths() { return this.comparison.months || []; }
@@ -298,16 +311,29 @@ export class TradelineCustomerIntelligence extends Component {
     async onCatalogChange(ev) {
         const field = ev.currentTarget.dataset.field;
         const rawValue = ev.target.value;
-        const value = field === "brand" ? rawValue : Number(rawValue || 0);
-        const order = ["category_id", "product_id", "variant_id"];
-        const index = order.indexOf(field);
+        const value = ["brand", "browse_by"].includes(field) ? rawValue : Number(rawValue || 0);
         this.state.catalogSelection[field] = value;
-        if (field === "category_id") {
+        if (field === "browse_by") {
+            this.state.catalogSelection.category_first = value === "category";
             this.state.catalogSelection.brand = "";
             this.state.catalogSelection.vendor_id = 0;
+            this.state.catalogSelection.category_id = 0;
+            this.state.catalogSelection.product_id = 0;
+            this.state.catalogSelection.variant_id = 0;
+            this.state.selectedEntity = null;
+            await this.loadCatalogOptions();
+            return;
         }
-        for (const downstream of order.slice(index + 1)) {
-            this.state.catalogSelection[downstream] = 0;
+        if (["brand", "vendor_id", "category_id"].includes(field)) {
+            for (const browseField of ["brand", "vendor_id", "category_id"]) {
+                if (browseField !== field) {
+                    this.state.catalogSelection[browseField] = browseField === "brand" ? "" : 0;
+                }
+            }
+            this.state.catalogSelection.product_id = 0;
+            this.state.catalogSelection.variant_id = 0;
+        } else if (field === "product_id") {
+            this.state.catalogSelection.variant_id = 0;
         }
         if (field !== "variant_id") {
             this.state.selectedEntity = null;
@@ -337,7 +363,7 @@ export class TradelineCustomerIntelligence extends Component {
     }
 
     async onClearCatalog() {
-        this.state.catalogSelection = { category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
+        this.state.catalogSelection = { browse_by: "category", category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
         this.state.selectedEntity = null;
         await this.loadCatalogOptions();
     }
@@ -356,7 +382,7 @@ export class TradelineCustomerIntelligence extends Component {
                 item => Number(item.id) === Number(selection.product_id)
             );
             if (product) selected = { type: "product", id: Number(product.id), name: product.name, source: "unified" };
-        } else if (selection.category_id) {
+        } else if (selection.browse_by === "category" && selection.category_id) {
             const category = this.catalog.categories?.find(
                 item => Number(item.id) === Number(selection.category_id)
             );

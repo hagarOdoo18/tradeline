@@ -361,6 +361,44 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertIn(self.child_category.id, [row["id"] for row in catalog["categories"]])
         self.assertIn(self.template.id, [row["id"] for row in catalog["products"]])
 
+    def test_browse_by_brand_needs_no_category_or_vendor(self):
+        catalog = self.service.get_catalog_options(
+            {
+                "browse_by": "brand",
+                "brand": "Other",
+                "vendor_id": 999999999,
+                "category_id": 999999999,
+            }
+        )
+        self.assertEqual(catalog["selection"]["browse_by"], "brand")
+        self.assertIn(self.template.id, [row["id"] for row in catalog["products"]])
+
+    def test_duplicate_variant_names_receive_readable_item_identifiers(self):
+        self.variant.write({"default_code": False, "barcode": "9876543210123"})
+        duplicate = self.env["product.product"].create(
+            {
+                "product_tmpl_id": self.template.id,
+                "default_code": False,
+                "barcode": "1234567890123",
+            }
+        )
+        catalog = self.service.get_catalog_options(
+            {
+                "browse_by": "category",
+                "category_id": self.child_category.id,
+                "product_id": self.template.id,
+            }
+        )
+        names = {
+            row["id"]: row["name"]
+            for row in catalog["variants"]
+            if row["id"] in {self.variant.id, duplicate.id}
+        }
+        self.assertEqual(len(names), 2)
+        self.assertNotEqual(names[self.variant.id], names[duplicate.id])
+        self.assertIn("Item", names[self.variant.id])
+        self.assertIn("Item", names[duplicate.id])
+
     def test_dimension_merge_does_not_double_first_source(self):
         merged = self.service._merge_dimension_rows(
             [
