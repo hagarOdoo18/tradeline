@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import re
+from collections import defaultdict
 from datetime import date
 from math import sqrt
 
@@ -19,6 +20,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     SOURCE_LABELS = {
         "current": "Current operations",
         "legacy": "Historical sales",
+        "unified": "Unified sales history",
     }
 
     def _ensure_access(self):
@@ -364,6 +366,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         'Product ' || line.product_id::text
                     ) AS product_name,
                     COALESCE(product.barcode, product.default_code, '') AS item_code,
+                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
                     line.quantity,
                     line.price_subtotal AS revenue
                 FROM account_move_line line
@@ -394,20 +397,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 LIMIT 1
             ),
             basket_companions AS (
-                SELECT DISTINCT basket_id, product_id, product_name
+                SELECT DISTINCT basket_id, product_id, product_name, prefix5
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
                   AND NOT ({anchor_sql})
             ),
             companion_totals AS (
-                SELECT product_id, product_name, COUNT(DISTINCT basket_id) AS co_baskets
+                SELECT product_id, product_name, prefix5, COUNT(DISTINCT basket_id) AS co_baskets
                 FROM basket_companions
-                GROUP BY product_id, product_name
+                GROUP BY product_id, product_name, prefix5
             ),
             base_totals AS (
-                SELECT product_id, COUNT(DISTINCT basket_id) AS base_baskets
+                SELECT product_id, prefix5, COUNT(DISTINCT basket_id) AS base_baskets
                 FROM scope_lines
-                GROUP BY product_id
+                GROUP BY product_id, prefix5
             ),
             totals AS (
                 SELECT
@@ -427,6 +430,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             SELECT
                 companion.product_id::text AS product_key,
                 companion.product_name,
+                companion.prefix5,
                 companion.co_baskets,
                 base.base_baskets,
                 totals.anchor_baskets,
@@ -436,7 +440,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 totals.identified_customers,
                 (SELECT product_name FROM anchor_names) AS anchor_name
             FROM companion_totals companion
-            JOIN base_totals base ON base.product_id = companion.product_id
+            JOIN base_totals base ON base.product_id = companion.product_id AND base.prefix5 = companion.prefix5
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
@@ -570,6 +574,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     ) AS product_key,
                     COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Unmapped product') AS product_name,
                     COALESCE(line.item_code, '') AS item_code,
+                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
                     line.quantity,
                     line.price_subtotal AS revenue
                 FROM legacy_invoice_line line
@@ -596,20 +601,20 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 LIMIT 1
             ),
             basket_companions AS (
-                SELECT DISTINCT basket_id, product_key, product_name
+                SELECT DISTINCT basket_id, product_key, product_name, prefix5
                 FROM scope_lines
                 WHERE basket_id IN (SELECT basket_id FROM anchor_baskets)
                   AND NOT ({anchor_sql})
             ),
             companion_totals AS (
-                SELECT product_key, product_name, COUNT(DISTINCT basket_id) AS co_baskets
+                SELECT product_key, product_name, prefix5, COUNT(DISTINCT basket_id) AS co_baskets
                 FROM basket_companions
-                GROUP BY product_key, product_name
+                GROUP BY product_key, product_name, prefix5
             ),
             base_totals AS (
-                SELECT product_key, COUNT(DISTINCT basket_id) AS base_baskets
+                SELECT product_key, prefix5, COUNT(DISTINCT basket_id) AS base_baskets
                 FROM scope_lines
-                GROUP BY product_key
+                GROUP BY product_key, prefix5
             ),
             totals AS (
                 SELECT
@@ -629,6 +634,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             SELECT
                 companion.product_key,
                 companion.product_name,
+                companion.prefix5,
                 companion.co_baskets,
                 base.base_baskets,
                 totals.anchor_baskets,
@@ -638,7 +644,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 totals.identified_customers,
                 (SELECT product_name FROM anchor_names) AS anchor_name
             FROM companion_totals companion
-            JOIN base_totals base ON base.product_key = companion.product_key
+            JOIN base_totals base ON base.product_key = companion.product_key AND base.prefix5 = companion.prefix5
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
@@ -1086,7 +1092,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 {
                     "key": key,
                     "label": self.SOURCE_LABELS[key],
-                    "status": "active" if key == source_used else ("available" if counts[key] else "empty"),
+                    "status": (
+                        "active"
+                        if counts[key] and source_used in {key, "unified"}
+                        else ("available" if counts[key] else "empty")
+                    ),
                     "anchor_baskets": counts[key],
                 }
             )
@@ -1108,7 +1118,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "start_date": fields.Date.to_string(start),
             "end_date": fields.Date.to_string(end),
             "sources": coverage,
-            "rule": "The engine selects the authoritative ledger for the period; overlapping records are never added together.",
+            "rule": (
+                "Historical sales and current operations are combined into one continuous result. "
+                "Each invoice remains attributable to its supporting ledger and overlapping identities are joined by the normalized item code."
+            ),
         }
 
     def _comparison_identity_rows(self, prefixes, entity):
@@ -1801,6 +1814,259 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         """Compatibility alias for clients deployed before hierarchical search."""
         return self.search_entities(query, limit)
 
+    @staticmethod
+    def _catalog_brand(product_name):
+        """Return a human brand label when the catalog has no dedicated brand field.
+
+        Tradeline's current catalog carries category, vendor and variant attributes,
+        but it does not carry a brand model.  Product names do carry a stable brand
+        token.  Keep this derivation deliberately conservative so it remains a
+        navigation aid and never becomes a cross-system identity key.
+        """
+        name = re.sub(r"^\s*\[[^]]+\]\s*", "", (product_name or "").strip())
+        if not name:
+            return "Other"
+        if re.search(r"\b(iphone|ipad|macbook|imac|airpods|apple watch|mac mini)\b", name, re.I):
+            return "Apple"
+        token = re.split(r"[\s\-/|]+", name, maxsplit=1)[0].strip(".,()[]")
+        if not token or token.isdigit() or len(token) < 2:
+            return "Other"
+        known = {
+            "apple": "Apple",
+            "belkin": "Belkin",
+            "anker": "Anker",
+            "uniq": "Uniq",
+            "laut": "Laut",
+            "beats": "Beats",
+            "samsung": "Samsung",
+            "huawei": "Huawei",
+            "honor": "Honor",
+            "xiaomi": "Xiaomi",
+            "oppo": "OPPO",
+            "jbl": "JBL",
+        }
+        return known.get(token.lower(), token[:1].upper() + token[1:])
+
+    def _catalog_rows(self):
+        """Read the live catalog once for a complete cascading selector response."""
+        self.env.cr.execute(
+            """
+            SELECT
+                product.id AS variant_id,
+                template.id AS product_id,
+                COALESCE(
+                    NULLIF(template.name->>'en_US', ''),
+                    NULLIF(template.name->>'en', ''),
+                    NULLIF(product.default_code, ''),
+                    'Product ' || product.id::text
+                ) AS product_name,
+                category.id AS category_id,
+                REGEXP_REPLACE(COALESCE(NULLIF(category.complete_name, ''), 'Uncategorized'), '^.*/[[:space:]]*', '') AS category_name,
+                product.vendor_id,
+                COALESCE(vendor.name, 'Unassigned vendor') AS vendor_name,
+                COALESCE(product.barcode, product.default_code, '') AS item_code
+            FROM product_product product
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            LEFT JOIN product_category category ON category.id = template.categ_id
+            LEFT JOIN res_partner vendor ON vendor.id = product.vendor_id
+            WHERE COALESCE(product.active, TRUE)
+              AND COALESCE(template.active, TRUE)
+              AND COALESCE(template.sale_ok, TRUE)
+            ORDER BY product_name, product.id
+            """
+        )
+        columns = [column[0] for column in self.env.cr.description]
+        rows = [dict(zip(columns, values)) for values in self.env.cr.fetchall()]
+        for row in rows:
+            row["brand"] = self._catalog_brand(row["product_name"])
+            row["prefix5"] = self._code_prefix(row["item_code"])
+        return rows
+
+    @api.model
+    def get_catalog_options(self, selection=None):
+        """Return a complete Brand → Vendor → Category → Product → Variant path.
+
+        The visible path is entirely human-readable.  Exact variants include a
+        transport-safe prefix only so the service can join the historical and
+        current ledgers after selection; the UI never needs to display it.
+        """
+        self._ensure_access()
+        selection = dict(selection or {})
+        try:
+            variant_id = int(selection.get("variant_id") or 0)
+        except (TypeError, ValueError):
+            variant_id = 0
+        try:
+            product_id = int(selection.get("product_id") or 0)
+        except (TypeError, ValueError):
+            product_id = 0
+        try:
+            category_id = int(selection.get("category_id") or 0)
+        except (TypeError, ValueError):
+            category_id = 0
+        try:
+            vendor_id = int(selection.get("vendor_id") or 0)
+        except (TypeError, ValueError):
+            vendor_id = 0
+        brand = (selection.get("brand") or "").strip()
+
+        rows = self._catalog_rows()
+        by_variant = {row["variant_id"]: row for row in rows}
+        if variant_id and variant_id in by_variant:
+            selected = by_variant[variant_id]
+            brand = selected["brand"]
+            vendor_id = int(selected["vendor_id"] or 0)
+            category_id = int(selected["category_id"] or 0)
+            product_id = int(selected["product_id"] or 0)
+
+        def option_rows(items, key, label, *, count_key="variant_id"):
+            grouped = {}
+            for item in items:
+                option_key = item.get(key)
+                if option_key in (None, ""):
+                    continue
+                current = grouped.setdefault(
+                    option_key,
+                    {"id": option_key, "name": item.get(label) or str(option_key), "count": 0},
+                )
+                current["count"] += 1 if item.get(count_key) else 0
+            return sorted(grouped.values(), key=lambda item: (item["name"].lower(), str(item["id"])))
+
+        brands = []
+        for option in option_rows(rows, "brand", "brand"):
+            brands.append({"key": option["id"], "name": option["name"], "count": option["count"]})
+
+        brand_rows = [row for row in rows if not brand or row["brand"].lower() == brand.lower()]
+        vendors = option_rows(brand_rows, "vendor_id", "vendor_name")
+        vendor_rows = [row for row in brand_rows if not vendor_id or int(row["vendor_id"] or 0) == vendor_id]
+        categories = option_rows(vendor_rows, "category_id", "category_name")
+        category_rows = [row for row in vendor_rows if not category_id or int(row["category_id"] or 0) == category_id]
+        products = option_rows(category_rows, "product_id", "product_name")
+        product_rows = [row for row in category_rows if not product_id or int(row["product_id"] or 0) == product_id]
+
+        variants = []
+        if product_id:
+            variant_records = self.env["product.product"].sudo().browse(
+                [row["variant_id"] for row in product_rows]
+            ).exists()
+            display_names = {record.id: record.display_name for record in variant_records}
+            prefixes = sorted({row["prefix5"] for row in product_rows if row["prefix5"]})
+            historical_prefixes = set()
+            if prefixes and self._has_table("legacy_product_month_fact"):
+                prefix_sql = self._sql_prefix_expr("source_default_code", "source_barcode")
+                self.env.cr.execute(
+                    f"""
+                    SELECT DISTINCT {prefix_sql}
+                    FROM legacy_product_month_fact
+                    WHERE {prefix_sql} = ANY(%s)
+                    """,
+                    [prefixes],
+                )
+                historical_prefixes = {row[0] for row in self.env.cr.fetchall() if row[0]}
+            for row in product_rows:
+                prefix = row["prefix5"]
+                variants.append(
+                    {
+                        "id": row["variant_id"],
+                        "name": display_names.get(row["variant_id"]) or row["product_name"],
+                        "item_code": row["item_code"],
+                        "prefix5": prefix,
+                        "type": "variant",
+                        "source": "unified" if prefix in historical_prefixes else "current",
+                        "coverage_label": "Historical + current" if prefix in historical_prefixes else "Current catalog",
+                    }
+                )
+            variants.sort(key=lambda item: item["name"].lower())
+
+        selected_variant = next((item for item in variants if item["id"] == variant_id), None)
+        return self._transport_safe(
+            {
+                "selection": {
+                    "brand": brand,
+                    "vendor_id": vendor_id,
+                    "category_id": category_id,
+                    "product_id": product_id,
+                    "variant_id": variant_id,
+                },
+                "brands": brands,
+                "vendors": vendors,
+                "categories": categories,
+                "products": products,
+                "variants": variants,
+                "selected_variant": selected_variant,
+                "join_rule": "normalized_item_prefix_5",
+            }
+        )
+
+    def _available_period(self, entity, query, filters=None):
+        """Find the real first and last supporting invoice for the selected scope."""
+        filters = self._normalize_filters(filters)
+        current_sql, current_params = self._anchor_clause(entity, query, source="current", scoped=False)
+        current_audience_sql, current_audience_params = self._audience_sql("move", filters)
+        company_ids = self._company_ids(filters)
+        self.env.cr.execute(
+            """
+            SELECT MIN(move.invoice_date), MAX(move.invoice_date), COUNT(DISTINCT move.id)
+            FROM account_move_line line
+            JOIN account_move move ON move.id = line.move_id
+            JOIN product_product product ON product.id = line.product_id
+            JOIN product_template template ON template.id = product.product_tmpl_id
+            WHERE move.state = 'posted'
+              AND move.move_type IN ('out_invoice', 'out_receipt')
+              AND move.invoice_date >= DATE '2025-01-01'
+              AND move.company_id = ANY(%s)
+              {audience_sql}
+              AND line.quantity > 0
+              AND {anchor_sql}
+            """.format(anchor_sql=current_sql, audience_sql=current_audience_sql),
+            [company_ids, *current_audience_params, *current_params],
+        )
+        current_start, current_end, current_count = self.env.cr.fetchone()
+        legacy_start = legacy_end = None
+        legacy_count = 0
+        if self._has_table("legacy_invoice_line"):
+            legacy_sql, legacy_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
+            legacy_audience_sql, legacy_audience_params = self._audience_sql("invoice", filters, source="legacy")
+            business_sql, business_params = self._legacy_business_sql("invoice", filters)
+            self.env.cr.execute(
+                """
+                SELECT MIN(invoice.invoice_date), MAX(invoice.invoice_date), COUNT(DISTINCT invoice.id)
+                FROM legacy_invoice_line line
+                JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
+                WHERE invoice.invoice_date >= DATE '2025-01-01'
+                  {business_sql}
+                  {audience_sql}
+                  AND invoice.invoice_type = 'out_invoice'
+                  AND invoice.state <> 'cancel'
+                  AND line.quantity > 0
+                  AND {anchor_sql}
+                """.format(
+                    anchor_sql=legacy_sql,
+                    audience_sql=legacy_audience_sql,
+                    business_sql=business_sql,
+                ),
+                [*business_params, *legacy_audience_params, *legacy_params],
+            )
+            legacy_start, legacy_end, legacy_count = self.env.cr.fetchone()
+        starts = [value for value in (legacy_start, current_start) if value]
+        ends = [value for value in (legacy_end, current_end) if value]
+        start = min(starts) if starts else date(2025, 1, 1)
+        end = max(ends) if ends else fields.Date.today()
+        return {
+            "start_date": fields.Date.to_string(start),
+            "end_date": fields.Date.to_string(end),
+            "label": f"{start.strftime('%b %Y')} — {end.strftime('%b %Y')}",
+            "current_baskets": int(current_count or 0),
+            "historical_baskets": int(legacy_count or 0),
+        }
+
+    @api.model
+    def get_available_period(self, query, entity=None, filters=None):
+        self._ensure_access()
+        query = (query or "").strip()
+        normalized = self._normalize_entity(entity, query)
+        return self._transport_safe(self._available_period(normalized, query, filters))
+
     @api.model
     def get_filter_options(self):
         """Small, human-readable filter dictionary for the command bar."""
@@ -1823,7 +2089,439 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "operating_companies": [
                 {"id": company.id, "name": company.name} for company in operating_companies
             ],
-            "default_operating_company_id": self.env.company.id,
+            "default_operating_company_id": 0,
+        }
+
+    @staticmethod
+    def _customer_identity(customer):
+        if customer.get("partner_id"):
+            return f"partner:{int(customer['partner_id'])}"
+        email = (customer.get("email") or "").strip().lower()
+        if email:
+            return f"email:{email}"
+        mobile = re.sub(r"[^0-9+]", "", customer.get("mobile") or "")
+        if mobile:
+            return f"mobile:{mobile}"
+        return f"name:{(customer.get('name') or 'unknown').strip().lower()}"
+
+    def _merge_customers(self, source_rows):
+        merged = {}
+        for source, rows in source_rows:
+            for row in rows:
+                key = self._customer_identity(row)
+                current = merged.setdefault(
+                    key,
+                    {
+                        "customer_key": key,
+                        "partner_id": row.get("partner_id") or 0,
+                        "name": row.get("name") or "Customer",
+                        "email": row.get("email") or "",
+                        "mobile": row.get("mobile") or "",
+                        "is_company": bool(row.get("is_company")),
+                        "company_name": row.get("company_name") or "",
+                        "baskets": 0,
+                        "revenue": 0.0,
+                        "last_purchase": None,
+                        "evidence_sources": [],
+                    },
+                )
+                current["partner_id"] = current["partner_id"] or row.get("partner_id") or 0
+                current["email"] = current["email"] or row.get("email") or ""
+                current["mobile"] = current["mobile"] or row.get("mobile") or ""
+                current["company_name"] = current["company_name"] or row.get("company_name") or ""
+                current["is_company"] = current["is_company"] or bool(row.get("is_company"))
+                current["baskets"] += int(row.get("baskets") or 0)
+                current["revenue"] += float(row.get("revenue") or 0.0)
+                last_purchase = row.get("last_purchase")
+                if last_purchase and (not current["last_purchase"] or last_purchase > current["last_purchase"]):
+                    current["last_purchase"] = last_purchase
+                if source not in current["evidence_sources"]:
+                    current["evidence_sources"].append(source)
+        return sorted(merged.values(), key=lambda row: (-row["baskets"], -row["revenue"], row["name"]))[:100]
+
+    @staticmethod
+    def _merge_dimension_rows(groups, *, value_fields):
+        merged = {}
+        for rows in groups:
+            for row in rows or []:
+                key = row.get("period") or row.get("name") or "Unknown"
+                if key not in merged:
+                    merged[key] = dict(row)
+                    continue
+                current = merged[key]
+                for field_name in value_fields:
+                    current[field_name] = float(current.get(field_name) or 0) + float(row.get(field_name) or 0)
+        output = list(merged.values())
+        if output and output[0].get("period"):
+            output.sort(key=lambda row: row.get("period") or "")
+        else:
+            output.sort(key=lambda row: (-float(row.get("baskets") or 0), row.get("name") or ""))
+        return output
+
+    def _merge_dimensions(self, current, legacy):
+        current = current or {}
+        legacy = legacy or {}
+        current_summary = current.get("scope_summary") or {}
+        legacy_summary = legacy.get("scope_summary") or {}
+        return {
+            "scope_summary": {
+                key: int(current_summary.get(key) or 0) + int(legacy_summary.get(key) or 0)
+                for key in ("baskets", "identified_baskets", "identified_customers")
+            },
+            "trend": self._merge_dimension_rows(
+                [current.get("trend"), legacy.get("trend")], value_fields=("baskets", "revenue")
+            ),
+            "store_mix": self._merge_dimension_rows(
+                [current.get("store_mix"), legacy.get("store_mix")], value_fields=("baskets", "revenue")
+            )[:8],
+            "salesperson_mix": self._merge_dimension_rows(
+                [current.get("salesperson_mix"), legacy.get("salesperson_mix")], value_fields=("baskets", "revenue")
+            )[:8],
+            "discount_mix": self._merge_dimension_rows(
+                [current.get("discount_mix"), legacy.get("discount_mix")], value_fields=("baskets",)
+            ),
+            "channel_mix": self._merge_dimension_rows(
+                [current.get("channel_mix"), legacy.get("channel_mix")], value_fields=("baskets",)
+            )[:8],
+        }
+
+    def _merge_source_results(self, current_result, legacy_result, limit):
+        current_companions, current_customers, current_payments, current_dimensions = current_result
+        legacy_companions, legacy_customers, legacy_payments, legacy_dimensions = legacy_result
+        merged_companions = {}
+        source_totals = {}
+        for source, rows in (("current", current_companions), ("legacy", legacy_companions)):
+            if rows:
+                source_totals[source] = {
+                    "anchor_baskets": int(rows[0].get("anchor_baskets") or 0),
+                    "companion_baskets": int(rows[0].get("companion_baskets") or 0),
+                    "all_baskets": int(rows[0].get("all_baskets") or 0),
+                    "identified_baskets": int(rows[0].get("identified_baskets") or 0),
+                    "identified_customers": int(rows[0].get("identified_customers") or 0),
+                }
+            for row in rows:
+                prefix = self._code_prefix(row.get("prefix5"))
+                name_key = re.sub(r"\W+", "", (row.get("product_name") or "").lower())
+                key = f"prefix:{prefix}" if prefix else f"name:{name_key}"
+                current = merged_companions.setdefault(
+                    key,
+                    {
+                        "product_key": key,
+                        "product_name": row.get("product_name") or "Product",
+                        "prefix5": prefix,
+                        "co_baskets": 0,
+                        "base_baskets": 0,
+                        "evidence_sources": [],
+                        "source_keys": {},
+                    },
+                )
+                current["co_baskets"] += int(row.get("co_baskets") or 0)
+                current["base_baskets"] += int(row.get("base_baskets") or 0)
+                current["source_keys"][source] = row.get("product_key") or ""
+                if source not in current["evidence_sources"]:
+                    current["evidence_sources"].append(source)
+
+        totals = {
+            key: sum(source.get(key, 0) for source in source_totals.values())
+            for key in ("anchor_baskets", "companion_baskets", "all_baskets", "identified_baskets", "identified_customers")
+        }
+        companions = sorted(
+            merged_companions.values(),
+            key=lambda row: (-row["co_baskets"], row["product_name"].lower()),
+        )[: int(limit or 20)]
+        for row in companions:
+            row.update(totals)
+
+        payments = defaultdict(int)
+        for rows in (current_payments, legacy_payments):
+            for row in rows:
+                payments[row.get("name") or "Other"] += int(row.get("baskets") or 0)
+        payment_rows = [
+            {"name": name, "baskets": baskets}
+            for name, baskets in sorted(payments.items(), key=lambda item: (-item[1], item[0]))
+        ]
+        dimensions = self._merge_dimensions(current_dimensions, legacy_dimensions)
+        dimensions["scope_summary"].update(
+            {
+                "baskets": totals["anchor_baskets"],
+                "identified_baskets": totals["identified_baskets"],
+                "companion_baskets": totals["companion_baskets"],
+                "all_baskets": totals["all_baskets"],
+            }
+        )
+        customers = self._merge_customers(
+            [("current", current_customers), ("legacy", legacy_customers)]
+        )
+        return companions, customers, payment_rows, dimensions
+
+    def _ownership_entity(self, entity):
+        if entity.get("type") == "category":
+            return entity
+        category = self.env["product.category"]
+        if entity.get("type") == "variant" and entity.get("id"):
+            category = self.env["product.product"].sudo().browse(entity["id"]).exists().categ_id
+        elif entity.get("type") == "product" and entity.get("id"):
+            category = self.env["product.template"].sudo().browse(entity["id"]).exists().categ_id
+        elif entity.get("prefixes"):
+            prefix_sql = self._sql_prefix_expr("product.barcode", "product.default_code")
+            self.env.cr.execute(
+                f"""
+                SELECT template.categ_id
+                FROM product_product product
+                JOIN product_template template ON template.id = product.product_tmpl_id
+                WHERE {prefix_sql} = ANY(%s)
+                ORDER BY product.active DESC, product.id
+                LIMIT 1
+                """,
+                [entity["prefixes"]],
+            )
+            row = self.env.cr.fetchone()
+            category = self.env["product.category"].sudo().browse(row[0]).exists() if row else category
+        if category:
+            return self._normalize_entity({"type": "category", "id": category.id}, category.display_name)
+        return entity
+
+    @staticmethod
+    def _iphone_generation(product_name):
+        match = re.search(r"\biphone\s*(\d{1,2})\b", product_name or "", re.I)
+        return int(match.group(1)) if match else 0
+
+    def _query_ownership_source(self, source, query, start, end, entity, filters=None):
+        anchor_sql, anchor_params = self._anchor_clause(entity, query, source=source, scoped=False)
+        if source == "current":
+            audience_sql, audience_params = self._audience_sql("move", filters)
+            self.env.cr.execute(
+                """
+                SELECT
+                    partner.id AS partner_id,
+                    partner.name,
+                    partner.email,
+                    partner.mobile,
+                    COALESCE(commercial.is_company, FALSE) AS is_company,
+                    CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
+                    product.id AS product_id,
+                    COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, 'Product') AS product_name,
+                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    COUNT(DISTINCT move.id) AS baskets,
+                    SUM(line.quantity) AS units,
+                    SUM(line.price_subtotal) AS revenue,
+                    MIN(move.invoice_date) AS first_purchase,
+                    MAX(move.invoice_date) AS last_purchase
+                FROM account_move_line line
+                JOIN account_move move ON move.id = line.move_id
+                JOIN product_product product ON product.id = line.product_id
+                JOIN product_template template ON template.id = product.product_tmpl_id
+                JOIN res_partner partner ON partner.id = move.partner_id
+                JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
+                WHERE move.state = 'posted'
+                  AND move.move_type IN ('out_invoice', 'out_receipt')
+                  AND move.invoice_date BETWEEN %s AND %s
+                  AND move.company_id = ANY(%s)
+                  {audience_sql}
+                  AND line.quantity > 0
+                  AND {anchor_sql}
+                GROUP BY partner.id, partner.name, partner.email, partner.mobile,
+                         commercial.is_company, commercial.name, product.id, product_name, prefix5
+                ORDER BY last_purchase DESC, revenue DESC
+                LIMIT 3000
+                """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+                [start, end, self._company_ids(filters), *audience_params, *anchor_params],
+            )
+        else:
+            if not self._has_table("legacy_invoice_line"):
+                return []
+            audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
+            business_sql, business_params = self._legacy_business_sql("invoice", filters)
+            self.env.cr.execute(
+                """
+                SELECT
+                    partner.id AS partner_id,
+                    COALESCE(partner.name, NULLIF(invoice.source_partner_name, ''), 'Historical customer') AS name,
+                    partner.email,
+                    COALESCE(partner.mobile, NULLIF(invoice.source_partner_mobile, '')) AS mobile,
+                    (COALESCE(commercial.is_company, FALSE) OR LOWER(COALESCE(invoice.source_partner_type, '')) = 'company') AS is_company,
+                    CASE
+                        WHEN COALESCE(commercial.is_company, FALSE) THEN commercial.name
+                        WHEN LOWER(COALESCE(invoice.source_partner_type, '')) = 'company' THEN invoice.source_partner_name
+                    END AS company_name,
+                    line.product_id,
+                    COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product') AS product_name,
+                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    COUNT(DISTINCT invoice.id) AS baskets,
+                    SUM(line.quantity) AS units,
+                    SUM(line.price_subtotal) AS revenue,
+                    MIN(invoice.invoice_date) AS first_purchase,
+                    MAX(invoice.invoice_date) AS last_purchase
+                FROM legacy_invoice_line line
+                JOIN legacy_invoice invoice ON invoice.id = line.invoice_id
+                LEFT JOIN res_partner partner ON partner.id = invoice.partner_id
+                LEFT JOIN res_partner commercial ON commercial.id = partner.commercial_partner_id
+                WHERE invoice.invoice_date BETWEEN %s AND %s
+                  {business_sql}
+                  {audience_sql}
+                  AND invoice.invoice_type = 'out_invoice'
+                  AND invoice.state <> 'cancel'
+                  AND line.quantity > 0
+                  AND {anchor_sql}
+                GROUP BY partner.id, partner.name, partner.email, partner.mobile,
+                         commercial.is_company, commercial.name, invoice.source_partner_id,
+                         invoice.source_partner_name, invoice.source_partner_mobile,
+                         invoice.source_partner_type, line.product_id, product_name, prefix5
+                ORDER BY last_purchase DESC, revenue DESC
+                LIMIT 3000
+                """.format(
+                    anchor_sql=anchor_sql,
+                    audience_sql=audience_sql,
+                    business_sql=business_sql,
+                ),
+                [start, end, *business_params, *audience_params, *anchor_params],
+            )
+        columns = [column[0] for column in self.env.cr.description]
+        rows = [dict(zip(columns, values)) for values in self.env.cr.fetchall()]
+        current_ids = sorted({int(row["product_id"]) for row in rows if row.get("product_id")})
+        if current_ids:
+            names = {
+                product.id: product.display_name
+                for product in self.env["product.product"].sudo().browse(current_ids).exists()
+            }
+            for row in rows:
+                row["product_name"] = names.get(row.get("product_id"), row.get("product_name"))
+        return rows
+
+    def _ownership_insights(self, query, start, end, entity, filters=None):
+        ownership_entity = self._ownership_entity(entity)
+        coverage = self._available_period(ownership_entity, ownership_entity.get("name") or query, filters)
+        ownership_start = fields.Date.to_date(coverage["start_date"])
+        ownership_end = fields.Date.to_date(coverage["end_date"])
+        current_rows = self._query_ownership_source(
+            "current", query, ownership_start, ownership_end, ownership_entity, filters
+        )
+        legacy_rows = self._query_ownership_source(
+            "legacy", query, ownership_start, ownership_end, ownership_entity, filters
+        )
+        owners = {}
+        for source, rows in (("current", current_rows), ("legacy", legacy_rows)):
+            for row in rows:
+                key = self._customer_identity(row)
+                owner = owners.setdefault(
+                    key,
+                    {
+                        "customer_key": key,
+                        "partner_id": row.get("partner_id") or 0,
+                        "name": row.get("name") or "Customer",
+                        "email": row.get("email") or "",
+                        "mobile": row.get("mobile") or "",
+                        "is_company": bool(row.get("is_company")),
+                        "company_name": row.get("company_name") or "",
+                        "baskets": 0,
+                        "units": 0.0,
+                        "revenue": 0.0,
+                        "first_purchase": None,
+                        "last_purchase": None,
+                        "products": {},
+                        "evidence_sources": [],
+                    },
+                )
+                owner["email"] = owner["email"] or row.get("email") or ""
+                owner["mobile"] = owner["mobile"] or row.get("mobile") or ""
+                owner["company_name"] = owner["company_name"] or row.get("company_name") or ""
+                owner["baskets"] += int(row.get("baskets") or 0)
+                owner["units"] += float(row.get("units") or 0.0)
+                owner["revenue"] += float(row.get("revenue") or 0.0)
+                if row.get("first_purchase") and (
+                    not owner["first_purchase"] or row["first_purchase"] < owner["first_purchase"]
+                ):
+                    owner["first_purchase"] = row["first_purchase"]
+                if row.get("last_purchase") and (
+                    not owner["last_purchase"] or row["last_purchase"] > owner["last_purchase"]
+                ):
+                    owner["last_purchase"] = row["last_purchase"]
+                product_key = row.get("prefix5") or (row.get("product_name") or "").lower()
+                product = owner["products"].setdefault(
+                    product_key,
+                    {
+                        "name": row.get("product_name") or "Product",
+                        "prefix5": row.get("prefix5") or "",
+                        "baskets": 0,
+                        "revenue": 0.0,
+                        "last_purchase": None,
+                    },
+                )
+                product["baskets"] += int(row.get("baskets") or 0)
+                product["revenue"] += float(row.get("revenue") or 0.0)
+                if row.get("last_purchase") and (
+                    not product["last_purchase"] or row["last_purchase"] > product["last_purchase"]
+                ):
+                    product["last_purchase"] = row["last_purchase"]
+                if source not in owner["evidence_sources"]:
+                    owner["evidence_sources"].append(source)
+
+        selected_generation = self._iphone_generation(entity.get("name") or query)
+        target_generation = selected_generation + 1 if selected_generation else 0
+        max_revenue = max((row["revenue"] for row in owners.values()), default=1.0) or 1.0
+        ready = reachable = 0
+        output = []
+        for owner in owners.values():
+            products = sorted(
+                owner.pop("products").values(),
+                key=lambda product: (product.get("last_purchase") or date.min, product["revenue"]),
+                reverse=True,
+            )
+            observed_generations = [self._iphone_generation(product["name"]) for product in products]
+            observed_generation = max(observed_generations, default=0)
+            last_purchase = owner.get("last_purchase")
+            age_days = max((ownership_end - last_purchase).days, 0) if last_purchase else 0
+            generation_gap = max(target_generation - observed_generation, 0) if target_generation and observed_generation else 0
+            contactable = bool(owner.get("email") or owner.get("mobile"))
+            score = min(
+                100,
+                round(
+                    min(generation_gap, 4) / 4.0 * 45.0
+                    + min(age_days, 730) / 730.0 * 25.0
+                    + (15.0 if contactable else 0.0)
+                    + owner["revenue"] / max_revenue * 15.0
+                ),
+            )
+            opportunity = "High" if score >= 65 else ("Medium" if score >= 40 else "Watch")
+            if opportunity in {"High", "Medium"}:
+                ready += 1
+            if contactable:
+                reachable += 1
+            owner.update(
+                {
+                    "owned_product": products[0]["name"] if products else "Product owner",
+                    "owned_products": [product["name"] for product in products[:5]],
+                    "generation": observed_generation,
+                    "generation_gap": generation_gap,
+                    "upgrade_score": score,
+                    "upgrade_opportunity": opportunity,
+                    "upgrade_reason": (
+                        f"{generation_gap} generation{'s' if generation_gap != 1 else ''} behind next target"
+                        if generation_gap
+                        else ("Older purchase cycle" if age_days >= 365 else "Monitor purchase cycle")
+                    ),
+                    "reachability": "Email + mobile" if owner.get("email") and owner.get("mobile") else (
+                        "Email" if owner.get("email") else ("Mobile" if owner.get("mobile") else "Needs enrichment")
+                    ),
+                    "last_purchase": fields.Date.to_string(last_purchase) if last_purchase else "",
+                    "first_purchase": fields.Date.to_string(owner.get("first_purchase")) if owner.get("first_purchase") else "",
+                    "revenue": round(owner["revenue"], 2),
+                }
+            )
+            output.append(owner)
+        output.sort(key=lambda row: (-row["upgrade_score"], -row["revenue"], row["name"]))
+        return {
+            "category_name": ownership_entity.get("name") or "Selected category",
+            "target_generation": target_generation,
+            "rule_label": "Evidence-based upgrade opportunity",
+            "rule_note": "Ranks generation gap, purchase age, observed value and contact readiness; no inferred ownership is included.",
+            "summary": {
+                "identified_owners": len(output),
+                "upgrade_ready": ready,
+                "reachable": reachable,
+            },
+            "customers": output[:200],
+            "coverage": coverage,
         }
 
     @api.model
@@ -1839,10 +2537,24 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if source not in {"auto", "current", "legacy"}:
             source = "auto"
         if source == "auto":
-            source_used = "legacy" if counts["legacy"] else "current"
+            source_used = "unified" if counts["legacy"] and counts["current"] else (
+                "legacy" if counts["legacy"] else "current"
+            )
         else:
             source_used = source
-        if source_used == "legacy":
+        if source_used == "unified":
+            current_result = (
+                *self._query_current(query, start, end, int(limit or 20), entity, filters),
+                self._query_current_dimensions(query, start, end, entity, filters),
+            )
+            legacy_result = (
+                *self._query_legacy(query, start, end, int(limit or 20), entity, filters),
+                self._query_legacy_dimensions(query, start, end, entity, filters),
+            )
+            companions, customers, payments, dimensions = self._merge_source_results(
+                current_result, legacy_result, int(limit or 20)
+            )
+        elif source_used == "legacy":
             companions, customers, payments = self._query_legacy(query, start, end, int(limit or 20), entity, filters)
             dimensions = self._query_legacy_dimensions(query, start, end, entity, filters)
         else:
@@ -1891,7 +2603,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     "signal": 4 if co_baskets >= 100 and lift >= 1.2 else (3 if co_baskets >= 30 else 2),
                 }
             )
-        companion_baskets = int(first.get("companion_baskets") or 0)
+        companion_baskets = int(
+            first.get("companion_baskets")
+            or scope_summary.get("companion_baskets")
+            or 0
+        )
         payment_total = sum(int(row["baskets"]) for row in payments) or 1
         for row in payments:
             row["pct"] = round(int(row["baskets"]) / payment_total * 100.0, 2)
@@ -1951,6 +2667,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
             "reachable_baskets": int(top.get("co_baskets") or 0) if top else 0,
         }
+        ownership = self._ownership_insights(query, start, end, entity, filters)
+        available_period = self._available_period(entity, query, filters)
         bundle = {
             "product": {
                 "name": display_name,
@@ -1977,9 +2695,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "dimensions": dimensions,
             "recommendation": recommendation,
             "coverage": self._coverage(counts, source_used, start, end),
+            "available_period": available_period,
+            "ownership": ownership,
             "source_requested": source,
             "source_used": source_used,
-            "source_label": "Unified timeline" if source == "auto" else self.SOURCE_LABELS[source_used],
+            "source_label": self.SOURCE_LABELS[source_used],
             "filters": {
                 "customer_type": filters["customer_type"],
                 "customer_company_id": filters["customer_company_id"],
@@ -2113,6 +2833,48 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         }
 
     @api.model
+    def open_owner_evidence(self, query, source, entity=None, customer_key=None, filters=None):
+        """Open category ownership invoices for one identified customer."""
+        self._ensure_access()
+        query = (query or "").strip()
+        normalized = self._normalize_entity(entity, query)
+        ownership_entity = self._ownership_entity(normalized)
+        period = self._available_period(
+            ownership_entity, ownership_entity.get("name") or query, filters
+        )
+        action = self.open_evidence(
+            ownership_entity.get("name") or query,
+            period["start_date"],
+            period["end_date"],
+            source,
+            ownership_entity,
+            None,
+            filters,
+        )
+        key = str(customer_key or "")
+        if key.startswith("partner:") and key.split(":", 1)[1].isdigit():
+            partner_id = int(key.split(":", 1)[1])
+            action["domain"].append(("partner_id", "=", partner_id))
+        elif key.startswith("email:"):
+            email = key.split(":", 1)[1]
+            field_name = "partner_id.email"
+            action["domain"].append((field_name, "=ilike", email))
+        elif key.startswith("mobile:"):
+            mobile = key.split(":", 1)[1]
+            if source == "legacy":
+                action["domain"] += expression.OR(
+                    [[("source_partner_mobile", "ilike", mobile)], [("partner_id.mobile", "ilike", mobile)]]
+                )
+            else:
+                action["domain"].append(("partner_id.mobile", "ilike", mobile))
+        elif key.startswith("name:"):
+            name = key.split(":", 1)[1]
+            field_name = "source_partner_name" if source == "legacy" else "partner_id.name"
+            action["domain"].append((field_name, "=ilike", name))
+        action["name"] = f"Owner evidence · {ownership_entity.get('name') or query}"
+        return action
+
+    @api.model
     def export_product_insight(
         self,
         query,
@@ -2124,7 +2886,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         export_mode="current_view",
     ):
         self._ensure_access()
-        if export_mode not in {"current_view", "detail_rows", "customers", "legacy_live"}:
+        if export_mode not in {"current_view", "detail_rows", "customers", "ownership", "legacy_live"}:
             export_mode = "current_view"
         bundle = self.get_product_360(query, start_date, end_date, source, 100, entity, filters)
         comparison = self.get_legacy_comparison(query, entity, filters)
@@ -2192,6 +2954,46 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 for customer in bundle["customers"]
             ]
             write_table(sheet, 0, ["Customer", "Customer type", "Company", "Segment", "Activation score", "Baskets", "Observed value", "Last purchase", "Email", "Mobile"], customer_rows, {6: money})
+
+        if export_mode in {"current_view", "detail_rows", "ownership"}:
+            sheet = workbook.add_worksheet("Owner Upgrade Audience")
+            sheet.set_column("A:D", 28)
+            sheet.set_column("E:M", 19)
+            ownership = bundle.get("ownership") or {}
+            owner_rows = [
+                [
+                    customer["name"],
+                    "Company" if customer.get("is_company") else "Individual",
+                    customer.get("company_name") or "",
+                    customer.get("owned_product") or "",
+                    customer.get("generation") or "",
+                    customer.get("last_purchase") or "",
+                    customer.get("revenue") or 0.0,
+                    customer.get("upgrade_opportunity") or "",
+                    customer.get("upgrade_score") or 0,
+                    customer.get("upgrade_reason") or "",
+                    customer.get("reachability") or "",
+                    customer.get("email") or "",
+                    customer.get("mobile") or "",
+                ]
+                for customer in ownership.get("customers", [])
+            ]
+            sheet.write(0, 0, "Owner & upgrade opportunities", title)
+            sheet.write(1, 0, "Category scope", header)
+            sheet.write(1, 1, ownership.get("category_name") or "Selected category", cell)
+            sheet.write(2, 0, "Scoring rule", header)
+            sheet.write(2, 1, ownership.get("rule_note") or "", cell)
+            write_table(
+                sheet,
+                4,
+                [
+                    "Customer", "Customer type", "Company", "Owned product", "Generation",
+                    "Last purchase", "Observed value", "Upgrade opportunity", "Upgrade score",
+                    "Upgrade reason", "Reachability", "Email", "Mobile",
+                ],
+                owner_rows,
+                {6: money},
+            )
 
         if export_mode in {"current_view", "legacy_live"}:
             sheet = workbook.add_worksheet("Sales Timeline")

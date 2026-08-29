@@ -9,21 +9,21 @@ export class TradelineCustomerIntelligence extends Component {
         this.orm = useService("orm");
         this.action = useService("action");
         this.notification = useService("notification");
-        this.searchTimer = null;
         this.state = useState({
             activeView: "product",
             loading: true,
+            catalogLoading: true,
             exporting: false,
             evidenceLoading: false,
             error: "",
-            query: "iPhone 17",
-            searchInput: "iPhone 17",
-            selectedEntity: { type: "query", id: 0, name: "iPhone 17", source: "auto" },
-            suggestions: [],
-            suggestionsOpen: false,
+            query: "Apple iPhone 17 256GB Black",
+            selectedEntity: null,
             source: "auto",
-            startDate: "2025-12-01",
-            endDate: "2025-12-31",
+            startDate: "2025-01-01",
+            endDate: new Date().toISOString().slice(0, 10),
+            catalogOpen: true,
+            catalog: { brands: [], vendors: [], categories: [], products: [], variants: [] },
+            catalogSelection: { brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
             bundle: null,
             comparison: null,
             comparisonLoading: false,
@@ -33,6 +33,9 @@ export class TradelineCustomerIntelligence extends Component {
             audienceOpen: false,
             commandOpen: false,
             exportOpen: false,
+            evidenceOpen: false,
+            ownerGeneration: "all",
+            ownerReachability: "all",
             customerType: "all",
             customerCompanyId: 0,
             operatingCompanyId: 0,
@@ -40,13 +43,15 @@ export class TradelineCustomerIntelligence extends Component {
         });
         onWillStart(async () => {
             await this.loadFilterOptions();
+            await this.initializeCatalog();
             await this.loadProduct();
         });
     }
 
     get navItems() {
         return [
-            { key: "product", label: "Product 360" },
+            { key: "product", label: "Basket intelligence" },
+            { key: "ownership", label: "Owner & upgrade opportunities" },
             { key: "comparison", label: "Sales Timeline" },
             { key: "customer", label: "Customer 360" },
             { key: "bundle", label: "Bundle Lab" },
@@ -70,6 +75,31 @@ export class TradelineCustomerIntelligence extends Component {
     get customerSegments() { return this.bundle.customer_segments || []; }
     get coverageSources() { return this.bundle.coverage?.sources || []; }
     get recommendation() { return this.bundle.recommendation || {}; }
+    get availablePeriod() { return this.bundle.available_period || {}; }
+    get ownership() { return this.bundle.ownership || { summary: {}, customers: [], coverage: {} }; }
+    get ownershipSummary() { return this.ownership.summary || {}; }
+    get ownerGenerations() {
+        return [...new Set((this.ownership.customers || []).map(row => Number(row.generation || 0)).filter(Boolean))]
+            .sort((a, b) => b - a);
+    }
+    get ownershipCustomers() {
+        return (this.ownership.customers || []).filter(row => {
+            const generationMatch = this.state.ownerGeneration === "all"
+                || Number(row.generation || 0) === Number(this.state.ownerGeneration);
+            const reachable = row.reachability !== "Needs enrichment";
+            const reachabilityMatch = this.state.ownerReachability === "all"
+                || (this.state.ownerReachability === "reachable" && reachable)
+                || (this.state.ownerReachability === "enrichment" && !reachable);
+            return generationMatch && reachabilityMatch;
+        });
+    }
+    get catalogSelection() { return this.state.catalogSelection; }
+    get catalog() { return this.state.catalog || {}; }
+    get selectedVariantLabel() {
+        return this.catalog.variants?.find(row => Number(row.id) === Number(this.catalogSelection.variant_id))?.name
+            || this.product.name
+            || "Choose a product";
+    }
     get comparison() { return this.state.comparison || {}; }
     get comparisonMonths() { return this.comparison.months || []; }
     get selectedCompanion() {
@@ -84,7 +114,7 @@ export class TradelineCustomerIntelligence extends Component {
     get sourceButtonLabel() {
         if (this.state.source === "current") return "Current operations";
         if (this.state.source === "legacy") return "Historical sales";
-        return "Unified timeline";
+        return "Unified sales history";
     }
     get launchSentence() {
         if (!this.selectedCompanion) return "Expand the period or select another product to reveal a launch opportunity.";
@@ -100,7 +130,7 @@ export class TradelineCustomerIntelligence extends Component {
     get customerCompanies() { return this.state.filterOptions.customer_companies || []; }
     get operatingCompanies() { return this.state.filterOptions.operating_companies || []; }
     get activeOperatingCompanyLabel() {
-        if (!this.state.operatingCompanyId) return "All businesses";
+        if (!this.state.operatingCompanyId) return "Tradeline + XPRS";
         return this.operatingCompanies.find(company => Number(company.id) === Number(this.state.operatingCompanyId))?.name || "Selected business";
     }
     get activeCustomerTypeLabel() {
@@ -176,10 +206,120 @@ export class TradelineCustomerIntelligence extends Component {
         }
     }
 
+    async initializeCatalog() {
+        this.state.catalogLoading = true;
+        try {
+            const matches = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "search_entities",
+                ["Apple iPhone 17 256GB Black", 12]
+            );
+            const exact = matches.find(item => item.type === "variant"
+                && String(item.name || "").toLowerCase().includes("iphone 17")
+                && String(item.name || "").toLowerCase().includes("256gb")
+                && String(item.name || "").toLowerCase().includes("black"))
+                || matches.find(item => item.type === "variant");
+            if (exact) {
+                this.state.catalogSelection.variant_id = Number(exact.id || 0);
+                this.state.selectedEntity = {
+                    type: "variant",
+                    id: Number(exact.id || 0),
+                    name: exact.name,
+                    source: "unified",
+                    item_code: exact.item_code || "",
+                    prefix5: exact.prefix5 || "",
+                };
+                this.state.query = exact.name;
+            }
+            await this.loadCatalogOptions();
+            if (!this.state.selectedEntity && this.catalog.selected_variant) {
+                this.applyCatalogVariant(this.catalog.selected_variant);
+            }
+            await this.useAllAvailableHistory();
+        } catch (error) {
+            this.state.error = this.extractError(error);
+            await this.loadCatalogOptions();
+        } finally {
+            this.state.catalogLoading = false;
+        }
+    }
+
+    async loadCatalogOptions() {
+        this.state.catalogLoading = true;
+        try {
+            const catalog = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_catalog_options",
+                [this.state.catalogSelection]
+            );
+            this.state.catalog = catalog;
+            this.state.catalogSelection = {
+                ...this.state.catalogSelection,
+                ...(catalog.selection || {}),
+            };
+        } finally {
+            this.state.catalogLoading = false;
+        }
+    }
+
+    applyCatalogVariant(variant) {
+        if (!variant) return;
+        this.state.catalogSelection.variant_id = Number(variant.id || 0);
+        this.state.query = variant.name;
+        this.state.selectedEntity = {
+            type: "variant",
+            id: Number(variant.id || 0),
+            name: variant.name,
+            source: "unified",
+            item_code: variant.item_code || "",
+            prefix5: variant.prefix5 || "",
+        };
+        this.state.comparison = null;
+    }
+
+    async useAllAvailableHistory() {
+        if (!this.state.selectedEntity) return;
+        const period = await this.orm.call(
+            "tradeline.customer.intelligence.service",
+            "get_available_period",
+            [this.state.query, this.state.selectedEntity, this.analysisFilters]
+        );
+        this.state.startDate = period.start_date;
+        this.state.endDate = period.end_date;
+    }
+
+    async onCatalogChange(ev) {
+        const field = ev.currentTarget.dataset.field;
+        const rawValue = ev.target.value;
+        const value = field === "brand" ? rawValue : Number(rawValue || 0);
+        const order = ["brand", "vendor_id", "category_id", "product_id", "variant_id"];
+        const index = order.indexOf(field);
+        this.state.catalogSelection[field] = value;
+        for (const downstream of order.slice(index + 1)) {
+            this.state.catalogSelection[downstream] = downstream === "brand" ? "" : 0;
+        }
+        if (field !== "variant_id") {
+            this.state.selectedEntity = null;
+        }
+        await this.loadCatalogOptions();
+        if (field === "variant_id" && value) {
+            const variant = this.catalog.variants?.find(item => Number(item.id) === value);
+            this.applyCatalogVariant(variant);
+            await this.useAllAvailableHistory();
+            await this.loadProduct();
+            this.state.catalogOpen = false;
+        }
+    }
+
+    async onClearCatalog() {
+        this.state.catalogSelection = { brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
+        this.state.selectedEntity = null;
+        await this.loadCatalogOptions();
+    }
+
     async loadProduct() {
         this.state.loading = true;
         this.state.error = "";
-        this.state.suggestionsOpen = false;
         try {
             const bundle = await this.orm.call(
                 "tradeline.customer.intelligence.service",
@@ -220,8 +360,9 @@ export class TradelineCustomerIntelligence extends Component {
         }
     }
     onToggleCommand() {
-        this.state.commandOpen = !this.state.commandOpen;
+        this.state.catalogOpen = !this.state.catalogOpen;
         this.state.exportOpen = false;
+        this.state.evidenceOpen = false;
     }
     onSearchInput(ev) {
         this.state.searchInput = ev.target.value;
@@ -304,16 +445,19 @@ export class TradelineCustomerIntelligence extends Component {
     async onCustomerTypeChange(ev) {
         this.state.customerType = ev.currentTarget.dataset.type;
         if (this.state.customerType === "individual") this.state.customerCompanyId = 0;
+        await this.useAllAvailableHistory();
         await this.loadProduct();
     }
     async onCustomerCompanyChange(ev) {
         this.state.customerCompanyId = Number(ev.target.value || 0);
         if (this.state.customerCompanyId) this.state.customerType = "company";
+        await this.useAllAvailableHistory();
         await this.loadProduct();
     }
     async onOperatingCompanyChange(ev) {
         this.state.operatingCompanyId = Number(ev.target.value || 0);
         this.state.comparison = null;
+        await this.useAllAvailableHistory();
         await this.loadProduct();
         if (this.state.activeView === "comparison") await this.loadComparison();
     }
@@ -335,7 +479,18 @@ export class TradelineCustomerIntelligence extends Component {
     }
     onToggleExport() {
         this.state.exportOpen = !this.state.exportOpen;
-        this.state.commandOpen = false;
+        this.state.catalogOpen = false;
+        this.state.evidenceOpen = false;
+    }
+    onToggleEvidence() {
+        this.state.evidenceOpen = !this.state.evidenceOpen;
+        this.state.exportOpen = false;
+    }
+    onOwnerGenerationChange(ev) {
+        this.state.ownerGeneration = ev.target.value;
+    }
+    onOwnerReachabilityChange(ev) {
+        this.state.ownerReachability = ev.target.value;
     }
     async onExport(ev) {
         const exportMode = ev?.currentTarget?.dataset?.mode || "current_view";
@@ -356,13 +511,33 @@ export class TradelineCustomerIntelligence extends Component {
     }
     async onOpenEvidence(ev) {
         ev.stopPropagation();
+        const evidenceSource = ev.currentTarget.dataset.source || this.state.source;
         const companionKey = ev.currentTarget.dataset.companion || null;
+        this.state.evidenceOpen = false;
         this.state.evidenceLoading = true;
         try {
             const action = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "open_evidence",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity, companionKey, this.analysisFilters]
+                [this.state.query, this.state.startDate, this.state.endDate, evidenceSource, this.state.selectedEntity, companionKey, this.analysisFilters]
+            );
+            await this.action.doAction(action);
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "danger" });
+        } finally {
+            this.state.evidenceLoading = false;
+        }
+    }
+    async onOpenOwnerEvidence(ev) {
+        ev.stopPropagation();
+        const evidenceSource = ev.currentTarget.dataset.source;
+        const customerKey = ev.currentTarget.dataset.customer;
+        this.state.evidenceLoading = true;
+        try {
+            const action = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "open_owner_evidence",
+                [this.state.query, evidenceSource, this.state.selectedEntity, customerKey, this.analysisFilters]
             );
             await this.action.doAction(action);
         } catch (error) {

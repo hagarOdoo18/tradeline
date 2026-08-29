@@ -313,3 +313,33 @@ class TestIntelligenceEntityGrain(TransactionCase):
         )
         self.assertEqual(action["res_model"], "account.move")
         self.assertEqual(action["views"], [(False, "list"), (False, "form")])
+
+    def test_catalog_brand_is_human_readable_and_not_the_identity_key(self):
+        self.assertEqual(self.service._catalog_brand("Apple iPhone 17 256GB Black"), "Apple")
+        self.assertEqual(self.service._catalog_brand("[SKU] iPhone 16 Pro"), "Apple")
+        self.assertEqual(self.service._catalog_brand("Belkin BoostCharge 45W"), "Belkin")
+
+    def test_guided_catalog_resolves_exact_variant_and_hidden_prefix(self):
+        catalog = self.service.get_catalog_options({"variant_id": self.variant.id})
+        self.assertEqual(catalog["selection"]["variant_id"], self.variant.id)
+        self.assertEqual(catalog["selection"]["product_id"], self.template.id)
+        selected = catalog["selected_variant"]
+        self.assertEqual(selected["type"], "variant")
+        self.assertEqual(selected["prefix5"], "AB123")
+        self.assertEqual(selected["coverage_label"], "Historical + current")
+        self.assertEqual(catalog["join_rule"], "normalized_item_prefix_5")
+
+    def test_dimension_merge_does_not_double_first_source(self):
+        merged = self.service._merge_dimension_rows(
+            [
+                [{"period": "2025-01", "label": "Jan 2025", "baskets": 2, "revenue": 50}],
+                [{"period": "2025-01", "label": "Jan 2025", "baskets": 3, "revenue": 75}],
+            ],
+            value_fields=("baskets", "revenue"),
+        )
+        self.assertEqual(merged[0]["baskets"], 5)
+        self.assertEqual(merged[0]["revenue"], 125)
+
+    def test_iphone_generation_drives_upgrade_gap_without_ml_claim(self):
+        self.assertEqual(self.service._iphone_generation("Apple iPhone 17 256GB Black"), 17)
+        self.assertEqual(self.service._iphone_generation("Apple iPhone SE 64GB"), 0)

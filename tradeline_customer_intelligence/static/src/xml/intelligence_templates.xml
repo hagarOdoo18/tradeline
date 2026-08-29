@@ -7,31 +7,19 @@
             <img src="/tradeline_customer_intelligence/static/description/tradeline_mark.png" alt="Tradeline"/>
             <strong>Tradeline Intelligence</strong>
         </div>
-        <button class="tl-command-toggle" aria-label="Explore intelligence navigation" t-on-click="onToggleCommand" t-att-aria-expanded="state.commandOpen ? 'true' : 'false'">
+        <button class="tl-command-toggle" aria-label="Choose a product" t-on-click="onToggleCommand" t-att-aria-expanded="state.catalogOpen ? 'true' : 'false'">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
             <span>Explore</span>
         </button>
-        <div class="tl-intel-search-wrap">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/></svg>
-            <input aria-label="Search category, product, or variant" t-att-value="state.searchInput" placeholder="Search model, color, capacity, barcode, or item code" t-on-input="onSearchInput" t-on-keydown="onSearchKeydown"/>
-            <svg class="tl-search-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
-            <t t-if="state.suggestionsOpen">
-                <div class="tl-search-results">
-                    <div class="tl-search-guide"><strong>Choose the level you want to analyze</strong><span>Product family</span><span>Exact SKU</span><span>Category</span></div>
-                    <button t-foreach="state.suggestions" t-as="suggestion" t-key="suggestion.key" t-att-data-key="suggestion.key" t-on-click="onSelectSuggestion">
-                        <span><t t-esc="suggestion.name"/><em t-if="suggestion.match_hint"><t t-esc="suggestion.match_hint"/></em></span>
-                        <small><b><t t-esc="suggestion.type === 'category' ? 'Category' : (suggestion.type === 'product' ? 'Product family' : (suggestion.type === 'variant' ? 'Exact SKU' : 'Archive match'))"/></b><t t-if="suggestion.subtitle"> · <t t-esc="suggestion.subtitle"/></t></small>
-                    </button>
-                    <div t-if="!state.suggestions.length" class="tl-search-empty">No matching products</div>
-                </div>
-            </t>
-        </div>
-        <div class="tl-intel-dates">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18"/></svg>
-            <input type="date" aria-label="From date" t-model="state.startDate" t-on-change="onDateChange"/>
-            <span>—</span>
-            <input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/>
-        </div>
+        <div class="tl-selected-product"><span>Selected product</span><strong><t t-esc="selectedVariantLabel"/></strong></div>
+        <details class="tl-history-scope">
+            <summary><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18"/></svg><span>Earliest sale — Latest available</span></summary>
+            <div><label>From<input type="date" aria-label="From date" t-model="state.startDate" t-on-change="onDateChange"/></label><label>To<input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/></label></div>
+        </details>
+        <select class="tl-top-company" aria-label="Business scope" t-model="state.operatingCompanyId" t-on-change="onOperatingCompanyChange">
+            <option value="0">Tradeline + XPRS</option>
+            <option t-foreach="operatingCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
+        </select>
         <div class="tl-export-wrap">
             <button class="tl-export-btn" aria-label="Export to Excel" t-on-click="onToggleExport" t-att-disabled="state.exporting ? 'disabled' : null">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/></svg>
@@ -41,41 +29,23 @@
                 <strong>Choose workbook</strong>
                 <button data-mode="current_view" t-on-click="onExport"><span>Executive view</span><small>Summary, companions, customers and lineage</small></button>
                 <button data-mode="detail_rows" t-on-click="onExport"><span>Detail rows</span><small>Full companion and customer tables</small></button>
-                <button data-mode="customers" t-on-click="onExport"><span>Customers</span><small>Company / individual segmentation and contacts</small></button>
-                <button data-mode="legacy_live" t-on-click="onExport"><span>Sales timeline</span><small>2025 history and 2026 current performance</small></button>
+                <button data-mode="ownership" t-on-click="onExport"><span>Owner &amp; upgrade audience</span><small>Owned products, opportunity score and contacts</small></button>
+                <button data-mode="legacy_live" t-on-click="onExport"><span>Sales timeline</span><small>Historical sales and current operations</small></button>
             </div>
         </div>
     </header>
 
-    <section class="tl-command-tray" t-if="state.commandOpen">
-        <div class="tl-command-tray-heading"><strong>Explore intelligence</strong><span>Switch workspace without giving up analysis space</span></div>
-        <div class="tl-command-mobile-filters" aria-label="Mobile analysis period">
-            <label><span>From</span><input type="date" aria-label="Mobile from date" t-model="state.startDate" t-on-change="onDateChange"/></label>
-            <label><span>To</span><input type="date" aria-label="Mobile to date" t-model="state.endDate" t-on-change="onDateChange"/></label>
-        </div>
-        <nav>
-            <button t-att-class="navClass('product')" data-view="product" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="m4 7 8-4 8 4-8 4-8-4Z"/><path d="m4 7v10l8 4 8-4V7M12 11v10"/></svg><span>Product 360</span>
-            </button>
-            <button t-att-class="navClass('comparison')" data-view="comparison" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="M4 5h6v6H4zM14 13h6v6h-6z"/><path d="M10 8h4m-2-2 2 2-2 2M14 16h-4m2-2-2 2 2 2"/></svg><span>Sales Timeline</span>
-            </button>
-            <button t-att-class="navClass('customer')" data-view="customer" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-5 3.3-7 8-7s7.3 2 8 7"/></svg><span>Customer 360</span>
-            </button>
-            <button t-att-class="navClass('bundle')" data-view="bundle" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="m4 12 8 4 8-4M4 16l8 4 8-4"/></svg><span>Bundle Lab</span>
-            </button>
-            <button t-att-class="navClass('audience')" data-view="audience" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M2.5 20c.6-4.2 2.7-6 6.5-6s5.9 1.8 6.5 6M15 15c3.7-.5 5.7 1.1 6.5 4"/></svg><span>Audience Builder</span>
-            </button>
-            <button t-att-class="navClass('launch')" data-view="launch" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="M14 4c3-2 5-1.8 7-1-1 5-3 8-7 10l-3-3c1-2 2-4 3-6Z"/><path d="m11 10-4 1-3 3 6 1 1 6 3-3 1-5M6 18l-3 3"/></svg><span>Launch Cockpit</span>
-            </button>
-            <button t-att-class="navClass('quality')" data-view="quality" t-on-click="onNavigate">
-                <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 2.5 2.5L16 9"/></svg><span>Data Quality</span>
-            </button>
-        </nav>
+    <section class="tl-catalog-explorer" t-if="state.catalogOpen">
+        <label><span>1. Brand</span><select data-field="brand" t-att-value="catalogSelection.brand" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="">Choose brand</option><option t-foreach="catalog.brands || []" t-as="option" t-key="option.key" t-att-value="option.key"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/></option></select></label>
+        <i>›</i>
+        <label><span>2. Vendor</span><select data-field="vendor_id" t-att-value="catalogSelection.vendor_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.brand || state.catalogLoading ? 'disabled' : null"><option value="0">Choose vendor</option><option t-foreach="catalog.vendors || []" t-as="option" t-key="option.id" t-att-value="option.id"><t t-esc="option.name"/></option></select></label>
+        <i>›</i>
+        <label><span>3. Category</span><select data-field="category_id" t-att-value="catalogSelection.category_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.vendor_id || state.catalogLoading ? 'disabled' : null"><option value="0">Choose category</option><option t-foreach="catalog.categories || []" t-as="option" t-key="option.id" t-att-value="option.id"><t t-esc="option.name"/></option></select></label>
+        <i>›</i>
+        <label><span>4. Product</span><select data-field="product_id" t-att-value="catalogSelection.product_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.category_id || state.catalogLoading ? 'disabled' : null"><option value="0">Choose product</option><option t-foreach="catalog.products || []" t-as="option" t-key="option.id" t-att-value="option.id"><t t-esc="option.name"/></option></select></label>
+        <i>›</i>
+        <label class="is-variant"><span>5. Variant</span><select data-field="variant_id" t-att-value="catalogSelection.variant_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.product_id || state.catalogLoading ? 'disabled' : null"><option value="0">Choose exact variant</option><option t-foreach="catalog.variants || []" t-as="option" t-key="option.id" t-att-value="option.id"><t t-esc="option.name"/> · <t t-esc="option.coverage_label"/></option></select></label>
+        <button class="tl-catalog-clear" t-on-click="onClearCatalog">Clear all</button>
     </section>
 
     <main class="tl-intel-main">
@@ -88,52 +58,17 @@
         <t t-else="">
             <section class="tl-product-heading">
                 <div>
-                    <span class="tl-grain-badge"><t t-esc="product.grain_label"/></span>
                     <h1><t t-esc="product.name"/></h1>
-                    <p>What customers buy with this scope, who they are, and what to do next.</p>
+                    <p>Scope: All available sales · <t t-esc="availablePeriod.label || (state.startDate + ' — ' + state.endDate)"/></p>
                 </div>
-                <button class="tl-evidence-button is-primary" t-on-click="onOpenEvidence" t-att-disabled="state.evidenceLoading ? 'disabled' : null">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>
-                    <span><t t-esc="state.evidenceLoading ? 'Opening records…' : 'View source records'"/></span>
-                </button>
-            </section>
-
-            <section class="tl-filter-rail" aria-label="Analysis filters">
-                <label class="tl-operating-company-filter">
-                    <span>Business scope</span>
-                    <select t-model="state.operatingCompanyId" t-on-change="onOperatingCompanyChange">
-                        <option value="0">All businesses</option>
-                        <option t-foreach="operatingCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
-                    </select>
-                    <small>Applied consistently across historical and current records</small>
-                </label>
-                <label class="tl-source-select">
-                    <span>Data timeline</span>
-                    <select t-model="state.source" t-on-change="onSourceChange">
-                        <option value="auto">Unified timeline</option>
-                        <option value="current">Current operations</option>
-                        <option value="legacy">Historical sales</option>
-                    </select>
-                    <small><t t-esc="state.source === 'auto' ? 'The engine selects the authoritative ledger for this period' : bundle.source_label"/></small>
-                </label>
-                <div class="tl-customer-type-filter">
-                    <span>Customer type</span>
-                    <div>
-                        <button data-type="all" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'all' ? 'is-active' : ''">All</button>
-                        <button data-type="individual" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'individual' ? 'is-active' : ''">Individuals</button>
-                        <button data-type="company" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'company' ? 'is-active' : ''">Companies</button>
+                <div class="tl-scope-tools">
+                    <div class="tl-customer-type-filter"><span>Customer type</span><div><button data-type="all" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'all' ? 'is-active' : ''">All</button><button data-type="individual" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'individual' ? 'is-active' : ''">Individuals</button><button data-type="company" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'company' ? 'is-active' : ''">Companies</button></div></div>
+                    <label class="tl-company-filter"><span>Specific company</span><select t-model="state.customerCompanyId" t-on-change="onCustomerCompanyChange" t-att-disabled="state.customerType === 'individual' ? 'disabled' : null"><option value="0">All companies</option><option t-foreach="customerCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option></select></label>
+                    <div class="tl-evidence-wrap">
+                        <button class="tl-evidence-button is-primary" t-on-click="onToggleEvidence" t-att-disabled="state.evidenceLoading ? 'disabled' : null"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span><t t-esc="state.evidenceLoading ? 'Opening records…' : 'View supporting records'"/></span></button>
+                        <div class="tl-evidence-menu" t-if="state.evidenceOpen"><strong>Supporting ledgers</strong><button data-source="legacy" t-on-click="onOpenEvidence">Historical sales</button><button data-source="current" t-on-click="onOpenEvidence">Current operations</button></div>
                     </div>
-                    <small><t t-esc="activeCustomerTypeLabel"/></small>
                 </div>
-                <label class="tl-company-filter">
-                    <span>Specific company</span>
-                    <select t-model="state.customerCompanyId" t-on-change="onCustomerCompanyChange" t-att-disabled="state.customerType === 'individual' ? 'disabled' : null">
-                        <option value="0">All companies</option>
-                        <option t-foreach="customerCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
-                    </select>
-                    <small>Optional account-level filter</small>
-                </label>
-                <div class="tl-filter-summary"><span>Applied population</span><strong><t t-esc="activeOperatingCompanyLabel"/></strong><small><t t-esc="activeCustomerTypeLabel"/> · all metrics and evidence use this scope</small></div>
             </section>
 
             <section class="tl-kpi-rail">
@@ -143,6 +78,13 @@
                 <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>Identified-customer coverage</span><small><t t-esc="formatNumber(summary.identified_baskets)"/> linked baskets</small></div>
             </section>
 
+            <nav class="tl-workspace-tabs" aria-label="Intelligence workspace">
+                <button data-view="product" t-on-click="onNavigate" t-att-class="state.activeView === 'product' ? 'is-active' : ''">Basket intelligence</button>
+                <button data-view="ownership" t-on-click="onNavigate" t-att-class="state.activeView === 'ownership' ? 'is-active' : ''">Owner &amp; upgrade opportunities</button>
+                <button data-view="comparison" t-on-click="onNavigate" t-att-class="state.activeView === 'comparison' ? 'is-active' : ''">Sales timeline</button>
+                <button data-view="quality" t-on-click="onNavigate" t-att-class="state.activeView === 'quality' ? 'is-active' : ''">Evidence &amp; data quality</button>
+            </nav>
+
             <t t-if="state.activeView === 'product' or state.activeView === 'bundle'">
                 <section class="tl-affinity-section">
                     <div class="tl-section-title">
@@ -151,7 +93,7 @@
                     </div>
                     <div class="tl-affinity-table-wrap">
                         <table class="tl-affinity-table">
-                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th><th>Source</th></tr></thead>
+                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th><th>Evidence</th></tr></thead>
                             <tbody>
                                 <tr t-foreach="companions" t-as="row" t-key="row.product_key" t-att-class="rowClass(row)" t-att-data-key="row.product_key" t-on-click="onSelectCompanion">
                                     <td><t t-esc="row_index + 1"/></td>
@@ -161,7 +103,7 @@
                                     <td class="is-number"><t t-esc="formatLift(row.lift)"/></td>
                                     <td class="tl-confidence-cell"><strong><t t-esc="row.confidence"/></strong><small>95% CI <t t-esc="formatPercent(row.attach_ci_low)"/>–<t t-esc="formatPercent(row.attach_ci_high)"/></small></td>
                                     <td><div class="tl-score-cell"><strong><t t-esc="round(row.opportunity_score)"/></strong><i><b t-att-style="'width:' + row.opportunity_score + '%'"/></i></div></td>
-                                    <td><button class="tl-evidence-button is-row" t-att-data-companion="row.product_key" t-on-click="onOpenEvidence">Evidence</button></td>
+                                    <td class="tl-row-evidence"><button t-if="row.source_keys &amp;&amp; row.source_keys.legacy" class="tl-evidence-button is-row" data-source="legacy" t-att-data-companion="row.source_keys.legacy" t-on-click="onOpenEvidence" title="Historical records">H</button><button t-if="row.source_keys &amp;&amp; row.source_keys.current" class="tl-evidence-button is-row" data-source="current" t-att-data-companion="row.source_keys.current" t-on-click="onOpenEvidence" title="Current records">C</button><button t-if="!row.source_keys" class="tl-evidence-button is-row" t-att-data-companion="row.product_key" t-on-click="onOpenEvidence">Evidence</button></td>
                                 </tr>
                                 <tr t-if="!companions.length"><td colspan="8" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
                             </tbody>
@@ -202,11 +144,11 @@
                         <article t-foreach="coverageSources" t-as="source" t-key="source.key">
                             <i t-att-class="sourceClass(source)"></i>
                             <div><strong><t t-esc="source.label"/></strong><p><t t-esc="source.note || (source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' matching baskets in this filtered population.' : 'No matching records in this filtered population.')"/></p></div>
-                            <button t-if="source.key !== 'history'" t-on-click="onOpenEvidence">View evidence</button>
+                            <button t-if="source.key !== 'history'" t-att-data-source="source.key" t-on-click="onOpenEvidence">View evidence</button>
                             <button t-if="source.key === 'history'" data-view="comparison" t-on-click="onNavigate">Open comparison</button>
                         </article>
                     </div>
-                    <div class="tl-lineage-rule"><strong>Cross-system product key</strong><span>First five normalized item-code characters</span><p>Executives search by product name, capacity, color, barcode or full item code. The technical prefix links historical and current catalogs behind the scenes and remains visible here for auditability.</p></div>
+                    <div class="tl-lineage-rule"><strong>Unified product identity</strong><span>Matched automatically</span><p>The engine resolves the selected variant across historical sales and current operations. Technical matching details remain in the data-quality workspace for audit users.</p></div>
                 </section>
 
                 <section class="tl-dimension-grid">
@@ -232,6 +174,18 @@
                         </div>
                         <div class="tl-channel-chips" t-if="channelMix.length"><span t-foreach="channelMix" t-as="channel" t-key="channel.name"><t t-esc="channel.name"/> · <b><t t-esc="formatNumber(channel.baskets)"/></b></span></div>
                     </article>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'ownership'">
+                <section class="tl-workspace-view tl-ownership-view">
+                    <div class="tl-owner-heading">
+                        <div><h2>Owner &amp; upgrade opportunities</h2><p>Category scope: <strong><t t-esc="ownership.category_name"/></strong> · <t t-esc="ownership.rule_note"/></p></div>
+                        <div class="tl-owner-filters"><label>Generation<select t-model="state.ownerGeneration" t-on-change="onOwnerGenerationChange"><option value="all">All generations</option><option t-foreach="ownerGenerations" t-as="generation" t-key="generation" t-att-value="generation">iPhone <t t-esc="generation"/></option></select></label><label>Contact readiness<select t-model="state.ownerReachability" t-on-change="onOwnerReachabilityChange"><option value="all">All</option><option value="reachable">Reachable</option><option value="enrichment">Needs enrichment</option></select></label></div>
+                    </div>
+                    <div class="tl-owner-summary"><div><strong><t t-esc="formatNumber(ownershipSummary.identified_owners)"/></strong><span>Identified owners</span></div><div><strong><t t-esc="formatNumber(ownershipSummary.upgrade_ready)"/></strong><span>Upgrade-ready</span></div><div><strong><t t-esc="formatNumber(ownershipSummary.reachable)"/></strong><span>Reachable</span></div><div><strong><t t-esc="formatNumber(ownershipCustomers.length)"/></strong><span>Shown after filters</span></div></div>
+                    <div class="tl-owner-table-wrap"><table class="tl-owner-table"><thead><tr><th>Customer</th><th>Type</th><th>Owned product</th><th>Last purchase</th><th>Observed value</th><th>Upgrade opportunity</th><th>Reachability</th><th>Evidence</th></tr></thead><tbody><tr t-foreach="ownershipCustomers" t-as="owner" t-key="owner.customer_key"><td><strong><t t-esc="owner.name"/></strong><small t-if="owner.company_name"><t t-esc="owner.company_name"/></small></td><td><t t-esc="owner.is_company ? 'Company' : 'Individual'"/></td><td><strong><t t-esc="owner.owned_product"/></strong><small t-if="owner.owned_products.length &gt; 1">+ <t t-esc="owner.owned_products.length - 1"/> more observed</small></td><td><t t-esc="owner.last_purchase || '—'"/></td><td><t t-esc="formatCurrency(owner.revenue)"/></td><td><span t-att-class="'tl-upgrade is-' + owner.upgrade_opportunity.toLowerCase()"><t t-esc="owner.upgrade_opportunity"/> · <t t-esc="owner.upgrade_score"/>/100</span><small><t t-esc="owner.upgrade_reason"/></small></td><td><t t-esc="owner.reachability"/></td><td class="tl-row-evidence"><button t-if="owner.evidence_sources.includes('legacy')" class="tl-evidence-button is-row" data-source="legacy" t-att-data-customer="owner.customer_key" t-on-click="onOpenOwnerEvidence" title="Historical records">H</button><button t-if="owner.evidence_sources.includes('current')" class="tl-evidence-button is-row" data-source="current" t-att-data-customer="owner.customer_key" t-on-click="onOpenOwnerEvidence" title="Current records">C</button></td></tr><tr t-if="!ownershipCustomers.length"><td colspan="8" class="tl-table-empty">No identified owners match these filters.</td></tr></tbody></table></div>
+                    <div class="tl-owner-foot"><span>Ownership coverage: <t t-esc="ownership.coverage.label"/></span><button data-mode="ownership" t-on-click="onExport">Export owner audience</button></div>
                 </section>
             </t>
 
@@ -320,8 +274,8 @@
 
             <t t-if="state.activeView === 'quality'">
                 <section class="tl-workspace-view tl-quality-view">
-                    <div class="tl-section-title"><div><h2>Data Quality</h2><p>Know exactly which decisions are supported, partial or still waiting for migration.</p></div><span>No silent blending</span></div>
-                    <div class="tl-quality-rule"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 2.5 2.5L16 9"/></svg><div><strong>Source isolation is active</strong><p><t t-esc="bundle.coverage?.rule"/></p></div></div>
+                    <div class="tl-section-title"><div><h2>Data Quality</h2><p>Know exactly which records support every combined decision.</p></div><span>Auditable identity join</span></div>
+                    <div class="tl-quality-rule"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 2.5 2.5L16 9"/></svg><div><strong>Traceable unification is active</strong><p><t t-esc="bundle.coverage?.rule"/></p></div></div>
                     <div class="tl-source-list"><article t-foreach="coverageSources" t-as="source" t-key="source.key"><i t-att-class="sourceClass(source)"></i><div><h3><t t-esc="source.label"/></h3><p><t t-esc="source.note || (source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' matching baskets in the selected scope.' : 'No matching anchor baskets in the selected scope.')"/></p></div><strong><t t-esc="source.status"/></strong></article></div>
                 </section>
             </t>
