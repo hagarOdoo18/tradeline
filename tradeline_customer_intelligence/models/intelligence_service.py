@@ -2698,6 +2698,8 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             )
             output.append(owner)
         output.sort(key=lambda row: (-row["upgrade_score"], -row["revenue"], row["name"]))
+        requested_limit = int(result_limit) if result_limit is not None else 200
+        visible_customers = output if requested_limit <= 0 else output[: max(requested_limit, 1)]
         return {
             "category_name": ownership_entity.get("name") or "Selected category",
             "target_generation": target_generation,
@@ -2708,7 +2710,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 "upgrade_ready": ready,
                 "reachable": reachable,
             },
-            "customers": output[: max(int(result_limit or 200), 1)],
+            "customers": visible_customers,
             "coverage": coverage,
         }
 
@@ -3112,8 +3114,10 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         self._ensure_access()
         if export_mode not in {"current_view", "detail_rows", "customers", "ownership", "legacy_live"}:
             export_mode = "current_view"
+        # Exports must contain the complete evidence-backed owner population. The
+        # interactive dashboard remains deliberately paged via its own limit.
         bundle = self.get_product_360(
-            query, start_date, end_date, source, 100, entity, filters, 50000, True
+            query, start_date, end_date, source, 100, entity, filters, 0, True
         )
         comparison = self.get_legacy_comparison(query, entity, filters)
         stream = io.BytesIO()
