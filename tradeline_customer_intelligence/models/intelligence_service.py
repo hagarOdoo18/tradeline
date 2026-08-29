@@ -334,6 +334,26 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
     def _sql_prefix_expr(cls, *exprs, length=5):
         return f"LEFT({cls._sql_normalized_code_expr(*exprs)}, {int(length)})"
 
+    @classmethod
+    def _sql_variant_identity_expr(cls, *exprs):
+        """Use prefix-5 for item codes, but never collapse numeric EAN variants.
+
+        Apple and Tradeline item codes are alphanumeric and intentionally match
+        across systems by their normalized five-character family.  Numeric EANs
+        commonly share their first five manufacturer digits across unrelated
+        variants, so those require their complete normalized barcode.
+        """
+        normalized = cls._sql_normalized_code_expr(*exprs)
+        return f"CASE WHEN {normalized} ~ '^[0-9]+$' THEN {normalized} ELSE LEFT({normalized}, 5) END"
+
+    @classmethod
+    def _variant_identity_code(cls, value):
+        text = str(value or "").strip()
+        if text.lower() in {"", "false", "none", "null"}:
+            return ""
+        normalized = re.sub(r"[^A-Z0-9]+", "", text.upper())
+        return normalized if normalized.isdigit() else normalized[:5]
+
     def _anchor_clause(self, entity, query, *, source, scoped=True):
         if entity["type"] == "category" and source == "legacy":
             item_code = "item_code" if scoped else "line.item_code"
@@ -390,6 +410,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="current", scoped=False)
         audience_sql, audience_params = self._audience_sql("move", filters)
         company_ids = self._company_ids(filters)
+        variant_identity_sql = self._sql_variant_identity_expr("product.barcode", "product.default_code")
         self.env.cr.execute(
             """
             WITH scope_lines AS (
@@ -407,7 +428,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         'Product ' || line.product_id::text
                     ) AS product_name,
                     COALESCE(product.barcode, product.default_code, '') AS item_code,
-                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    {variant_identity_sql} AS prefix5,
                     line.quantity,
                     line.price_subtotal AS revenue
                 FROM account_move_line line
@@ -509,7 +530,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+            """.format(
+                anchor_sql=anchor_sql,
+                audience_sql=audience_sql,
+                variant_identity_sql=variant_identity_sql,
+            ),
             [
                 start,
                 end,
@@ -621,6 +646,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         direct_anchor_sql, direct_anchor_params = self._anchor_clause(entity, query, source="legacy", scoped=False)
         audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
         business_sql, business_params = self._legacy_business_sql("invoice", filters)
+        variant_identity_sql = self._sql_variant_identity_expr("line.item_code")
         self.env.cr.execute(
             """
             WITH scope_lines AS (
@@ -646,7 +672,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     ) AS product_key,
                     COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Unmapped product') AS product_name,
                     COALESCE(line.item_code, '') AS item_code,
-                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    {variant_identity_sql} AS prefix5,
                     line.quantity,
                     line.price_subtotal AS revenue
                 FROM legacy_invoice_line line
@@ -744,7 +770,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             CROSS JOIN totals
             ORDER BY companion.co_baskets DESC, companion.product_name
             LIMIT %s
-            """.format(anchor_sql=anchor_sql, audience_sql=audience_sql, business_sql=business_sql),
+            """.format(
+                anchor_sql=anchor_sql,
+                audience_sql=audience_sql,
+                business_sql=business_sql,
+                variant_identity_sql=variant_identity_sql,
+            ),
             [start, end, *business_params, *audience_params, *anchor_params, *anchor_params, *anchor_params, limit],
         )
         columns = [column[0] for column in self.env.cr.description]
@@ -2408,7 +2439,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     "identified_customers": int(rows[0].get("identified_customers") or 0),
                 }
             for row in rows:
-                prefix = self._code_prefix(row.get("prefix5"))
+                prefix = self._variant_identity_code(row.get("prefix5"))
                 name_key = re.sub(r"\W+", "", (row.get("product_name") or "").lower())
                 key = f"prefix:{prefix}" if prefix else f"name:{name_key}"
                 current = merged_companions.setdefault(
@@ -2497,6 +2528,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source=source, scoped=False)
         if source == "current":
             audience_sql, audience_params = self._audience_sql("move", filters)
+            variant_identity_sql = self._sql_variant_identity_expr("product.barcode", "product.default_code")
             self.env.cr.execute(
                 """
                 SELECT
@@ -2508,7 +2540,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
                     product.id AS product_id,
                     COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, 'Product') AS product_name,
-                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    {variant_identity_sql} AS prefix5,
                     COUNT(DISTINCT move.id) AS baskets,
                     SUM(line.quantity) AS units,
                     SUM(line.price_subtotal) AS revenue,
@@ -2531,7 +2563,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                          commercial.is_company, commercial.name, product.id, product_name, prefix5
                 ORDER BY last_purchase DESC, revenue DESC
                 LIMIT 3000
-                """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+                """.format(
+                    anchor_sql=anchor_sql,
+                    audience_sql=audience_sql,
+                    variant_identity_sql=variant_identity_sql,
+                ),
                 [start, end, self._company_ids(filters), *audience_params, *anchor_params],
             )
         else:
@@ -2539,6 +2575,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 return []
             audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
             business_sql, business_params = self._legacy_business_sql("invoice", filters)
+            variant_identity_sql = self._sql_variant_identity_expr("line.item_code")
             self.env.cr.execute(
                 """
                 SELECT
@@ -2553,7 +2590,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     END AS company_name,
                     line.product_id,
                     COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product') AS product_name,
-                    LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                    {variant_identity_sql} AS prefix5,
                     COUNT(DISTINCT invoice.id) AS baskets,
                     SUM(line.quantity) AS units,
                     SUM(line.price_subtotal) AS revenue,
@@ -2575,13 +2612,14 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                          invoice.source_partner_name, invoice.source_partner_mobile,
                          invoice.source_partner_type, line.product_id,
                          COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product'),
-                         LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5)
+                         {variant_identity_sql}
                 ORDER BY last_purchase DESC, revenue DESC
                 LIMIT 3000
                 """.format(
                     anchor_sql=anchor_sql,
                     audience_sql=audience_sql,
                     business_sql=business_sql,
+                    variant_identity_sql=variant_identity_sql,
                 ),
                 [start, end, *business_params, *audience_params, *anchor_params],
             )
@@ -2602,6 +2640,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         anchor_sql, anchor_params = self._anchor_clause(entity, query, source=source, scoped=False)
         if source == "current":
             audience_sql, audience_params = self._audience_sql("move", filters)
+            variant_identity_sql = self._sql_variant_identity_expr("product.barcode", "product.default_code")
             self.env.cr.execute(
                 """
                 WITH source_lines AS (
@@ -2615,7 +2654,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         CASE WHEN commercial.is_company THEN commercial.name ELSE NULL END AS company_name,
                         product.id AS product_id,
                         COALESCE(template.name->>'en_US', template.name->>'en', product.default_code, 'Product') AS product_name,
-                        LEFT(REGEXP_REPLACE(UPPER(COALESCE(product.barcode, product.default_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                        {variant_identity_sql} AS prefix5,
                         move.id AS basket_id,
                         move.invoice_date,
                         line.quantity,
@@ -2667,7 +2706,11 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 FROM customer_totals totals
                 JOIN product_lists lists USING (customer_key)
                 ORDER BY totals.last_purchase DESC, totals.revenue DESC
-                """.format(anchor_sql=anchor_sql, audience_sql=audience_sql),
+                """.format(
+                    anchor_sql=anchor_sql,
+                    audience_sql=audience_sql,
+                    variant_identity_sql=variant_identity_sql,
+                ),
                 [start, end, self._company_ids(filters), *audience_params, *anchor_params],
             )
         else:
@@ -2675,6 +2718,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                 return []
             audience_sql, audience_params = self._audience_sql("invoice", filters, source="legacy")
             business_sql, business_params = self._legacy_business_sql("invoice", filters)
+            variant_identity_sql = self._sql_variant_identity_expr("line.item_code")
             self.env.cr.execute(
                 """
                 WITH source_lines AS (
@@ -2698,7 +2742,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                         END AS company_name,
                         line.product_id,
                         COALESCE(NULLIF(line.product_name, ''), NULLIF(line.name, ''), NULLIF(line.item_code, ''), 'Product') AS product_name,
-                        LEFT(REGEXP_REPLACE(UPPER(COALESCE(line.item_code, '')), '[^A-Z0-9]+', '', 'g'), 5) AS prefix5,
+                        {variant_identity_sql} AS prefix5,
                         invoice.id AS basket_id,
                         invoice.invoice_date,
                         line.quantity,
@@ -2755,6 +2799,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
                     anchor_sql=anchor_sql,
                     audience_sql=audience_sql,
                     business_sql=business_sql,
+                    variant_identity_sql=variant_identity_sql,
                 ),
                 [start, end, *business_params, *audience_params, *anchor_params],
             )

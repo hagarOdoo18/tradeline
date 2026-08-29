@@ -85,6 +85,11 @@ class TestIntelligenceEntityGrain(TransactionCase):
         self.assertEqual(self.service._code_prefix(" mf-ym4/af/a "), "MFYM4")
         self.assertEqual(self.service._code_prefix("False"), "")
 
+    def test_variant_identity_keeps_numeric_ean_exact(self):
+        self.assertEqual(self.service._variant_identity_code("8886463693810"), "8886463693810")
+        self.assertEqual(self.service._variant_identity_code("MG6J4AF/A"), "MG6J4")
+        self.assertEqual(self.service._variant_identity_code("False"), "")
+
     def test_transport_safe_replaces_nested_nulls_for_xmlrpc(self):
         self.assertEqual(
             self.service._transport_safe({"value": None, "rows": [1, None]}),
