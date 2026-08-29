@@ -623,6 +623,10 @@
 .tl-row-evidence .tl-evidence-button.is-row { min-width: 28px; padding: 0 7px; }
 
 .tl-ownership-view { padding-bottom: 52px; }
+.tl-owner-loading { display: grid; grid-template-columns: 14px 1fr; gap: 3px 10px; align-items: center; margin-bottom: 18px; padding: 14px 16px; border-left: 3px solid var(--tli-green); background: #f2f8f4; }
+.tl-owner-loading span { grid-row: 1 / span 2; width: 10px; height: 10px; border-radius: 50%; background: var(--tli-green); animation: tliPulse 1s infinite alternate; }
+.tl-owner-loading strong { font-size: 10px; }
+.tl-owner-loading small { color: var(--tli-muted); font-size: 8px; }
 .tl-owner-heading { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin-bottom: 20px; }
 .tl-owner-heading h2 { margin: 0; font-size: 24px; letter-spacing: -.025em; }
 .tl-owner-heading p { margin: 6px 0 0; color: var(--tli-muted); font-size: 10px; line-height: 1.5; }

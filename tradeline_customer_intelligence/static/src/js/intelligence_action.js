@@ -12,6 +12,7 @@ export class TradelineCustomerIntelligence extends Component {
         this.state = useState({
             activeView: "product",
             loading: true,
+            ownershipLoading: false,
             catalogLoading: true,
             exporting: false,
             evidenceLoading: false,
@@ -324,15 +325,38 @@ export class TradelineCustomerIntelligence extends Component {
             const bundle = await this.orm.call(
                 "tradeline.customer.intelligence.service",
                 "get_product_360",
-                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity, this.analysisFilters]
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity, this.analysisFilters, 200, false]
             );
             this.state.bundle = bundle;
             this.state.selectedCompanionKey = bundle.companions?.[0]?.product_key || null;
             this.state.selectedCustomerKey = bundle.customers?.[0]?.customer_key || null;
+            this.loadOwnership();
         } catch (error) {
             this.state.error = this.extractError(error);
         } finally {
             this.state.loading = false;
+        }
+    }
+
+    async loadOwnership() {
+        if (!this.state.selectedEntity) return;
+        const entityId = Number(this.state.selectedEntity.id || 0);
+        this.state.ownershipLoading = true;
+        try {
+            const ownership = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_ownership_insights",
+                [this.state.query, this.state.selectedEntity, this.analysisFilters, 200]
+            );
+            if (Number(this.state.selectedEntity?.id || 0) === entityId && this.state.bundle) {
+                this.state.bundle = { ...this.state.bundle, ownership };
+            }
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "warning" });
+        } finally {
+            if (Number(this.state.selectedEntity?.id || 0) === entityId) {
+                this.state.ownershipLoading = false;
+            }
         }
     }
 

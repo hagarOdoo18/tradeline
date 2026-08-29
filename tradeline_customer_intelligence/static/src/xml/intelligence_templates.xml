@@ -179,6 +179,7 @@
 
             <t t-if="state.activeView === 'ownership'">
                 <section class="tl-workspace-view tl-ownership-view">
+                    <div t-if="state.ownershipLoading" class="tl-owner-loading"><span></span><strong>Building the complete owner population…</strong><small>Category ownership, generation, value and contact evidence are being reconciled.</small></div>
                     <div class="tl-owner-heading">
                         <div><h2>Owner &amp; upgrade opportunities</h2><p>Category scope: <strong><t t-esc="ownership.category_name"/></strong> · <t t-esc="ownership.rule_note"/></p></div>
                         <div class="tl-owner-filters"><label>Generation<select t-model="state.ownerGeneration" t-on-change="onOwnerGenerationChange"><option value="all">All generations</option><option t-foreach="ownerGenerations" t-as="generation" t-key="generation" t-att-value="generation">iPhone <t t-esc="generation"/></option></select></label><label>Contact readiness<select t-model="state.ownerReachability" t-on-change="onOwnerReachabilityChange"><option value="all">All</option><option value="reachable">Reachable</option><option value="enrichment">Needs enrichment</option></select></label></div>

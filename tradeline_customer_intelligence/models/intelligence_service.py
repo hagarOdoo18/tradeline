@@ -2723,6 +2723,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         entity=None,
         filters=None,
         ownership_limit=200,
+        include_ownership=True,
     ):
         self._ensure_access()
         query = (query or "").strip()
@@ -2865,8 +2866,12 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             "rationale": "Highest attach volume with meaningful lift" if top else "No companion signal is available for this scope.",
             "reachable_baskets": int(top.get("co_baskets") or 0) if top else 0,
         }
-        ownership = self._ownership_insights(
-            query, start, end, entity, filters, result_limit=ownership_limit
+        ownership = (
+            self._ownership_insights(
+                query, start, end, entity, filters, result_limit=ownership_limit
+            )
+            if include_ownership
+            else {"summary": {}, "customers": [], "coverage": {}, "loading": True}
         )
         available_period = self._available_period(entity, query, filters)
         bundle = {
@@ -2908,6 +2913,25 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
             },
         }
         return self._transport_safe(bundle)
+
+    @api.model
+    def get_ownership_insights(self, query, entity=None, filters=None, limit=200):
+        """Load the larger category-owner population independently from basket KPIs."""
+        self._ensure_access()
+        query = (query or "").strip()
+        normalized = self._normalize_entity(entity, query)
+        if normalized["type"] == "query" and len(query) < 2:
+            raise UserError("Choose an exact product before building an owner audience.")
+        return self._transport_safe(
+            self._ownership_insights(
+                query,
+                date(2025, 1, 1),
+                fields.Date.today(),
+                normalized,
+                self._normalize_filters(filters),
+                result_limit=limit,
+            )
+        )
 
     def _evidence_anchor_domain(self, entity, query, source):
         line_prefix = "invoice_line_ids" if source == "current" else "line_ids"
@@ -3089,7 +3113,7 @@ class TradelineCustomerIntelligenceService(models.AbstractModel):
         if export_mode not in {"current_view", "detail_rows", "customers", "ownership", "legacy_live"}:
             export_mode = "current_view"
         bundle = self.get_product_360(
-            query, start_date, end_date, source, 100, entity, filters, 50000
+            query, start_date, end_date, source, 100, entity, filters, 50000, True
         )
         comparison = self.get_legacy_comparison(query, entity, filters)
         stream = io.BytesIO()
