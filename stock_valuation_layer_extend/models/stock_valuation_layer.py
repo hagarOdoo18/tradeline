@@ -45,7 +45,7 @@ class StockValuationLayer(models.Model):
     )
 
     product_search_text = fields.Char(
-        string='Product',
+        string='Product Search',
         compute='_compute_product_search_text',
         search='_search_product_search_text',
         store=False,
