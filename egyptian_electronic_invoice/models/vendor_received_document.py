@@ -49,7 +49,7 @@ class VendorReceivedDocument(models.Model):
 	bill_id = fields.Many2one('account.move', "Bill", domain=[('move_type', '=', 'in_invoice')])
 	show_result = fields.Boolean("Show Results?", default=True)
 	_sql_constraints = [
-		('name_uniq', 'unique (UUID)', "UUID already exists !"),
+		('name_uniq', 'unique (name)', "UUID already exists !"),
 	]
 	
 	def action_reset(self):

@@ -79,5 +79,5 @@ class Currency(models.Model):
 class Company(models.Model):
     _inherit = 'res.company'
 
-    sale_note = fields.Html(string='Default Terms and Conditions', )
+    sale_note = fields.Html(string='Sales Terms and Conditions')
     sale_note_en = fields.Html(string='EN Default Terms and Conditions')

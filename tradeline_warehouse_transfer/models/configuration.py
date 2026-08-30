@@ -15,7 +15,7 @@ class ResConfigSettings(models.TransientModel):
     stock_journal = fields.Many2one(
         comodel_name='account.journal',domain=[('type','=','general')],
         related='company_id.stock_journal',readonly=False,
-        string='Stock Journal',
+        string='Transfer Stock Journal',
         required=False)
 
     debit_account = fields.Many2one(
@@ -40,7 +40,7 @@ class ResCompany(models.Model):
 
     stock_journal = fields.Many2one(
         comodel_name='account.journal', domain=[('type', '=', 'general')],
-        string='Stock Journal',
+        string='Transfer Stock Journal',
         required=False)
 
     debit_account = fields.Many2one(
