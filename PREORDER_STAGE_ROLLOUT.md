@@ -25,7 +25,7 @@ The `preorder_management` module is isolated from the existing flow and is inten
 1. A manager creates an **iPhone 18** campaign, selects the date range, product variants, and participating branches.
 2. The manager enters a product quota for every branch in the **Branch Allocation** grid.
 3. A salesperson opens the customer's paid Down Payment quotation and clicks **Create Pre-order** inside the Sales Order form.
-4. The pre-order list exposes the required fields: Customer, Branch, Date, Sales Rep, Discount Reason, and Pre-order Ref.
+4. The pre-order list exposes the required fields: Customer, Branch, Date, Sales Rep, and Discount Reason. There is no separate pre-order reference field; the existing Sales Order number remains the source link.
 5. The manager confirms and allocates each customer request. Allocation is transaction-locked so two admins cannot consume the same last unit.
    Once a quotation is linked to an active pre-order record, it is removed from the legacy Sales/POS Down Payment selectors so staff cannot accidentally process it through both workflows.
 6. During delivery, the branch creates a draft delivery sales order from the pre-order record, confirms it, and validates the serial-controlled stock delivery.
