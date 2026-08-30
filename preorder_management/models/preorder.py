@@ -1073,6 +1073,78 @@ class SalePreorder(models.Model):
                 invoice.js_assign_outstanding_line(line.id)
                 payment_lines = self._get_available_payment_lines(payments)
 
+    def _redate_original_payments_to_invoice(self, invoices):
+        """Move the posted pre-order payments to the delivery invoice accounting date."""
+        self.ensure_one()
+        payments = self._get_source_inbound_payments()
+        if not payments:
+            raise UserError(_("The original pre-order payment was returned or is unavailable."))
+
+        invoice_dates = set(invoices.mapped("date"))
+        invoice_dates.discard(False)
+        if len(invoice_dates) != 1:
+            raise UserError(
+                _(
+                    "All delivery invoices must use the same accounting date before the original "
+                    "payment can be re-dated."
+                )
+            )
+        target_date = invoice_dates.pop()
+        changed = []
+        for payment in payments:
+            if payment.date == target_date:
+                continue
+            if not payment.move_id or payment.move_id.state != "posted":
+                raise UserError(
+                    _("Payment %s does not have a posted journal entry.") % payment.display_name
+                )
+            old_date = payment.date
+            try:
+                payment.action_draft()
+                payment.write({"date": target_date})
+                payment.action_post()
+            except Exception as error:
+                raise UserError(
+                    _(
+                        "Payment %(payment)s could not be moved from %(old_date)s to "
+                        "%(new_date)s. It may already be reconciled, hashed, or inside a locked "
+                        "accounting period. Accounting must resolve that restriction before delivery.\n\n"
+                        "Odoo detail: %(detail)s"
+                    )
+                    % {
+                        "payment": payment.display_name,
+                        "old_date": old_date,
+                        "new_date": target_date,
+                        "detail": error,
+                    }
+                ) from error
+            payment.invalidate_recordset(["date", "state", "move_id"])
+            if payment.move_id.state != "posted" or payment.date != target_date:
+                raise UserError(
+                    _("Payment %s was not reposted on the delivery invoice date.")
+                    % payment.display_name
+                )
+            changed.append((payment.display_name, old_date, target_date))
+
+        if changed:
+            details = "<br/>".join(
+                _("%(payment)s: %(old_date)s to %(new_date)s")
+                % {
+                    "payment": payment_name,
+                    "old_date": old_date,
+                    "new_date": new_date,
+                }
+                for payment_name, old_date, new_date in changed
+            )
+            self.message_post(
+                body=_(
+                    "Original payment journal date(s) changed to the delivery invoice "
+                    "accounting date before reconciliation:<br/>%s"
+                )
+                % details
+            )
+        return target_date
+
     def action_invoice_and_apply_payment(self):
         self.ensure_one()
         _check_preorder_manager(self.env)
@@ -1104,6 +1176,7 @@ class SalePreorder(models.Model):
         if not posted:
             raise UserError(_("No posted customer invoice is available for payment application."))
 
+        self._redate_original_payments_to_invoice(posted)
         self._apply_original_payments(posted)
         residual = sum(posted.mapped("amount_residual"))
         completed = float_is_zero(residual, precision_rounding=self.currency_id.rounding)
@@ -1122,7 +1195,10 @@ class SalePreorder(models.Model):
             "params": {
                 "title": _("Pre-order payment applied"),
                 "message": (
-                    _("The original payment settled the delivery invoice without a refund or second charge.")
+                    _(
+                        "The original payment was re-dated to the delivery invoice date and settled "
+                        "the invoice without a refund or second charge."
+                    )
                     if completed
                     else _("The original payment was applied; %s %s remains due.")
                     % (residual, self.currency_id.name)

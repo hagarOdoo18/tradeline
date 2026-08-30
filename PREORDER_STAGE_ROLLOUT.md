@@ -30,12 +30,12 @@ The `preorder_management` module is isolated from the existing flow and is inten
 6. The central manager starts allocation and allocates each paid customer request. Allocation is transaction-locked so two admins cannot consume the same last unit.
    Once a quotation is linked to an active pre-order record, it is removed from the legacy Sales/POS Down Payment selectors so staff cannot accidentally process it through both workflows.
 7. The central manager starts delivery, creates the draft delivery sales order from the allocated pre-order, confirms it, and the branch validates the serial-controlled stock delivery.
-8. **Invoice & Apply Original Payment** creates/posts the delivery invoice and reconciles the original payment's open receivable line. It does not create an outbound refund or a second inbound payment.
+8. **Invoice & Apply Original Payment** creates/posts the delivery invoice, changes the original posted payment journal date to the delivery invoice accounting date, reposts it, and reconciles its open receivable line. It does not create an outbound refund or a second inbound payment.
 9. If the prepayment is smaller than the invoice, the record moves to **Payment Due** and shows the remaining invoice balance. If it fully settles the invoice, it moves to **Completed**.
 
 Returned payments are identified and blocked from reuse.
 
-The original payment journal entry and payment date always remain the real deposit collection date. At delivery, the customer invoice uses the delivery/invoice date and the original open payment credit is reconciled to that invoice. The workflow must never rewrite the historical payment date to match the invoice date.
+The branch initially records the real deposit collection date. At delivery, the system temporarily returns the original payment to draft, changes its journal date to the posted delivery invoice accounting date, reposts the same payment, and then reconciles it to the invoice. If the payment is already reconciled, hash-protected, or belongs to a locked accounting period, delivery is blocked for Accounting review instead of changing it silently.
 
 ## Staging UAT
 
@@ -51,7 +51,7 @@ The original payment journal entry and payment date always remain the real depos
    - two customers competing for the last unit in a branch quota;
    - a serial-tracked iPhone delivery;
    - a discount-reason quotation.
-6. For successful cases, verify that the original `account.payment` IDs and journals are unchanged, no outbound return is created, no second inbound payment is created, and the final invoice shows the original payment in its reconciled payments.
+6. For successful cases, verify that the original `account.payment` IDs and journals are unchanged, their dates now match the delivery invoice accounting date, no outbound return is created, no second inbound payment is created, and the final invoice shows the original payment in its reconciled payments.
 7. Reconcile the staging accounting entries and compare customer partner ledgers before/after. The pre-order credit should move from outstanding to the delivery invoice with no net cash movement.
 
 ## Production gate
