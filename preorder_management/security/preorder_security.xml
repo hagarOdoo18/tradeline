@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_preorder_management" model="ir.module.category">
+        <field name="name">Pre-order Management</field>
+        <field name="sequence">31</field>
+    </record>
+
+    <record id="group_preorder_user" model="res.groups">
+        <field name="name">User</field>
+        <field name="category_id" ref="module_category_preorder_management"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+    <record id="group_preorder_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="category_id" ref="module_category_preorder_management"/>
+        <field name="implied_ids" eval="[(4, ref('group_preorder_user'))]"/>
+    </record>
+
+    <record id="sale_preorder_branch_rule" model="ir.rule">
+        <field name="name">Pre-orders: user's branches</field>
+        <field name="model_id" ref="model_sale_preorder"/>
+        <field name="groups" eval="[(4, ref('group_preorder_user'))]"/>
+        <field name="domain_force">[('branch_id', 'in', user.branch_ids.ids)]</field>
+    </record>
+    <record id="sale_preorder_manager_rule" model="ir.rule">
+        <field name="name">Pre-orders: manager all branches</field>
+        <field name="model_id" ref="model_sale_preorder"/>
+        <field name="groups" eval="[(4, ref('group_preorder_manager'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <record id="sale_preorder_allocation_branch_rule" model="ir.rule">
+        <field name="name">Pre-order allocations: user's branches</field>
+        <field name="model_id" ref="model_sale_preorder_allocation"/>
+        <field name="groups" eval="[(4, ref('group_preorder_user'))]"/>
+        <field name="domain_force">[('branch_id', 'in', user.branch_ids.ids)]</field>
+    </record>
+    <record id="sale_preorder_allocation_manager_rule" model="ir.rule">
+        <field name="name">Pre-order allocations: manager all branches</field>
+        <field name="model_id" ref="model_sale_preorder_allocation"/>
+        <field name="groups" eval="[(4, ref('group_preorder_manager'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>
