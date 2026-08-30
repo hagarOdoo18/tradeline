@@ -145,7 +145,7 @@
                     <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
                             invisible="state not in ('delivery', 'invoiced')"
                             groups="preorder_management.group_preorder_manager"
-                            confirm="The delivery must already be validated. This posts the invoice and reconciles the original pre-order payment; it does not charge or refund the customer."/>
+                            confirm="The delivery must already be validated. This posts the invoice, changes the original payment journal date to the delivery invoice date, and reconciles that same payment. It does not charge or refund the customer."/>
                     <button name="action_cancel_preorder" string="Cancel" type="object"
                             invisible="state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object"
@@ -169,13 +169,16 @@
                             <li>Close the payment window and return to this Customer Pre-order.</li>
                             <li>When Payment Status becomes <strong>Available</strong>, click <strong>Confirm Pre-order</strong>.</li>
                         </ol>
-                        <strong>Accounting rule:</strong> Never replace the deposit date with the delivery date. At delivery, the invoice receives its own invoice date and the same original payment is reconciled to it.
+                        <strong>Delivery rule:</strong> Enter the real collection date now. At delivery, the system will automatically change this original payment journal date to the delivery invoice date before applying the same payment.
                     </div>
                     <div class="alert alert-success" role="alert" invisible="state != 'draft' or payment_status != 'available'">
                         <strong>Branch Manager — Step 3:</strong> The original deposit is posted and available. Click <strong>Confirm Pre-order</strong> to send this request to the central allocation queue.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'pending'">
                         <strong>Branch Manager complete:</strong> Payment is registered and this request is waiting for Central Admin allocation. Do not create another payment or refund the original one.
+                    </div>
+                    <div class="alert alert-warning" role="alert" invisible="state not in ('delivery', 'invoiced')">
+                        <strong>Central Admin — Delivery accounting:</strong> After the branch validates the delivery and serial number, click <strong>Invoice &amp; Apply Original Payment</strong>. The system posts the delivery invoice, changes the original payment journal date to that invoice date, and reconciles the same payment. No refund or second payment is created.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'invoiced'">
                         The original payment was applied, but the delivery invoice still has a remaining balance.
@@ -225,7 +228,7 @@
                             <field name="final_sale_order_id" invisible="not final_sale_order_id"/>
                         </group>
                     </group>
-                    <group string="Original Payment — reused, never duplicated">
+                    <group string="Original Payment — reused, re-dated at delivery, never duplicated">
                         <group>
                             <field name="source_amount_total" invisible="not source_order_id"/>
                             <field name="prepaid_amount"/>
