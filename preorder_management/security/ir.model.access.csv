@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_sale_preorder_campaign_user,sale.preorder.campaign.user,model_sale_preorder_campaign,preorder_management.group_preorder_user,1,0,0,0
+access_sale_preorder_campaign_manager,sale.preorder.campaign.manager,model_sale_preorder_campaign,preorder_management.group_preorder_manager,1,1,1,1
+access_sale_preorder_allocation_user,sale.preorder.allocation.user,model_sale_preorder_allocation,preorder_management.group_preorder_user,1,0,0,0
+access_sale_preorder_allocation_manager,sale.preorder.allocation.manager,model_sale_preorder_allocation,preorder_management.group_preorder_manager,1,1,1,1
+access_sale_preorder_user,sale.preorder.user,model_sale_preorder,preorder_management.group_preorder_user,1,1,1,0
+access_sale_preorder_manager,sale.preorder.manager,model_sale_preorder,preorder_management.group_preorder_manager,1,1,1,1
