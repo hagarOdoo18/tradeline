@@ -183,6 +183,11 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
             'quantity_neutralization_date': fields.Datetime.now(),
         })
         correction_svl._validate_accounting_entries()
+        synced_unit_cost = source.product_id._sync_standard_price_from_valuation(source.company_id)
+
+        cost_message = ''
+        if synced_unit_cost is not None:
+            cost_message = _(' Current Product Cost was aligned to %(cost).3f.', cost=synced_unit_cost)
 
         return {
             'type': 'ir.actions.client',
@@ -190,8 +195,9 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
             'params': {
                 'title': _('Valuation Quantity Corrected'),
                 'message': _(
-                    '%(serial)s now has valuation quantity 0 and value 0. Physical stock was not changed.',
+                    '%(serial)s now has valuation quantity 0 and value 0. Physical stock was not changed.%(cost_message)s',
                     serial=source.lot_id.display_name,
+                    cost_message=cost_message,
                 ),
                 'type': 'success',
                 'sticky': True,

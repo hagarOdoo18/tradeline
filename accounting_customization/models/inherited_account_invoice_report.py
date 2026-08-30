@@ -120,29 +120,26 @@ class AccountInvoiceReport(models.Model):
     def _select(self) -> SQL:
             cost_qty_expr = "(line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0))"
             standard_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
-            # Invoice Analysis intentionally uses the live unit cost displayed by
-            # Valuation by Product.  Consequently, historical invoice margins move
-            # when the product's current stock valuation changes.
-            valuation_by_product_unit_cost_expr = (
-                "COALESCE(( "
-                "  SELECT valuation.unit_cost "
-                "  FROM stock_valuation_layer_report valuation "
-                "  WHERE valuation.product_id = line.product_id "
-                "    AND valuation.company_id = line.company_id "
-                "), 0.0)"
+            # The invoice line stores the product cost captured when the invoice is
+            # posted.  Reporting must use that immutable snapshot; otherwise an old
+            # invoice's margin changes whenever today's product valuation changes.
+            # Legacy lines created before the snapshot field was populated may still
+            # contain zero, so only those lines fall back to the current product cost.
+            invoice_unit_cost_expr = (
+                f"COALESCE(NULLIF(line.standard_price, 0.0), {standard_price_expr}, 0.0)"
             )
-            # Odoo's base report embeds standard_price in its original Margin and
-            # Inventory Value measures.  Rewrite those expressions as well so every
-            # cost-based measure in Invoice Analysis uses Valuation by Product.
+            # Odoo's base report embeds the current product standard_price in its
+            # original Margin and Inventory Value measures.  Rewrite those measures
+            # to use the same frozen invoice-line snapshot as the custom measures.
             base_select = super()._select()
             base_select = SQL(
                 base_select.code.replace(
                     standard_price_expr,
-                    valuation_by_product_unit_cost_expr,
+                    invoice_unit_cost_expr,
                 ),
                 *base_select.params,
             )
-            untaxed_cost_expr = f"({cost_qty_expr} * ({valuation_by_product_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
+            untaxed_cost_expr = f"({cost_qty_expr} * ({invoice_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
             sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
             credit_note_margin_expr = f"(account_currency_table.rate * (-line.balance + {untaxed_cost_expr}))"
 
@@ -201,8 +198,8 @@ class AccountInvoiceReport(models.Model):
                 "       * account_currency_table.rate "
                 "END AS price_total_converted ",
                 base_select,
-                SQL(valuation_by_product_unit_cost_expr),
-                SQL(valuation_by_product_unit_cost_expr),
+                SQL(invoice_unit_cost_expr),
+                SQL(invoice_unit_cost_expr),
                 SQL(str(UNTAX_COST_DIVISOR)),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),

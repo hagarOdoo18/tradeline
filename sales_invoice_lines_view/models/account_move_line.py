@@ -1,6 +1,43 @@
 from odoo import models, fields, api
 
 
+class AccountMove(models.Model):
+    _inherit = 'account.move'
+
+    def _freeze_reporting_unit_costs(self):
+        """Capture the cost used by historical invoice profitability reports."""
+        for move in self.filtered(lambda rec: rec.move_type in ('out_invoice', 'out_refund')):
+            original_lines = move.reversed_entry_id.invoice_line_ids.filtered(
+                lambda line: line.display_type == 'product' and line.product_id
+            )
+            for line in move.invoice_line_ids.filtered(
+                lambda invoice_line: invoice_line.display_type == 'product' and invoice_line.product_id
+            ):
+                if move.move_type == 'out_refund':
+                    # Reversals should undo the original invoice at its original
+                    # cost, not at the product's cost on the refund date.
+                    matching_originals = original_lines.filtered(
+                        lambda original: original.product_id == line.product_id
+                    )
+                    weighted_qty = sum(abs(original.quantity) for original in matching_originals)
+                    if weighted_qty:
+                        line.standard_price = sum(
+                            abs(original.quantity) * original.standard_price
+                            for original in matching_originals
+                        ) / weighted_qty
+                        continue
+                    if line.standard_price:
+                        continue
+
+                line.standard_price = line.product_id.with_company(move.company_id).standard_price
+
+    def action_post(self):
+        # Freeze immediately before posting. Draft invoices may remain open while
+        # receipts change the current AVCO product cost.
+        self._freeze_reporting_unit_costs()
+        return super().action_post()
+
+
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
 

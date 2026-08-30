@@ -1,6 +1,6 @@
 {
     'name': 'Sales Invoice Lines View',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
     'category': 'Accounting',
     'summary': 'Tree view for sales invoice lines with detailed product, payment, and customer info',
     'description': """
