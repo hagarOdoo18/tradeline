@@ -869,7 +869,13 @@ class SalePreorder(models.Model):
             raise UserError(_("Register the original payment before confirming the pre-order."))
         action = self.source_order_id.action_register_payment_so()
         context = dict(action.get("context", {}))
-        context.update({"default_ref": self.name, "default_sale_order_id": self.source_order_id.id})
+        context.update(
+            {
+                "default_ref": self.name,
+                "default_memo": self.name,
+                "default_sale_order_id": self.source_order_id.id,
+            }
+        )
         action["context"] = context
         return action
 

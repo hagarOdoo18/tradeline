@@ -165,7 +165,8 @@
                             <li>Click <strong>Register Payment</strong>.</li>
                             <li>Choose the actual Cash, Bank, or Card journal used to collect the deposit.</li>
                             <li>Set <strong>Date</strong> to the real collection date and verify the amount.</li>
-                            <li>Post the payment, close the payment window, and return to this Customer Pre-order.</li>
+                            <li>Verify that Memo contains this <strong>PRE/...</strong> number, then click <strong>Confirm</strong> to post the payment.</li>
+                            <li>Close the payment window and return to this Customer Pre-order.</li>
                             <li>When Payment Status becomes <strong>Available</strong>, click <strong>Confirm Pre-order</strong>.</li>
                         </ol>
                         <strong>Accounting rule:</strong> Never replace the deposit date with the delivery date. At delivery, the invoice receives its own invoice date and the same original payment is reconciled to it.
