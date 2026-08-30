@@ -119,6 +119,7 @@ class AccountInvoiceReport(models.Model):
 
     def _select(self) -> SQL:
             cost_qty_expr = "(line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0))"
+            standard_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
             # Invoice Analysis intentionally uses the live unit cost displayed by
             # Valuation by Product.  Consequently, historical invoice margins move
             # when the product's current stock valuation changes.
@@ -129,6 +130,17 @@ class AccountInvoiceReport(models.Model):
                 "  WHERE valuation.product_id = line.product_id "
                 "    AND valuation.company_id = line.company_id "
                 "), 0.0)"
+            )
+            # Odoo's base report embeds standard_price in its original Margin and
+            # Inventory Value measures.  Rewrite those expressions as well so every
+            # cost-based measure in Invoice Analysis uses Valuation by Product.
+            base_select = super()._select()
+            base_select = SQL(
+                base_select.code.replace(
+                    standard_price_expr,
+                    valuation_by_product_unit_cost_expr,
+                ),
+                *base_select.params,
             )
             untaxed_cost_expr = f"({cost_qty_expr} * ({valuation_by_product_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
             sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
@@ -188,7 +200,7 @@ class AccountInvoiceReport(models.Model):
                 "  ELSE (line.price_total / NULLIF(COALESCE(move.invoice_currency_rate, 1), 0)) "
                 "       * account_currency_table.rate "
                 "END AS price_total_converted ",
-                super()._select(),
+                base_select,
                 SQL(valuation_by_product_unit_cost_expr),
                 SQL(valuation_by_product_unit_cost_expr),
                 SQL(str(UNTAX_COST_DIVISOR)),
