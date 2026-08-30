@@ -85,7 +85,6 @@
                                     <field name="preorder_date"/>
                                     <field name="sales_rep_id"/>
                                     <field name="discount_id" optional="show"/>
-                                    <field name="reference_number"/>
                                     <field name="product_id"/>
                                     <field name="requested_qty"/>
                                     <field name="payment_status" widget="badge"/>
@@ -114,7 +113,6 @@
                 <field name="preorder_date"/>
                 <field name="sales_rep_id"/>
                 <field name="discount_id" optional="show"/>
-                <field name="reference_number"/>
                 <field name="product_id"/>
                 <field name="requested_qty" sum="Requested"/>
                 <field name="prepaid_amount" sum="Paid" optional="show"/>
@@ -188,7 +186,6 @@
                             <field name="preorder_date"/>
                             <field name="sales_rep_id"/>
                             <field name="discount_id"/>
-                            <field name="reference_number"/>
                             <field name="source_state"/>
                         </group>
                         <group string="Requested Product">
@@ -240,7 +237,6 @@
         <field name="arch" type="xml">
             <search>
                 <field name="name"/>
-                <field name="reference_number"/>
                 <field name="customer_id"/>
                 <field name="product_id"/>
                 <field name="sales_rep_id"/>

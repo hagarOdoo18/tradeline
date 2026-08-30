@@ -269,9 +269,6 @@ class SalePreorder(models.Model):
         store=True,
         index=True,
     )
-    reference_number = fields.Char(
-        string="Pre-order Ref", related="source_order_id.reference_number", store=True, index=True
-    )
     source_state = fields.Selection(related="source_order_id.state", string="Quotation Status")
     source_amount_total = fields.Monetary(
         related="source_order_id.amount_total", string="Pre-order Amount"
@@ -677,11 +674,11 @@ class SalePreorder(models.Model):
             "user_id": source.user_id.id,
             "sales_rep_id": self.sales_rep_id.id,
             "discount_id": self.discount_id.id,
-            "reference_number": self.reference_number,
+            "reference_number": source.reference_number,
             "inv_type": "invoice",
             "preorder_id": self.id,
             "preorder_source_order_id": source.id,
-            "client_order_ref": _("Pre-order %s") % (self.reference_number or source.name),
+            "client_order_ref": _("Pre-order %s") % source.name,
             "order_line": [Command.create(line_values)],
         }
         if source.invoice_journal_id:
