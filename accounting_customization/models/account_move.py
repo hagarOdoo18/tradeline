@@ -621,7 +621,7 @@ class AccountMove(models.Model):
     tax_t3 = fields.Float(compute='_compute_tax', string="VAT3%")
     tax_t5 = fields.Float(compute='_compute_tax', string="VAT5%")
     tax_t2_t = fields.Float(compute='_compute_tax', string="VAT2%")
-    total = fields.Float(compute='compute_tax', string="Total")
+    total = fields.Float(compute='compute_tax', string="Untaxed + VAT 14%")
 
     @api.depends('invoice_line_ids')
     def _compute_tax(self):
@@ -697,7 +697,7 @@ class AccountMoveLine(models.Model):
 
     categ_id = fields.Many2one(
         comodel_name='product.category',
-        string='Category',
+        string='Invoice Line Category',
         required=False)
     sub_categ_id = fields.Many2one(
         comodel_name='sub.category',

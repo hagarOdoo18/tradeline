@@ -99,10 +99,10 @@ class SaleOrder(models.Model):
         help='Enter any downpayment reference manually, then click Load Downpayment.',
     )
     sales_rep_domain = fields.Char(
-        string='Sales_rep_domain',
+        string='Sales Rep Domain',
         required=False)
     discount_domain = fields.Char(
-        string='Sales_rep_domain',
+        string='Discount Domain',
         required=False)
 
     product_notes = fields.Char(
@@ -883,7 +883,7 @@ class SaleOrder(models.Model):
     tax_t2_t = fields.Float(compute='_compute_tax', string="VAT2%")
     tax_t3 = fields.Float(compute='_compute_tax', string="VAT3%")
     tax_t5 = fields.Float(compute='_compute_tax', string="VAT5%")
-    total = fields.Float(compute='compute_tax', string="Total")
+    total = fields.Float(compute='compute_tax', string="Untaxed + VAT 14%")
 
     @api.depends('order_line')
     def _compute_tax(self):
@@ -928,7 +928,7 @@ class SaleOrderLine(models.Model):
         required=False)
     warranty_id = fields.Many2one(
         comodel_name='product.warranty',
-        string='Warranty',
+        string='Warranty Selection',
         required=False)
 
     discount = fields.Float(
@@ -938,17 +938,17 @@ class SaleOrderLine(models.Model):
         store=True, readonly=False, precompute=True)
 
     item_code = fields.Char(
-        string='Item Code',
+        string='Sales Item Code',
         required=False)
 
     categ_id = fields.Many2one(
         comodel_name='product.category',
-        string='Category',
+        string='Sales Line Category',
         required=False)
 
     family_id = fields.Many2one(
         comodel_name='product.family',
-        string='Family',
+        string='Product Family',
         required=False)
     discount_reason_id = fields.Many2one(
         comodel_name='discount.reason',

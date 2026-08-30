@@ -1,7 +1,7 @@
 {
     "name": "Tradeline Sale Order Line Report 18",
     "summary": "Odoo 18 sale order line report adapted from the legacy Tradeline Odoo 12 view",
-    "version": "18.0.1.0.0",
+    "version": "18.0.1.0.1",
     "category": "Sales/Sales",
     "author": "Tradeline",
     "license": "LGPL-3",
