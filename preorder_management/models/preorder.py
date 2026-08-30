@@ -12,7 +12,7 @@ def _check_preorder_manager(env):
     if not env.su and not env.user.has_group(
         "preorder_management.group_preorder_manager"
     ):
-        raise AccessError(_("Only Pre-order Managers can perform this action."))
+        raise AccessError(_("Only Pre-order Central Admins can perform this action."))
 
 
 class SalePreorderCampaign(models.Model):
@@ -232,6 +232,45 @@ class SalePreorder(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "preorder_date desc, id desc"
 
+    def _default_branch_id(self):
+        user = self.env.user
+        if user.branch_id and user.branch_id.company_id == self.env.company:
+            return user.branch_id
+        company_branches = user.branch_ids.filtered(
+            lambda branch: branch.company_id == self.env.company
+        )
+        return company_branches[:1]
+
+    def _default_sales_rep_id(self):
+        branch = self._default_branch_id()
+        if not branch:
+            return False
+        return self.env["sales.rep"].search(
+            [
+                ("name", "=", branch.name),
+                "|",
+                ("branch_id", "=", branch.id),
+                ("branch_id", "=", False),
+            ],
+            limit=1,
+        )
+
+    def _get_downpayment_product(self):
+        return self.env["product.product"].search(
+            [
+                ("sale_ok", "=", True),
+                "|",
+                ("name", "=ilike", "Down Payment"),
+                ("name", "=ilike", "Downpayment"),
+            ],
+            order="id",
+            limit=1,
+        )
+
+    def _default_deposit_amount(self):
+        product = self._get_downpayment_product()
+        return product.lst_price if product else 0.0
+
     name = fields.Char(default="New", required=True, readonly=True, copy=False, index=True)
     campaign_id = fields.Many2one(
         "sale.preorder.campaign", required=True, ondelete="restrict", tracking=True, index=True
@@ -242,36 +281,64 @@ class SalePreorder(models.Model):
     source_order_id = fields.Many2one(
         "sale.order",
         string="Pre-order Quotation",
-        required=True,
         ondelete="restrict",
         tracking=True,
         index=True,
         domain="[('inv_type', '=', 'quotation'), ('company_id', '=', campaign_company_id)]",
+        copy=False,
+        readonly=True,
     )
-    company_id = fields.Many2one(related="source_order_id.company_id", store=True, index=True)
-    currency_id = fields.Many2one(related="source_order_id.currency_id", store=True)
+    company_id = fields.Many2one(related="campaign_id.company_id", store=True, index=True)
+    currency_id = fields.Many2one("res.currency", compute="_compute_currency")
     customer_id = fields.Many2one(
-        "res.partner", string="Customer", related="source_order_id.partner_id", store=True, index=True
+        "res.partner",
+        string="Customer",
+        required=True,
+        tracking=True,
+        index=True,
+        domain="[('company_id', 'in', [False, company_id])]",
     )
     branch_id = fields.Many2one(
-        "res.branch", string="Branch", related="source_order_id.branch_id", store=True, index=True
+        "res.branch",
+        string="Branch",
+        required=True,
+        default=_default_branch_id,
+        tracking=True,
+        index=True,
+        domain="[('company_id', '=', company_id)]",
     )
     preorder_date = fields.Datetime(
-        string="Date", related="source_order_id.date_order", store=True, index=True
+        string="Date",
+        required=True,
+        default=fields.Datetime.now,
+        tracking=True,
+        index=True,
     )
     sales_rep_id = fields.Many2one(
-        "sales.rep", string="Sales Rep", related="source_order_id.sales_rep_id", store=True, index=True
+        "sales.rep",
+        string="Sales Rep",
+        required=True,
+        default=_default_sales_rep_id,
+        tracking=True,
+        index=True,
+        domain="['|', ('branch_id', '=', branch_id), ('branch_id', '=', False)]",
     )
     discount_id = fields.Many2one(
         "discount.reason",
         string="Discount Reason",
-        related="source_order_id.discount_id",
-        store=True,
+        tracking=True,
         index=True,
     )
     source_state = fields.Selection(related="source_order_id.state", string="Quotation Status")
     source_amount_total = fields.Monetary(
         related="source_order_id.amount_total", string="Pre-order Amount"
+    )
+    deposit_amount = fields.Monetary(
+        string="Deposit Amount",
+        required=True,
+        default=_default_deposit_amount,
+        tracking=True,
+        help="Amount collected before allocation. The generated quotation uses this amount on its Down Payment line.",
     )
 
     product_id = fields.Many2one(
@@ -360,6 +427,35 @@ class SalePreorder(models.Model):
         ),
     ]
 
+    def init(self):
+        """Backfill quotation-first records when upgrading to the pre-order-first workflow."""
+        self.env.cr.execute(
+            """
+            UPDATE sale_preorder AS preorder
+               SET customer_id = COALESCE(preorder.customer_id, source.partner_id),
+                   branch_id = COALESCE(preorder.branch_id, source.branch_id),
+                   preorder_date = COALESCE(preorder.preorder_date, source.date_order),
+                   sales_rep_id = COALESCE(preorder.sales_rep_id, source.sales_rep_id),
+                   discount_id = COALESCE(preorder.discount_id, source.discount_id),
+                   deposit_amount = CASE
+                       WHEN COALESCE(preorder.deposit_amount, 0) <= 0 THEN source.amount_total
+                       ELSE preorder.deposit_amount
+                   END
+              FROM sale_order AS source
+             WHERE preorder.source_order_id = source.id
+            """
+        )
+        self.env.cr.execute(
+            """
+            UPDATE sale_order AS source
+               SET reference_number = preorder.name,
+                   client_order_ref = COALESCE(source.client_order_ref, preorder.name)
+              FROM sale_preorder AS preorder
+             WHERE preorder.source_order_id = source.id
+               AND source.reference_number IS DISTINCT FROM preorder.name
+            """
+        )
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -371,8 +467,18 @@ class SalePreorder(models.Model):
                 raise UserError(_("Workflow fields can only be changed through pre-order actions."))
             if vals.get("name", "New") == "New":
                 vals["name"] = self.env["ir.sequence"].next_by_code("sale.preorder") or "New"
+            source = self.env["sale.order"].browse(vals.get("source_order_id")).exists()
+            if source:
+                vals.setdefault("customer_id", source.partner_id.id)
+                vals.setdefault("branch_id", source.branch_id.id)
+                vals.setdefault("preorder_date", source.date_order)
+                vals.setdefault("sales_rep_id", source.sales_rep_id.id)
+                vals.setdefault("discount_id", source.discount_id.id)
+                vals.setdefault("deposit_amount", source.amount_total)
         records = super().create(vals_list)
-        records._validate_source_scope()
+        if records.filtered(lambda record: record.campaign_id.state != "open"):
+            raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
+        records._validate_preorder_scope()
         return records
 
     def write(self, vals):
@@ -383,14 +489,43 @@ class SalePreorder(models.Model):
             and not self.env.context.get("allow_preorder_workflow_write")
         ):
             raise UserError(_("Use the pre-order workflow buttons to change status or allocation."))
-        protected = {"campaign_id", "source_order_id", "product_id", "requested_qty"}
+        protected = {
+            "campaign_id",
+            "source_order_id",
+            "customer_id",
+            "branch_id",
+            "product_id",
+            "requested_qty",
+        }
+        source_identity_fields = {
+            "campaign_id",
+            "customer_id",
+            "branch_id",
+            "sales_rep_id",
+            "discount_id",
+            "deposit_amount",
+        }
+        if source_identity_fields & set(vals) and self.filtered("source_order_id"):
+            raise UserError(
+                _(
+                    "Customer, branch, Sales Rep, Discount Reason, Deposit Amount, and campaign "
+                    "cannot change after the Down Payment quotation is created."
+                )
+            )
         if protected & set(vals) and self.filtered(
             lambda record: record.state not in ("draft", "pending", "cancelled")
         ):
-            raise UserError(_("Campaign, quotation, product, and quantity cannot change after allocation."))
+            raise UserError(_("Campaign, quotation, customer, branch, product, and quantity cannot change after allocation."))
         result = super().write(vals)
-        if {"campaign_id", "source_order_id", "product_id"} & set(vals):
-            self._validate_source_scope()
+        if {
+            "campaign_id",
+            "source_order_id",
+            "customer_id",
+            "branch_id",
+            "product_id",
+            "sales_rep_id",
+        } & set(vals):
+            self._validate_preorder_scope()
         return result
 
     def _workflow_write(self, vals):
@@ -401,19 +536,56 @@ class SalePreorder(models.Model):
             raise UserError(_("Only draft or cancelled pre-orders can be deleted."))
         return super().unlink()
 
-    @api.onchange("source_order_id", "product_id", "requested_qty")
+    @api.depends(
+        "source_order_id.currency_id",
+        "customer_id.property_product_pricelist.currency_id",
+        "company_id.currency_id",
+    )
+    def _compute_currency(self):
+        for record in self:
+            pricelist = record.customer_id.property_product_pricelist
+            record.currency_id = (
+                record.source_order_id.currency_id
+                or pricelist.currency_id
+                or record.company_id.currency_id
+            )
+
+    @api.onchange("branch_id")
+    def _onchange_branch_id(self):
+        for record in self:
+            if not record.branch_id:
+                continue
+            if record.sales_rep_id and (
+                not record.sales_rep_id.branch_id
+                or record.sales_rep_id.branch_id == record.branch_id
+            ):
+                continue
+            record.sales_rep_id = self.env["sales.rep"].search(
+                [
+                    ("name", "=", record.branch_id.name),
+                    "|",
+                    ("branch_id", "=", record.branch_id.id),
+                    ("branch_id", "=", False),
+                ],
+                limit=1,
+            )
+
+    @api.onchange("customer_id", "product_id", "requested_qty")
     def _onchange_delivery_price(self):
         for record in self:
             if not record.product_id:
                 continue
             price = record.product_id.lst_price
-            pricelist = record.source_order_id.pricelist_id
+            pricelist = (
+                record.source_order_id.pricelist_id
+                or record.customer_id.property_product_pricelist
+            )
             if pricelist:
                 price = pricelist._get_product_price(
                     record.product_id,
                     record.requested_qty or 1.0,
-                    currency=record.currency_id,
-                    date=record.source_order_id.date_order,
+                    currency=pricelist.currency_id,
+                    date=record.preorder_date or fields.Datetime.now(),
                     uom=record.product_id.uom_id,
                 )
             record.price_unit = price
@@ -516,6 +688,8 @@ class SalePreorder(models.Model):
 
     def _get_source_inbound_payments(self, include_returned=False):
         self.ensure_one()
+        if not self.source_order_id:
+            return self.env["account.payment"]
         payments = self.source_order_id.payment_ids.filtered(
             lambda payment: payment.payment_type == "inbound"
             and payment.state in ("in_process", "paid")
@@ -552,26 +726,160 @@ class SalePreorder(models.Model):
         )
         return lines.sorted(lambda line: (line.date or fields.Date.today(), line.id))
 
-    def _validate_source_scope(self):
+    def _validate_preorder_scope(self):
         for record in self:
-            source = record.source_order_id
             campaign = record.campaign_id
-            if source.company_id != campaign.company_id:
-                raise ValidationError(_("Pre-order quotation and campaign must use the same company."))
-            if campaign.branch_ids and source.branch_id not in campaign.branch_ids:
-                raise ValidationError(_("The quotation branch is not participating in this campaign."))
+            if record.branch_id.company_id != campaign.company_id:
+                raise ValidationError(_("Pre-order branch and campaign must use the same company."))
+            if campaign.branch_ids and record.branch_id not in campaign.branch_ids:
+                raise ValidationError(_("The pre-order branch is not participating in this campaign."))
             if record.product_id and campaign.product_ids and record.product_id not in campaign.product_ids:
                 raise ValidationError(_("Requested product is not included in this campaign."))
+            if record.sales_rep_id.branch_id and record.sales_rep_id.branch_id != record.branch_id:
+                raise ValidationError(_("Sales Rep must belong to the selected branch."))
+            if not self.env.su and not self.env.user.has_group(
+                "preorder_management.group_preorder_manager"
+            ) and record.branch_id not in self.env.user.branch_ids:
+                raise AccessError(_("You can only create pre-orders for one of your assigned branches."))
+
+            source = record.source_order_id
+            if not source:
+                continue
+            if source.company_id != campaign.company_id:
+                raise ValidationError(_("Pre-order quotation and campaign must use the same company."))
+            if source.branch_id != record.branch_id:
+                raise ValidationError(_("Pre-order quotation and customer request must use the same branch."))
+            if source.partner_id != record.customer_id:
+                raise ValidationError(_("Pre-order quotation and customer request must use the same customer."))
+            if source.reference_number != record.name:
+                raise ValidationError(_("Quotation Reference Number must match the Customer Pre-order number."))
             if source.inv_type != "quotation" or not source._has_downpayment_product_lines():
                 raise ValidationError(
                     _("The source must be a quotation containing a Down Payment product line.")
                 )
 
+    def _prepare_source_order_values(self):
+        self.ensure_one()
+        if not self.customer_id:
+            raise UserError(_("Select the customer before creating the Sales Order."))
+        if not self.sales_rep_id:
+            raise UserError(_("Select the Sales Rep before creating the Sales Order."))
+        if float_compare(
+            self.deposit_amount,
+            0.0,
+            precision_rounding=self.currency_id.rounding,
+        ) <= 0:
+            raise UserError(_("Set a positive Deposit Amount before creating the Sales Order."))
+
+        downpayment_product = self._get_downpayment_product()
+        if not downpayment_product:
+            raise UserError(_("No saleable Down Payment product is configured."))
+        warehouse = self.env["stock.warehouse"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("branch_id", "=", self.branch_id.id),
+            ],
+            order="id",
+            limit=1,
+        )
+        if not warehouse:
+            raise UserError(_("No warehouse is configured for branch %s.") % self.branch_id.display_name)
+        invoice_journal = self.env["account.journal"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("branch_id", "=", self.branch_id.id),
+                ("type", "=", "sale"),
+            ],
+            order="id",
+            limit=1,
+        )
+        if not invoice_journal:
+            raise UserError(_("No sales invoice journal is configured for branch %s.") % self.branch_id.display_name)
+
+        pricelist = self.customer_id.property_product_pricelist
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].search(
+                [("company_id", "in", (False, self.company_id.id))],
+                order="company_id desc, id",
+                limit=1,
+            )
+        if not pricelist:
+            raise UserError(_("No sales pricelist is available for this customer."))
+
+        addresses = self.customer_id.address_get(["invoice", "delivery"])
+        team = self.env["crm.team"].search(
+            [("branch_id", "=", self.branch_id.id)], order="id", limit=1
+        )
+        taxes = downpayment_product.taxes_id.filtered(
+            lambda tax: tax.company_id == self.company_id
+        )
+        line_values = {
+            "product_id": downpayment_product.id,
+            "name": downpayment_product.get_product_multiline_description_sale()
+            or downpayment_product.display_name,
+            "product_uom_qty": 1.0,
+            "product_uom": downpayment_product.uom_id.id,
+            "price_unit": self.deposit_amount,
+            "tax_id": [Command.set(taxes.ids)],
+        }
+        values = {
+            "partner_id": self.customer_id.id,
+            "partner_invoice_id": addresses.get("invoice") or self.customer_id.id,
+            "partner_shipping_id": addresses.get("delivery") or self.customer_id.id,
+            "company_id": self.company_id.id,
+            "branch_id": self.branch_id.id,
+            "warehouse_id": warehouse.id,
+            "pricelist_id": pricelist.id,
+            "sales_rep_id": self.sales_rep_id.id,
+            "discount_id": self.discount_id.id,
+            "reference_number": self.name,
+            "inv_type": "quotation",
+            "invoice_journal_id": invoice_journal.id,
+            "client_order_ref": self.name,
+            "order_line": [Command.create(line_values)],
+        }
+        if team:
+            values["team_id"] = team.id
+        if self.customer_id.property_payment_term_id:
+            values["payment_term_id"] = self.customer_id.property_payment_term_id.id
+        return values
+
+    def action_create_source_order(self):
+        self.ensure_one()
+        if self.source_order_id:
+            return self.action_open_source_order()
+        if self.state != "draft":
+            raise UserError(_("The Sales Order can only be created while the pre-order is in Draft."))
+        if self.campaign_id.state != "open":
+            raise UserError(_("The campaign must be Taking Pre-orders before a Sales Order is created."))
+        self._validate_preorder_scope()
+        source = self.env["sale.order"].create(self._prepare_source_order_values())
+        self.write({"source_order_id": source.id})
+        self.message_post(
+            body=_("Down Payment quotation %s was created automatically with reference %s.")
+            % (source.display_name, self.name)
+        )
+        return self.action_open_source_order()
+
+    def action_register_payment(self):
+        self.ensure_one()
+        if not self.source_order_id:
+            raise UserError(_("Create the Sales Order before registering payment."))
+        if self.state != "draft":
+            raise UserError(_("Register the original payment before confirming the pre-order."))
+        action = self.source_order_id.action_register_payment_so()
+        context = dict(action.get("context", {}))
+        context.update({"default_ref": self.name, "default_sale_order_id": self.source_order_id.id})
+        action["context"] = context
+        return action
+
     def action_confirm_preorder(self):
         for record in self:
-            record._validate_source_scope()
+            record._validate_preorder_scope()
             if record.campaign_id.state not in ("open", "allocation"):
                 raise UserError(_("The campaign is not accepting pre-orders."))
+            if not record.source_order_id:
+                raise UserError(_("Create the Sales Order and register its payment first."))
             if record.source_order_id.state not in ("draft", "sent", "to_use"):
                 raise UserError(_("The source quotation is cancelled, refunded, or already processed."))
             if not record.product_id:
@@ -674,11 +982,11 @@ class SalePreorder(models.Model):
             "user_id": source.user_id.id,
             "sales_rep_id": self.sales_rep_id.id,
             "discount_id": self.discount_id.id,
-            "reference_number": source.reference_number,
+            "reference_number": self.name,
             "inv_type": "invoice",
             "preorder_id": self.id,
             "preorder_source_order_id": source.id,
-            "client_order_ref": _("Pre-order %s") % source.name,
+            "client_order_ref": self.name,
             "order_line": [Command.create(line_values)],
         }
         if source.invoice_journal_id:
@@ -687,6 +995,7 @@ class SalePreorder(models.Model):
 
     def action_create_delivery_order(self):
         self.ensure_one()
+        _check_preorder_manager(self.env)
         self.env.cr.execute(
             "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [self.id]
         )
@@ -760,6 +1069,7 @@ class SalePreorder(models.Model):
 
     def action_invoice_and_apply_payment(self):
         self.ensure_one()
+        _check_preorder_manager(self.env)
         self.env.cr.execute(
             "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [self.id]
         )
@@ -838,6 +1148,8 @@ class SalePreorder(models.Model):
 
     def action_open_source_order(self):
         self.ensure_one()
+        if not self.source_order_id:
+            raise UserError(_("No Sales Order has been created for this pre-order yet."))
         return {
             "type": "ir.actions.act_window",
             "name": _("Pre-order Quotation"),

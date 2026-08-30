@@ -51,32 +51,12 @@ class SaleOrder(models.Model):
                 "view_mode": "form",
                 "res_id": self.preorder_record_ids[:1].id,
             }
-        if not self.is_preorder_quotation:
-            raise UserError(_("Only quotations containing a Down Payment product can become pre-orders."))
-
-        today = fields.Date.context_today(self)
-        campaign_domain = [
-            ("company_id", "=", self.company_id.id),
-            ("state", "in", ("draft", "open", "allocation")),
-            ("date_start", "<=", today),
-            ("date_end", ">=", today),
-        ]
-        campaigns = self.env["sale.preorder.campaign"].search(campaign_domain)
-        if self.branch_id:
-            campaigns = campaigns.filtered(
-                lambda campaign: not campaign.branch_ids or self.branch_id in campaign.branch_ids
+        raise UserError(
+            _(
+                "Create the Customer Pre-order first from Sales > Pre-orders > Customer Pre-orders. "
+                "The system will generate this quotation automatically."
             )
-        context = {"default_source_order_id": self.id}
-        if len(campaigns) == 1:
-            context["default_campaign_id"] = campaigns.id
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("New Customer Pre-order"),
-            "res_model": "sale.preorder",
-            "view_mode": "form",
-            "target": "current",
-            "context": context,
-        }
+        )
 
     def action_open_preorder_record(self):
         self.ensure_one()
