@@ -5,12 +5,6 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="accounting_customization.sale_order_form_inherit"/>
         <field name="arch" type="xml">
-            <xpath expr="//header" position="inside">
-                <field name="is_preorder_quotation" invisible="1"/>
-                <button name="action_create_preorder_record" string="Create Pre-order" type="object" class="btn-secondary"
-                        invisible="not is_preorder_quotation or preorder_record_count != 0"
-                        groups="preorder_management.group_preorder_user"/>
-            </xpath>
             <xpath expr="//div[@name='button_box']" position="inside">
                 <button name="action_open_preorder_record" type="object" class="oe_stat_button" icon="fa-apple"
                         invisible="preorder_record_count == 0" groups="preorder_management.group_preorder_user">
@@ -19,6 +13,9 @@
             </xpath>
             <xpath expr="//field[@name='partner_id']" position="after">
                 <field name="preorder_source_order_id" readonly="1" invisible="not preorder_source_order_id"/>
+            </xpath>
+            <xpath expr="//field[@name='reference_number']" position="attributes">
+                <attribute name="readonly">preorder_record_count != 0</attribute>
             </xpath>
             <xpath expr="//field[@name='downpayment_source_quotation_id']" position="attributes">
                 <attribute name="domain">[('id', '!=', id), ('state', 'in', ['draft', 'sent']), ('inv_type', '=', 'quotation'), ('invoice_status', '=', 'no'), ('company_id', '=', company_id), ('branch_id', '=', branch_id), '|', '|', '|', ('order_line.product_id.name', 'ilike', 'down payment'), ('order_line.product_id.name', 'ilike', 'downpayment'), ('order_line.name', 'ilike', 'down payment'), ('order_line.name', 'ilike', 'downpayment'), '|', ('preorder_record_ids', '=', False), ('preorder_record_ids.state', '=', 'cancelled')]</attribute>

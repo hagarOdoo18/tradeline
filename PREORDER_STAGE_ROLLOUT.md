@@ -22,24 +22,27 @@ The new pre-order view deliberately uses the posted journal entry (`payment.move
 
 The `preorder_management` module is isolated from the existing flow and is intended to be installed on staging first.
 
-1. A manager creates an **iPhone 18** campaign, selects the date range, product variants, and participating branches.
-2. The manager enters a product quota for every branch in the **Branch Allocation** grid.
-3. A salesperson opens the customer's paid Down Payment quotation and clicks **Create Pre-order** inside the Sales Order form.
-4. The pre-order list exposes the required fields: Customer, Branch, Date, Sales Rep, and Discount Reason. There is no separate pre-order reference field; the existing Sales Order number remains the source link.
-5. The manager confirms and allocates each customer request. Allocation is transaction-locked so two admins cannot consume the same last unit.
+1. A central manager creates an **iPhone 18** campaign, selects the date range, product variants, and participating branches.
+2. The central manager enters a product quota for every branch in the **Branch Allocation** grid and opens the campaign.
+3. The active branch manager creates the **Customer Pre-order first** from `Sales > Pre-orders > Customer Pre-orders`. Customer, Sales Rep, requested product/quantity, delivery price/discount, Discount Reason, and Deposit Amount are entered there. Branch and date default automatically.
+4. **Create Sales Order** generates the Down Payment quotation. Its existing Sales Order `Reference Number` is filled automatically with the Customer Pre-order sequence (for example `PRE/2026/00002`), so branch staff never type a pre-order reference.
+5. **Register Payment** is launched from the Customer Pre-order and posts the deposit against that generated quotation. The branch manager chooses the payment journal, actual collection date, and amount, posts the payment, returns to the Customer Pre-order, and clicks **Confirm Pre-order**. Confirmation is allowed only after a reusable posted payment exists.
+6. The central manager starts allocation and allocates each paid customer request. Allocation is transaction-locked so two admins cannot consume the same last unit.
    Once a quotation is linked to an active pre-order record, it is removed from the legacy Sales/POS Down Payment selectors so staff cannot accidentally process it through both workflows.
-6. During delivery, the branch creates a draft delivery sales order from the pre-order record, confirms it, and validates the serial-controlled stock delivery.
-7. **Invoice & Apply Original Payment** creates/posts the delivery invoice and reconciles the original payment's open receivable line. It does not create an outbound refund or a second inbound payment.
-8. If the prepayment is smaller than the invoice, the record moves to **Payment Due** and shows the remaining invoice balance. If it fully settles the invoice, it moves to **Completed**.
+7. The central manager starts delivery, creates the draft delivery sales order from the allocated pre-order, confirms it, and the branch validates the serial-controlled stock delivery.
+8. **Invoice & Apply Original Payment** creates/posts the delivery invoice and reconciles the original payment's open receivable line. It does not create an outbound refund or a second inbound payment.
+9. If the prepayment is smaller than the invoice, the record moves to **Payment Due** and shows the remaining invoice balance. If it fully settles the invoice, it moves to **Completed**.
 
 Returned payments are identified and blocked from reuse.
+
+The original payment journal entry and payment date always remain the real deposit collection date. At delivery, the customer invoice uses the delivery/invoice date and the original open payment credit is reconciled to that invoice. The workflow must never rewrite the historical payment date to match the invoice date.
 
 ## Staging UAT
 
 1. Refresh staging from production and deploy this branch.
 2. Update the Apps list and install **Tradeline Pre-order Management** only on staging.
-3. Grant **Pre-order Management / Manager** to the central allocation admins and **User** to participating branch staff.
-4. Create an `iPhone 18 Staging` campaign with the test product variants and branch quotas. Create fresh staging Down Payment quotations and click **Create Pre-order** from each Sales Order form.
+3. Grant **Pre-order Management / Central Admin** to the central allocation admins and **Branch Manager** to participating branch managers.
+4. Create an `iPhone 18 Staging` campaign with the test product variants and branch quotas. Open the campaign, then create fresh Customer Pre-orders from the assigned branch accounts. Verify **Create Sales Order** generates each quotation with the Customer Pre-order number as its Reference Number.
 5. Select at least these test cases:
    - one full payment in a single journal;
    - one split payment across two journals;
