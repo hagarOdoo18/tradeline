@@ -82,23 +82,36 @@ class SalePreorderCampaign(models.Model):
     )
     preorder_count = fields.Integer(compute="_compute_campaign_totals")
     requested_quantity = fields.Float(compute="_compute_campaign_totals")
+    quota_quantity = fields.Float(
+        compute="_compute_campaign_totals", string="Total Branch Quota"
+    )
     allocated_quantity = fields.Float(
         compute="_compute_campaign_totals", string="Reserved Quantity"
+    )
+    available_quantity = fields.Float(
+        compute="_compute_campaign_totals", string="Available Quantity"
     )
     delivered_quantity = fields.Float(compute="_compute_campaign_totals")
     notes = fields.Html()
 
     @api.depends(
-        "preorder_ids.state", "preorder_ids.requested_qty", "preorder_ids.allocation_id"
+        "allocation_line_ids.allocated_qty",
+        "preorder_ids.state",
+        "preorder_ids.requested_qty",
+        "preorder_ids.allocation_id",
     )
     def _compute_campaign_totals(self):
         for campaign in self:
             active = campaign.preorder_ids.filtered(lambda record: record.state != "cancelled")
             allocated = active.filtered("allocation_id")
             delivered = active.filtered(lambda record: record.state == "completed")
+            quota_quantity = sum(campaign.allocation_line_ids.mapped("allocated_qty"))
+            reserved_quantity = sum(allocated.mapped("requested_qty"))
             campaign.preorder_count = len(active)
             campaign.requested_quantity = sum(active.mapped("requested_qty"))
-            campaign.allocated_quantity = sum(allocated.mapped("requested_qty"))
+            campaign.quota_quantity = quota_quantity
+            campaign.allocated_quantity = reserved_quantity
+            campaign.available_quantity = quota_quantity - reserved_quantity
             campaign.delivered_quantity = sum(delivered.mapped("requested_qty"))
 
     @api.constrains("date_start", "date_end")
@@ -1180,6 +1193,10 @@ class SalePreorder(models.Model):
         if mark_ready and record.state == "pending":
             workflow_values["state"] = "allocated"
         record._workflow_write(workflow_values)
+        allocation.invalidate_recordset(["reserved_qty", "delivered_qty", "available_qty"])
+        record.campaign_id.invalidate_recordset(
+            ["allocated_quantity", "available_quantity"]
+        )
         record.message_post(
             body=_(
                 "Quantity reserved automatically from the %(branch)s quota for %(product)s."
