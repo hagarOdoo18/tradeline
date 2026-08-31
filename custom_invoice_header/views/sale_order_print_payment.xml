@@ -4,31 +4,37 @@
 
             <xpath expr="//div[@name='so_total_summary']" position="after">
                 <div>
-                    <t t-if="doc.payment_ids">
+                    <t t-set="report_payments" t-value="doc.payment_ids.filtered(lambda payment: payment.payment_type == 'inbound' and payment.state in ('in_process', 'paid', 'posted'))"/>
+                    <t t-if="report_payments">
                         <h3 style="margin-top:20px;">Payments</h3>
                         <table class="table table-sm o_main_table">
                             <thead>
                                 <tr>
-                                    <th>Payment</th>
+                                    <th>Journal</th>
+                                    <th>Payment Method</th>
                                     <th>Date</th>
                                     <th class="text-end">Amount</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr t-foreach="doc.payment_ids" t-as="pay">
-                                    <td>
-                                        <t t-esc="pay.journal_id.name"/>
-                                    </td>
-                                    <td>
-                                        <t t-esc="pay.date"/>
-                                    </td>
-
+                                <tr t-foreach="report_payments" t-as="pay">
+                                    <td><span t-field="pay.journal_id"/></td>
+                                    <td><span t-field="pay.payment_method_line_id"/></td>
+                                    <td><span t-field="pay.date"/></td>
                                     <td class="text-end">
-                                        <t t-esc="pay.amount"/>
+                                        <span t-field="pay.amount" t-options="{'widget': 'monetary', 'display_currency': pay.currency_id}"/>
                                     </td>
-
                                 </tr>
                             </tbody>
+                            <tfoot>
+                                <tr class="border-top">
+                                    <th colspan="3" class="text-end">Total Paid</th>
+                                    <th class="text-end">
+                                        <span t-out="sum(report_payments.mapped('amount'))"
+                                              t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}"/>
+                                    </th>
+                                </tr>
+                            </tfoot>
                         </table>
                     </t>
 

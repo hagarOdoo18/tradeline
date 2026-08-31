@@ -437,6 +437,16 @@ class SalePreorder(models.Model):
         tracking=True,
         help="Full customer total after the normal line discount and taxes.",
     )
+    amount_untaxed = fields.Monetary(
+        string="Untaxed Amount",
+        compute="_compute_required_payment_total",
+        store=True,
+    )
+    amount_tax = fields.Monetary(
+        string="Taxes",
+        compute="_compute_required_payment_total",
+        store=True,
+    )
 
     product_id = fields.Many2one(
         "product.product",
@@ -493,6 +503,9 @@ class SalePreorder(models.Model):
         compute="_compute_applied_payment_summary", string="Applied to Invoice"
     )
     payment_method_names = fields.Char(compute="_compute_payment_summary", string="Payment Method(s)")
+    payment_method_breakdown = fields.Text(
+        compute="_compute_payment_summary", string="Payment Method Amounts"
+    )
     payment_status = fields.Selection(
         [
             ("none", "No Payment"),
@@ -738,6 +751,8 @@ class SalePreorder(models.Model):
     def _compute_required_payment_total(self):
         for record in self:
             if not record.product_id or not record.currency_id:
+                record.amount_untaxed = 0.0
+                record.amount_tax = 0.0
                 record.deposit_amount = 0.0
                 continue
             discounted_unit_price = record.price_unit * (1.0 - record.discount / 100.0)
@@ -748,6 +763,8 @@ class SalePreorder(models.Model):
                 product=record.product_id,
                 partner=record.customer_id,
             )
+            record.amount_untaxed = totals["total_excluded"]
+            record.amount_tax = totals["total_included"] - totals["total_excluded"]
             record.deposit_amount = totals["total_included"]
 
     @api.depends("invoice_ids", "invoice_ids.state", "final_sale_order_id")
@@ -760,12 +777,16 @@ class SalePreorder(models.Model):
         "direct_payment_ids",
         "direct_payment_ids.amount",
         "direct_payment_ids.state",
+        "direct_payment_ids.journal_id",
+        "direct_payment_ids.payment_method_line_id",
         "direct_payment_ids.move_id.state",
         "direct_payment_ids.move_id.line_ids.amount_residual",
         "direct_payment_ids.move_id.line_ids.amount_residual_currency",
         "source_order_id.payment_ids",
         "source_order_id.payment_ids.amount",
         "source_order_id.payment_ids.state",
+        "source_order_id.payment_ids.journal_id",
+        "source_order_id.payment_ids.payment_method_line_id",
         "source_order_id.payment_ids.move_id.state",
         "source_order_id.payment_ids.move_id.line_ids.amount_residual",
         "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
@@ -797,6 +818,20 @@ class SalePreorder(models.Model):
                     if payment.journal_id
                 )
             )
+            breakdown_lines = []
+            for payment in usable.sorted(lambda item: (item.date, item.id)):
+                labels = [payment.journal_id.display_name]
+                if payment.payment_method_line_id:
+                    labels.append(payment.payment_method_line_id.display_name)
+                breakdown_lines.append(
+                    "%s: %s %s"
+                    % (
+                        " / ".join(filter(None, labels)),
+                        format(record._convert_payment_amount(payment), ",.2f"),
+                        record.currency_id.name,
+                    )
+                )
+            record.payment_method_breakdown = "\n".join(breakdown_lines)
             if not all_inbound:
                 record.payment_status = "none"
             elif returned and not usable:
@@ -846,6 +881,27 @@ class SalePreorder(models.Model):
             self.company_id,
             payment.date or fields.Date.context_today(self),
         )
+
+    def get_report_payments(self):
+        self.ensure_one()
+        return self._get_source_inbound_payments().sorted(
+            lambda payment: (payment.date, payment.id)
+        )
+
+    def get_report_payment_amount(self, payment):
+        self.ensure_one()
+        return self._convert_payment_amount(payment)
+
+    def get_report_payment_total(self):
+        self.ensure_one()
+        return sum(
+            self._convert_payment_amount(payment)
+            for payment in self.get_report_payments()
+        )
+
+    def get_report_tax_names(self):
+        self.ensure_one()
+        return ", ".join(self._get_product_taxes().mapped("name"))
 
     def _payment_line_residual_in_order_currency(self, line):
         self.ensure_one()
