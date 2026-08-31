@@ -4,6 +4,7 @@ from datetime import timedelta
 from unittest import SkipTest
 
 from odoo import Command, fields
+from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 from odoo.tools import float_compare
 
@@ -245,6 +246,21 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(self.campaign.quota_quantity, 5.0)
         self.assertEqual(self.campaign.allocated_quantity, 1.0)
         self.assertEqual(self.campaign.available_quantity, 4.0)
+
+        allocation.write({"allocated_qty": 1.0})
+        with self.assertRaisesRegex(UserError, "No new pre-order can be created"):
+            with self.env.cr.savepoint():
+                self.env["sale.preorder"].sudo().create(
+                    {
+                        "campaign_id": self.campaign.id,
+                        "customer_id": self.customer.id,
+                        "branch_id": self.branch.id,
+                        "sales_rep_id": self.sales_rep.id,
+                        "product_id": self.product.id,
+                        "requested_qty": 1.0,
+                    }
+                )
+        allocation.write({"allocated_qty": 5.0})
 
         self.campaign.action_open_allocation_delivery()
         self.assertEqual(self.campaign.state, "delivery")

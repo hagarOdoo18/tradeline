@@ -71,9 +71,6 @@
                     </group>
                     <notebook>
                         <page string="Branch Allocation">
-                            <div class="alert alert-info" role="alert">
-                                Central Admin sets each branch/product quota before opening pre-orders. After a Branch Manager confirms a pre-order and posts its full payment, Reserved increases and Available decreases immediately in this campaign. The original Quota stays unchanged for audit. Cancelling releases it. Branch Managers never click Allocate.
-                            </div>
                             <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
                                 <list editable="bottom">
                                     <field name="company_id" column_invisible="True"/>
@@ -160,29 +157,6 @@
                     <div class="alert alert-danger" role="alert" invisible="payment_status != 'returned'">
                         The original payment has already been returned. This record cannot use the no-refund delivery workflow.
                     </div>
-                    <div class="alert alert-info" role="alert" invisible="state != 'draft'">
-                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>. Quota is not consumed until the full payment is posted.
-                    </div>
-                    <div class="alert alert-warning" role="alert" invisible="state != 'confirmed'">
-                        <strong>Branch Manager — Step 2: Register the full payment directly here</strong>
-                        <ol class="mb-0">
-                            <li>Click <strong>Register Payment</strong>.</li>
-                            <li>Choose the actual Cash, Bank, or Card journal used.</li>
-                            <li>Set <strong>Date</strong> to the real collection date and verify the amount equals Payment Due.</li>
-                            <li>Verify that Memo contains this <strong>PRE/...</strong> number, then click <strong>Confirm</strong> to post the payment.</li>
-                            <li>After the full Required Payment Total is posted, the system reserves the quantity automatically from this branch quota.</li>
-                        </ol>
-                        No registration Sales Order is created. At delivery, the same original payment is re-dated to the delivery invoice date and applied—no refund and no duplicate payment.
-                    </div>
-                    <div class="alert alert-info" role="alert" invisible="state != 'pending'">
-                        <strong>Branch Manager — Step 3:</strong> Payment is complete and the quantity was reserved automatically. No Allocate click is required. When Central Admin opens Allocation &amp; Delivery, this record becomes ready for delivery automatically.
-                    </div>
-                    <div class="alert alert-success" role="alert" invisible="state != 'allocated'">
-                        <strong>Branch Manager — Step 4:</strong> This paid reservation is ready. Click <strong>Create Delivery Order</strong>; this creates the only Sales Order in the new flow.
-                    </div>
-                    <div class="alert alert-warning" role="alert" invisible="state not in ('delivery', 'invoiced')">
-                        <strong>Branch Manager — Step 5:</strong> Confirm the Delivery Sales Order, validate delivery and serial number, then return here and click <strong>Invoice &amp; Apply Original Payment</strong>. The system posts the invoice, changes the original payment journal date to the invoice date, and reconciles that same payment. No refund or second payment is created.
-                    </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'invoiced'">
                         The original payment was applied, but the delivery invoice still has a remaining balance.
                     </div>
@@ -224,7 +198,7 @@
                         </group>
                         <group string="Requested Product">
                             <field name="campaign_product_ids" invisible="1"/>
-                            <field name="product_id" readonly="state != 'draft'" options="{'no_create': True}"/>
+                            <field name="product_id" readonly="state != 'draft'" required="1" options="{'no_create': True}"/>
                             <field name="requested_qty" readonly="state != 'draft'"/>
                             <field name="price_unit" readonly="1"/>
                             <field name="discount" readonly="state != 'draft'"/>
