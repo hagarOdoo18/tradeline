@@ -270,7 +270,7 @@ class TestPreorderFlow(TransactionCase):
             "preorder_management.action_report_preorder_confirmation"
         )
         report_html, _ = report_action._render_qweb_html(
-            report_action.report_name, res_ids=preorder.ids
+            report_action.report_name, preorder.ids
         )
         self.assertIn(b"Reserved Device", report_html)
         self.assertIn(b"Total Paid", report_html)
