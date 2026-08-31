@@ -6,8 +6,6 @@
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">preorder_management.report_preorder_confirmation</field>
         <field name="report_file">preorder_management.report_preorder_confirmation</field>
-        <field name="binding_model_id" ref="model_sale_preorder"/>
-        <field name="binding_type">report</field>
         <field name="print_report_name">'Pre-order Confirmation - %s' % (object.name)</field>
     </record>
 
@@ -72,12 +70,12 @@
                                 <strong>Reserved Device</strong><br/>
                                 <span t-field="o.product_id"/>
                             </td>
-                            <td class="text-end"><span t-field="o.requested_qty"/></td>
+                            <td class="text-end"><span t-out="'%.2f Units' % o.requested_qty"/></td>
                             <td class="text-end">
                                 <span t-field="o.price_unit"
                                       t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                             </td>
-                            <td class="text-end"><span t-field="o.discount"/>%</td>
+                            <td class="text-end"><span t-out="'%.2f%%' % o.discount"/></td>
                             <td class="text-end"><span t-out="o.get_report_tax_names()"/></td>
                             <td class="text-end">
                                 <span t-field="o.amount_untaxed"
