@@ -117,7 +117,27 @@ class TestPreorderFlow(TransactionCase):
         )
         cls.campaign.action_open_campaign()
 
-    def test_direct_payment_allocation_and_delivery_order(self):
+    def _post_payment(self, preorder):
+        payment = self.env["account.payment"].sudo().create(
+            {
+                "payment_type": "inbound",
+                "partner_type": "customer",
+                "partner_id": preorder.customer_id.id,
+                "company_id": preorder.company_id.id,
+                "amount": preorder.deposit_amount,
+                "currency_id": preorder.currency_id.id,
+                "date": fields.Date.today(),
+                "journal_id": self.payment_journal.id,
+                "payment_method_line_id": self.payment_method_line.id,
+                "memo": preorder.name,
+                "preorder_payment_id": preorder.id,
+            }
+        )
+        payment.action_post()
+        preorder.invalidate_recordset()
+        return payment
+
+    def test_immediate_reservation_payment_and_delivery_order(self):
         preorder = self.env["sale.preorder"].sudo().create(
             {
                 "campaign_id": self.campaign.id,
@@ -133,10 +153,18 @@ class TestPreorderFlow(TransactionCase):
         self.assertGreater(original_unit_price, 0.0)
         self.assertGreater(original_total, 0.0)
         self.assertFalse(preorder.source_order_id)
+        self.assertEqual(preorder.state, "draft")
+        self.assertTrue(preorder.allocation_id)
+        self.assertEqual(preorder.allocation_id.branch_id, self.branch)
+        allocation = preorder.allocation_id
+        allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+        self.assertEqual(allocation.reserved_qty, 1.0)
+        self.assertEqual(allocation.available_qty, 4.0)
 
         preorder.write({"discount": 1.0})
         self.assertEqual(preorder.price_unit, original_unit_price)
         self.assertLess(preorder.deposit_amount, original_total)
+        self.assertTrue(preorder.allocation_id)
         preorder.write({"discount": 0.0})
         self.assertEqual(preorder.price_unit, original_unit_price)
         self.assertEqual(
@@ -147,6 +175,38 @@ class TestPreorderFlow(TransactionCase):
             ),
             0,
         )
+
+        unpaid_preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        self.assertTrue(unpaid_preorder.allocation_id)
+        allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+        self.assertEqual(allocation.reserved_qty, 2.0)
+        unpaid_preorder.action_confirm_preorder()
+
+        cancelled_preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        self.assertTrue(cancelled_preorder.allocation_id)
+        cancelled_preorder.action_cancel_preorder()
+        self.assertEqual(cancelled_preorder.state, "cancelled")
+        self.assertFalse(cancelled_preorder.allocation_id)
+        allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+        self.assertEqual(allocation.reserved_qty, 2.0)
 
         preorder.action_confirm_preorder()
         self.assertEqual(preorder.state, "confirmed")
@@ -165,32 +225,20 @@ class TestPreorderFlow(TransactionCase):
         )
         self.assertEqual(payment_action["context"]["default_memo"], preorder.name)
 
-        payment = self.env["account.payment"].sudo().create(
-            {
-                "payment_type": "inbound",
-                "partner_type": "customer",
-                "partner_id": self.customer.id,
-                "company_id": self.company.id,
-                "amount": preorder.deposit_amount,
-                "currency_id": preorder.currency_id.id,
-                "date": fields.Date.today(),
-                "journal_id": self.payment_journal.id,
-                "payment_method_line_id": self.payment_method_line.id,
-                "memo": preorder.name,
-                "preorder_payment_id": preorder.id,
-            }
-        )
-        payment.action_post()
-        preorder.invalidate_recordset()
+        payment = self._post_payment(preorder)
         self.assertEqual(preorder.state, "pending")
         self.assertEqual(preorder.payment_status, "available")
         self.assertEqual(payment.branch_id, self.branch)
 
         self.campaign.action_open_allocation_delivery()
         self.assertEqual(self.campaign.state, "delivery")
-        preorder.action_allocate()
         self.assertEqual(preorder.state, "allocated")
         self.assertEqual(preorder.allocation_id.branch_id, self.branch)
+        self.assertEqual(unpaid_preorder.state, "confirmed")
+        self.assertTrue(unpaid_preorder.allocation_id)
+
+        self._post_payment(unpaid_preorder)
+        self.assertEqual(unpaid_preorder.state, "allocated")
 
         delivery_values = preorder._prepare_delivery_order_values()
         self.assertEqual(delivery_values["order_line"][0][2]["price_unit"], original_unit_price)
