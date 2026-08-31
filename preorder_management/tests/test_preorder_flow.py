@@ -118,14 +118,14 @@ class TestPreorderFlow(TransactionCase):
         )
         cls.campaign.action_open_campaign()
 
-    def _post_payment(self, preorder):
+    def _post_payment(self, preorder, amount=None):
         payment = self.env["account.payment"].sudo().create(
             {
                 "payment_type": "inbound",
                 "partner_type": "customer",
                 "partner_id": preorder.customer_id.id,
                 "company_id": preorder.company_id.id,
-                "amount": preorder.deposit_amount,
+                "amount": amount if amount is not None else preorder.deposit_amount,
                 "currency_id": preorder.currency_id.id,
                 "date": fields.Date.today(),
                 "journal_id": self.payment_journal.id,
@@ -153,6 +153,14 @@ class TestPreorderFlow(TransactionCase):
         original_total = preorder.deposit_amount
         self.assertGreater(original_unit_price, 0.0)
         self.assertGreater(original_total, 0.0)
+        self.assertEqual(
+            float_compare(
+                preorder.amount_untaxed + preorder.amount_tax,
+                preorder.deposit_amount,
+                precision_rounding=preorder.currency_id.rounding,
+            ),
+            0,
+        )
         self.assertFalse(preorder.source_order_id)
         self.assertEqual(preorder.state, "draft")
         self.assertFalse(preorder.allocation_id)
@@ -232,11 +240,40 @@ class TestPreorderFlow(TransactionCase):
         )
         self.assertEqual(payment_action["context"]["default_memo"], preorder.name)
 
-        payment = self._post_payment(preorder)
+        first_payment_amount = preorder.currency_id.round(preorder.deposit_amount / 2.0)
+        self._post_payment(preorder, amount=first_payment_amount)
+        self.assertEqual(preorder.state, "confirmed")
+        self.assertFalse(preorder.allocation_id)
+        self.assertEqual(preorder.payment_count, 1)
+
+        payment = self._post_payment(
+            preorder, amount=preorder.deposit_amount - first_payment_amount
+        )
         self.assertEqual(preorder.state, "pending")
         self.assertTrue(preorder.allocation_id)
+        self.assertEqual(preorder.payment_count, 2)
         self.assertEqual(preorder.payment_status, "available")
         self.assertEqual(payment.branch_id, self.branch)
+        self.assertIn(self.payment_journal.display_name, preorder.payment_method_breakdown)
+        self.assertIn(
+            self.payment_method_line.display_name, preorder.payment_method_breakdown
+        )
+        self.assertEqual(
+            float_compare(
+                preorder.get_report_payment_total(),
+                preorder.deposit_amount,
+                precision_rounding=preorder.currency_id.rounding,
+            ),
+            0,
+        )
+        report_action = self.env.ref(
+            "preorder_management.action_report_preorder_confirmation"
+        )
+        report_html, _ = report_action._render_qweb_html(
+            report_action.report_name, res_ids=preorder.ids
+        )
+        self.assertIn(b"Reserved Device", report_html)
+        self.assertIn(b"Total Paid", report_html)
         allocation.invalidate_recordset(["reserved_qty", "available_qty"])
         self.assertEqual(allocation.reserved_qty, 1.0)
         self.assertEqual(allocation.available_qty, 4.0)

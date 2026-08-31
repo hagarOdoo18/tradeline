@@ -141,6 +141,9 @@
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_register_payment" string="Register Payment" type="object" class="oe_highlight"
                             invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
+                    <button name="%(preorder_management.action_report_preorder_confirmation)d"
+                            string="Print Pre-order Confirmation" type="action"
+                            invisible="not allocation_id" groups="preorder_management.group_preorder_user"/>
                     <button name="action_create_delivery_order" string="Create Delivery Order" type="object" class="oe_highlight"
                             invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
@@ -216,6 +219,7 @@
                         </group>
                         <group>
                             <field name="payment_method_names"/>
+                            <field name="payment_method_breakdown" readonly="1"/>
                             <field name="payment_status" widget="badge"/>
                             <field name="prepayment_applied_amount"/>
                         </group>
@@ -227,7 +231,7 @@
                                     <field name="date"/>
                                     <field name="journal_id"/>
                                     <field name="payment_method_line_id"/>
-                                    <field name="amount"/>
+                                    <field name="amount" sum="Total Paid"/>
                                     <field name="currency_id"/>
                                     <field name="state" widget="badge"/>
                                 </list>
