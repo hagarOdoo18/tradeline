@@ -75,7 +75,7 @@
                                 <span t-field="o.price_unit"
                                       t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                             </td>
-                            <td class="text-end"><span t-out="'%.2f%%' % o.discount"/></td>
+                            <td class="text-end"><span t-out="'%.2f' % o.discount"/>%</td>
                             <td class="text-end"><span t-out="o.get_report_tax_names()"/></td>
                             <td class="text-end">
                                 <span t-field="o.amount_untaxed"
