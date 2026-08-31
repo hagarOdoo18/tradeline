@@ -15,6 +15,20 @@ def _check_preorder_manager(env):
         raise AccessError(_("Only Pre-order Central Admins can perform this action."))
 
 
+def _check_preorder_branch_access(records):
+    """Allow Central Admins globally and Branch Managers only in their branches."""
+    env = records.env
+    if env.su or env.user.has_group("preorder_management.group_preorder_manager"):
+        return
+    if not env.user.has_group("preorder_management.group_preorder_user"):
+        raise AccessError(_("Only Pre-order Branch Managers can perform this action."))
+    outside_branches = records.filtered(
+        lambda record: record.branch_id not in env.user.branch_ids
+    )
+    if outside_branches:
+        raise AccessError(_("You can only process pre-orders for your assigned branches."))
+
+
 class SalePreorderCampaign(models.Model):
     _name = "sale.preorder.campaign"
     _description = "Pre-order Campaign"
@@ -98,6 +112,10 @@ class SalePreorderCampaign(models.Model):
 
     def action_start_allocation(self):
         _check_preorder_manager(self.env)
+        self._validate_allocation_setup()
+        self.write({"state": "allocation"})
+
+    def _validate_allocation_setup(self):
         for campaign in self:
             if not campaign.product_ids:
                 raise UserError(_("Select the campaign products before starting allocation."))
@@ -111,7 +129,17 @@ class SalePreorderCampaign(models.Model):
             )
             if invalid_lines:
                 raise UserError(_("Every quota line must use a participating branch and campaign product."))
-        self.write({"state": "allocation"})
+        return True
+
+    def action_open_allocation_delivery(self):
+        """One Central Admin action opens both branch allocation and delivery work."""
+        _check_preorder_manager(self.env)
+        invalid_state = self.filtered(lambda campaign: campaign.state != "open")
+        if invalid_state:
+            raise UserError(_("Only campaigns taking pre-orders can be opened for allocation and delivery."))
+        self._validate_allocation_setup()
+        self.write({"state": "delivery"})
+        return True
 
     def action_start_delivery(self):
         _check_preorder_manager(self.env)
@@ -148,9 +176,9 @@ class SalePreorderCampaign(models.Model):
         _check_preorder_manager(self.env)
         for campaign in self:
             if campaign.preorder_ids.filtered(
-                lambda record: record.state in ("delivery", "invoiced", "completed")
+                lambda record: record.state in ACTIVE_ALLOCATION_STATES
             ):
-                raise UserError(_("Reset is blocked after delivery processing has started."))
+                raise UserError(_("Reset is blocked after a branch has allocated a pre-order."))
         self.write({"state": "draft"})
 
     def action_open_preorders(self):
@@ -267,10 +295,6 @@ class SalePreorder(models.Model):
             limit=1,
         )
 
-    def _default_deposit_amount(self):
-        product = self._get_downpayment_product()
-        return product.lst_price if product else 0.0
-
     name = fields.Char(default="New", required=True, readonly=True, copy=False, index=True)
     campaign_id = fields.Many2one(
         "sale.preorder.campaign", required=True, ondelete="restrict", tracking=True, index=True
@@ -334,11 +358,11 @@ class SalePreorder(models.Model):
         related="source_order_id.amount_total", string="Pre-order Amount"
     )
     deposit_amount = fields.Monetary(
-        string="Deposit Amount",
-        required=True,
-        default=_default_deposit_amount,
+        string="Required Payment Total",
+        compute="_compute_required_payment_total",
+        store=True,
         tracking=True,
-        help="Amount collected before allocation. The generated quotation uses this amount on its Down Payment line.",
+        help="Full customer total after the normal line discount and taxes.",
     )
 
     product_id = fields.Many2one(
@@ -351,8 +375,14 @@ class SalePreorder(models.Model):
         "product.product", related="campaign_id.product_ids", string="Campaign Products"
     )
     requested_qty = fields.Float(string="Requested Qty", required=True, default=1.0, tracking=True)
-    price_unit = fields.Monetary(string="Delivery Unit Price", tracking=True)
-    discount = fields.Float(string="Delivery Discount (%)", digits=(16, 6), tracking=True)
+    price_unit = fields.Monetary(
+        string="Unit Price",
+        compute="_compute_price_unit",
+        store=True,
+        tracking=True,
+        help="Locked product price calculated from the customer's pricelist.",
+    )
+    discount = fields.Float(string="Discount (%)", digits=(16, 6), tracking=True)
     allocation_id = fields.Many2one(
         "sale.preorder.allocation", readonly=True, copy=False, tracking=True
     )
@@ -360,6 +390,9 @@ class SalePreorder(models.Model):
         "sale.order", string="Delivery Sales Order", readonly=True, copy=False, tracking=True
     )
     invoice_ids = fields.One2many("account.move", "preorder_id", string="Delivery Invoices")
+    direct_payment_ids = fields.One2many(
+        "account.payment", "preorder_payment_id", string="Direct Pre-order Payments"
+    )
     invoice_count = fields.Integer(compute="_compute_document_counts")
     payment_count = fields.Integer(compute="_compute_payment_summary")
     payment_ids = fields.Many2many(
@@ -380,6 +413,9 @@ class SalePreorder(models.Model):
     available_prepayment_amount = fields.Monetary(
         compute="_compute_payment_summary", string="Available Prepayment"
     )
+    payment_due_amount = fields.Monetary(
+        compute="_compute_payment_summary", string="Payment Due"
+    )
     prepayment_applied_amount = fields.Monetary(
         compute="_compute_applied_payment_summary", string="Applied to Invoice"
     )
@@ -399,6 +435,7 @@ class SalePreorder(models.Model):
     state = fields.Selection(
         [
             ("draft", "Draft"),
+            ("confirmed", "Awaiting Payment"),
             ("pending", "Pending Allocation"),
             ("allocated", "Allocated"),
             ("delivery", "Delivery Order"),
@@ -424,6 +461,11 @@ class SalePreorder(models.Model):
             "requested_qty_positive",
             "check(requested_qty > 0)",
             "Requested quantity must be greater than zero.",
+        ),
+        (
+            "discount_percentage_range",
+            "check(discount >= 0 AND discount <= 100)",
+            "Discount must be between 0 and 100 percent.",
         ),
     ]
 
@@ -474,7 +516,6 @@ class SalePreorder(models.Model):
                 vals.setdefault("preorder_date", source.date_order)
                 vals.setdefault("sales_rep_id", source.sales_rep_id.id)
                 vals.setdefault("discount_id", source.discount_id.id)
-                vals.setdefault("deposit_amount", source.amount_total)
         records = super().create(vals_list)
         if records.filtered(lambda record: record.campaign_id.state != "open"):
             raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
@@ -491,31 +532,23 @@ class SalePreorder(models.Model):
             raise UserError(_("Use the pre-order workflow buttons to change status or allocation."))
         protected = {
             "campaign_id",
-            "source_order_id",
             "customer_id",
             "branch_id",
             "product_id",
             "requested_qty",
-        }
-        source_identity_fields = {
-            "campaign_id",
-            "customer_id",
-            "branch_id",
             "sales_rep_id",
             "discount_id",
-            "deposit_amount",
+            "discount",
         }
-        if source_identity_fields & set(vals) and self.filtered("source_order_id"):
+        if protected & set(vals) and self.filtered(
+            lambda record: record.state != "draft"
+        ):
             raise UserError(
                 _(
-                    "Customer, branch, Sales Rep, Discount Reason, Deposit Amount, and campaign "
-                    "cannot change after the Down Payment quotation is created."
+                    "Customer, branch, product, quantity, Sales Rep, Discount, and Discount "
+                    "Reason cannot change after the pre-order is confirmed."
                 )
             )
-        if protected & set(vals) and self.filtered(
-            lambda record: record.state not in ("draft", "pending", "cancelled")
-        ):
-            raise UserError(_("Campaign, quotation, customer, branch, product, and quantity cannot change after allocation."))
         result = super().write(vals)
         if {
             "campaign_id",
@@ -570,10 +603,18 @@ class SalePreorder(models.Model):
                 limit=1,
             )
 
-    @api.onchange("customer_id", "product_id", "requested_qty")
-    def _onchange_delivery_price(self):
+    @api.depends(
+        "customer_id",
+        "customer_id.property_product_pricelist",
+        "product_id",
+        "requested_qty",
+        "preorder_date",
+        "company_id",
+    )
+    def _compute_price_unit(self):
         for record in self:
             if not record.product_id:
+                record.price_unit = 0.0
                 continue
             price = record.product_id.lst_price
             pricelist = (
@@ -590,12 +631,61 @@ class SalePreorder(models.Model):
                 )
             record.price_unit = price
 
+    def _get_fiscal_position(self):
+        self.ensure_one()
+        if not self.customer_id:
+            return self.env["account.fiscal.position"]
+        return self.env["account.fiscal.position"].with_company(
+            self.company_id
+        )._get_fiscal_position(self.customer_id)
+
+    def _get_product_taxes(self):
+        self.ensure_one()
+        if not self.product_id:
+            return self.env["account.tax"]
+        taxes = self.product_id.taxes_id.filtered(
+            lambda tax: tax.company_id == self.company_id
+        )
+        fiscal_position = self._get_fiscal_position()
+        return fiscal_position.map_tax(taxes) if fiscal_position else taxes
+
+    @api.depends(
+        "product_id",
+        "requested_qty",
+        "price_unit",
+        "discount",
+        "customer_id",
+        "company_id",
+        "currency_id",
+    )
+    def _compute_required_payment_total(self):
+        for record in self:
+            if not record.product_id or not record.currency_id:
+                record.deposit_amount = 0.0
+                continue
+            discounted_unit_price = record.price_unit * (1.0 - record.discount / 100.0)
+            totals = record._get_product_taxes().compute_all(
+                discounted_unit_price,
+                currency=record.currency_id,
+                quantity=record.requested_qty,
+                product=record.product_id,
+                partner=record.customer_id,
+            )
+            record.deposit_amount = totals["total_included"]
+
     @api.depends("invoice_ids", "invoice_ids.state", "final_sale_order_id")
     def _compute_document_counts(self):
         for record in self:
             record.invoice_count = len(record.invoice_ids.filtered(lambda move: move.state != "cancel"))
 
     @api.depends(
+        "deposit_amount",
+        "direct_payment_ids",
+        "direct_payment_ids.amount",
+        "direct_payment_ids.state",
+        "direct_payment_ids.move_id.state",
+        "direct_payment_ids.move_id.line_ids.amount_residual",
+        "direct_payment_ids.move_id.line_ids.amount_residual_currency",
         "source_order_id.payment_ids",
         "source_order_id.payment_ids.amount",
         "source_order_id.payment_ids.state",
@@ -616,9 +706,13 @@ class SalePreorder(models.Model):
             record.prepaid_amount = sum(
                 record._convert_payment_amount(payment) for payment in all_inbound
             )
+            usable_paid_amount = sum(
+                record._convert_payment_amount(payment) for payment in usable
+            )
             record.available_prepayment_amount = sum(
                 record._payment_line_residual_in_order_currency(line) for line in available_lines
             )
+            record.payment_due_amount = max(record.deposit_amount - usable_paid_amount, 0.0)
             record.payment_method_names = ", ".join(
                 dict.fromkeys(
                     payment.journal_id.display_name
@@ -646,6 +740,7 @@ class SalePreorder(models.Model):
         "invoice_ids.amount_residual",
         "invoice_ids.line_ids.matched_credit_ids",
         "invoice_ids.line_ids.matched_debit_ids",
+        "direct_payment_ids",
         "source_order_id.payment_ids",
     )
     def _compute_applied_payment_summary(self):
@@ -688,22 +783,28 @@ class SalePreorder(models.Model):
 
     def _get_source_inbound_payments(self, include_returned=False):
         self.ensure_one()
-        if not self.source_order_id:
-            return self.env["account.payment"]
-        payments = self.source_order_id.payment_ids.filtered(
+        payments = self.direct_payment_ids.filtered(
             lambda payment: payment.payment_type == "inbound"
-            and payment.state in ("in_process", "paid")
+            and payment.state in ("in_process", "paid", "posted")
             and payment.move_id
             and payment.move_id.state == "posted"
         )
+        if self.source_order_id:
+            payments |= self.source_order_id.payment_ids.filtered(
+                lambda payment: payment.payment_type == "inbound"
+                and payment.state in ("in_process", "paid", "posted")
+                and payment.move_id
+                and payment.move_id.state == "posted"
+            )
         if include_returned:
             return payments
-        returned_originals = self.source_order_id.payment_ids.filtered(
-            lambda payment: payment.payment_type == "outbound"
-            and payment.state in ("in_process", "paid")
-            and payment.move_id
-            and payment.move_id.state == "posted"
-            and payment.reversed_original_payment_id
+        returned_originals = self.env["account.payment"].search(
+            [
+                ("payment_type", "=", "outbound"),
+                ("state", "in", ("in_process", "paid", "posted")),
+                ("move_id.state", "=", "posted"),
+                ("reversed_original_payment_id", "in", payments.ids),
+            ]
         ).mapped("reversed_original_payment_id")
         return payments - returned_originals
 
@@ -848,57 +949,106 @@ class SalePreorder(models.Model):
         self.ensure_one()
         if self.source_order_id:
             return self.action_open_source_order()
-        if self.state != "draft":
-            raise UserError(_("The Sales Order can only be created while the pre-order is in Draft."))
-        if self.campaign_id.state != "open":
-            raise UserError(_("The campaign must be Taking Pre-orders before a Sales Order is created."))
-        self._validate_preorder_scope()
-        source = self.env["sale.order"].create(self._prepare_source_order_values())
-        self.write({"source_order_id": source.id})
-        self.message_post(
-            body=_("Down Payment quotation %s was created automatically with reference %s.")
-            % (source.display_name, self.name)
+        raise UserError(
+            _(
+                "Registration Sales Orders are no longer created. Confirm this Customer "
+                "Pre-order and register its payment directly here."
+            )
         )
-        return self.action_open_source_order()
 
     def action_register_payment(self):
         self.ensure_one()
-        if not self.source_order_id:
-            raise UserError(_("Create the Sales Order before registering payment."))
-        if self.state != "draft":
-            raise UserError(_("Register the original payment before confirming the pre-order."))
-        action = self.source_order_id.action_register_payment_so()
-        context = dict(action.get("context", {}))
-        context.update(
-            {
+        _check_preorder_branch_access(self)
+        if self.state != "confirmed":
+            raise UserError(_("Confirm the Customer Pre-order before registering payment."))
+        self.invalidate_recordset(["payment_due_amount", "payment_status"])
+        if float_is_zero(
+            self.payment_due_amount, precision_rounding=self.currency_id.rounding
+        ):
+            raise UserError(_("This pre-order is already fully paid."))
+        return {
+            "name": _("Register Pre-order Payment"),
+            "type": "ir.actions.act_window",
+            "res_model": "account.payment",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_payment_type": "inbound",
+                "default_partner_type": "customer",
+                "default_partner_id": self.customer_id.id,
+                "default_company_id": self.company_id.id,
+                "default_currency_id": self.currency_id.id,
+                "default_amount": self.payment_due_amount,
                 "default_ref": self.name,
                 "default_memo": self.name,
-                "default_sale_order_id": self.source_order_id.id,
-            }
-        )
-        action["context"] = context
-        return action
+                "default_preorder_payment_id": self.id,
+            },
+        }
+
+    def _sync_payment_readiness(self):
+        """Move confirmed requests to the branch queue once the exact total is paid."""
+        for record in self:
+            record.invalidate_recordset(
+                ["direct_payment_ids", "prepaid_amount", "payment_due_amount", "payment_status"]
+            )
+            usable_payments = record._get_source_inbound_payments()
+            paid_amount = sum(
+                record._convert_payment_amount(payment) for payment in usable_payments
+            )
+            comparison = float_compare(
+                paid_amount,
+                record.deposit_amount,
+                precision_rounding=record.currency_id.rounding,
+            )
+            if comparison > 0:
+                raise UserError(
+                    _(
+                        "Posted pre-order payments (%(paid)s %(currency)s) cannot exceed the "
+                        "required total (%(required)s %(currency)s)."
+                    )
+                    % {
+                        "paid": paid_amount,
+                        "required": record.deposit_amount,
+                        "currency": record.currency_id.name,
+                    }
+                )
+            if comparison == 0 and record.state == "confirmed":
+                record._workflow_write({"state": "pending"})
+                record.message_post(
+                    body=_(
+                        "The full required payment was posted. The pre-order is ready for branch allocation."
+                    )
+                )
+            elif comparison < 0 and record.state == "pending":
+                record._workflow_write({"state": "confirmed"})
+        return True
 
     def action_confirm_preorder(self):
         for record in self:
+            _check_preorder_branch_access(record)
             record._validate_preorder_scope()
-            if record.campaign_id.state not in ("open", "allocation"):
+            if record.state != "draft":
+                raise UserError(_("Only Draft pre-orders can be confirmed."))
+            if record.campaign_id.state != "open":
                 raise UserError(_("The campaign is not accepting pre-orders."))
-            if not record.source_order_id:
-                raise UserError(_("Create the Sales Order and register its payment first."))
-            if record.source_order_id.state not in ("draft", "sent", "to_use"):
-                raise UserError(_("The source quotation is cancelled, refunded, or already processed."))
             if not record.product_id:
                 raise UserError(_("Select the requested product before confirming the pre-order."))
-            if not record._get_available_payment_lines():
-                raise UserError(
-                    _("No reusable posted payment is available on the source quotation.")
-                )
-            record._workflow_write({"state": "pending"})
+            if float_compare(
+                record.price_unit, 0.0, precision_rounding=record.currency_id.rounding
+            ) <= 0:
+                raise UserError(_("The product pricelist must provide a positive Unit Price."))
+            if record.discount and not record.discount_id:
+                raise UserError(_("Select a Discount Reason when a Discount is entered."))
+            if float_compare(
+                record.deposit_amount, 0.0, precision_rounding=record.currency_id.rounding
+            ) <= 0:
+                raise UserError(_("The Required Payment Total must be positive."))
+            record._workflow_write({"state": "confirmed"})
+            record._sync_payment_readiness()
         return True
 
     def action_allocate(self):
-        _check_preorder_manager(self.env)
+        _check_preorder_branch_access(self)
         for record in self:
             self.env.cr.execute(
                 "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [record.id]
@@ -944,7 +1094,7 @@ class SalePreorder(models.Model):
         return True
 
     def action_unallocate(self):
-        _check_preorder_manager(self.env)
+        _check_preorder_branch_access(self)
         for record in self:
             if record.state != "allocated":
                 raise UserError(_("Only allocated pre-orders can be returned to the queue."))
@@ -956,11 +1106,50 @@ class SalePreorder(models.Model):
         source = self.source_order_id
         product = self.product_id
         if float_compare(self.price_unit, 0.0, precision_rounding=self.currency_id.rounding) <= 0:
-            raise UserError(_("Set a positive delivery unit price before creating the delivery order."))
+            raise UserError(_("The product pricelist must provide a positive Unit Price."))
 
-        taxes = product.taxes_id.filtered(lambda tax: tax.company_id == self.company_id)
-        if source.fiscal_position_id:
-            taxes = source.fiscal_position_id.map_tax(taxes)
+        warehouse = source.warehouse_id if source else self.env["stock.warehouse"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("branch_id", "=", self.branch_id.id),
+            ],
+            order="id",
+            limit=1,
+        )
+        if not warehouse:
+            raise UserError(_("No warehouse is configured for branch %s.") % self.branch_id.display_name)
+        invoice_journal = source.invoice_journal_id if source else self.env["account.journal"].search(
+            [
+                ("company_id", "=", self.company_id.id),
+                ("branch_id", "=", self.branch_id.id),
+                ("type", "=", "sale"),
+            ],
+            order="id",
+            limit=1,
+        )
+        if not invoice_journal:
+            raise UserError(_("No sales invoice journal is configured for branch %s.") % self.branch_id.display_name)
+        pricelist = source.pricelist_id if source else self.customer_id.property_product_pricelist
+        if not pricelist:
+            pricelist = self.env["product.pricelist"].search(
+                [("company_id", "in", (False, self.company_id.id))],
+                order="company_id desc, id",
+                limit=1,
+            )
+        if not pricelist:
+            raise UserError(_("No sales pricelist is available for this customer."))
+
+        addresses = self.customer_id.address_get(["invoice", "delivery"])
+        fiscal_position = source.fiscal_position_id if source else self._get_fiscal_position()
+        team = source.team_id if source else self.env["crm.team"].search(
+            [("branch_id", "=", self.branch_id.id)], order="id", limit=1
+        )
+        payment_term = (
+            source.payment_term_id
+            if source
+            else self.customer_id.property_payment_term_id
+        )
+        taxes = self._get_product_taxes()
         description = product.get_product_multiline_description_sale() or product.display_name
         line_values = {
             "product_id": product.id,
@@ -976,32 +1165,31 @@ class SalePreorder(models.Model):
 
         values = {
             "partner_id": self.customer_id.id,
-            "partner_invoice_id": source.partner_invoice_id.id,
-            "partner_shipping_id": source.partner_shipping_id.id,
+            "partner_invoice_id": source.partner_invoice_id.id if source else addresses.get("invoice") or self.customer_id.id,
+            "partner_shipping_id": source.partner_shipping_id.id if source else addresses.get("delivery") or self.customer_id.id,
             "company_id": self.company_id.id,
             "branch_id": self.branch_id.id,
-            "warehouse_id": source.warehouse_id.id,
-            "pricelist_id": source.pricelist_id.id,
-            "payment_term_id": source.payment_term_id.id,
-            "fiscal_position_id": source.fiscal_position_id.id,
-            "team_id": source.team_id.id,
-            "user_id": source.user_id.id,
+            "warehouse_id": warehouse.id,
+            "pricelist_id": pricelist.id,
+            "payment_term_id": payment_term.id,
+            "fiscal_position_id": fiscal_position.id,
+            "team_id": team.id,
+            "user_id": source.user_id.id if source else self.env.user.id,
             "sales_rep_id": self.sales_rep_id.id,
             "discount_id": self.discount_id.id,
             "reference_number": self.name,
             "inv_type": "invoice",
             "preorder_id": self.id,
-            "preorder_source_order_id": source.id,
+            "preorder_source_order_id": source.id if source else False,
             "client_order_ref": self.name,
             "order_line": [Command.create(line_values)],
+            "invoice_journal_id": invoice_journal.id,
         }
-        if source.invoice_journal_id:
-            values["invoice_journal_id"] = source.invoice_journal_id.id
         return values
 
     def action_create_delivery_order(self):
         self.ensure_one()
-        _check_preorder_manager(self.env)
+        _check_preorder_branch_access(self)
         self.env.cr.execute(
             "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [self.id]
         )
@@ -1147,7 +1335,7 @@ class SalePreorder(models.Model):
 
     def action_invoice_and_apply_payment(self):
         self.ensure_one()
-        _check_preorder_manager(self.env)
+        _check_preorder_branch_access(self)
         self.env.cr.execute(
             "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [self.id]
         )
@@ -1225,6 +1413,8 @@ class SalePreorder(models.Model):
         for record in self:
             if record.final_sale_order_id:
                 raise UserError(_("A pre-order with a delivery order cannot be reset."))
+            if record._get_source_inbound_payments(include_returned=True):
+                raise UserError(_("Cancel or return the posted payment before resetting this pre-order."))
             record._workflow_write({"allocation_id": False, "state": "draft"})
         return True
 

@@ -26,16 +26,15 @@
                 <header>
                     <button name="action_open_campaign" string="Open Pre-orders" type="object" class="oe_highlight"
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
-                    <button name="action_start_allocation" string="Start Allocation" type="object" class="oe_highlight"
-                            invisible="state != 'open'" groups="preorder_management.group_preorder_manager"/>
-                    <button name="action_start_delivery" string="Start Delivery" type="object" class="oe_highlight"
-                            invisible="state != 'allocation'" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_open_allocation_delivery" string="Open Allocation &amp; Delivery" type="object" class="oe_highlight"
+                            invisible="state != 'open'" groups="preorder_management.group_preorder_manager"
+                            confirm="This opens branch allocation and delivery work in one step. Continue?"/>
                     <button name="action_close_campaign" string="Close" type="object"
                             invisible="state != 'delivery'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_cancel_campaign" string="Cancel" type="object"
                             invisible="state in ('closed', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_reset_to_setup" string="Reset to Setup" type="object"
-                            invisible="state not in ('open', 'allocation', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
+                            invisible="state not in ('open', 'allocation', 'delivery', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,open,allocation,delivery,closed"/>
                 </header>
                 <sheet>
@@ -62,7 +61,7 @@
                     <notebook>
                         <page string="Branch Allocation">
                             <div class="alert alert-info" role="alert">
-                                Admin sets the product quota for each branch. Reserved and available quantities update when customer pre-orders are allocated.
+                                Central Admin sets each branch/product quota, then opens Allocation &amp; Delivery once. Branch Managers reserve their own paid pre-orders against their branch quota.
                             </div>
                             <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
                                 <list editable="bottom">
@@ -115,7 +114,7 @@
                 <field name="discount_id" optional="show"/>
                 <field name="product_id"/>
                 <field name="requested_qty" sum="Requested"/>
-                <field name="deposit_amount" sum="Deposit" optional="show"/>
+                <field name="deposit_amount" sum="Required Total" optional="show"/>
                 <field name="prepaid_amount" sum="Paid" optional="show"/>
                 <field name="payment_method_names" optional="show"/>
                 <field name="payment_status" widget="badge"/>
@@ -130,55 +129,52 @@
         <field name="arch" type="xml">
             <form string="Customer Pre-order">
                 <header>
-                    <button name="action_create_source_order" string="Create Sales Order" type="object" class="oe_highlight"
-                            invisible="state != 'draft' or source_order_id"/>
-                    <button name="action_register_payment" string="Register Payment" type="object" class="btn-secondary"
-                            invisible="state != 'draft' or not source_order_id"/>
                     <button name="action_confirm_preorder" string="Confirm Pre-order" type="object" class="oe_highlight"
-                            invisible="state != 'draft' or not source_order_id"/>
+                            invisible="state != 'draft'" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_register_payment" string="Register Payment" type="object" class="oe_highlight"
+                            invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_allocate" string="Allocate" type="object" class="oe_highlight"
-                            invisible="state != 'pending'" groups="preorder_management.group_preorder_manager"/>
+                            invisible="state != 'pending'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_unallocate" string="Return to Queue" type="object"
-                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_manager"/>
+                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_create_delivery_order" string="Create Delivery Order" type="object" class="oe_highlight"
-                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_manager"/>
+                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
                             invisible="state not in ('delivery', 'invoiced')"
-                            groups="preorder_management.group_preorder_manager"
+                            groups="preorder_management.group_preorder_user"
                             confirm="The delivery must already be validated. This posts the invoice, changes the original payment journal date to the delivery invoice date, and reconciles that same payment. It does not charge or refund the customer."/>
                     <button name="action_cancel_preorder" string="Cancel" type="object"
                             invisible="state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object"
-                            invisible="state not in ('pending', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,pending,allocated,delivery,invoiced,completed"/>
+                            invisible="state not in ('confirmed', 'pending', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,pending,allocated,delivery,invoiced,completed"/>
                 </header>
                 <sheet>
                     <div class="alert alert-danger" role="alert" invisible="payment_status != 'returned'">
                         The original payment has already been returned. This record cannot use the no-refund delivery workflow.
                     </div>
-                    <div class="alert alert-info" role="alert" invisible="source_order_id">
-                        <strong>Branch Manager — Step 1:</strong> Review the customer, requested product, quantity, price, discount, and deposit amount. Then click <strong>Create Sales Order</strong>. The quotation Reference Number is generated automatically from this Customer Pre-order number.
+                    <div class="alert alert-info" role="alert" invisible="state != 'draft'">
+                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>.
                     </div>
-                    <div class="alert alert-warning" role="alert" invisible="not source_order_id or payment_status != 'none'">
-                        <strong>Branch Manager — Step 2: Register the deposit</strong>
+                    <div class="alert alert-warning" role="alert" invisible="state != 'confirmed'">
+                        <strong>Branch Manager — Step 2: Register the full payment directly here</strong>
                         <ol class="mb-0">
                             <li>Click <strong>Register Payment</strong>.</li>
-                            <li>Choose the actual Cash, Bank, or Card journal used to collect the deposit.</li>
-                            <li>Set <strong>Date</strong> to the real collection date and verify the amount.</li>
+                            <li>Choose the actual Cash, Bank, or Card journal used.</li>
+                            <li>Set <strong>Date</strong> to the real collection date and verify the amount equals Payment Due.</li>
                             <li>Verify that Memo contains this <strong>PRE/...</strong> number, then click <strong>Confirm</strong> to post the payment.</li>
-                            <li>Close the payment window and return to this Customer Pre-order.</li>
-                            <li>When Payment Status becomes <strong>Available</strong>, click <strong>Confirm Pre-order</strong>.</li>
+                            <li>After the full Required Payment Total is posted, the pre-order moves automatically to Pending Allocation.</li>
                         </ol>
-                        <strong>Delivery rule:</strong> Enter the real collection date now. At delivery, the system will automatically change this original payment journal date to the delivery invoice date before applying the same payment.
-                    </div>
-                    <div class="alert alert-success" role="alert" invisible="state != 'draft' or payment_status != 'available'">
-                        <strong>Branch Manager — Step 3:</strong> The original deposit is posted and available. Click <strong>Confirm Pre-order</strong> to send this request to the central allocation queue.
+                        No registration Sales Order is created. At delivery, the same original payment is re-dated to the delivery invoice date and applied—no refund and no duplicate payment.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'pending'">
-                        <strong>Branch Manager complete:</strong> Payment is registered and this request is waiting for Central Admin allocation. Do not create another payment or refund the original one.
+                        <strong>Branch Manager — Step 3:</strong> Payment is complete. After Central Admin opens Allocation &amp; Delivery, click <strong>Allocate</strong>. The system reserves this quantity only from your branch quota.
+                    </div>
+                    <div class="alert alert-success" role="alert" invisible="state != 'allocated'">
+                        <strong>Branch Manager — Step 4:</strong> Quantity is reserved. Click <strong>Create Delivery Order</strong>; this creates the only Sales Order in the new flow.
                     </div>
                     <div class="alert alert-warning" role="alert" invisible="state not in ('delivery', 'invoiced')">
-                        <strong>Central Admin — Delivery accounting:</strong> After the branch validates the delivery and serial number, click <strong>Invoice &amp; Apply Original Payment</strong>. The system posts the delivery invoice, changes the original payment journal date to that invoice date, and reconciles the same payment. No refund or second payment is created.
+                        <strong>Branch Manager — Step 5:</strong> Confirm the Delivery Sales Order, validate delivery and serial number, then return here and click <strong>Invoice &amp; Apply Original Payment</strong>. The system posts the invoice, changes the original payment journal date to the invoice date, and reconciles that same payment. No refund or second payment is created.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'invoiced'">
                         The original payment was applied, but the delivery invoice still has a remaining balance.
@@ -206,24 +202,24 @@
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <group>
                         <group string="Customer Request">
-                            <field name="campaign_id" readonly="state != 'draft' or source_order_id"
+                            <field name="campaign_id" readonly="state != 'draft'"
                                    domain="[('state', '=', 'open')]" options="{'no_create': True}"/>
                             <field name="campaign_company_id" invisible="1"/>
-                            <field name="customer_id" readonly="state != 'draft' or source_order_id"/>
+                            <field name="customer_id" readonly="state != 'draft'"/>
                             <field name="branch_id" readonly="1" options="{'no_create': True}"/>
                             <field name="preorder_date" readonly="1"/>
-                            <field name="sales_rep_id" readonly="state != 'draft' or source_order_id" options="{'no_create': True}"/>
-                            <field name="discount_id" readonly="state != 'draft' or source_order_id" options="{'no_create': True}"/>
+                            <field name="sales_rep_id" readonly="state != 'draft'" options="{'no_create': True}"/>
+                            <field name="discount_id" readonly="state != 'draft'" options="{'no_create': True}"/>
                             <field name="source_order_id" readonly="1" invisible="not source_order_id"/>
                             <field name="source_state" invisible="not source_order_id"/>
                         </group>
                         <group string="Requested Product">
                             <field name="campaign_product_ids" invisible="1"/>
-                            <field name="product_id" readonly="state not in ('draft', 'pending', 'cancelled')" options="{'no_create': True}"/>
-                            <field name="requested_qty" readonly="state not in ('draft', 'pending', 'cancelled')"/>
-                            <field name="price_unit" readonly="state not in ('draft', 'pending', 'allocated')"/>
-                            <field name="discount" readonly="state not in ('draft', 'pending', 'allocated')"/>
-                            <field name="deposit_amount" readonly="state != 'draft' or source_order_id"/>
+                            <field name="product_id" readonly="state != 'draft'" options="{'no_create': True}"/>
+                            <field name="requested_qty" readonly="state != 'draft'"/>
+                            <field name="price_unit" readonly="1"/>
+                            <field name="discount" readonly="state != 'draft'"/>
+                            <field name="deposit_amount" readonly="1"/>
                             <field name="allocation_id" invisible="not allocation_id"/>
                             <field name="final_sale_order_id" invisible="not final_sale_order_id"/>
                         </group>
@@ -233,6 +229,7 @@
                             <field name="source_amount_total" invisible="not source_order_id"/>
                             <field name="prepaid_amount"/>
                             <field name="available_prepayment_amount"/>
+                            <field name="payment_due_amount"/>
                         </group>
                         <group>
                             <field name="payment_method_names"/>
@@ -328,5 +325,5 @@
               action="sale_preorder_action" sequence="20"/>
     <menuitem id="sale_preorder_menu_allocations" name="Branch Allocation" parent="sale_preorder_menu_root"
               action="sale_preorder_allocation_action" sequence="30"
-              groups="preorder_management.group_preorder_manager"/>
+              groups="preorder_management.group_preorder_user"/>
 </odoo>
