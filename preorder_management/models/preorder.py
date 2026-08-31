@@ -979,7 +979,6 @@ class SalePreorder(models.Model):
                 "default_company_id": self.company_id.id,
                 "default_currency_id": self.currency_id.id,
                 "default_amount": self.payment_due_amount,
-                "default_ref": self.name,
                 "default_memo": self.name,
                 "default_preorder_payment_id": self.id,
             },
