@@ -593,6 +593,7 @@ class SalePreorder(models.Model):
         if records.filtered(lambda record: record.campaign_id.state != "open"):
             raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
         records._validate_preorder_scope()
+        records._validate_available_quota_for_draft()
         return records
 
     def write(self, vals):
@@ -629,9 +630,12 @@ class SalePreorder(models.Model):
             "customer_id",
             "branch_id",
             "product_id",
+            "requested_qty",
             "sales_rep_id",
         } & set(vals):
             self._validate_preorder_scope()
+        if {"campaign_id", "branch_id", "product_id", "requested_qty"} & set(vals):
+            self.filtered(lambda record: record.state == "draft")._validate_available_quota_for_draft()
         return result
 
     def _workflow_write(self, vals):
@@ -936,6 +940,49 @@ class SalePreorder(models.Model):
                 raise ValidationError(
                     _("The source must be a quotation containing a Down Payment product line.")
                 )
+
+    def _validate_available_quota_for_draft(self):
+        """Reject a draft immediately when its branch/product quota is exhausted."""
+        for record in self.filtered("product_id"):
+            allocation = self.env["sale.preorder.allocation"].search(
+                [
+                    ("campaign_id", "=", record.campaign_id.id),
+                    ("branch_id", "=", record.branch_id.id),
+                    ("product_id", "=", record.product_id.id),
+                ],
+                limit=1,
+            )
+            if not allocation:
+                raise UserError(
+                    _(
+                        "No quota is configured for %(product)s at %(branch)s. "
+                        "Choose another product or branch, or ask the Central Admin to add quota."
+                    )
+                    % {
+                        "product": record.product_id.display_name,
+                        "branch": record.branch_id.display_name,
+                    }
+                )
+            allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+            if float_compare(
+                allocation.available_qty,
+                record.requested_qty,
+                precision_digits=2,
+            ) < 0:
+                raise UserError(
+                    _(
+                        "Only %(available)s unit(s) remain for %(product)s at %(branch)s, "
+                        "but this pre-order requests %(requested)s. No new pre-order can be "
+                        "created until quota is released or increased."
+                    )
+                    % {
+                        "available": allocation.available_qty,
+                        "product": record.product_id.display_name,
+                        "branch": record.branch_id.display_name,
+                        "requested": record.requested_qty,
+                    }
+                )
+        return True
 
     def _prepare_source_order_values(self):
         self.ensure_one()
