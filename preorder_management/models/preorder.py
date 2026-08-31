@@ -783,11 +783,16 @@ class SalePreorder(models.Model):
 
     def _get_source_inbound_payments(self, include_returned=False):
         self.ensure_one()
-        payments = self.direct_payment_ids.filtered(
-            lambda payment: payment.payment_type == "inbound"
-            and payment.state in ("in_process", "paid", "posted")
-            and payment.move_id
-            and payment.move_id.state == "posted"
+        # Search explicitly instead of relying on the cached One2many value. A
+        # payment is linked while the pre-order form is already in cache, so the
+        # inverse relation can otherwise still look empty during action_post().
+        payments = self.env["account.payment"].search(
+            [
+                ("preorder_payment_id", "=", self.id),
+                ("payment_type", "=", "inbound"),
+                ("state", "in", ("in_process", "paid", "posted")),
+                ("move_id.state", "=", "posted"),
+            ]
         )
         if self.source_order_id:
             payments |= self.source_order_id.payment_ids.filtered(
