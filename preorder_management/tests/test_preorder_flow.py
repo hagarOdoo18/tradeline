@@ -157,7 +157,7 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(
             payment_action["context"]["default_preorder_payment_id"], preorder.id
         )
-        self.assertEqual(payment_action["context"]["default_ref"], preorder.name)
+        self.assertEqual(payment_action["context"]["default_memo"], preorder.name)
 
         payment = self.env["account.payment"].sudo().create(
             {
@@ -170,7 +170,7 @@ class TestPreorderFlow(TransactionCase):
                 "date": fields.Date.today(),
                 "journal_id": self.payment_journal.id,
                 "payment_method_line_id": self.payment_method_line.id,
-                "ref": preorder.name,
+                "memo": preorder.name,
                 "preorder_payment_id": preorder.id,
             }
         )
