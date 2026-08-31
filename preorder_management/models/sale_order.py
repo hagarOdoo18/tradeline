@@ -54,7 +54,7 @@ class SaleOrder(models.Model):
         raise UserError(
             _(
                 "Create the Customer Pre-order first from Sales > Pre-orders > Customer Pre-orders. "
-                "The system will generate this quotation automatically."
+                "Payment is registered directly on that pre-order; the only Sales Order is created at delivery."
             )
         )
 
