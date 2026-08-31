@@ -159,6 +159,12 @@ class TestPreorderFlow(TransactionCase):
         allocation.invalidate_recordset(["reserved_qty", "available_qty"])
         self.assertEqual(allocation.reserved_qty, 0.0)
         self.assertEqual(allocation.available_qty, 5.0)
+        self.campaign.invalidate_recordset(
+            ["quota_quantity", "allocated_quantity", "available_quantity"]
+        )
+        self.assertEqual(self.campaign.quota_quantity, 5.0)
+        self.assertEqual(self.campaign.allocated_quantity, 0.0)
+        self.assertEqual(self.campaign.available_quantity, 5.0)
 
         preorder.write({"discount": 1.0})
         self.assertEqual(preorder.price_unit, original_unit_price)
@@ -233,6 +239,12 @@ class TestPreorderFlow(TransactionCase):
         allocation.invalidate_recordset(["reserved_qty", "available_qty"])
         self.assertEqual(allocation.reserved_qty, 1.0)
         self.assertEqual(allocation.available_qty, 4.0)
+        self.campaign.invalidate_recordset(
+            ["quota_quantity", "allocated_quantity", "available_quantity"]
+        )
+        self.assertEqual(self.campaign.quota_quantity, 5.0)
+        self.assertEqual(self.campaign.allocated_quantity, 1.0)
+        self.assertEqual(self.campaign.available_quantity, 4.0)
 
         self.campaign.action_open_allocation_delivery()
         self.assertEqual(self.campaign.state, "delivery")
@@ -246,6 +258,11 @@ class TestPreorderFlow(TransactionCase):
         self.assertTrue(unpaid_preorder.allocation_id)
         allocation.invalidate_recordset(["reserved_qty", "available_qty"])
         self.assertEqual(allocation.reserved_qty, 2.0)
+        self.campaign.invalidate_recordset(
+            ["allocated_quantity", "available_quantity"]
+        )
+        self.assertEqual(self.campaign.allocated_quantity, 2.0)
+        self.assertEqual(self.campaign.available_quantity, 3.0)
 
         delivery_values = preorder._prepare_delivery_order_values()
         self.assertEqual(delivery_values["order_line"][0][2]["price_unit"], original_unit_price)

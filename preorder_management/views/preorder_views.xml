@@ -10,7 +10,9 @@
                 <field name="date_end"/>
                 <field name="preorder_count"/>
                 <field name="requested_quantity" sum="Requested"/>
+                <field name="quota_quantity" sum="Quota"/>
                 <field name="allocated_quantity" sum="Reserved"/>
+                <field name="available_quantity" sum="Available" decoration-warning="available_quantity == 0"/>
                 <field name="delivered_quantity" sum="Delivered"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="state" widget="badge"/>
@@ -60,10 +62,17 @@
                                    options="{'no_create': True}"/>
                         </group>
                     </group>
+                    <group string="Live Campaign Quantities">
+                        <field name="requested_quantity" readonly="1"/>
+                        <field name="quota_quantity" readonly="1"/>
+                        <field name="allocated_quantity" readonly="1"/>
+                        <field name="available_quantity" readonly="1"/>
+                        <field name="delivered_quantity" readonly="1"/>
+                    </group>
                     <notebook>
                         <page string="Branch Allocation">
                             <div class="alert alert-info" role="alert">
-                                Central Admin sets each branch/product quota before opening pre-orders. After a Branch Manager confirms a pre-order and posts its full payment, the system reserves the quantity automatically from that branch quota. Cancelling releases it. Branch Managers never click Allocate.
+                                Central Admin sets each branch/product quota before opening pre-orders. After a Branch Manager confirms a pre-order and posts its full payment, Reserved increases and Available decreases immediately in this campaign. The original Quota stays unchanged for audit. Cancelling releases it. Branch Managers never click Allocate.
                             </div>
                             <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
                                 <list editable="bottom">
