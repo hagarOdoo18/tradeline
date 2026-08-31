@@ -21,6 +21,12 @@ class TestPreorderFlow(TransactionCase):
         if not cls.branch:
             raise SkipTest("No branch is configured for the staging company.")
 
+        # account.payment.search_fetch() is branch-filtered by the installed
+        # branch addon. Mirror a real Branch Manager session so posted direct
+        # payments remain visible to the workflow under test.
+        if cls.branch not in cls.env.user.branch_ids:
+            cls.env.user.sudo().write({"branch_ids": [Command.link(cls.branch.id)]})
+
         cls.warehouse = cls.env["stock.warehouse"].search(
             [
                 ("company_id", "=", cls.company.id),
