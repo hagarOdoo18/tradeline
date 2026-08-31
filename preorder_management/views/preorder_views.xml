@@ -28,7 +28,7 @@
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_open_allocation_delivery" string="Open Allocation &amp; Delivery" type="object" class="oe_highlight"
                             invisible="state != 'open'" groups="preorder_management.group_preorder_manager"
-                            confirm="Every pre-order already reserved quota when it was created. This now opens delivery work and makes fully paid reservations ready for delivery. Continue?"/>
+                            confirm="Fully paid pre-orders already reserved quota automatically. This now opens delivery work and makes those reservations ready for delivery. Continue?"/>
                     <button name="action_retry_auto_reservations" string="Refresh Paid Reservations" type="object"
                             invisible="state not in ('allocation', 'delivery')" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_close_campaign" string="Close" type="object"
@@ -63,7 +63,7 @@
                     <notebook>
                         <page string="Branch Allocation">
                             <div class="alert alert-info" role="alert">
-                                Central Admin sets each branch/product quota before opening pre-orders. Every new Customer Pre-order immediately reserves its quantity from that branch quota. Cancelling the pre-order releases it. Branch Managers never click Allocate.
+                                Central Admin sets each branch/product quota before opening pre-orders. After a Branch Manager confirms a pre-order and posts its full payment, the system reserves the quantity automatically from that branch quota. Cancelling releases it. Branch Managers never click Allocate.
                             </div>
                             <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
                                 <list editable="bottom">
@@ -152,7 +152,7 @@
                         The original payment has already been returned. This record cannot use the no-refund delivery workflow.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'draft'">
-                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. When this record is saved, the quantity is reserved immediately from this branch quota. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>.
+                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>. Quota is not consumed until the full payment is posted.
                     </div>
                     <div class="alert alert-warning" role="alert" invisible="state != 'confirmed'">
                         <strong>Branch Manager — Step 2: Register the full payment directly here</strong>
@@ -161,12 +161,12 @@
                             <li>Choose the actual Cash, Bank, or Card journal used.</li>
                             <li>Set <strong>Date</strong> to the real collection date and verify the amount equals Payment Due.</li>
                             <li>Verify that Memo contains this <strong>PRE/...</strong> number, then click <strong>Confirm</strong> to post the payment.</li>
-                            <li>After the full Required Payment Total is posted, the existing reservation waits only for Central Admin to open delivery.</li>
+                            <li>After the full Required Payment Total is posted, the system reserves the quantity automatically from this branch quota.</li>
                         </ol>
                         No registration Sales Order is created. At delivery, the same original payment is re-dated to the delivery invoice date and applied—no refund and no duplicate payment.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'pending'">
-                        <strong>Branch Manager — Step 3:</strong> Payment is complete and the quantity is already reserved. No Allocate click is required. When Central Admin opens Allocation &amp; Delivery, this record becomes ready for delivery automatically.
+                        <strong>Branch Manager — Step 3:</strong> Payment is complete and the quantity was reserved automatically. No Allocate click is required. When Central Admin opens Allocation &amp; Delivery, this record becomes ready for delivery automatically.
                     </div>
                     <div class="alert alert-success" role="alert" invisible="state != 'allocated'">
                         <strong>Branch Manager — Step 4:</strong> This paid reservation is ready. Click <strong>Create Delivery Order</strong>; this creates the only Sales Order in the new flow.
@@ -267,7 +267,7 @@
                 <field name="customer_id"/>
                 <field name="product_id"/>
                 <field name="sales_rep_id"/>
-                <filter name="waiting_allocation" string="Paid — Waiting Delivery" domain="[('state', '=', 'pending')]"/>
+                <filter name="waiting_allocation" string="Paid — Reserved, Waiting Delivery" domain="[('state', '=', 'pending')]"/>
                 <filter name="ready_delivery" string="Ready for Delivery" domain="[('state', '=', 'allocated')]"/>
                 <filter name="payment_problem" string="Payment Problem" domain="[('payment_status', 'in', ('none', 'returned'))]"/>
                 <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>

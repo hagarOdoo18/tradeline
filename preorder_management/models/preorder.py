@@ -496,7 +496,7 @@ class SalePreorder(models.Model):
         [
             ("draft", "Draft"),
             ("confirmed", "Awaiting Payment"),
-            ("pending", "Paid — Waiting Delivery"),
+            ("pending", "Paid — Reserved, Waiting Delivery"),
             ("allocated", "Reserved — Ready for Delivery"),
             ("delivery", "Delivery Order"),
             ("invoiced", "Payment Due"),
@@ -579,11 +579,7 @@ class SalePreorder(models.Model):
         records = super().create(vals_list)
         if records.filtered(lambda record: record.campaign_id.state != "open"):
             raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
-        if records.filtered(lambda record: not record.product_id):
-            raise UserError(_("Select the requested product before saving the pre-order."))
         records._validate_preorder_scope()
-        for record in records:
-            record._reserve_from_branch_quota(strict=True, mark_ready=False)
         return records
 
     def write(self, vals):
@@ -613,13 +609,6 @@ class SalePreorder(models.Model):
                     "Reason cannot change after the pre-order is confirmed."
                 )
             )
-        reservation_fields = {"campaign_id", "branch_id", "product_id", "requested_qty"}
-        reservations_to_refresh = self.filtered(
-            lambda record: record.state == "draft" and record.allocation_id
-        ) if reservation_fields & set(vals) else self.env["sale.preorder"]
-        if reservations_to_refresh:
-            reservations_to_refresh._workflow_write({"allocation_id": False})
-
         result = super().write(vals)
         if {
             "campaign_id",
@@ -630,8 +619,6 @@ class SalePreorder(models.Model):
             "sales_rep_id",
         } & set(vals):
             self._validate_preorder_scope()
-        for record in reservations_to_refresh:
-            record._reserve_from_branch_quota(strict=True, mark_ready=False)
         return result
 
     def _workflow_write(self, vals):
@@ -1093,20 +1080,13 @@ class SalePreorder(models.Model):
                 record._workflow_write({"state": "pending"})
                 record.message_post(
                     body=_(
-                        "The full required payment was posted. Its quantity was already reserved when the pre-order was created."
+                        "The full required payment was posted. The quantity is now being reserved automatically."
                     )
                 )
-                if record.campaign_id.state in ("allocation", "delivery"):
-                    reserved, reason = record._reserve_from_branch_quota(
-                        strict=False, mark_ready=True
-                    )
-                    if not reserved:
-                        record.message_post(
-                            body=_(
-                                "Automatic reservation is waiting for Central Admin action: %s"
-                            )
-                            % reason
-                        )
+                record._reserve_from_branch_quota(
+                    strict=True,
+                    mark_ready=record.campaign_id.state in ("allocation", "delivery"),
+                )
             elif comparison < 0 and record.state in ("pending", "allocated"):
                 record._workflow_write({"state": "confirmed"})
         return True
@@ -1136,7 +1116,7 @@ class SalePreorder(models.Model):
         return True
 
     def _reserve_from_branch_quota(self, strict=True, mark_ready=False):
-        """Reserve quota immediately; optionally mark a paid request ready for delivery."""
+        """Reserve quota after full payment; optionally mark it ready for delivery."""
         self.ensure_one()
         record = self
         self.env.cr.execute(
@@ -1537,9 +1517,7 @@ class SalePreorder(models.Model):
                 raise UserError(_("A pre-order with a delivery order cannot be reset."))
             if record._get_source_inbound_payments(include_returned=True):
                 raise UserError(_("Cancel or return the posted payment before resetting this pre-order."))
-            record._workflow_write({"state": "draft"})
-            if not record.allocation_id:
-                record._reserve_from_branch_quota(strict=True, mark_ready=False)
+            record._workflow_write({"allocation_id": False, "state": "draft"})
         return True
 
     def action_open_source_order(self):
