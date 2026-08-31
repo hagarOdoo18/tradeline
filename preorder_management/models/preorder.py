@@ -5,9 +5,6 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import float_compare, float_is_zero
 
 
-ACTIVE_ALLOCATION_STATES = ("allocated", "delivery", "invoiced", "completed")
-
-
 def _check_preorder_manager(env):
     if not env.su and not env.user.has_group(
         "preorder_management.group_preorder_manager"
@@ -85,15 +82,19 @@ class SalePreorderCampaign(models.Model):
     )
     preorder_count = fields.Integer(compute="_compute_campaign_totals")
     requested_quantity = fields.Float(compute="_compute_campaign_totals")
-    allocated_quantity = fields.Float(compute="_compute_campaign_totals")
+    allocated_quantity = fields.Float(
+        compute="_compute_campaign_totals", string="Reserved Quantity"
+    )
     delivered_quantity = fields.Float(compute="_compute_campaign_totals")
     notes = fields.Html()
 
-    @api.depends("preorder_ids.state", "preorder_ids.requested_qty")
+    @api.depends(
+        "preorder_ids.state", "preorder_ids.requested_qty", "preorder_ids.allocation_id"
+    )
     def _compute_campaign_totals(self):
         for campaign in self:
             active = campaign.preorder_ids.filtered(lambda record: record.state != "cancelled")
-            allocated = active.filtered(lambda record: record.state in ACTIVE_ALLOCATION_STATES)
+            allocated = active.filtered("allocation_id")
             delivered = active.filtered(lambda record: record.state == "completed")
             campaign.preorder_count = len(active)
             campaign.requested_quantity = sum(active.mapped("requested_qty"))
@@ -108,6 +109,7 @@ class SalePreorderCampaign(models.Model):
 
     def action_open_campaign(self):
         _check_preorder_manager(self.env)
+        self._validate_allocation_setup()
         self.write({"state": "open"})
 
     def action_start_allocation(self):
@@ -132,14 +134,74 @@ class SalePreorderCampaign(models.Model):
         return True
 
     def action_open_allocation_delivery(self):
-        """One Central Admin action opens both branch allocation and delivery work."""
+        """Open delivery work and activate every paid reservation automatically."""
         _check_preorder_manager(self.env)
         invalid_state = self.filtered(lambda campaign: campaign.state != "open")
         if invalid_state:
             raise UserError(_("Only campaigns taking pre-orders can be opened for allocation and delivery."))
         self._validate_allocation_setup()
         self.write({"state": "delivery"})
-        return True
+        reserved_count, waiting_count = self._auto_reserve_pending_preorders()
+        return self._reservation_notification(reserved_count, waiting_count)
+
+    def _auto_reserve_pending_preorders(self):
+        """Make paid reservations ready for delivery when the admin opens delivery."""
+        reserved_count = 0
+        waiting_count = 0
+        oldest = fields.Datetime.to_datetime("1970-01-01 00:00:00")
+        for campaign in self:
+            pending = campaign.preorder_ids.filtered(
+                lambda record: record.state == "pending"
+            ).sorted(lambda record: (record.preorder_date or oldest, record.id))
+            for preorder in pending:
+                reserved, reason = preorder._reserve_from_branch_quota(
+                    strict=False, mark_ready=True
+                )
+                if reserved:
+                    reserved_count += 1
+                else:
+                    waiting_count += 1
+                    preorder.message_post(
+                        body=_(
+                            "Automatic reservation is waiting for Central Admin action: %s"
+                        )
+                        % reason
+                    )
+        return reserved_count, waiting_count
+
+    def _reservation_notification(self, reserved_count, waiting_count):
+        message = _("%(reserved)s paid reservation(s) are ready for delivery.") % {
+            "reserved": reserved_count
+        }
+        notification_type = "success"
+        sticky = False
+        if waiting_count:
+            message += _(
+                " %(waiting)s paid pre-order(s) could not be activated because a reservation is missing. Correct the quota and retry."
+            ) % {"waiting": waiting_count}
+            notification_type = "warning"
+            sticky = True
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Reserved Pre-orders"),
+                "message": message,
+                "type": notification_type,
+                "sticky": sticky,
+            },
+        }
+
+    def action_retry_auto_reservations(self):
+        _check_preorder_manager(self.env)
+        invalid_state = self.filtered(
+            lambda campaign: campaign.state not in ("allocation", "delivery")
+        )
+        if invalid_state:
+            raise UserError(_("Automatic reservation can only run during allocation or delivery."))
+        self._validate_allocation_setup()
+        reserved_count, waiting_count = self._auto_reserve_pending_preorders()
+        return self._reservation_notification(reserved_count, waiting_count)
 
     def action_start_delivery(self):
         _check_preorder_manager(self.env)
@@ -175,10 +237,8 @@ class SalePreorderCampaign(models.Model):
     def action_reset_to_setup(self):
         _check_preorder_manager(self.env)
         for campaign in self:
-            if campaign.preorder_ids.filtered(
-                lambda record: record.state in ACTIVE_ALLOCATION_STATES
-            ):
-                raise UserError(_("Reset is blocked after a branch has allocated a pre-order."))
+            if campaign.preorder_ids.filtered(lambda record: record.state != "cancelled"):
+                raise UserError(_("Reset is blocked while the campaign has active pre-orders."))
         self.write({"state": "draft"})
 
     def action_open_preorders(self):
@@ -224,7 +284,7 @@ class SalePreorderAllocation(models.Model):
     def _compute_quantities(self):
         for allocation in self:
             reserved = allocation.preorder_ids.filtered(
-                lambda record: record.state in ACTIVE_ALLOCATION_STATES
+                lambda record: record.state != "cancelled"
             )
             delivered = reserved.filtered(lambda record: record.state == "completed")
             allocation.reserved_qty = sum(reserved.mapped("requested_qty"))
@@ -436,8 +496,8 @@ class SalePreorder(models.Model):
         [
             ("draft", "Draft"),
             ("confirmed", "Awaiting Payment"),
-            ("pending", "Pending Allocation"),
-            ("allocated", "Allocated"),
+            ("pending", "Paid — Waiting Delivery"),
+            ("allocated", "Reserved — Ready for Delivery"),
             ("delivery", "Delivery Order"),
             ("invoiced", "Payment Due"),
             ("completed", "Completed"),
@@ -519,7 +579,11 @@ class SalePreorder(models.Model):
         records = super().create(vals_list)
         if records.filtered(lambda record: record.campaign_id.state != "open"):
             raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
+        if records.filtered(lambda record: not record.product_id):
+            raise UserError(_("Select the requested product before saving the pre-order."))
         records._validate_preorder_scope()
+        for record in records:
+            record._reserve_from_branch_quota(strict=True, mark_ready=False)
         return records
 
     def write(self, vals):
@@ -549,6 +613,13 @@ class SalePreorder(models.Model):
                     "Reason cannot change after the pre-order is confirmed."
                 )
             )
+        reservation_fields = {"campaign_id", "branch_id", "product_id", "requested_qty"}
+        reservations_to_refresh = self.filtered(
+            lambda record: record.state == "draft" and record.allocation_id
+        ) if reservation_fields & set(vals) else self.env["sale.preorder"]
+        if reservations_to_refresh:
+            reservations_to_refresh._workflow_write({"allocation_id": False})
+
         result = super().write(vals)
         if {
             "campaign_id",
@@ -559,6 +630,8 @@ class SalePreorder(models.Model):
             "sales_rep_id",
         } & set(vals):
             self._validate_preorder_scope()
+        for record in reservations_to_refresh:
+            record._reserve_from_branch_quota(strict=True, mark_ready=False)
         return result
 
     def _workflow_write(self, vals):
@@ -1020,10 +1093,21 @@ class SalePreorder(models.Model):
                 record._workflow_write({"state": "pending"})
                 record.message_post(
                     body=_(
-                        "The full required payment was posted. The pre-order is ready for branch allocation."
+                        "The full required payment was posted. Its quantity was already reserved when the pre-order was created."
                     )
                 )
-            elif comparison < 0 and record.state == "pending":
+                if record.campaign_id.state in ("allocation", "delivery"):
+                    reserved, reason = record._reserve_from_branch_quota(
+                        strict=False, mark_ready=True
+                    )
+                    if not reserved:
+                        record.message_post(
+                            body=_(
+                                "Automatic reservation is waiting for Central Admin action: %s"
+                            )
+                            % reason
+                        )
+            elif comparison < 0 and record.state in ("pending", "allocated"):
                 record._workflow_write({"state": "confirmed"})
         return True
 
@@ -1051,59 +1135,93 @@ class SalePreorder(models.Model):
             record._sync_payment_readiness()
         return True
 
+    def _reserve_from_branch_quota(self, strict=True, mark_ready=False):
+        """Reserve quota immediately; optionally mark a paid request ready for delivery."""
+        self.ensure_one()
+        record = self
+        self.env.cr.execute(
+            "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [record.id]
+        )
+        record.invalidate_recordset(["state", "allocation_id"])
+        if record.state == "cancelled":
+            reason = _("the pre-order is cancelled")
+            if strict:
+                raise UserError(reason)
+            return False, reason
+        if record.campaign_id.state not in ("open", "allocation", "delivery"):
+            reason = _("the campaign is not open")
+            if strict:
+                raise UserError(reason)
+            return False, reason
+        if record.allocation_id:
+            if mark_ready and record.state == "pending":
+                record._workflow_write({"state": "allocated"})
+            return True, False
+
+        allocation = self.env["sale.preorder.allocation"].search(
+            [
+                ("campaign_id", "=", record.campaign_id.id),
+                ("branch_id", "=", record.branch_id.id),
+                ("product_id", "=", record.product_id.id),
+            ],
+            limit=1,
+        )
+        if not allocation:
+            reason = _("no quota exists for this product and branch")
+            if strict:
+                raise UserError(reason)
+            return False, reason
+
+        self.env.cr.execute(
+            "SELECT id FROM sale_preorder_allocation WHERE id = %s FOR UPDATE",
+            [allocation.id],
+        )
+        self.env.cr.execute(
+            """
+            SELECT COALESCE(SUM(requested_qty), 0.0)
+             FROM sale_preorder
+             WHERE allocation_id = %s
+               AND state != 'cancelled'
+               AND id != %s
+            """,
+            [allocation.id, record.id],
+        )
+        already_reserved = self.env.cr.fetchone()[0] or 0.0
+        remaining = allocation.allocated_qty - already_reserved
+        if float_compare(remaining, record.requested_qty, precision_digits=2) < 0:
+            reason = _(
+                "only %(remaining)s unit(s) remain in this branch quota; %(requested)s requested"
+            ) % {"remaining": remaining, "requested": record.requested_qty}
+            if strict:
+                raise UserError(reason)
+            return False, reason
+
+        workflow_values = {"allocation_id": allocation.id}
+        if mark_ready and record.state == "pending":
+            workflow_values["state"] = "allocated"
+        record._workflow_write(workflow_values)
+        record.message_post(
+            body=_(
+                "Quantity reserved automatically from the %(branch)s quota for %(product)s."
+            )
+            % {
+                "branch": record.branch_id.display_name,
+                "product": record.product_id.display_name,
+            }
+        )
+        return True, False
+
     def action_allocate(self):
+        """Compatibility action; normal reservations are now automatic."""
         _check_preorder_branch_access(self)
         for record in self:
-            self.env.cr.execute(
-                "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [record.id]
-            )
-            record.invalidate_recordset(["state", "allocation_id"])
-            if record.state != "pending":
-                raise UserError(_("Only pending pre-orders can be allocated."))
-            if record.campaign_id.state not in ("allocation", "delivery"):
-                raise UserError(_("The campaign is not in allocation or delivery."))
-            allocation = self.env["sale.preorder.allocation"].search(
-                [
-                    ("campaign_id", "=", record.campaign_id.id),
-                    ("branch_id", "=", record.branch_id.id),
-                    ("product_id", "=", record.product_id.id),
-                ],
-                limit=1,
-            )
-            if not allocation:
-                raise UserError(_("No branch quota exists for this product and branch."))
-
-            self.env.cr.execute(
-                "SELECT id FROM sale_preorder_allocation WHERE id = %s FOR UPDATE",
-                [allocation.id],
-            )
-            already_reserved = sum(
-                self.search(
-                    [
-                        ("allocation_id", "=", allocation.id),
-                        ("state", "in", ACTIVE_ALLOCATION_STATES),
-                        ("id", "!=", record.id),
-                    ]
-                ).mapped("requested_qty")
-            )
-            remaining = allocation.allocated_qty - already_reserved
-            if float_compare(
-                remaining, record.requested_qty, precision_digits=2
-            ) < 0:
-                raise UserError(
-                    _("Only %(remaining)s unit(s) remain in this branch quota; %(requested)s requested.")
-                    % {"remaining": remaining, "requested": record.requested_qty}
-                )
-            record._workflow_write({"allocation_id": allocation.id, "state": "allocated"})
+            record._reserve_from_branch_quota(strict=True, mark_ready=True)
         return True
 
     def action_unallocate(self):
-        _check_preorder_branch_access(self)
-        for record in self:
-            if record.state != "allocated":
-                raise UserError(_("Only allocated pre-orders can be returned to the queue."))
-            record._workflow_write({"allocation_id": False, "state": "pending"})
-        return True
+        raise UserError(
+            _("A reservation is released only when the pre-order is cancelled.")
+        )
 
     def _prepare_delivery_order_values(self):
         self.ensure_one()
@@ -1419,7 +1537,9 @@ class SalePreorder(models.Model):
                 raise UserError(_("A pre-order with a delivery order cannot be reset."))
             if record._get_source_inbound_payments(include_returned=True):
                 raise UserError(_("Cancel or return the posted payment before resetting this pre-order."))
-            record._workflow_write({"allocation_id": False, "state": "draft"})
+            record._workflow_write({"state": "draft"})
+            if not record.allocation_id:
+                record._reserve_from_branch_quota(strict=True, mark_ready=False)
         return True
 
     def action_open_source_order(self):

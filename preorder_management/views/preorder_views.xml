@@ -10,7 +10,7 @@
                 <field name="date_end"/>
                 <field name="preorder_count"/>
                 <field name="requested_quantity" sum="Requested"/>
-                <field name="allocated_quantity" sum="Allocated"/>
+                <field name="allocated_quantity" sum="Reserved"/>
                 <field name="delivered_quantity" sum="Delivered"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="state" widget="badge"/>
@@ -28,7 +28,9 @@
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_open_allocation_delivery" string="Open Allocation &amp; Delivery" type="object" class="oe_highlight"
                             invisible="state != 'open'" groups="preorder_management.group_preorder_manager"
-                            confirm="This opens branch allocation and delivery work in one step. Continue?"/>
+                            confirm="Every pre-order already reserved quota when it was created. This now opens delivery work and makes fully paid reservations ready for delivery. Continue?"/>
+                    <button name="action_retry_auto_reservations" string="Refresh Paid Reservations" type="object"
+                            invisible="state not in ('allocation', 'delivery')" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_close_campaign" string="Close" type="object"
                             invisible="state != 'delivery'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_cancel_campaign" string="Cancel" type="object"
@@ -61,7 +63,7 @@
                     <notebook>
                         <page string="Branch Allocation">
                             <div class="alert alert-info" role="alert">
-                                Central Admin sets each branch/product quota, then opens Allocation &amp; Delivery once. Branch Managers reserve their own paid pre-orders against their branch quota.
+                                Central Admin sets each branch/product quota before opening pre-orders. Every new Customer Pre-order immediately reserves its quantity from that branch quota. Cancelling the pre-order releases it. Branch Managers never click Allocate.
                             </div>
                             <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
                                 <list editable="bottom">
@@ -133,10 +135,6 @@
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_register_payment" string="Register Payment" type="object" class="oe_highlight"
                             invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
-                    <button name="action_allocate" string="Allocate" type="object" class="oe_highlight"
-                            invisible="state != 'pending'" groups="preorder_management.group_preorder_user"/>
-                    <button name="action_unallocate" string="Return to Queue" type="object"
-                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_create_delivery_order" string="Create Delivery Order" type="object" class="oe_highlight"
                             invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
@@ -154,7 +152,7 @@
                         The original payment has already been returned. This record cannot use the no-refund delivery workflow.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'draft'">
-                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>.
+                        <strong>Branch Manager — Step 1:</strong> Select the customer, product and quantity. When this record is saved, the quantity is reserved immediately from this branch quota. Unit Price comes automatically from the customer pricelist and cannot be edited. Enter the normal Discount % after Unit Price and select Discount Reason when applicable. Required Payment Total is calculated automatically. Click <strong>Confirm Pre-order</strong>.
                     </div>
                     <div class="alert alert-warning" role="alert" invisible="state != 'confirmed'">
                         <strong>Branch Manager — Step 2: Register the full payment directly here</strong>
@@ -163,15 +161,15 @@
                             <li>Choose the actual Cash, Bank, or Card journal used.</li>
                             <li>Set <strong>Date</strong> to the real collection date and verify the amount equals Payment Due.</li>
                             <li>Verify that Memo contains this <strong>PRE/...</strong> number, then click <strong>Confirm</strong> to post the payment.</li>
-                            <li>After the full Required Payment Total is posted, the pre-order moves automatically to Pending Allocation.</li>
+                            <li>After the full Required Payment Total is posted, the existing reservation waits only for Central Admin to open delivery.</li>
                         </ol>
                         No registration Sales Order is created. At delivery, the same original payment is re-dated to the delivery invoice date and applied—no refund and no duplicate payment.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state != 'pending'">
-                        <strong>Branch Manager — Step 3:</strong> Payment is complete. After Central Admin opens Allocation &amp; Delivery, click <strong>Allocate</strong>. The system reserves this quantity only from your branch quota.
+                        <strong>Branch Manager — Step 3:</strong> Payment is complete and the quantity is already reserved. No Allocate click is required. When Central Admin opens Allocation &amp; Delivery, this record becomes ready for delivery automatically.
                     </div>
                     <div class="alert alert-success" role="alert" invisible="state != 'allocated'">
-                        <strong>Branch Manager — Step 4:</strong> Quantity is reserved. Click <strong>Create Delivery Order</strong>; this creates the only Sales Order in the new flow.
+                        <strong>Branch Manager — Step 4:</strong> This paid reservation is ready. Click <strong>Create Delivery Order</strong>; this creates the only Sales Order in the new flow.
                     </div>
                     <div class="alert alert-warning" role="alert" invisible="state not in ('delivery', 'invoiced')">
                         <strong>Branch Manager — Step 5:</strong> Confirm the Delivery Sales Order, validate delivery and serial number, then return here and click <strong>Invoice &amp; Apply Original Payment</strong>. The system posts the invoice, changes the original payment journal date to the invoice date, and reconciles that same payment. No refund or second payment is created.
@@ -199,6 +197,8 @@
                     </div>
                     <widget name="web_ribbon" title="Completed" bg_color="text-bg-success" invisible="state != 'completed'"/>
                     <widget name="web_ribbon" title="Cancelled" bg_color="text-bg-danger" invisible="state != 'cancelled'"/>
+                    <widget name="web_ribbon" title="Reserved" bg_color="text-bg-info"
+                            invisible="not allocation_id or state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <group>
                         <group string="Customer Request">
@@ -267,7 +267,7 @@
                 <field name="customer_id"/>
                 <field name="product_id"/>
                 <field name="sales_rep_id"/>
-                <filter name="waiting_allocation" string="Waiting Allocation" domain="[('state', '=', 'pending')]"/>
+                <filter name="waiting_allocation" string="Paid — Waiting Delivery" domain="[('state', '=', 'pending')]"/>
                 <filter name="ready_delivery" string="Ready for Delivery" domain="[('state', '=', 'allocated')]"/>
                 <filter name="payment_problem" string="Payment Problem" domain="[('payment_status', 'in', ('none', 'returned'))]"/>
                 <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>
