@@ -113,6 +113,7 @@
         <field name="arch" type="xml">
             <list decoration-danger="payment_status in ('none', 'returned')"
                   decoration-success="state == 'completed'" decoration-muted="state == 'cancelled'">
+                <field name="currency_id" column_invisible="True"/>
                 <field name="name"/>
                 <field name="campaign_id"/>
                 <field name="customer_id"/>
@@ -122,9 +123,9 @@
                 <field name="discount_id" optional="show"/>
                 <field name="product_id"/>
                 <field name="requested_qty" sum="Requested"/>
-                <field name="deposit_amount" sum="Required Total" optional="show"/>
-                <field name="prepaid_amount" sum="Paid" optional="show"/>
-                <field name="payment_method_names" optional="show"/>
+                <field name="deposit_amount" sum="Total Required Payment" optional="show"/>
+                <field name="prepaid_amount" sum="Total Original Payment" optional="show"/>
+                <field name="payment_method_breakdown_html" widget="html" optional="show"/>
                 <field name="payment_status" widget="badge"/>
                 <field name="state" widget="badge"/>
             </list>

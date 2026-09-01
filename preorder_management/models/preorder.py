@@ -3,6 +3,7 @@
 from odoo import Command, api, fields, models, _
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools import float_compare, float_is_zero
+from markupsafe import Markup, escape
 
 
 def _check_preorder_manager(env):
@@ -506,6 +507,9 @@ class SalePreorder(models.Model):
     payment_method_breakdown = fields.Text(
         compute="_compute_payment_summary", string="Payment Method Amounts"
     )
+    payment_method_breakdown_html = fields.Html(
+        compute="_compute_payment_summary", string="Payment Journal(s)"
+    )
     payment_status = fields.Selection(
         [
             ("none", "No Payment"),
@@ -818,20 +822,26 @@ class SalePreorder(models.Model):
                     if payment.journal_id
                 )
             )
-            breakdown_lines = []
+            payment_breakdown = {}
             for payment in usable.sorted(lambda item: (item.date, item.id)):
                 labels = [payment.journal_id.display_name]
                 if payment.payment_method_line_id:
                     labels.append(payment.payment_method_line_id.display_name)
-                breakdown_lines.append(
-                    "%s: %s %s"
-                    % (
-                        " / ".join(filter(None, labels)),
-                        format(record._convert_payment_amount(payment), ",.2f"),
-                        record.currency_id.name,
-                    )
-                )
+                label = " / ".join(filter(None, labels))
+                payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
+            breakdown_lines = [
+                "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
+                for label, amount in payment_breakdown.items()
+            ]
             record.payment_method_breakdown = "\n".join(breakdown_lines)
+            record.payment_method_breakdown_html = Markup("").join(
+                Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
+                    escape(label),
+                    escape(format(amount, ",.2f")),
+                    escape(record.currency_id.name),
+                )
+                for label, amount in payment_breakdown.items()
+            )
             if not all_inbound:
                 record.payment_status = "none"
             elif returned and not usable:

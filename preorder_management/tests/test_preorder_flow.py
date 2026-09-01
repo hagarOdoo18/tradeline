@@ -57,6 +57,23 @@ class TestPreorderFlow(TransactionCase):
             limit=1,
         )
         cls.payment_method_line = cls.payment_journal.inbound_payment_method_line_ids[:1]
+        cls.second_payment_journal = cls.env["account.journal"].search(
+            [
+                ("company_id", "=", cls.company.id),
+                ("type", "in", ("bank", "cash")),
+                ("id", "!=", cls.payment_journal.id),
+                "|",
+                ("branch_id", "=", cls.branch.id),
+                ("branch_id", "=", False),
+            ],
+            order="branch_id desc, id",
+            limit=1,
+        )
+        if not cls.second_payment_journal.inbound_payment_method_line_ids:
+            cls.second_payment_journal = cls.payment_journal
+        cls.second_payment_method_line = (
+            cls.second_payment_journal.inbound_payment_method_line_ids[:1]
+        )
         cls.sales_rep = cls.env["sales.rep"].search(
             ["|", ("branch_id", "=", cls.branch.id), ("branch_id", "=", False)],
             order="branch_id desc, id",
@@ -118,7 +135,9 @@ class TestPreorderFlow(TransactionCase):
         )
         cls.campaign.action_open_campaign()
 
-    def _post_payment(self, preorder, amount=None):
+    def _post_payment(self, preorder, amount=None, journal=None, payment_method_line=None):
+        journal = journal or self.payment_journal
+        payment_method_line = payment_method_line or journal.inbound_payment_method_line_ids[:1]
         payment = self.env["account.payment"].sudo().create(
             {
                 "payment_type": "inbound",
@@ -128,8 +147,8 @@ class TestPreorderFlow(TransactionCase):
                 "amount": amount if amount is not None else preorder.deposit_amount,
                 "currency_id": preorder.currency_id.id,
                 "date": fields.Date.today(),
-                "journal_id": self.payment_journal.id,
-                "payment_method_line_id": self.payment_method_line.id,
+                "journal_id": journal.id,
+                "payment_method_line_id": payment_method_line.id,
                 "memo": preorder.name,
                 "preorder_payment_id": preorder.id,
             }
@@ -247,7 +266,10 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(preorder.payment_count, 1)
 
         payment = self._post_payment(
-            preorder, amount=preorder.deposit_amount - first_payment_amount
+            preorder,
+            amount=preorder.deposit_amount - first_payment_amount,
+            journal=self.second_payment_journal,
+            payment_method_line=self.second_payment_method_line,
         )
         self.assertEqual(preorder.state, "pending")
         self.assertTrue(preorder.allocation_id)
@@ -255,8 +277,11 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(preorder.payment_status, "available")
         self.assertEqual(payment.branch_id, self.branch)
         self.assertIn(self.payment_journal.display_name, preorder.payment_method_breakdown)
-        self.assertIn(
-            self.payment_method_line.display_name, preorder.payment_method_breakdown
+        self.assertIn(self.second_payment_journal.display_name, preorder.payment_method_breakdown)
+        expected_breakdown_rows = 2 if self.second_payment_journal != self.payment_journal else 1
+        self.assertEqual(
+            str(preorder.payment_method_breakdown_html).count("text-nowrap"),
+            expected_breakdown_rows,
         )
         self.assertEqual(
             float_compare(
