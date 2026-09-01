@@ -62,7 +62,7 @@ class SalePreorderCampaign(models.Model):
         "sale_preorder_campaign_product_rel",
         "campaign_id",
         "product_id",
-        string="Pre-order Products",
+        string="Campaign Devices",
         domain="[('sale_ok', '=', True)]",
         help="Products available for this pre-order campaign. Products are required before allocation.",
     )
@@ -73,7 +73,17 @@ class SalePreorderCampaign(models.Model):
         "branch_id",
         string="Participating Branches",
         domain="[('company_id', '=', company_id)]",
-        help="Leave empty to include every branch in the company.",
+        help="Branches that will receive quota lines for this campaign.",
+    )
+    select_all_branches = fields.Boolean(
+        string="Select All Branches",
+        help="Select every branch in the campaign company in one click.",
+    )
+    default_branch_quota = fields.Float(
+        string="Branch Quota",
+        required=True,
+        default=5.0,
+        help="Starting quota copied to each generated branch and device line.",
     )
     allocation_line_ids = fields.One2many(
         "sale.preorder.allocation", "campaign_id", string="Branch Allocations"
@@ -121,8 +131,109 @@ class SalePreorderCampaign(models.Model):
             if campaign.date_start and campaign.date_end and campaign.date_end < campaign.date_start:
                 raise ValidationError(_("Campaign end date cannot be earlier than its start date."))
 
+    @api.constrains("default_branch_quota")
+    def _check_default_branch_quota(self):
+        for campaign in self:
+            if float_compare(
+                campaign.default_branch_quota, 0.0, precision_digits=2
+            ) < 0:
+                raise ValidationError(_("Branch quota cannot be negative."))
+
+    @api.onchange("select_all_branches", "company_id")
+    def _onchange_select_all_branches(self):
+        for campaign in self:
+            if campaign.select_all_branches and campaign.company_id:
+                campaign.branch_ids = self.env["res.branch"].search(
+                    [("company_id", "=", campaign.company_id.id)]
+                )
+            elif campaign.company_id:
+                campaign.branch_ids = campaign.branch_ids.filtered(
+                    lambda branch: branch.company_id == campaign.company_id
+                )
+
+    def _sync_allocation_matrix(self):
+        """Synchronize editable quota rows with the selected branch/device matrix."""
+        created_count = 0
+        removed_count = 0
+        for campaign in self:
+            if campaign.state != "draft":
+                raise UserError(_("Quota lines can only be generated while the campaign is in Setup."))
+            if campaign.select_all_branches:
+                branches = self.env["res.branch"].search(
+                    [("company_id", "=", campaign.company_id.id)]
+                )
+                campaign.branch_ids = [Command.set(branches.ids)]
+            else:
+                branches = campaign.branch_ids
+            if not campaign.product_ids:
+                raise UserError(_("Select at least one campaign device first."))
+            if not branches:
+                raise UserError(_("Select at least one participating branch first."))
+
+            wanted_keys = {
+                (branch.id, product.id)
+                for branch in branches
+                for product in campaign.product_ids
+            }
+            obsolete_lines = campaign.allocation_line_ids.filtered(
+                lambda line: (line.branch_id.id, line.product_id.id) not in wanted_keys
+            )
+            protected_lines = obsolete_lines.filtered("preorder_ids")
+            if protected_lines:
+                raise UserError(
+                    _(
+                        "Some quota lines outside the new selection already have pre-orders. "
+                        "Cancel or move those pre-orders before regenerating the matrix."
+                    )
+                )
+            removed_count += len(obsolete_lines)
+            obsolete_lines.unlink()
+
+            existing_keys = {
+                (line.branch_id.id, line.product_id.id)
+                for line in campaign.allocation_line_ids
+            }
+            new_commands = [
+                Command.create(
+                    {
+                        "branch_id": branch_id,
+                        "product_id": product_id,
+                        "allocated_qty": campaign.default_branch_quota,
+                    }
+                )
+                for branch_id, product_id in sorted(wanted_keys - existing_keys)
+            ]
+            if new_commands:
+                campaign.write({"allocation_line_ids": new_commands})
+                created_count += len(new_commands)
+        return created_count, removed_count
+
+    def action_generate_allocation_lines(self):
+        _check_preorder_manager(self.env)
+        created_count, removed_count = self._sync_allocation_matrix()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Branch Quotas Ready"),
+                "message": _(
+                    "%(created)s quota line(s) created and %(removed)s obsolete line(s) removed. "
+                    "Existing quota edits were kept."
+                )
+                % {"created": created_count, "removed": removed_count},
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
+
     def action_open_campaign(self):
         _check_preorder_manager(self.env)
+        for campaign in self:
+            if campaign.product_ids and (
+                campaign.branch_ids or campaign.select_all_branches
+            ):
+                campaign._sync_allocation_matrix()
         self._validate_allocation_setup()
         self.write({"state": "open"})
 

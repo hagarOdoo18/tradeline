@@ -26,6 +26,8 @@
         <field name="arch" type="xml">
             <form string="Pre-order Campaign">
                 <header>
+                    <button name="action_generate_allocation_lines" string="Generate Quota Lines" type="object"
+                            invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_open_campaign" string="Open Pre-orders" type="object" class="oe_highlight"
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
                     <button name="action_open_allocation_delivery" string="Open Allocation &amp; Delivery" type="object" class="oe_highlight"
@@ -56,10 +58,12 @@
                             <field name="company_id" readonly="state != 'draft'" groups="base.group_multi_company"/>
                         </group>
                         <group>
-                            <field name="product_ids" widget="many2many_tags" readonly="state not in ('draft', 'open')"
+                            <field name="product_ids" string="Devices" widget="many2many_tags" readonly="state != 'draft'"
                                    options="{'no_create': True}"/>
-                            <field name="branch_ids" widget="many2many_tags" readonly="state not in ('draft', 'open')"
+                            <field name="select_all_branches" readonly="state != 'draft'"/>
+                            <field name="branch_ids" widget="many2many_tags" readonly="state != 'draft'"
                                    options="{'no_create': True}"/>
+                            <field name="default_branch_quota" string="Branch Quota" readonly="state != 'draft'" placeholder="5"/>
                         </group>
                     </group>
                     <group string="Live Campaign Quantities">
