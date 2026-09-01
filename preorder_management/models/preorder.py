@@ -824,10 +824,7 @@ class SalePreorder(models.Model):
             )
             payment_breakdown = {}
             for payment in usable.sorted(lambda item: (item.date, item.id)):
-                labels = [payment.journal_id.display_name]
-                if payment.payment_method_line_id:
-                    labels.append(payment.payment_method_line_id.display_name)
-                label = " / ".join(filter(None, labels))
+                label = payment.journal_id.display_name
                 payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
             breakdown_lines = [
                 "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)

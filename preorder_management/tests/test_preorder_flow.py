@@ -278,6 +278,7 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(payment.branch_id, self.branch)
         self.assertIn(self.payment_journal.display_name, preorder.payment_method_breakdown)
         self.assertIn(self.second_payment_journal.display_name, preorder.payment_method_breakdown)
+        self.assertNotIn(" / ", preorder.payment_method_breakdown)
         expected_breakdown_rows = 2 if self.second_payment_journal != self.payment_journal else 1
         self.assertEqual(
             str(preorder.payment_method_breakdown_html).count("text-nowrap"),
