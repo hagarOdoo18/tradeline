@@ -157,6 +157,46 @@ class TestPreorderFlow(TransactionCase):
         preorder.invalidate_recordset()
         return payment
 
+    def test_campaign_quota_matrix_generation(self):
+        second_product = self.product.copy(
+            {"name": "Automated Pre-order Matrix Device"}
+        )
+        company_branches = self.env["res.branch"].search(
+            [("company_id", "=", self.company.id)]
+        )
+        campaign = self.env["sale.preorder.campaign"].sudo().create(
+            {
+                "name": "Automated Quota Matrix Test",
+                "company_id": self.company.id,
+                "date_start": fields.Date.today(),
+                "date_end": fields.Date.today() + timedelta(days=30),
+                "product_ids": [Command.set((self.product | second_product).ids)],
+                "select_all_branches": True,
+                "default_branch_quota": 5.0,
+            }
+        )
+
+        campaign.action_generate_allocation_lines()
+        self.assertEqual(campaign.branch_ids, company_branches)
+        self.assertEqual(
+            len(campaign.allocation_line_ids), len(company_branches) * 2
+        )
+        self.assertEqual(set(campaign.allocation_line_ids.mapped("allocated_qty")), {5.0})
+
+        edited_line = campaign.allocation_line_ids[:1]
+        edited_line.allocated_qty = 8.0
+        campaign.default_branch_quota = 7.0
+        campaign.action_generate_allocation_lines()
+        self.assertEqual(edited_line.allocated_qty, 8.0)
+        self.assertEqual(
+            len(campaign.allocation_line_ids), len(company_branches) * 2
+        )
+
+        campaign.product_ids = [Command.set(self.product.ids)]
+        campaign.action_generate_allocation_lines()
+        self.assertEqual(len(campaign.allocation_line_ids), len(company_branches))
+        self.assertEqual(campaign.allocation_line_ids.product_id, self.product)
+
     def test_payment_reservation_and_delivery_order(self):
         preorder = self.env["sale.preorder"].sudo().create(
             {
