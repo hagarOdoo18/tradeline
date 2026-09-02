@@ -39,7 +39,7 @@ class ShopifySync(models.Model):
                                help='Id of the order')
     instance_id = fields.Many2one('shopify.configuration',
                                   string="Instance", help='Id of instance')
-    shopify_product = fields.Char(string='Product Id',
+    shopify_product = fields.Char(string='Product Id', index=True,
                                   help='Id of product in shopify')
     shopify_variant_id = fields.Char(string='Variant Id',
                                      help='Id of product variant in shopify')
