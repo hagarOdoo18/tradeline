@@ -5,3 +5,5 @@ access_sale_preorder_allocation_user,sale.preorder.allocation.user,model_sale_pr
 access_sale_preorder_allocation_manager,sale.preorder.allocation.manager,model_sale_preorder_allocation,preorder_management.group_preorder_manager,1,1,1,1
 access_sale_preorder_user,sale.preorder.user,model_sale_preorder,preorder_management.group_preorder_user,1,1,1,0
 access_sale_preorder_manager,sale.preorder.manager,model_sale_preorder,preorder_management.group_preorder_manager,1,1,1,1
+access_sale_preorder_line_user,sale.preorder.line.user,model_sale_preorder_line,preorder_management.group_preorder_user,1,1,1,1
+access_sale_preorder_line_manager,sale.preorder.line.manager,model_sale_preorder_line,preorder_management.group_preorder_manager,1,1,1,1
