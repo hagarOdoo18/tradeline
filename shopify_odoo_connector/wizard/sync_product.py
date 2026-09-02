@@ -173,7 +173,7 @@ class SyncProduct(models.TransientModel):
 
             # ١. جمع كل SKUs من variants المنتج
             shopify_skus = [
-                v['sku'] for v in product.get('variants', []) if v.get('sku')
+                v['sku'] for v in product.get('variants', []) if v.get('sku') !='null'
             ]
 
             # ٢. البحث عن product.template موجود بأي SKU من الـ variants
