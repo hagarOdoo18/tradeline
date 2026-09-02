@@ -4,7 +4,7 @@ from datetime import timedelta
 from unittest import SkipTest
 
 from odoo import Command, fields
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
 from odoo.tools import float_compare
 
@@ -196,6 +196,131 @@ class TestPreorderFlow(TransactionCase):
         campaign.action_generate_allocation_lines()
         self.assertEqual(len(campaign.allocation_line_ids), len(company_branches))
         self.assertEqual(campaign.allocation_line_ids.product_id, self.product)
+
+    def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
+        second_product = self.product.copy(
+            {"name": "Automated Second Pre-order Device"}
+        )
+        self.campaign.product_ids = [Command.link(second_product.id)]
+        second_allocation = self.env["sale.preorder.allocation"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "branch_id": self.branch.id,
+                "product_id": second_product.id,
+                "allocated_qty": 5.0,
+            }
+        )
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "line_ids": [
+                    Command.create(
+                        {"product_id": self.product.id, "requested_qty": 1.0}
+                    ),
+                    Command.create(
+                        {"product_id": second_product.id, "requested_qty": 2.0}
+                    ),
+                ],
+            }
+        )
+        self.assertEqual(len(preorder.line_ids), 2)
+        self.assertEqual(preorder.requested_qty_total, 3.0)
+        self.assertGreater(preorder.deposit_amount, 0.0)
+
+        preorder.action_confirm_preorder()
+        self._post_payment(preorder)
+        self.assertEqual(preorder.state, "pending")
+        self.assertTrue(preorder.is_reserved)
+        self.assertFalse(preorder.allocation_id)
+        self.assertEqual(
+            preorder.allocation_ids,
+            self.campaign.allocation_line_ids.filtered(
+                lambda allocation: allocation.product_id
+                in (self.product | second_product)
+            ),
+        )
+        second_allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+        self.assertEqual(second_allocation.reserved_qty, 2.0)
+        self.assertEqual(second_allocation.available_qty, 3.0)
+
+        self.campaign.action_open_allocation_delivery()
+        self.assertEqual(preorder.state, "allocated")
+        delivery_values = preorder._prepare_delivery_order_values()
+        self.assertEqual(len(delivery_values["order_line"]), 2)
+        preorder.action_create_delivery_order()
+        self.assertEqual(
+            preorder.final_sale_order_id.order_line.product_id,
+            self.product | second_product,
+        )
+
+        report_action = self.env.ref(
+            "preorder_management.action_report_preorder_confirmation"
+        )
+        report_html, _ = report_action._render_qweb_html(
+            report_action.report_name, preorder.ids
+        )
+        self.assertIn(b"Automated Second Pre-order Device", report_html)
+
+    def test_production_access_groups_separate_admin_and_branch_scope(self):
+        branch_group = self.env.ref("preorder_management.group_preorder_user")
+        manager_group = self.env.ref("preorder_management.group_preorder_manager")
+        self.assertIn(branch_group, manager_group.implied_ids)
+
+        other_branch = self.env["res.branch"].sudo().create(
+            {"name": "Automated Restricted Branch", "company_id": self.company.id}
+        )
+        branch_user = self.env["res.users"].with_context(
+            no_reset_password=True
+        ).sudo().create(
+            {
+                "name": "Automated Pre-order Branch User",
+                "login": "automated_preorder_branch_user",
+                "email": "automated_preorder_branch_user@example.com",
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "branch_id": other_branch.id,
+                "branch_ids": [Command.set(other_branch.ids)],
+                "groups_id": [Command.set(branch_group.ids)],
+            }
+        )
+        manager_user = self.env["res.users"].with_context(
+            no_reset_password=True
+        ).sudo().create(
+            {
+                "name": "Automated Pre-order Central Admin",
+                "login": "automated_preorder_central_admin",
+                "email": "automated_preorder_central_admin@example.com",
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "groups_id": [Command.set(manager_group.ids)],
+            }
+        )
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        self.assertFalse(
+            self.env["sale.preorder"].with_user(branch_user).search(
+                [("id", "=", preorder.id)]
+            )
+        )
+        self.assertEqual(
+            self.env["sale.preorder"].with_user(manager_user).search(
+                [("id", "=", preorder.id)]
+            ),
+            preorder,
+        )
+        with self.assertRaises(AccessError):
+            self.campaign.with_user(branch_user).write({"notes": "Not allowed"})
 
     def test_payment_reservation_and_delivery_order(self):
         preorder = self.env["sale.preorder"].sudo().create(

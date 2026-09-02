@@ -30,6 +30,19 @@
         <field name="domain_force">[(1, '=', 1)]</field>
     </record>
 
+    <record id="sale_preorder_line_branch_rule" model="ir.rule">
+        <field name="name">Pre-order device lines: user's branches</field>
+        <field name="model_id" ref="model_sale_preorder_line"/>
+        <field name="groups" eval="[(4, ref('group_preorder_user'))]"/>
+        <field name="domain_force">[('branch_id', 'in', user.branch_ids.ids)]</field>
+    </record>
+    <record id="sale_preorder_line_manager_rule" model="ir.rule">
+        <field name="name">Pre-order device lines: manager all branches</field>
+        <field name="model_id" ref="model_sale_preorder_line"/>
+        <field name="groups" eval="[(4, ref('group_preorder_manager'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
     <record id="sale_preorder_allocation_branch_rule" model="ir.rule">
         <field name="name">Pre-order allocations: user's branches</field>
         <field name="model_id" ref="model_sale_preorder_allocation"/>

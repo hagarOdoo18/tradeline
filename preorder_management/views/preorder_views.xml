@@ -96,8 +96,8 @@
                                     <field name="preorder_date"/>
                                     <field name="sales_rep_id"/>
                                     <field name="discount_id" optional="show"/>
-                                    <field name="product_id"/>
-                                    <field name="requested_qty"/>
+                                    <field name="device_summary"/>
+                                    <field name="requested_qty_total"/>
                                     <field name="payment_status" widget="badge"/>
                                     <field name="state" widget="badge"/>
                                 </list>
@@ -125,8 +125,8 @@
                 <field name="preorder_date"/>
                 <field name="sales_rep_id"/>
                 <field name="discount_id" optional="show"/>
-                <field name="product_id"/>
-                <field name="requested_qty" sum="Requested"/>
+                <field name="device_summary"/>
+                <field name="requested_qty_total" sum="Requested"/>
                 <field name="deposit_amount" sum="Total Required Payment" optional="show"/>
                 <field name="prepaid_amount" sum="Total Original Payment" optional="show"/>
                 <field name="payment_method_breakdown_html" widget="html" optional="show"/>
@@ -148,7 +148,7 @@
                             invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
                     <button name="%(preorder_management.action_report_preorder_confirmation)d"
                             string="Print Pre-order Confirmation" type="action"
-                            invisible="not allocation_id" groups="preorder_management.group_preorder_user"/>
+                            invisible="not is_reserved" groups="preorder_management.group_preorder_user"/>
                     <button name="action_create_delivery_order" string="Create Delivery Order" type="object" class="oe_highlight"
                             invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
@@ -156,7 +156,8 @@
                             groups="preorder_management.group_preorder_user"
                             confirm="The delivery must already be validated. This posts the invoice, changes the original payment journal date to the delivery invoice date, and reconciles that same payment. It does not charge or refund the customer."/>
                     <button name="action_cancel_preorder" string="Cancel" type="object"
-                            invisible="state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
+                            invisible="state in ('delivery', 'invoiced', 'completed', 'cancelled')"
+                            groups="preorder_management.group_preorder_user"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object"
                             invisible="state not in ('confirmed', 'pending', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,pending,allocated,delivery,invoiced,completed"/>
@@ -189,7 +190,7 @@
                     <widget name="web_ribbon" title="Completed" bg_color="text-bg-success" invisible="state != 'completed'"/>
                     <widget name="web_ribbon" title="Cancelled" bg_color="text-bg-danger" invisible="state != 'cancelled'"/>
                     <widget name="web_ribbon" title="Reserved" bg_color="text-bg-info"
-                            invisible="not allocation_id or state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
+                            invisible="not is_reserved or state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
                     <div class="oe_title"><h1><field name="name"/></h1></div>
                     <group>
                         <group string="Customer Request">
@@ -204,16 +205,33 @@
                             <field name="source_order_id" readonly="1" invisible="not source_order_id"/>
                             <field name="source_state" invisible="not source_order_id"/>
                         </group>
-                        <group string="Requested Product">
+                        <group string="Order Totals">
                             <field name="campaign_product_ids" invisible="1"/>
-                            <field name="product_id" readonly="state != 'draft'" required="1" options="{'no_create': True}"/>
-                            <field name="requested_qty" readonly="state != 'draft'"/>
-                            <field name="price_unit" readonly="1"/>
-                            <field name="discount" readonly="state != 'draft'"/>
+                            <field name="device_ids" invisible="1"/>
+                            <field name="requested_qty_total" readonly="1"/>
+                            <field name="amount_untaxed" readonly="1"/>
+                            <field name="amount_tax" readonly="1"/>
                             <field name="deposit_amount" readonly="1"/>
-                            <field name="allocation_id" invisible="not allocation_id"/>
+                            <field name="is_reserved" readonly="1"/>
+                            <field name="allocation_ids" widget="many2many_tags" readonly="1" invisible="not allocation_ids"/>
                             <field name="final_sale_order_id" invisible="not final_sale_order_id"/>
                         </group>
+                    </group>
+                    <group string="Requested Devices" col="1">
+                        <field name="line_ids" readonly="state != 'draft'">
+                            <list editable="bottom">
+                                <field name="currency_id" column_invisible="True"/>
+                                <field name="product_id" options="{'no_create': True}"
+                                       domain="[('id', 'in', parent.campaign_product_ids)]"/>
+                                <field name="requested_qty"/>
+                                <field name="price_unit" readonly="1"/>
+                                <field name="discount"/>
+                                <field name="tax_names" readonly="1" optional="show"/>
+                                <field name="amount_untaxed" readonly="1" sum="Subtotal"/>
+                                <field name="amount_total" readonly="1" sum="Total"/>
+                                <field name="allocation_id" readonly="1" optional="hide"/>
+                            </list>
+                        </field>
                     </group>
                     <group string="Original Payment — reused, re-dated at delivery, never duplicated">
                         <group>
@@ -257,7 +275,7 @@
             <search>
                 <field name="name"/>
                 <field name="customer_id"/>
-                <field name="product_id"/>
+                <field name="device_ids"/>
                 <field name="sales_rep_id"/>
                 <filter name="waiting_allocation" string="Paid — Reserved, Waiting Delivery" domain="[('state', '=', 'pending')]"/>
                 <filter name="ready_delivery" string="Ready for Delivery" domain="[('state', '=', 'allocated')]"/>
@@ -266,7 +284,7 @@
                 <group expand="0" string="Group By">
                     <filter name="group_campaign" string="Campaign" context="{'group_by': 'campaign_id'}"/>
                     <filter name="group_branch" string="Branch" context="{'group_by': 'branch_id'}"/>
-                    <filter name="group_product" string="Product" context="{'group_by': 'product_id'}"/>
+                    <filter name="group_product" string="Device Combination" context="{'group_by': 'device_summary'}"/>
                     <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
                     <filter name="group_payment" string="Payment Status" context="{'group_by': 'payment_status'}"/>
                 </group>

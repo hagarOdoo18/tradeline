@@ -108,22 +108,25 @@ class SalePreorderCampaign(models.Model):
     @api.depends(
         "allocation_line_ids.allocated_qty",
         "preorder_ids.state",
-        "preorder_ids.requested_qty",
-        "preorder_ids.allocation_id",
+        "preorder_ids.line_ids.requested_qty",
+        "preorder_ids.line_ids.allocation_id",
     )
     def _compute_campaign_totals(self):
         for campaign in self:
             active = campaign.preorder_ids.filtered(lambda record: record.state != "cancelled")
-            allocated = active.filtered("allocation_id")
-            delivered = active.filtered(lambda record: record.state == "completed")
+            requested_lines = active.mapped("line_ids")
+            allocated_lines = requested_lines.filtered("allocation_id")
+            delivered_lines = active.filtered(
+                lambda record: record.state == "completed"
+            ).mapped("line_ids")
             quota_quantity = sum(campaign.allocation_line_ids.mapped("allocated_qty"))
-            reserved_quantity = sum(allocated.mapped("requested_qty"))
+            reserved_quantity = sum(allocated_lines.mapped("requested_qty"))
             campaign.preorder_count = len(active)
-            campaign.requested_quantity = sum(active.mapped("requested_qty"))
+            campaign.requested_quantity = sum(requested_lines.mapped("requested_qty"))
             campaign.quota_quantity = quota_quantity
             campaign.allocated_quantity = reserved_quantity
             campaign.available_quantity = quota_quantity - reserved_quantity
-            campaign.delivered_quantity = sum(delivered.mapped("requested_qty"))
+            campaign.delivered_quantity = sum(delivered_lines.mapped("requested_qty"))
 
     @api.constrains("date_start", "date_end")
     def _check_campaign_dates(self):
@@ -178,7 +181,9 @@ class SalePreorderCampaign(models.Model):
             obsolete_lines = campaign.allocation_line_ids.filtered(
                 lambda line: (line.branch_id.id, line.product_id.id) not in wanted_keys
             )
-            protected_lines = obsolete_lines.filtered("preorder_ids")
+            protected_lines = obsolete_lines.filtered(
+                lambda line: line.preorder_ids or line.preorder_line_ids
+            )
             if protected_lines:
                 raise UserError(
                     _(
@@ -354,9 +359,11 @@ class SalePreorderCampaign(models.Model):
                 raise UserError(
                     _("A campaign with delivery orders or invoices cannot be cancelled.")
                 )
-            campaign.preorder_ids.filtered(
+            active_preorders = campaign.preorder_ids.filtered(
                 lambda record: record.state != "cancelled"
-            )._workflow_write({"allocation_id": False, "state": "cancelled"})
+            )
+            active_preorders._release_quota_reservations()
+            active_preorders._workflow_write({"state": "cancelled"})
         self.write({"state": "cancelled"})
 
     def action_reset_to_setup(self):
@@ -396,6 +403,9 @@ class SalePreorderAllocation(models.Model):
     delivered_qty = fields.Float(compute="_compute_quantities", string="Delivered")
     available_qty = fields.Float(compute="_compute_quantities", string="Available")
     preorder_ids = fields.One2many("sale.preorder", "allocation_id", string="Pre-orders")
+    preorder_line_ids = fields.One2many(
+        "sale.preorder.line", "allocation_id", string="Pre-order Device Lines"
+    )
 
     _sql_constraints = [
         (
@@ -405,13 +415,19 @@ class SalePreorderAllocation(models.Model):
         )
     ]
 
-    @api.depends("allocated_qty", "preorder_ids.state", "preorder_ids.requested_qty")
+    @api.depends(
+        "allocated_qty",
+        "preorder_line_ids.preorder_id.state",
+        "preorder_line_ids.requested_qty",
+    )
     def _compute_quantities(self):
         for allocation in self:
-            reserved = allocation.preorder_ids.filtered(
-                lambda record: record.state != "cancelled"
+            reserved = allocation.preorder_line_ids.filtered(
+                lambda line: line.preorder_id.state != "cancelled"
             )
-            delivered = reserved.filtered(lambda record: record.state == "completed")
+            delivered = reserved.filtered(
+                lambda line: line.preorder_id.state == "completed"
+            )
             allocation.reserved_qty = sum(reserved.mapped("requested_qty"))
             allocation.delivered_qty = sum(delivered.mapped("requested_qty"))
             allocation.available_qty = allocation.allocated_qty - allocation.reserved_qty
@@ -437,6 +453,193 @@ class SalePreorderAllocation(models.Model):
                 raise ValidationError(_("Allocation branch is not participating in this campaign."))
             if allocation.campaign_id.product_ids and allocation.product_id not in allocation.campaign_id.product_ids:
                 raise ValidationError(_("Allocation product is not included in this campaign."))
+
+
+class SalePreorderLine(models.Model):
+    _name = "sale.preorder.line"
+    _description = "Customer Pre-order Device"
+    _order = "id"
+
+    preorder_id = fields.Many2one(
+        "sale.preorder", required=True, ondelete="cascade", index=True
+    )
+    campaign_id = fields.Many2one(
+        related="preorder_id.campaign_id", store=True, index=True
+    )
+    company_id = fields.Many2one(
+        related="preorder_id.company_id", store=True, index=True
+    )
+    branch_id = fields.Many2one(
+        related="preorder_id.branch_id", store=True, index=True
+    )
+    currency_id = fields.Many2one(related="preorder_id.currency_id")
+    product_id = fields.Many2one(
+        "product.product",
+        string="Device",
+        required=True,
+        domain="[('sale_ok', '=', True)]",
+        index=True,
+    )
+    requested_qty = fields.Float(
+        string="Quantity", required=True, default=1.0
+    )
+    price_unit = fields.Monetary(
+        string="Unit Price", compute="_compute_price_unit", store=True
+    )
+    discount = fields.Float(string="Discount (%)", digits=(16, 6), default=0.0)
+    tax_names = fields.Char(string="Taxes", compute="_compute_tax_names")
+    amount_untaxed = fields.Monetary(
+        string="Subtotal", compute="_compute_amounts", store=True
+    )
+    amount_tax = fields.Monetary(
+        string="Tax", compute="_compute_amounts", store=True
+    )
+    amount_total = fields.Monetary(
+        string="Total", compute="_compute_amounts", store=True
+    )
+    allocation_id = fields.Many2one(
+        "sale.preorder.allocation",
+        readonly=True,
+        copy=False,
+        index=True,
+        ondelete="restrict",
+    )
+
+    _sql_constraints = [
+        (
+            "preorder_product_unique",
+            "unique(preorder_id, product_id)",
+            "Add each device only once and increase its quantity instead.",
+        ),
+        (
+            "requested_qty_positive",
+            "check(requested_qty > 0)",
+            "Requested quantity must be greater than zero.",
+        ),
+        (
+            "discount_percentage_range",
+            "check(discount >= 0 AND discount <= 100)",
+            "Discount must be between 0 and 100 percent.",
+        ),
+    ]
+
+    @api.depends(
+        "product_id",
+        "requested_qty",
+        "preorder_id.customer_id",
+        "preorder_id.customer_id.property_product_pricelist",
+        "preorder_id.preorder_date",
+        "preorder_id.source_order_id.pricelist_id",
+    )
+    def _compute_price_unit(self):
+        for line in self:
+            if not line.product_id:
+                line.price_unit = 0.0
+                continue
+            preorder = line.preorder_id
+            price = line.product_id.lst_price
+            pricelist = (
+                preorder.source_order_id.pricelist_id
+                or preorder.customer_id.property_product_pricelist
+            )
+            if pricelist:
+                price = pricelist._get_product_price(
+                    line.product_id,
+                    line.requested_qty or 1.0,
+                    currency=pricelist.currency_id,
+                    date=preorder.preorder_date or fields.Datetime.now(),
+                    uom=line.product_id.uom_id,
+                )
+            line.price_unit = price
+
+    def _get_product_taxes(self):
+        self.ensure_one()
+        taxes = self.product_id.taxes_id.filtered(
+            lambda tax: tax.company_id == self.company_id
+        )
+        fiscal_position = self.preorder_id._get_fiscal_position()
+        return fiscal_position.map_tax(taxes) if fiscal_position else taxes
+
+    @api.depends("product_id", "preorder_id.customer_id", "preorder_id.company_id")
+    def _compute_tax_names(self):
+        for line in self:
+            line.tax_names = ", ".join(line._get_product_taxes().mapped("name"))
+
+    @api.depends(
+        "product_id",
+        "requested_qty",
+        "price_unit",
+        "discount",
+        "preorder_id.customer_id",
+        "preorder_id.company_id",
+        "preorder_id.currency_id",
+    )
+    def _compute_amounts(self):
+        for line in self:
+            if not line.product_id or not line.currency_id:
+                line.amount_untaxed = 0.0
+                line.amount_tax = 0.0
+                line.amount_total = 0.0
+                continue
+            discounted_unit_price = line.price_unit * (1.0 - line.discount / 100.0)
+            totals = line._get_product_taxes().compute_all(
+                discounted_unit_price,
+                currency=line.currency_id,
+                quantity=line.requested_qty,
+                product=line.product_id,
+                partner=line.preorder_id.customer_id,
+            )
+            line.amount_untaxed = totals["total_excluded"]
+            line.amount_tax = totals["total_included"] - totals["total_excluded"]
+            line.amount_total = totals["total_included"]
+
+    @api.constrains("product_id", "allocation_id")
+    def _check_scope(self):
+        for line in self:
+            campaign = line.preorder_id.campaign_id
+            if campaign.product_ids and line.product_id not in campaign.product_ids:
+                raise ValidationError(_("Requested device is not included in this campaign."))
+            if line.allocation_id and (
+                line.allocation_id.campaign_id != campaign
+                or line.allocation_id.branch_id != line.preorder_id.branch_id
+                or line.allocation_id.product_id != line.product_id
+            ):
+                raise ValidationError(_("Reserved quota does not match this device line."))
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        if not self.env.su and not self.env.context.get(
+            "allow_preorder_workflow_write"
+        ) and any(vals.get("allocation_id") for vals in vals_list):
+            raise UserError(_("Quota reservations can only be changed by the workflow."))
+        lines = super().create(vals_list)
+        lines.mapped("preorder_id").filtered(
+            lambda preorder: preorder.state == "draft"
+        )._validate_available_quota_for_draft()
+        return lines
+
+    def write(self, vals):
+        if (
+            "allocation_id" in vals
+            and not self.env.su
+            and not self.env.context.get("allow_preorder_workflow_write")
+        ):
+            raise UserError(_("Quota reservations can only be changed by the workflow."))
+        if {"product_id", "requested_qty", "discount"} & set(vals) and self.filtered(
+            lambda line: line.preorder_id.state != "draft"
+        ):
+            raise UserError(_("Device lines cannot change after the pre-order is confirmed."))
+        result = super().write(vals)
+        if {"product_id", "requested_qty"} & set(vals):
+            self.mapped("preorder_id").filtered(
+                lambda preorder: preorder.state == "draft"
+            )._validate_available_quota_for_draft()
+        return result
+
+    def unlink(self):
+        if self.filtered(lambda line: line.preorder_id.state != "draft"):
+            raise UserError(_("Device lines cannot be removed after the pre-order is confirmed."))
+        return super().unlink()
 
 
 class SalePreorder(models.Model):
@@ -562,14 +765,16 @@ class SalePreorder(models.Model):
 
     product_id = fields.Many2one(
         "product.product",
-        string="Requested Product",
+        string="Legacy Requested Product",
         domain="[('sale_ok', '=', True)] + (campaign_product_ids and [('id', 'in', campaign_product_ids)] or [])",
         tracking=True,
     )
     campaign_product_ids = fields.Many2many(
         "product.product", related="campaign_id.product_ids", string="Campaign Products"
     )
-    requested_qty = fields.Float(string="Requested Qty", required=True, default=1.0, tracking=True)
+    requested_qty = fields.Float(
+        string="Legacy Requested Qty", required=True, default=1.0, tracking=True
+    )
     price_unit = fields.Monetary(
         string="Unit Price",
         compute="_compute_price_unit",
@@ -577,9 +782,34 @@ class SalePreorder(models.Model):
         tracking=True,
         help="Locked product price calculated from the customer's pricelist.",
     )
-    discount = fields.Float(string="Discount (%)", digits=(16, 6), tracking=True)
+    discount = fields.Float(
+        string="Legacy Discount (%)", digits=(16, 6), tracking=True
+    )
     allocation_id = fields.Many2one(
         "sale.preorder.allocation", readonly=True, copy=False, tracking=True
+    )
+    line_ids = fields.One2many(
+        "sale.preorder.line", "preorder_id", string="Requested Devices", copy=True
+    )
+    device_summary = fields.Char(
+        string="Requested Devices", compute="_compute_device_summary", store=True
+    )
+    device_ids = fields.Many2many(
+        "product.product",
+        compute="_compute_device_summary",
+        store=True,
+        string="Devices",
+    )
+    requested_qty_total = fields.Float(
+        string="Total Qty", compute="_compute_device_summary", store=True
+    )
+    is_reserved = fields.Boolean(
+        string="Reserved", compute="_compute_reservation_status", store=True
+    )
+    allocation_ids = fields.Many2many(
+        "sale.preorder.allocation",
+        compute="_compute_reservation_status",
+        string="Quota Reservations",
     )
     final_sale_order_id = fields.Many2one(
         "sale.order", string="Delivery Sales Order", readonly=True, copy=False, tracking=True
@@ -690,6 +920,38 @@ class SalePreorder(models.Model):
         )
         self.env.cr.execute(
             """
+            INSERT INTO sale_preorder_line
+                (preorder_id, product_id, requested_qty, price_unit, discount,
+                 allocation_id, amount_untaxed, amount_tax, amount_total)
+            SELECT preorder.id, preorder.product_id, preorder.requested_qty,
+                   preorder.price_unit, preorder.discount, preorder.allocation_id,
+                   preorder.amount_untaxed, preorder.amount_tax, preorder.deposit_amount
+              FROM sale_preorder AS preorder
+             WHERE preorder.product_id IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1
+                      FROM sale_preorder_line AS line
+                     WHERE line.preorder_id = preorder.id
+               )
+            ON CONFLICT (preorder_id, product_id) DO NOTHING
+            """
+        )
+        self.env["sale.preorder.line"].invalidate_model()
+        migrated_records = self.search([("line_ids", "!=", False)])
+        if migrated_records:
+            migrated_records._recompute_recordset(
+                [
+                    "device_ids",
+                    "device_summary",
+                    "requested_qty_total",
+                    "is_reserved",
+                    "amount_untaxed",
+                    "amount_tax",
+                    "deposit_amount",
+                ]
+            )
+        self.env.cr.execute(
+            """
             UPDATE sale_order AS source
                SET reference_number = preorder.name,
                    client_order_ref = COALESCE(source.client_order_ref, preorder.name)
@@ -717,6 +979,16 @@ class SalePreorder(models.Model):
                 vals.setdefault("preorder_date", source.date_order)
                 vals.setdefault("sales_rep_id", source.sales_rep_id.id)
                 vals.setdefault("discount_id", source.discount_id.id)
+            if not vals.get("line_ids") and vals.get("product_id"):
+                vals["line_ids"] = [
+                    Command.create(
+                        {
+                            "product_id": vals["product_id"],
+                            "requested_qty": vals.get("requested_qty", 1.0),
+                            "discount": vals.get("discount", 0.0),
+                        }
+                    )
+                ]
         records = super().create(vals_list)
         if records.filtered(lambda record: record.campaign_id.state != "open"):
             raise UserError(_("New customer pre-orders can only be created while the campaign is Taking Pre-orders."))
@@ -741,6 +1013,7 @@ class SalePreorder(models.Model):
             "sales_rep_id",
             "discount_id",
             "discount",
+            "line_ids",
         }
         if protected & set(vals) and self.filtered(
             lambda record: record.state != "draft"
@@ -752,6 +1025,14 @@ class SalePreorder(models.Model):
                 )
             )
         result = super().write(vals)
+        legacy_line_values = {
+            field_name: vals[field_name]
+            for field_name in ("product_id", "requested_qty", "discount")
+            if field_name in vals
+        }
+        if legacy_line_values:
+            for record in self.filtered(lambda item: len(item.line_ids) == 1):
+                record.line_ids.write(legacy_line_values)
         if {
             "campaign_id",
             "source_order_id",
@@ -760,9 +1041,16 @@ class SalePreorder(models.Model):
             "product_id",
             "requested_qty",
             "sales_rep_id",
+            "line_ids",
         } & set(vals):
             self._validate_preorder_scope()
-        if {"campaign_id", "branch_id", "product_id", "requested_qty"} & set(vals):
+        if {
+            "campaign_id",
+            "branch_id",
+            "product_id",
+            "requested_qty",
+            "line_ids",
+        } & set(vals):
             self.filtered(lambda record: record.state == "draft")._validate_available_quota_for_draft()
         return result
 
@@ -773,6 +1061,23 @@ class SalePreorder(models.Model):
         if self.filtered(lambda record: record.state not in ("draft", "cancelled")):
             raise UserError(_("Only draft or cancelled pre-orders can be deleted."))
         return super().unlink()
+
+    @api.depends("line_ids.product_id", "line_ids.requested_qty")
+    def _compute_device_summary(self):
+        for record in self:
+            record.device_ids = record.line_ids.product_id
+            record.device_summary = ", ".join(
+                line.product_id.display_name for line in record.line_ids
+            )
+            record.requested_qty_total = sum(record.line_ids.mapped("requested_qty"))
+
+    @api.depends("line_ids", "line_ids.allocation_id")
+    def _compute_reservation_status(self):
+        for record in self:
+            record.allocation_ids = record.line_ids.mapped("allocation_id")
+            record.is_reserved = bool(record.line_ids) and all(
+                line.allocation_id for line in record.line_ids
+            )
 
     @api.depends(
         "source_order_id.currency_id",
@@ -855,32 +1160,15 @@ class SalePreorder(models.Model):
         return fiscal_position.map_tax(taxes) if fiscal_position else taxes
 
     @api.depends(
-        "product_id",
-        "requested_qty",
-        "price_unit",
-        "discount",
-        "customer_id",
-        "company_id",
-        "currency_id",
+        "line_ids.amount_untaxed",
+        "line_ids.amount_tax",
+        "line_ids.amount_total",
     )
     def _compute_required_payment_total(self):
         for record in self:
-            if not record.product_id or not record.currency_id:
-                record.amount_untaxed = 0.0
-                record.amount_tax = 0.0
-                record.deposit_amount = 0.0
-                continue
-            discounted_unit_price = record.price_unit * (1.0 - record.discount / 100.0)
-            totals = record._get_product_taxes().compute_all(
-                discounted_unit_price,
-                currency=record.currency_id,
-                quantity=record.requested_qty,
-                product=record.product_id,
-                partner=record.customer_id,
-            )
-            record.amount_untaxed = totals["total_excluded"]
-            record.amount_tax = totals["total_included"] - totals["total_excluded"]
-            record.deposit_amount = totals["total_included"]
+            record.amount_untaxed = sum(record.line_ids.mapped("amount_untaxed"))
+            record.amount_tax = sum(record.line_ids.mapped("amount_tax"))
+            record.deposit_amount = sum(record.line_ids.mapped("amount_total"))
 
     @api.depends("invoice_ids", "invoice_ids.state", "final_sale_order_id")
     def _compute_document_counts(self):
@@ -1090,8 +1378,12 @@ class SalePreorder(models.Model):
                 raise ValidationError(_("Pre-order branch and campaign must use the same company."))
             if campaign.branch_ids and record.branch_id not in campaign.branch_ids:
                 raise ValidationError(_("The pre-order branch is not participating in this campaign."))
-            if record.product_id and campaign.product_ids and record.product_id not in campaign.product_ids:
-                raise ValidationError(_("Requested product is not included in this campaign."))
+            invalid_lines = record.line_ids.filtered(
+                lambda line: campaign.product_ids
+                and line.product_id not in campaign.product_ids
+            )
+            if invalid_lines:
+                raise ValidationError(_("Every requested device must be included in the campaign."))
             if record.sales_rep_id.branch_id and record.sales_rep_id.branch_id != record.branch_id:
                 raise ValidationError(_("Sales Rep must belong to the selected branch."))
             if not self.env.su and not self.env.user.has_group(
@@ -1116,46 +1408,47 @@ class SalePreorder(models.Model):
                 )
 
     def _validate_available_quota_for_draft(self):
-        """Reject a draft immediately when its branch/product quota is exhausted."""
-        for record in self.filtered("product_id"):
-            allocation = self.env["sale.preorder.allocation"].search(
-                [
-                    ("campaign_id", "=", record.campaign_id.id),
-                    ("branch_id", "=", record.branch_id.id),
-                    ("product_id", "=", record.product_id.id),
-                ],
-                limit=1,
-            )
-            if not allocation:
-                raise UserError(
-                    _(
-                        "No quota is configured for %(product)s at %(branch)s. "
-                        "Choose another product or branch, or ask the Central Admin to add quota."
-                    )
-                    % {
-                        "product": record.product_id.display_name,
-                        "branch": record.branch_id.display_name,
-                    }
+        """Reject a draft immediately when any requested device exceeds branch quota."""
+        for record in self:
+            for line in record.line_ids:
+                allocation = self.env["sale.preorder.allocation"].search(
+                    [
+                        ("campaign_id", "=", record.campaign_id.id),
+                        ("branch_id", "=", record.branch_id.id),
+                        ("product_id", "=", line.product_id.id),
+                    ],
+                    limit=1,
                 )
-            allocation.invalidate_recordset(["reserved_qty", "available_qty"])
-            if float_compare(
-                allocation.available_qty,
-                record.requested_qty,
-                precision_digits=2,
-            ) < 0:
-                raise UserError(
-                    _(
-                        "Only %(available)s unit(s) remain for %(product)s at %(branch)s, "
-                        "but this pre-order requests %(requested)s. No new pre-order can be "
-                        "created until quota is released or increased."
+                if not allocation:
+                    raise UserError(
+                        _(
+                            "No quota is configured for %(product)s at %(branch)s. "
+                            "Choose another device or branch, or ask the Central Admin to add quota."
+                        )
+                        % {
+                            "product": line.product_id.display_name,
+                            "branch": record.branch_id.display_name,
+                        }
                     )
-                    % {
-                        "available": allocation.available_qty,
-                        "product": record.product_id.display_name,
-                        "branch": record.branch_id.display_name,
-                        "requested": record.requested_qty,
-                    }
-                )
+                allocation.invalidate_recordset(["reserved_qty", "available_qty"])
+                if float_compare(
+                    allocation.available_qty,
+                    line.requested_qty,
+                    precision_digits=2,
+                ) < 0:
+                    raise UserError(
+                        _(
+                            "Only %(available)s unit(s) remain for %(product)s at %(branch)s, "
+                            "but this pre-order requests %(requested)s. No new pre-order can be "
+                            "created until quota is released or increased."
+                        )
+                        % {
+                            "available": allocation.available_qty,
+                            "product": line.product_id.display_name,
+                            "branch": record.branch_id.display_name,
+                            "requested": line.requested_qty,
+                        }
+                    )
         return True
 
     def _prepare_source_order_values(self):
@@ -1322,6 +1615,7 @@ class SalePreorder(models.Model):
                     mark_ready=record.campaign_id.state in ("allocation", "delivery"),
                 )
             elif comparison < 0 and record.state in ("pending", "allocated"):
+                record._release_quota_reservations()
                 record._workflow_write({"state": "confirmed"})
         return True
 
@@ -1333,13 +1627,19 @@ class SalePreorder(models.Model):
                 raise UserError(_("Only Draft pre-orders can be confirmed."))
             if record.campaign_id.state != "open":
                 raise UserError(_("The campaign is not accepting pre-orders."))
-            if not record.product_id:
-                raise UserError(_("Select the requested product before confirming the pre-order."))
-            if float_compare(
-                record.price_unit, 0.0, precision_rounding=record.currency_id.rounding
-            ) <= 0:
-                raise UserError(_("The product pricelist must provide a positive Unit Price."))
-            if record.discount and not record.discount_id:
+            if not record.line_ids:
+                raise UserError(_("Add at least one requested device before confirming the pre-order."))
+            invalid_price_lines = record.line_ids.filtered(
+                lambda line: float_compare(
+                    line.price_unit,
+                    0.0,
+                    precision_rounding=record.currency_id.rounding,
+                )
+                <= 0
+            )
+            if invalid_price_lines:
+                raise UserError(_("Every device must have a positive pricelist Unit Price."))
+            if record.line_ids.filtered("discount") and not record.discount_id:
                 raise UserError(_("Select a Discount Reason when a Discount is entered."))
             if float_compare(
                 record.deposit_amount, 0.0, precision_rounding=record.currency_id.rounding
@@ -1350,13 +1650,13 @@ class SalePreorder(models.Model):
         return True
 
     def _reserve_from_branch_quota(self, strict=True, mark_ready=False):
-        """Reserve quota after full payment; optionally mark it ready for delivery."""
+        """Atomically reserve quota for every device after full payment."""
         self.ensure_one()
         record = self
         self.env.cr.execute(
             "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [record.id]
         )
-        record.invalidate_recordset(["state", "allocation_id"])
+        record.invalidate_recordset(["state", "line_ids", "is_reserved"])
         if record.state == "cancelled":
             reason = _("the pre-order is cancelled")
             if strict:
@@ -1367,64 +1667,96 @@ class SalePreorder(models.Model):
             if strict:
                 raise UserError(reason)
             return False, reason
-        if record.allocation_id:
+        if not record.line_ids:
+            reason = _("the pre-order has no requested devices")
+            if strict:
+                raise UserError(reason)
+            return False, reason
+        if record.is_reserved:
             if mark_ready and record.state == "pending":
                 record._workflow_write({"state": "allocated"})
             return True, False
 
-        allocation = self.env["sale.preorder.allocation"].search(
+        allocations = self.env["sale.preorder.allocation"].search(
             [
                 ("campaign_id", "=", record.campaign_id.id),
                 ("branch_id", "=", record.branch_id.id),
-                ("product_id", "=", record.product_id.id),
+                ("product_id", "in", record.line_ids.product_id.ids),
             ],
-            limit=1,
         )
-        if not allocation:
-            reason = _("no quota exists for this product and branch")
+        allocation_by_product = {
+            allocation.product_id.id: allocation for allocation in allocations
+        }
+        missing_lines = record.line_ids.filtered(
+            lambda line: line.product_id.id not in allocation_by_product
+        )
+        if missing_lines:
+            reason = _("no quota exists for %(products)s at this branch") % {
+                "products": ", ".join(missing_lines.product_id.mapped("display_name"))
+            }
             if strict:
                 raise UserError(reason)
             return False, reason
 
         self.env.cr.execute(
-            "SELECT id FROM sale_preorder_allocation WHERE id = %s FOR UPDATE",
-            [allocation.id],
+            "SELECT id FROM sale_preorder_allocation WHERE id IN %s ORDER BY id FOR UPDATE",
+            [tuple(allocations.ids)],
         )
-        self.env.cr.execute(
-            """
-            SELECT COALESCE(SUM(requested_qty), 0.0)
-             FROM sale_preorder
-             WHERE allocation_id = %s
-               AND state != 'cancelled'
-               AND id != %s
-            """,
-            [allocation.id, record.id],
-        )
-        already_reserved = self.env.cr.fetchone()[0] or 0.0
-        remaining = allocation.allocated_qty - already_reserved
-        if float_compare(remaining, record.requested_qty, precision_digits=2) < 0:
-            reason = _(
-                "only %(remaining)s unit(s) remain in this branch quota; %(requested)s requested"
-            ) % {"remaining": remaining, "requested": record.requested_qty}
-            if strict:
-                raise UserError(reason)
-            return False, reason
+        for line in record.line_ids:
+            allocation = allocation_by_product[line.product_id.id]
+            self.env.cr.execute(
+                """
+                SELECT COALESCE(SUM(line.requested_qty), 0.0)
+                  FROM sale_preorder_line AS line
+                  JOIN sale_preorder AS preorder ON preorder.id = line.preorder_id
+                 WHERE line.allocation_id = %s
+                   AND preorder.state != 'cancelled'
+                   AND preorder.id != %s
+                """,
+                [allocation.id, record.id],
+            )
+            already_reserved = self.env.cr.fetchone()[0] or 0.0
+            remaining = allocation.allocated_qty - already_reserved
+            if float_compare(remaining, line.requested_qty, precision_digits=2) < 0:
+                reason = _(
+                    "only %(remaining)s unit(s) remain for %(product)s at this branch; "
+                    "%(requested)s requested"
+                ) % {
+                    "remaining": remaining,
+                    "product": line.product_id.display_name,
+                    "requested": line.requested_qty,
+                }
+                if strict:
+                    raise UserError(reason)
+                return False, reason
 
-        workflow_values = {"allocation_id": allocation.id}
+        for line in record.line_ids:
+            line.with_context(allow_preorder_workflow_write=True).write(
+                {"allocation_id": allocation_by_product[line.product_id.id].id}
+            )
+
+        workflow_values = {
+            "allocation_id": (
+                record.line_ids.allocation_id.id if len(record.line_ids) == 1 else False
+            )
+        }
         if mark_ready and record.state == "pending":
             workflow_values["state"] = "allocated"
         record._workflow_write(workflow_values)
-        allocation.invalidate_recordset(["reserved_qty", "delivered_qty", "available_qty"])
+        allocations.invalidate_recordset(
+            ["reserved_qty", "delivered_qty", "available_qty"]
+        )
+        record.invalidate_recordset(["is_reserved", "allocation_ids"])
         record.campaign_id.invalidate_recordset(
             ["allocated_quantity", "available_quantity"]
         )
         record.message_post(
             body=_(
-                "Quantity reserved automatically from the %(branch)s quota for %(product)s."
+                "All requested devices were reserved automatically from the %(branch)s quotas: %(products)s."
             )
             % {
                 "branch": record.branch_id.display_name,
-                "product": record.product_id.display_name,
+                "products": ", ".join(record.line_ids.product_id.mapped("display_name")),
             }
         )
         return True, False
@@ -1444,9 +1776,18 @@ class SalePreorder(models.Model):
     def _prepare_delivery_order_values(self):
         self.ensure_one()
         source = self.source_order_id
-        product = self.product_id
-        if float_compare(self.price_unit, 0.0, precision_rounding=self.currency_id.rounding) <= 0:
-            raise UserError(_("The product pricelist must provide a positive Unit Price."))
+        if not self.line_ids:
+            raise UserError(_("Add at least one requested device first."))
+        invalid_price_lines = self.line_ids.filtered(
+            lambda line: float_compare(
+                line.price_unit,
+                0.0,
+                precision_rounding=self.currency_id.rounding,
+            )
+            <= 0
+        )
+        if invalid_price_lines:
+            raise UserError(_("Every device must have a positive pricelist Unit Price."))
 
         warehouse = source.warehouse_id if source else self.env["stock.warehouse"].search(
             [
@@ -1489,19 +1830,25 @@ class SalePreorder(models.Model):
             if source
             else self.customer_id.property_payment_term_id
         )
-        taxes = self._get_product_taxes()
-        description = product.get_product_multiline_description_sale() or product.display_name
-        line_values = {
-            "product_id": product.id,
-            "name": description,
-            "product_uom_qty": self.requested_qty,
-            "product_uom": product.uom_id.id,
-            "price_unit": self.price_unit,
-            "discount": self.discount,
-            "tax_id": [Command.set(taxes.ids)],
-        }
-        if "discount_reason_id" in self.env["sale.order.line"]._fields and self.discount_id:
-            line_values["discount_reason_id"] = self.discount_id.id
+        order_line_commands = []
+        for preorder_line in self.line_ids:
+            product = preorder_line.product_id
+            line_values = {
+                "product_id": product.id,
+                "name": product.get_product_multiline_description_sale()
+                or product.display_name,
+                "product_uom_qty": preorder_line.requested_qty,
+                "product_uom": product.uom_id.id,
+                "price_unit": preorder_line.price_unit,
+                "discount": preorder_line.discount,
+                "tax_id": [Command.set(preorder_line._get_product_taxes().ids)],
+            }
+            if (
+                "discount_reason_id" in self.env["sale.order.line"]._fields
+                and self.discount_id
+            ):
+                line_values["discount_reason_id"] = self.discount_id.id
+            order_line_commands.append(Command.create(line_values))
 
         values = {
             "partner_id": self.customer_id.id,
@@ -1522,7 +1869,7 @@ class SalePreorder(models.Model):
             "preorder_id": self.id,
             "preorder_source_order_id": source.id if source else False,
             "client_order_ref": self.name,
-            "order_line": [Command.create(line_values)],
+            "order_line": order_line_commands,
             "invoice_journal_id": invoice_journal.id,
         }
         return values
@@ -1737,7 +2084,24 @@ class SalePreorder(models.Model):
             },
         }
 
+    def _release_quota_reservations(self):
+        self.mapped("line_ids").with_context(
+            allow_preorder_workflow_write=True
+        ).write({"allocation_id": False})
+        legacy_reserved = self.filtered("allocation_id")
+        if legacy_reserved:
+            legacy_reserved._workflow_write({"allocation_id": False})
+        self.invalidate_recordset(["is_reserved", "allocation_ids"])
+        self.mapped("campaign_id.allocation_line_ids").invalidate_recordset(
+            ["reserved_qty", "delivered_qty", "available_qty"]
+        )
+        self.mapped("campaign_id").invalidate_recordset(
+            ["allocated_quantity", "available_quantity"]
+        )
+        return True
+
     def action_cancel_preorder(self):
+        _check_preorder_branch_access(self)
         for record in self:
             if record.state in ("invoiced", "completed"):
                 raise UserError(_("A pre-order with a posted delivery invoice cannot be cancelled here."))
@@ -1745,7 +2109,8 @@ class SalePreorder(models.Model):
                 raise UserError(_("Cancel the delivery sales order before cancelling this pre-order."))
             if record.invoice_ids.filtered(lambda move: move.state == "posted"):
                 raise UserError(_("Reverse or cancel the posted delivery invoice first."))
-            record._workflow_write({"allocation_id": False, "state": "cancelled"})
+            record._release_quota_reservations()
+            record._workflow_write({"state": "cancelled"})
         return True
 
     def action_reset_draft(self):
@@ -1755,7 +2120,8 @@ class SalePreorder(models.Model):
                 raise UserError(_("A pre-order with a delivery order cannot be reset."))
             if record._get_source_inbound_payments(include_returned=True):
                 raise UserError(_("Cancel or return the posted payment before resetting this pre-order."))
-            record._workflow_write({"allocation_id": False, "state": "draft"})
+            record._release_quota_reservations()
+            record._workflow_write({"state": "draft"})
         return True
 
     def action_open_source_order(self):

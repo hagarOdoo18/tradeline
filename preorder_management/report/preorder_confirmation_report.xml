@@ -48,7 +48,7 @@
                     </div>
                     <div class="col-3">
                         <strong>Reservation Status</strong><br/>
-                        <strong t-if="o.allocation_id" class="text-success">Reserved</strong>
+                        <strong t-if="o.is_reserved" class="text-success">Reserved</strong>
                         <span t-else="">Not Reserved</span>
                     </div>
                 </div>
@@ -65,20 +65,20 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
+                        <tr t-foreach="o.line_ids" t-as="line">
                             <td>
                                 <strong>Reserved Device</strong><br/>
-                                <span t-field="o.product_id"/>
+                                <span t-field="line.product_id"/>
                             </td>
-                            <td class="text-end"><span t-out="'%.2f Units' % o.requested_qty"/></td>
+                            <td class="text-end"><span t-out="'%.2f Units' % line.requested_qty"/></td>
                             <td class="text-end">
-                                <span t-field="o.price_unit"
+                                <span t-field="line.price_unit"
                                       t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                             </td>
-                            <td class="text-end"><span t-out="'%.2f' % o.discount"/>%</td>
-                            <td class="text-end"><span t-out="o.get_report_tax_names()"/></td>
+                            <td class="text-end"><span t-out="'%.2f' % line.discount"/>%</td>
+                            <td class="text-end"><span t-out="line.tax_names"/></td>
                             <td class="text-end">
-                                <span t-field="o.amount_untaxed"
+                                <span t-field="line.amount_untaxed"
                                       t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                             </td>
                         </tr>
@@ -146,8 +146,11 @@
                     </table>
                 </div>
 
-                <div class="mt-4" t-if="o.product_id.product_notes" style="font-size: 8px; text-align: right;">
-                    <span t-out="o.product_id.product_notes" dir="rtl"/>
+                <div class="mt-4" style="font-size: 8px; text-align: right;">
+                    <div t-foreach="o.line_ids" t-as="line" t-if="line.product_id.product_notes">
+                        <strong t-field="line.product_id"/><br/>
+                        <span t-out="line.product_id.product_notes" dir="rtl"/>
+                    </div>
                 </div>
             </div>
         </t>
