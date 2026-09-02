@@ -164,7 +164,7 @@ class SyncProduct(models.TransientModel):
                 continue
 
             # ٠. تخطي المنتجات التي ليس لها variants في شوبيفاي
-            if not product.get('variants'):
+            if  len(product.get('variants')) == 0:
                 _logger.warning(
                     'Shopify product "%s" (id=%s) has no variants — skipped.',
                     product.get('title'), product.get('id')
