@@ -25,7 +25,7 @@ from odoo import models
 
 _logger = logging.getLogger(__name__)
 
-# Number of variants queued per job.cron batch (matches sync.inventory).
+# Number of groups queued per job.cron batch (matches sync.inventory).
 INVENTORY_BATCH_SIZE = 20
 
 
@@ -59,15 +59,19 @@ class StockPicking(models.Model):
 
     def _sync_shopify_inventory_on_validate(self):
         """Queue export_inventory_to_shopify job.cron records for the Shopify
-        variants matching the products on this (delivery) picking."""
+        variants matching the products on this (delivery) picking.
+
+        The products are grouped by barcode / shopify_variant_sku first (see
+        SyncInventory._build_inventory_groups), so moving stock of one variant
+        also refreshes the sibling variants that share the same code."""
         self.ensure_one()
 
         # Only outgoing deliveries reduce sellable stock we mirror to Shopify.
         if self.picking_type_code != 'outgoing':
             return
 
-        product_ids = self.move_ids.mapped('product_id').ids
-        if not product_ids:
+        products = self.move_ids.mapped('product_id')
+        if not products:
             return
 
         model = self.env['ir.model'].sudo().search(
@@ -90,27 +94,27 @@ class StockPicking(models.Model):
             if not warehouse_ids:
                 continue
 
-            # Synced variants for just the products on this picking.
-            sync_ids = self.env['shopify.sync'].sudo().search([
-                ('instance_id', '=', instance.id),
-                ('shopify_variant_id', '!=', False),
-                ('product_prod_id', 'in', product_ids),
-            ]).ids
-            if not sync_ids:
+            # Groups (barcode / shopify_variant_sku) for the products on this
+            # picking, completed with the variants sharing the same code.
+            groups = self.env['sync.inventory'].sudo()._build_inventory_groups(
+                instance, products=products)
+            if not groups:
                 continue
 
-            for i in range(0, len(sync_ids), INVENTORY_BATCH_SIZE):
+            for i in range(0, len(groups), INVENTORY_BATCH_SIZE):
                 self.env['job.cron'].sudo().create([{
                     'model_id': model.id,
                     'function': 'export_inventory_to_shopify',
                     'data': {
-                        'sync_ids': sync_ids[i:i + INVENTORY_BATCH_SIZE],
+                        'groups': groups[i:i + INVENTORY_BATCH_SIZE],
                         'warehouse_ids': warehouse_ids,
                     },
                     'instance_id': instance.id,
                 }])
 
             _logger.info(
-                'Shopify inventory sync: queued %d variant(s) for instance %s '
-                'after validating delivery %s',
-                len(sync_ids), instance.name, self.name)
+                'Shopify inventory sync: queued %d group(s) covering %d '
+                'variant(s) for instance %s after validating delivery %s',
+                len(groups),
+                sum(len(group['variant_ids']) for group in groups),
+                instance.name, self.name)
