@@ -24,10 +24,25 @@ import json
 import logging
 import re
 import requests
+from datetime import timedelta
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
+
+# Groups queued per job.cron batch.
+INVENTORY_BATCH_SIZE = 20
+# Never let the queue grow without bound: if this many inventory jobs are
+# already pending for an instance, skip queueing more this run.
+MAX_PENDING_JOBS = 100
+# Safety overlap when reading "what changed since the last run", to absorb
+# clock skew and rows committed just after the previous watermark was taken.
+WATERMARK_OVERLAP_MINUTES = 15
+# Re-push everything at least this often, so any drift self-heals.
+FULL_RESYNC_HOURS = 24
+# Shopify page size (the API default is 50 - 250 is the maximum).
+SHOPIFY_PAGE_LIMIT = 250
+SHOPIFY_TIMEOUT = 30
 
 
 class SyncInventory(models.TransientModel):
@@ -120,6 +135,8 @@ class SyncInventory(models.TransientModel):
                     ('product_prod_id', '!=', False),
                 ])
             products = sync_records.mapped('product_prod_id')
+        # archived variants count nowhere: not as a seed, not as a member
+        products = products.filtered('active')
         if not products:
             return []
 
@@ -133,12 +150,13 @@ class SyncInventory(models.TransientModel):
         #    barcode OR shopify_variant_sku (one search for all codes)
         codes = [key for key in key_products if not key.startswith('id:')]
         if codes:
-            members = self.env['product.product'].sudo().with_context(
-                active_test=False).search([
-                    '|',
-                    ('barcode', 'in', codes),
-                    ('shopify_variant_sku', 'in', codes),
-                ])
+            # active variants only - an archived variant's stock was never
+            # part of the total before and should not start counting now
+            members = self.env['product.product'].sudo().search([
+                '|',
+                ('barcode', 'in', codes),
+                ('shopify_variant_sku', 'in', codes),
+            ])
             for product in members:
                 for code in ((product.barcode or '').strip(),
                              (product.shopify_variant_sku or '').strip()):
@@ -174,26 +192,46 @@ class SyncInventory(models.TransientModel):
     # quantity helpers
     # ------------------------------------------------------------------
 
-    def _get_group_qty(self, product_ids, company_id, location):
+    def _get_qty_by_product(self, product_ids, company_id, location):
+        """Sellable quantity per product at `location`, in ONE query.
+
+        Returns {product_id: qty}. `quantity` is on hand; what is already
+        reserved for other outgoing moves is subtracted so the same units are
+        not offered twice on Shopify. Products with no quant are absent from
+        the mapping (they count as zero).
+
+        This is read once per location for a whole batch, instead of one
+        stock.quant search per group per location.
+        """
+        if not product_ids or not location:
+            return {}
+
+        groups = self.env['stock.quant'].sudo()._read_group(
+            [('product_id', 'in', list(product_ids)),
+             ('company_id', '=', company_id),
+             ('location_id', '=', location.id)],
+            groupby=['product_id'],
+            aggregates=['quantity:sum', 'reserved_quantity:sum'],
+        )
+        return {product.id: (quantity or 0.0) - (reserved or 0.0)
+                for product, quantity, reserved in groups}
+
+    def _get_group_qty(self, product_ids, company_id, location,
+                       qty_by_product=None):
         """Return the sellable quantity of a whole group at `location`.
 
         `product_ids` are the product.product records that share one
-        barcode / shopify_variant_sku code. Their on-hand quantities are added
-        together and what is already reserved for other outgoing moves is
-        subtracted, so the same units are not offered twice on Shopify.
+        barcode / shopify_variant_sku code; their quantities are added
+        together. Pass `qty_by_product` (from :meth:`_get_qty_by_product`) to
+        reuse a mapping already read for the whole batch.
         """
         if not product_ids or not location:
             return 0.0
-
-        quants = self.env['stock.quant'].sudo().search([
-            ('product_id', 'in', list(product_ids)),
-            ('company_id', '=', company_id),
-            ('location_id', '=', location.id),
-        ])
-
-        # `quantity` is on hand; subtract what is already reserved.
-        total = (sum(quants.mapped('quantity'))
-                 - sum(quants.mapped('reserved_quantity')))
+        if qty_by_product is None:
+            qty_by_product = self._get_qty_by_product(
+                product_ids, company_id, location)
+        total = sum(qty_by_product.get(product_id, 0.0)
+                    for product_id in product_ids)
         return max(total, 0.0)
 
     def _get_odoo_qty(self, product, company_id, location):
@@ -238,6 +276,80 @@ class SyncInventory(models.TransientModel):
              })
              .action_apply_inventory())
 
+    # ------------------------------------------------------------------
+    # shopify variant -> inventory item mapping
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _inventory_item_param_key(self, instance):
+        return 'shopify_odoo_connector.inventory_items.%s' % instance.id
+
+    @api.model
+    def _read_inventory_item_cache(self, instance):
+        param = self.env['ir.config_parameter'].sudo()
+        try:
+            cache = json.loads(
+                param.get_param(self._inventory_item_param_key(instance))
+                or '{}')
+        except ValueError:
+            cache = {}
+        return (cache.get('items') or {},
+                set(cache.get('misses') or []))
+
+    @api.model
+    def _get_inventory_item_map(self, instance, variant_ids):
+        """Return {shopify variant id: inventory_item_id} for `variant_ids`.
+
+        The mapping is cached in ir.config_parameter because inventory item
+        ids never change for a variant. Only variants missing from the cache
+        trigger a call to Shopify, so a steady-state run makes no request at
+        all. Previously every queued batch re-downloaded the whole catalogue
+        just to rebuild this map.
+
+        Variants that a fresh crawl could not resolve (deleted on Shopify but
+        still carrying a shopify.sync row) are remembered as misses, otherwise
+        a single dangling variant would force a full crawl on every run. The
+        miss list is cleared by the periodic full resync.
+        """
+        param = self.env['ir.config_parameter'].sudo()
+        items, misses = self._read_inventory_item_cache(instance)
+
+        wanted = {str(variant_id) for variant_id in variant_ids}
+        if wanted - set(items) - misses:
+            fetched = self._fetch_inventory_item_map(instance)
+            if fetched:
+                items.update(fetched)
+                # still unresolved after a fresh crawl => really not on
+                # Shopify. Only trust this when the crawl returned something:
+                # an empty result is not evidence that a variant is gone.
+                misses |= (wanted - set(items))
+                param.set_param(
+                    self._inventory_item_param_key(instance),
+                    json.dumps({'items': items, 'misses': sorted(misses)}))
+
+        return {variant_id: items[variant_id]
+                for variant_id in wanted if variant_id in items}
+
+    @api.model
+    def _clear_inventory_item_misses(self, instance):
+        """Forget the "not on Shopify" list so re-created variants are picked
+        up again. Called by the periodic full resync."""
+        items, misses = self._read_inventory_item_cache(instance)
+        if misses:
+            self.env['ir.config_parameter'].sudo().set_param(
+                self._inventory_item_param_key(instance),
+                json.dumps({'items': items, 'misses': []}))
+
+    def _fetch_inventory_item_map(self, instance):
+        """Crawl the Shopify catalogue once and return the full variant map."""
+        products = self._fetch_all_shopify_products(
+            instance.shop_name, instance.version,
+            instance._get_shopify_headers(), fields_param='id,variants')
+        return {str(variant['id']): variant['inventory_item_id']
+                for product in products
+                for variant in product.get('variants', [])
+                if variant.get('inventory_item_id')}
+
     def _fetch_all_shopify_products(self, store_name, version, headers,
                                     fields_param=None):
         """Fetch all products from Shopify (handles pagination).
@@ -247,9 +359,17 @@ class SyncInventory(models.TransientModel):
         """
         base_url = "https://%s/admin/api/%s/products.json" % (
             store_name, version)
-        url = base_url + ('?fields=%s' % fields_param if fields_param else '')
+        query = ['limit=%s' % SHOPIFY_PAGE_LIMIT]
+        if fields_param:
+            query.append('fields=%s' % fields_param)
+        url = base_url + '?' + '&'.join(query)
         payload = []
-        response = requests.request("GET", url, headers=headers, data=payload)
+        response = requests.request("GET", url, headers=headers, data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
+        # A 401/429/5xx still returns a JSON body, so without this an errored
+        # crawl looks exactly like an empty catalogue - and the caller would
+        # cache "this variant does not exist on Shopify" for every variant.
+        response.raise_for_status()
         products = response.json().get('products', [])
 
         inventory_link = response.headers.get('link', '')
@@ -272,7 +392,10 @@ class SyncInventory(models.TransientModel):
                 if fields_param:
                     next_url += '&fields=%s' % fields_param
                 response = requests.request('GET', next_url,
-                                            headers=headers, data=payload)
+                                            headers=headers, data=payload,
+                                            timeout=SHOPIFY_TIMEOUT)
+                # a failed page must not silently truncate the crawl
+                response.raise_for_status()
                 products += response.json().get('products', [])
                 inventory_link = response.headers.get('link', '')
                 inventory_links = inventory_link.split(',')
@@ -299,29 +422,100 @@ class SyncInventory(models.TransientModel):
         single unit: their stock is summed once and the total is published on
         every Shopify variant of that group.
 
-        Instead of pushing everything in a single run (which can time out on
-        large catalogues), the groups are split into batches of 20 and queued
-        as job.cron records with the function 'export_inventory_to_shopify'.
-        _do_job then processes one batch per cron tick.
+        Only what actually moved is queued: the products whose stock.quant
+        changed since the previous run (plus variants linked to Shopify since
+        then), with a full pass every FULL_RESYNC_HOURS to heal any drift.
+        Re-queueing the whole catalogue every 5 minutes produced far more jobs
+        than the queue could ever drain.
+
+        The groups are split into batches and queued as job.cron records with
+        the function 'export_inventory_to_shopify'; the variant -> inventory
+        item mapping is resolved here, once, and travels with the payload so
+        no batch has to crawl the Shopify catalogue on its own.
         """
         model = self.env['ir.model'].search(
             [('model', '=', 'sync.inventory')])
         instances = self.env['shopify.configuration'].search(
                     [('company_id', '=', self.env.company.id)])
-        size = 20
+        param = self.env['ir.config_parameter'].sudo()
         for instance in instances:
             try:
-                warehouse_ids = self.env['shopify.location'].sudo().search([
+                warehouses = self.env['shopify.location'].sudo().search([
                     ('instance_id', '=', instance.id),
                     ('warehouse_id', '!=', False),
                     ('active', '=', True),
-                ]).mapped('warehouse_id').ids
-                if not warehouse_ids:
+                ]).mapped('warehouse_id')
+                if not warehouses:
                     continue
-                groups = self._build_inventory_groups(instance)
+
+                # Do not pile onto a queue that is still being worked off.
+                pending = self.env['job.cron'].sudo().search_count([
+                    ('state', '=', 'pending'),
+                    ('function', '=', 'export_inventory_to_shopify'),
+                    ('instance_id', '=', instance.id),
+                ])
+                if pending >= MAX_PENDING_JOBS:
+                    _logger.info(
+                        'Shopify inventory sync: %d job(s) still pending for '
+                        'instance %s, skipping this run', pending,
+                        instance.name)
+                    continue
+
+                run_start = fields.Datetime.now()
+                mark_key = ('shopify_odoo_connector.inventory_watermark.%s'
+                            % instance.id)
+                full_key = mark_key + '.full'
+                last_run = param.get_param(mark_key)
+                last_full = param.get_param(full_key)
+                full_run = not last_run or not last_full or (
+                    run_start - fields.Datetime.to_datetime(last_full)
+                    > timedelta(hours=FULL_RESYNC_HOURS))
+
+                if full_run:
+                    products = None     # every synced variant
+                    self._clear_inventory_item_misses(instance)
+                else:
+                    products = self._changed_products_since(
+                        instance, warehouses,
+                        fields.Datetime.to_datetime(last_run)
+                        - timedelta(minutes=WATERMARK_OVERLAP_MINUTES))
+                    if not products:
+                        param.set_param(mark_key, fields.Datetime.to_string(run_start))
+                        continue
+
+                groups = self._build_inventory_groups(
+                    instance, products=products)
                 if not groups:
+                    param.set_param(mark_key, fields.Datetime.to_string(run_start))
+                    if full_run:
+                        param.set_param(full_key, fields.Datetime.to_string(run_start))
                     continue
-                # Split the groups into batches of 20, one job per batch.
+
+                # Resolve the inventory item ids once for the whole run.
+                item_map = self._get_inventory_item_map(
+                    instance,
+                    {variant_id for group in groups
+                     for variant_id in group['variant_ids']})
+                for group in groups:
+                    group['items'] = {
+                        variant_id: item_map[variant_id]
+                        for variant_id in group['variant_ids']
+                        if variant_id in item_map
+                    }
+                groups = [group for group in groups if group['items']]
+                if not groups:
+                    # nothing here maps to a live Shopify variant; advance the
+                    # full marker too, otherwise every tick would re-run as a
+                    # full pass and re-crawl the catalogue
+                    param.set_param(
+                        mark_key, fields.Datetime.to_string(run_start))
+                    if full_run:
+                        param.set_param(
+                            full_key, fields.Datetime.to_string(run_start))
+                    continue
+
+                warehouse_ids = warehouses.ids
+                size = INVENTORY_BATCH_SIZE
                 for i in range(0, len(groups), size):
                     self.env['job.cron'].sudo().create([{
                         'model_id': model.id,
@@ -332,17 +526,69 @@ class SyncInventory(models.TransientModel):
                         },
                         'instance_id': instance.id,
                     }])
+
+                param.set_param(mark_key, fields.Datetime.to_string(run_start))
+                if full_run:
+                    param.set_param(full_key, fields.Datetime.to_string(run_start))
                 _logger.info(
-                    'Shopify inventory sync: queued %d group(s) covering %d '
-                    'variant(s) in %d batch(es) for instance %s',
+                    'Shopify inventory sync (%s): queued %d group(s) covering '
+                    '%d variant(s) in %d batch(es) for instance %s',
+                    'full' if full_run else 'incremental',
                     len(groups),
-                    sum(len(group['variant_ids']) for group in groups),
+                    sum(len(group['items']) for group in groups),
                     (len(groups) + size - 1) // size,
                     instance.name)
             except Exception as error:
-                _logger.error(
+                _logger.exception(
                     'Failed to queue inventory push to Shopify for instance '
                     '%s: %s', instance.name, str(error))
+
+    @api.model
+    def _changed_products_since(self, instance, warehouses, since):
+        """Products whose sellable stock may have moved since `since`.
+
+        That is every product with a stock.quant touched since then in one of
+        the mapped stock locations (a quant is written on both a quantity and
+        a reservation change), plus every product moved in or out of those
+        locations, plus every product whose Shopify link changed.
+        """
+        location_ids = warehouses.mapped('lot_stock_id').ids
+        if not location_ids:
+            return self.env['product.product']
+
+        quant_groups = self.env['stock.quant'].sudo()._read_group(
+            [('company_id', '=', instance.company_id.id),
+             ('location_id', 'in', location_ids),
+             ('write_date', '>=', since)],
+            groupby=['product_id'],
+        )
+        product_ids = {product.id for (product,) in quant_groups}
+
+        # A quant that reaches zero can be removed by Odoo's quant clean-up,
+        # leaving no row with a recent write_date - the drop to zero would go
+        # unnoticed. The completed moves still carry the evidence.
+        move_groups = self.env['stock.move.line'].sudo()._read_group(
+            [('state', '=', 'done'),
+             ('write_date', '>=', since),
+             '|',
+             ('location_id', 'in', location_ids),
+             ('location_dest_id', 'in', location_ids)],
+            groupby=['product_id'],
+        )
+        product_ids |= {product.id for (product,) in move_groups}
+
+        # write_date, not create_date: a sync row that only later receives its
+        # shopify_variant_id has to be picked up too.
+        new_syncs = self.env['shopify.sync'].sudo().search([
+            ('instance_id', '=', instance.id),
+            ('shopify_variant_id', '!=', False),
+            ('product_prod_id', '!=', False),
+            ('write_date', '>=', since),
+        ])
+        product_ids |= set(new_syncs.mapped('product_prod_id').ids)
+
+        return self.env['product.product'].sudo().browse(
+            sorted(product_ids)).exists()
 
     @api.model
     def export_inventory_to_shopify(self, data, instance):
@@ -418,66 +664,102 @@ class SyncInventory(models.TransientModel):
         headers    = shopify_instance._get_shopify_headers()
         company_id = shopify_instance.company_id.id
 
-        # variant_id -> inventory_item_id map from Shopify products
-        shopify_products = self._fetch_all_shopify_products(
-            store_name, version, headers, fields_param='id,variants')
+        # variant_id -> inventory_item_id. The cron resolves this once per run
+        # and ships it in the payload; only a manual wizard run has to look it
+        # up here.
         variant_to_inv_item = {}
-        for product in shopify_products:
-            for variant in product.get('variants', []):
-                variant_to_inv_item[str(variant['id'])] = (
-                    variant['inventory_item_id'])
+        for group in groups:
+            variant_to_inv_item.update(group.get('items') or {})
+        unmapped = {str(variant_id)
+                    for group in groups
+                    for variant_id in (group.get('variant_ids') or [])
+                    if str(variant_id) not in variant_to_inv_item}
+        if unmapped:
+            variant_to_inv_item.update(
+                self._get_inventory_item_map(shopify_instance, unmapped))
 
         set_url = ("https://%s/admin/api/%s/inventory_levels/set.json"
                    % (store_name, version))
 
-        for group in groups:
-            product_ids = group.get('product_ids') or []
-            variant_ids = group.get('variant_ids') or []
-            if not product_ids or not variant_ids:
-                continue
+        # every product touched by this batch, so quantities can be read with
+        # one query per location instead of one per group per location
+        all_product_ids = sorted({
+            product_id
+            for group in groups
+            for product_id in (group.get('product_ids') or [])
+        })
 
+        failures = []
+        pushed = 0
+        # one TCP/TLS connection for the whole batch instead of one per request
+        session = requests.Session()
+        try:
             for location in shopify_locations:
-                # summed on-hand qty of the whole group at this location
-                total_qty = int(self._get_group_qty(
-                    product_ids, company_id,
-                    location.warehouse_id.lot_stock_id))
+                qty_by_product = self._get_qty_by_product(
+                    all_product_ids, company_id,
+                    location.warehouse_id.lot_stock_id)
 
-                # the same total goes to every Shopify variant of the group
-                for variant_id in variant_ids:
-                    inventory_item_id = variant_to_inv_item.get(str(variant_id))
-                    if not inventory_item_id:
+                for group in groups:
+                    product_ids = group.get('product_ids') or []
+                    variant_ids = group.get('variant_ids') or []
+                    if not product_ids or not variant_ids:
                         continue
-                    payload = json.dumps({
-                        'location_id':       location.shopify_location_id,
-                        'inventory_item_id': inventory_item_id,
-                        'available':         total_qty if total_qty > 3 else 0,
-                    })
-                    resp = requests.post(set_url, headers=headers,
-                                         data=payload)
-                    if resp.status_code not in (200, 201):
-                        self.env['log.message'].sudo().create([{
-                            'name': (
-                                'Inventory push failed for variant %s '
-                                '(group %s, location %s): %s'
+
+                    total_qty = int(self._get_group_qty(
+                        product_ids, company_id,
+                        location.warehouse_id.lot_stock_id,
+                        qty_by_product=qty_by_product))
+                    available = total_qty if total_qty > 3 else 0
+
+                    # the same total goes to every Shopify variant of the group
+                    for variant_id in variant_ids:
+                        inventory_item_id = variant_to_inv_item.get(
+                            str(variant_id))
+                        if not inventory_item_id:
+                            continue
+                        payload = json.dumps({
+                            'location_id':       location.shopify_location_id,
+                            'inventory_item_id': inventory_item_id,
+                            'available':         available,
+                        })
+                        try:
+                            resp = session.post(set_url, headers=headers,
+                                                data=payload,
+                                                timeout=SHOPIFY_TIMEOUT)
+                        except requests.exceptions.RequestException as error:
+                            failures.append(
+                                'variant %s (group %s, location %s): %s'
                                 % (variant_id, group.get('key'),
-                                   location.shopify_location_id, resp.text)
-                            ),
-                            'shopify_instance_id': shopify_instance.id,
-                            'model': 'Stock Quantity',
-                        }])
-                    else:
-                        self.env['log.message'].sudo().create([{
-                            'name': (
-                                'Inventory push done for variant %s, group %s, '
-                                'products %s (location %s): %s qty %s'
-                                % (variant_id, group.get('key'), product_ids,
-                                   location.shopify_location_id, resp.text,
-                                   total_qty)
-                            ),
-                            'shopify_instance_id': shopify_instance.id,
-                            'model': 'Stock Quantity',
-                        }])
-                        self._cr.commit()
+                                   location.shopify_location_id, error))
+                            continue
+                        if resp.status_code not in (200, 201):
+                            failures.append(
+                                'variant %s (group %s, location %s): %s'
+                                % (variant_id, group.get('key'),
+                                   location.shopify_location_id, resp.text))
+                        else:
+                            pushed += 1
+        finally:
+            session.close()
+
+        # One log row per batch instead of one per request (with a commit each
+        # one): the per-variant success rows were the bulk of the write load
+        # and of the log.message table.
+        messages = [{
+            'name': 'Inventory push: %d level(s) updated, %d failed '
+                    '(%d group(s), %d location(s))'
+                    % (pushed, len(failures), len(groups),
+                       len(shopify_locations)),
+            'shopify_instance_id': shopify_instance.id,
+            'model': 'Stock Quantity',
+        }]
+        if failures:
+            messages.append({
+                'name': 'Inventory push failures:\n' + '\n'.join(failures[:50]),
+                'shopify_instance_id': shopify_instance.id,
+                'model': 'Stock Quantity',
+            })
+        self.env['log.message'].sudo().create(messages)
 
     # ------------------------------------------------------------------
     # From Shopify
@@ -546,7 +828,12 @@ class SyncInventory(models.TransientModel):
             raise ValidationError(_(
                 'Please select at least one warehouse before syncing.'))
 
-        if self.import_inventory == 'shopify':
-            self._sync_to_shopify()
-        else:
-            self._sync_from_shopify()
+        try:
+            if self.import_inventory == 'shopify':
+                self._sync_to_shopify()
+            else:
+                self._sync_from_shopify()
+        except requests.exceptions.RequestException as error:
+            # show the user a message instead of a raw traceback dialog
+            raise ValidationError(_(
+                'Could not reach Shopify: %s') % error) from error

@@ -21,9 +21,14 @@
 #
 ################################################################################
 import logging
+import time
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
+
+# How long one _do_job tick may keep draining the queue. The cron fires every
+# minute, so staying under 60s keeps at most one tick running at a time.
+JOB_BUDGET_SECONDS = 50
 
 
 class JobCron(models.Model):
@@ -32,6 +37,7 @@ class JobCron(models.Model):
         Methods:
             _do_job(self):cron function to perform job  created in specific
             interval
+            _process(self): run one queued job and set its state
             _refresh_shopify_tokens(self): scheduled action to proactively
             refresh access tokens for all active shopify instances
     """
@@ -55,87 +61,90 @@ class JobCron(models.Model):
 
     @api.model
     def _do_job(self):
-        """Method to do cron jobs for exporting and importing data."""
-        job = self.env['job.cron'].sudo().search([('state', '=', 'pending')],
-                                                 order='id asc', limit=1)
-        if job:
-            model = self.env[job.model_id.model].sudo().search([])
-            if job.function == "import_products_from_shopify":
-                try:
-                    model.import_products_from_shopify(job.data,
-                                                       job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    _logger.error('Some error has been occurred in the '
-                                  'processing of function:'
-                                  'import_products_from_shopify')
-                    job.state = "failed"
-            if job.function == "export_products_to_shopify":
-                try:
-                    model.export_products_to_shopify(job.data, job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    _logger.error(
-                        'Some error has been occurred in the processing'
-                        ' of function:export_products_to_shopify')
-                    job.state = "failed"
-            if job.function == "export_inventory_to_shopify":
-                try:
-                    model.export_inventory_to_shopify(job.data,
-                                                      job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    _logger.error(
-                        'Some error has been occurred in the processing'
-                        ' of function:export_inventory_to_shopify')
-                    job.state = "failed"
-            if job.function == "export_pricing_to_shopify":
-                try:
-                    model.export_pricing_to_shopify(job.data,
-                                                    job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    _logger.error(
-                        'Some error has been occurred in the processing'
-                        ' of function:export_pricing_to_shopify')
-                    job.state = "failed"
-            if job.function == "export_partners_to_shopify":
-                try:
-                    model.export_partners_to_shopify(job.data, job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    _logger.error(
-                        'Some error has been occurred in the processing'
-                        ' of function:export_partners_to_shopify')
-                    job.state = "failed"
-            if job.function == "import_customers_from_shopify":
-                try:
-                    model.import_customers_from_shopify(job.data,
-                                                        job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    job.state = "failed"
-            if job.function == "export_orders_to_shopify":
-                try:
-                    model.export_orders_to_shopify(job.data, job.instance_id)
-                    job.state = "done"
-                except Exception:
-                    job.state = "failed"
-            if job.function == "import_confirmed_orders_from_shopify":
-                try:
-                    model.import_confirmed_orders_from_shopify(job.data,
-                                                               job.instance_id,
-                                                               job.wizard)
-                    job.state = "done"
-                except Exception:
-                    job.state = "failed"
-            if job.function == "import_draft_orders_from_shopify":
-                try:
-                    model.import_draft_orders_from_shopify(job.data,
-                                                           job.instance_id)
-                    job.state = "done"
-                except Exception as e:
-                    job.state = "failed"
+        """Method to do cron jobs for exporting and importing data.
+
+        Drains the pending queue for up to JOB_BUDGET_SECONDS instead of
+        running a single job per tick. Processing one job per minute could
+        never keep up with a producer that queues one batch per 20 records —
+        the backlog only grew. Each job is committed on its own, so a failure
+        never rolls back the jobs already done in this tick.
+        """
+        start = time.monotonic()
+        processed = 0
+        while time.monotonic() - start < JOB_BUDGET_SECONDS:
+            job = self.env['job.cron'].sudo().search(
+                [('state', '=', 'pending')], order='id asc', limit=1)
+            if not job:
+                break
+            job._process()
+            # keep each job's outcome even if a later one blows up, and
+            # release the row locks this job took
+            self.env.cr.commit()
+            processed += 1
+        if processed:
+            _logger.info('Shopify job queue: processed %d job(s) in %.1fs',
+                         processed, time.monotonic() - start)
+
+    def _process(self):
+        """Run this single queued job and record its outcome."""
+        self.ensure_one()
+        # Resolving the model must not escape this method: an empty model_id,
+        # or one naming a model that left the registry, would raise before the
+        # row is marked failed, and the drain loop would pick the very same
+        # row on every tick and never get past it.
+        try:
+            model = self.env[self.model_id.model].sudo().search([])
+        except (KeyError, ValueError):
+            _logger.error('job.cron %s points at an unusable model (%s)',
+                          self.id, self.model_id.model or self.model_id)
+            self.state = 'failed'
+            return
+        handlers = {
+            'import_products_from_shopify':
+                lambda: model.import_products_from_shopify(
+                    self.data, self.instance_id),
+            'export_products_to_shopify':
+                lambda: model.export_products_to_shopify(
+                    self.data, self.instance_id),
+            'export_inventory_to_shopify':
+                lambda: model.export_inventory_to_shopify(
+                    self.data, self.instance_id),
+            'export_pricing_to_shopify':
+                lambda: model.export_pricing_to_shopify(
+                    self.data, self.instance_id),
+            'export_partners_to_shopify':
+                lambda: model.export_partners_to_shopify(
+                    self.data, self.instance_id),
+            'import_customers_from_shopify':
+                lambda: model.import_customers_from_shopify(
+                    self.data, self.instance_id),
+            'export_orders_to_shopify':
+                lambda: model.export_orders_to_shopify(
+                    self.data, self.instance_id),
+            'import_confirmed_orders_from_shopify':
+                lambda: model.import_confirmed_orders_from_shopify(
+                    self.data, self.instance_id, self.wizard),
+            'import_draft_orders_from_shopify':
+                lambda: model.import_draft_orders_from_shopify(
+                    self.data, self.instance_id),
+        }
+        handler = handlers.get(self.function)
+        if not handler:
+            # never leave it pending: the drain loop would pick the same row
+            # again and spin on it for the whole budget
+            _logger.error('Unknown job.cron function: %s (job %s)',
+                          self.function, self.id)
+            self.state = 'failed'
+            return
+        try:
+            handler()
+            self.state = 'done'
+        except Exception:
+            _logger.exception(
+                'Some error has been occurred in the processing of function: '
+                '%s (job %s)', self.function, self.id)
+            self.env.cr.rollback()
+            self.state = 'failed'
 
     @api.model
     def _refresh_shopify_tokens(self):
