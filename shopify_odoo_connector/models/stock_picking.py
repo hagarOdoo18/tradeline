@@ -28,9 +28,18 @@ _logger = logging.getLogger(__name__)
 # Number of groups queued per job.cron batch (matches sync.inventory).
 INVENTORY_BATCH_SIZE = 20
 
+# Picking types whose validation changes the sellable stock we mirror to
+# Shopify: deliveries take stock out, receipts (and customer returns, which
+# are incoming) put it back in. Internal transfers are deliberately excluded —
+# they move stock between locations of the same warehouse, and the quantity
+# read for Shopify is the warehouse's lot_stock_id total, which does not
+# change. A transfer to a *different* mapped warehouse is still picked up by
+# the incremental cron.
+SYNCED_PICKING_TYPE_CODES = ('outgoing', 'incoming')
+
 
 class StockPicking(models.Model):
-    """Push Odoo on-hand quantities to Shopify when a delivery is validated."""
+    """Push Odoo on-hand quantities to Shopify when a picking is validated."""
     _inherit = 'stock.picking'
 
     def button_validate(self):
@@ -59,15 +68,19 @@ class StockPicking(models.Model):
 
     def _sync_shopify_inventory_on_validate(self):
         """Queue export_inventory_to_shopify job.cron records for the Shopify
-        variants matching the products on this (delivery) picking.
+        variants matching the products on this picking.
+
+        Runs for deliveries and receipts alike (SYNCED_PICKING_TYPE_CODES):
+        both change the warehouse on-hand quantity Shopify is told about, so a
+        receipt has to publish the stock going *up* just as a delivery
+        publishes it going down.
 
         The products are grouped by barcode / shopify_variant_sku first (see
         SyncInventory._build_inventory_groups), so moving stock of one variant
         also refreshes the sibling variants that share the same code."""
         self.ensure_one()
 
-        # Only outgoing deliveries reduce sellable stock we mirror to Shopify.
-        if self.picking_type_code != 'outgoing':
+        if self.picking_type_code not in SYNCED_PICKING_TYPE_CODES:
             return
 
         products = self.move_ids.mapped('product_id')
@@ -114,7 +127,7 @@ class StockPicking(models.Model):
 
             _logger.info(
                 'Shopify inventory sync: queued %d group(s) covering %d '
-                'variant(s) for instance %s after validating delivery %s',
+                'variant(s) for instance %s after validating %s picking %s',
                 len(groups),
                 sum(len(group['variant_ids']) for group in groups),
-                instance.name, self.name)
+                instance.name, self.picking_type_code, self.name)

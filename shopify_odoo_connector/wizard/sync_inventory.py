@@ -24,7 +24,9 @@ import json
 import logging
 import re
 import requests
+import urllib3
 from datetime import timedelta
+from requests.adapters import HTTPAdapter
 from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
@@ -43,6 +45,13 @@ FULL_RESYNC_HOURS = 24
 # Shopify page size (the API default is 50 - 250 is the maximum).
 SHOPIFY_PAGE_LIMIT = 250
 SHOPIFY_TIMEOUT = 30
+# Transient failures to ride out: a dropped keep-alive connection, a gateway
+# that could not reach Shopify ("upstream connect error", 502/503/504) and
+# Shopify's own 429 throttling. Backoff is 0s, 1s, 2s, 4s between tries, and
+# a Retry-After header wins over that.
+SHOPIFY_RETRY_TOTAL = 4
+SHOPIFY_RETRY_BACKOFF = 1.0
+SHOPIFY_RETRY_STATUSES = (429, 500, 502, 503, 504)
 
 
 class SyncInventory(models.TransientModel):
@@ -277,6 +286,49 @@ class SyncInventory(models.TransientModel):
              .action_apply_inventory())
 
     # ------------------------------------------------------------------
+    # http
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _shopify_session(self):
+        """A requests Session that reuses one connection and retries the
+        failures worth retrying.
+
+        Without this a single hiccup loses a variant's quantity until the next
+        full resync: an idle keep-alive connection dropped by an intermediary
+        fails on reuse with no retry at all, and a gateway that momentarily
+        cannot reach Shopify answers 502/503 ("upstream connect error or
+        disconnect/reset before headers").
+
+        Retrying POST is safe here because every call this session makes is a
+        `set` of an absolute quantity, not an increment - replaying it lands on
+        the same value.
+        """
+        retry_kwargs = {
+            'total': SHOPIFY_RETRY_TOTAL,
+            'connect': SHOPIFY_RETRY_TOTAL,
+            'read': 2,
+            'status': SHOPIFY_RETRY_TOTAL,
+            'backoff_factor': SHOPIFY_RETRY_BACKOFF,
+            'status_forcelist': SHOPIFY_RETRY_STATUSES,
+            'respect_retry_after_header': True,
+            'raise_on_status': False,
+        }
+        try:
+            retry = urllib3.util.retry.Retry(
+                allowed_methods=frozenset(['GET', 'POST']), **retry_kwargs)
+        except TypeError:
+            # urllib3 < 1.26 spells it differently
+            retry = urllib3.util.retry.Retry(
+                method_whitelist=frozenset(['GET', 'POST']), **retry_kwargs)
+
+        session = requests.Session()
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        return session
+
+    # ------------------------------------------------------------------
     # shopify variant -> inventory item mapping
     # ------------------------------------------------------------------
 
@@ -364,8 +416,9 @@ class SyncInventory(models.TransientModel):
             query.append('fields=%s' % fields_param)
         url = base_url + '?' + '&'.join(query)
         payload = []
-        response = requests.request("GET", url, headers=headers, data=payload,
-                                    timeout=SHOPIFY_TIMEOUT)
+        session = self._shopify_session()
+        response = session.get(url, headers=headers, data=payload,
+                               timeout=SHOPIFY_TIMEOUT)
         # A 401/429/5xx still returns a JSON body, so without this an errored
         # crawl looks exactly like an empty catalogue - and the caller would
         # cache "this variant does not exist on Shopify" for every variant.
@@ -391,9 +444,9 @@ class SyncInventory(models.TransientModel):
                     store_name, version, limit, page_info)
                 if fields_param:
                     next_url += '&fields=%s' % fields_param
-                response = requests.request('GET', next_url,
-                                            headers=headers, data=payload,
-                                            timeout=SHOPIFY_TIMEOUT)
+                response = session.get(next_url, headers=headers,
+                                       data=payload,
+                                       timeout=SHOPIFY_TIMEOUT)
                 # a failed page must not silently truncate the crawl
                 response.raise_for_status()
                 products += response.json().get('products', [])
@@ -646,7 +699,7 @@ class SyncInventory(models.TransientModel):
             groups = self._build_inventory_groups(
                 shopify_instance, sync_records=sync_records)
 
-        self._push_inventory_groups(groups, shopify_locations)
+        return self._push_inventory_groups(groups, shopify_locations)
 
     def _push_inventory_groups(self, groups, shopify_locations):
         """Publish the summed quantity of each group on Shopify.
@@ -654,9 +707,13 @@ class SyncInventory(models.TransientModel):
         For every group the on-hand stock of all its Odoo variants is added up
         per Shopify location, then that single total is written to every
         Shopify variant of the group.
+
+        Returns {'pushed': n, 'failed': n, 'retried': n} so a caller that has
+        a user waiting can report what actually happened instead of assuming
+        it worked.
         """
         if not groups:
-            return
+            return {'pushed': 0, 'failed': 0, 'retried': 0}
 
         shopify_instance = self.shopify_instance_id
         store_name = shopify_instance.shop_name
@@ -691,8 +748,10 @@ class SyncInventory(models.TransientModel):
 
         failures = []
         pushed = 0
-        # one TCP/TLS connection for the whole batch instead of one per request
-        session = requests.Session()
+        retried = 0
+        # one TCP/TLS connection for the whole batch instead of one per
+        # request, and transient gateway/throttle failures are retried
+        session = self._shopify_session()
         try:
             for location in shopify_locations:
                 qty_by_product = self._get_qty_by_product(
@@ -732,11 +791,19 @@ class SyncInventory(models.TransientModel):
                                 % (variant_id, group.get('key'),
                                    location.shopify_location_id, error))
                             continue
+                        # count the retries urllib3 already absorbed, so a
+                        # flaky link shows up in the log even when it recovers
+                        raw_retries = getattr(
+                            getattr(resp, 'raw', None), 'retries', None)
+                        retried += len(getattr(raw_retries, 'history', ()) or ())
+
                         if resp.status_code not in (200, 201):
                             failures.append(
-                                'variant %s (group %s, location %s): %s'
+                                'variant %s (group %s, location %s): HTTP %s %s'
                                 % (variant_id, group.get('key'),
-                                   location.shopify_location_id, resp.text))
+                                   location.shopify_location_id,
+                                   resp.status_code,
+                                   (resp.text or '').strip()[:300]))
                         else:
                             pushed += 1
         finally:
@@ -745,11 +812,14 @@ class SyncInventory(models.TransientModel):
         # One log row per batch instead of one per request (with a commit each
         # one): the per-variant success rows were the bulk of the write load
         # and of the log.message table.
+        summary = ('Inventory push: %d level(s) updated, %d failed '
+                   '(%d group(s), %d location(s))'
+                   % (pushed, len(failures), len(groups),
+                      len(shopify_locations)))
+        if retried:
+            summary += ' - %d request(s) needed a retry' % retried
         messages = [{
-            'name': 'Inventory push: %d level(s) updated, %d failed '
-                    '(%d group(s), %d location(s))'
-                    % (pushed, len(failures), len(groups),
-                       len(shopify_locations)),
+            'name': summary,
             'shopify_instance_id': shopify_instance.id,
             'model': 'Stock Quantity',
         }]
@@ -760,6 +830,7 @@ class SyncInventory(models.TransientModel):
                 'model': 'Stock Quantity',
             })
         self.env['log.message'].sudo().create(messages)
+        return {'pushed': pushed, 'failed': len(failures), 'retried': retried}
 
     # ------------------------------------------------------------------
     # From Shopify
