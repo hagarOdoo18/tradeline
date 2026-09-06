@@ -9,7 +9,7 @@ This module ports the Odoo12 Service scrap workflow into Odoo18 for:
 - Picking workflow fields: `request_scrap`, `wait_approve_scrap`, `approve_scrap`
 - Picking workflow actions: `Request Scrap`, `Approve Scrap`, `Vendor Scrap`
 - Service/XPRS scrap wizard models:
-  - `request.scrap.wizard`
+  - `service.request.scrap.wizard` (isolated from the legacy request wizard)
   - `stock.scrap.wizard`
   - `scrap.line`
 - Scrap approval states on `stock.scrap`:

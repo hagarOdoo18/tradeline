@@ -3,7 +3,7 @@
     <data>
         <record id="view_request_scrap_wizard_form" model="ir.ui.view">
             <field name="name">request.scrap.wizard.form</field>
-            <field name="model">request.scrap.wizard</field>
+            <field name="model">service.request.scrap.wizard</field>
             <field name="arch" type="xml">
                 <form string="Request Scrap">
                     <group>
@@ -20,7 +20,7 @@
 
         <record id="action_request_scrap_wizard" model="ir.actions.act_window">
             <field name="name">Request Scrap</field>
-            <field name="res_model">request.scrap.wizard</field>
+            <field name="res_model">service.request.scrap.wizard</field>
             <field name="view_mode">form</field>
             <field name="target">new</field>
             <field name="view_id" ref="view_request_scrap_wizard_form"/>
