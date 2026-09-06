@@ -23,3 +23,13 @@ class TestServiceRequestScrapWizard(TransactionCase):
             legacy = self.env['request.scrap.wizard']
             self.assertNotEqual(legacy._name, model._name)
             self.assertTrue(callable(legacy.request_scrap))
+
+    def test_service_scrap_lines_form(self):
+        model = self.env['service.stock.scrap.wizard']
+        view = self.env.ref('service_scrap_control.view_stock_scrap_wizard_form')
+        self.assertEqual(view.model, model._name)
+        result = model.get_views([(view.id, 'form')], {})
+        self.assertIn('line_ids', result['models'][model._name]['fields'])
+        self.assertEqual(model._fields['line_ids'].comodel_name, 'service.scrap.line')
+        self.assertEqual(self.env['service.scrap.line']._fields['wizard_id'].comodel_name, model._name)
+        self.assertTrue(callable(model.action_create_scrap))

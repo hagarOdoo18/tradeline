@@ -27,8 +27,8 @@
         </record>
 
         <record id="view_stock_scrap_wizard_form" model="ir.ui.view">
-            <field name="name">stock.scrap.wizard.form</field>
-            <field name="model">stock.scrap.wizard</field>
+            <field name="name">service.stock.scrap.wizard.form</field>
+            <field name="model">service.stock.scrap.wizard</field>
             <field name="arch" type="xml">
                 <form string="Scrap Lines">
                     <group>
