@@ -23,16 +23,17 @@ DEFAULT_STRATEGY = 'threshold'
 class ShopifyMinQty(models.Model):
     """One minimum-quantity rule.
 
-    A rule is matched on (instance, warehouse, product category). Leaving a
-    field empty makes the rule apply to *all* values of it, so a single row
-    with everything empty is the global default.
+    A rule is matched on (instance, warehouses, product categories). Warehouses
+    and categories are many2many, so a single row can cover "Cairo + Alex" and
+    "Phones + Tablets" at once. Leaving a list empty makes the rule apply to
+    *all* values of it, so a row with everything empty is the global default.
 
     When several rules match, the most specific one wins, in this order:
 
     1. instance set beats instance empty;
-    2. warehouse set beats warehouse empty;
-    3. the closest product category wins - an exact match first, then the
-       nearest parent category, then a rule with no category at all.
+    2. a listed warehouse beats an empty warehouse list;
+    3. the closest product category wins - a listed category first, then the
+       nearest listed parent category, then a rule with no category at all.
 
     Warehouse outranks category on purpose: the threshold exists to protect a
     physical shop's shelf, so what a given warehouse says about a category
@@ -40,22 +41,24 @@ class ShopifyMinQty(models.Model):
     """
     _name = 'shopify.min.qty'
     _description = 'Shopify Minimum Quantity Rule'
-    _order = 'instance_id, warehouse_id, categ_id, id'
+    _order = 'instance_id, min_qty desc, id'
 
     instance_id = fields.Many2one(
         'shopify.configuration', string='Shopify Instance',
         ondelete='cascade', index=True,
         help='Leave empty to apply the rule to every Shopify instance.')
-    warehouse_id = fields.Many2one(
-        'stock.warehouse', string='Warehouse',
-        ondelete='cascade', index=True,
+    warehouse_ids = fields.Many2many(
+        'stock.warehouse',
+        'shopify_min_qty_warehouse_rel', 'min_qty_id', 'warehouse_id',
+        string='Warehouses',
         help='Leave empty to apply the rule to every warehouse.')
-    categ_id = fields.Many2one(
-        'product.category', string='Product Category',
-        ondelete='cascade', index=True,
+    categ_ids = fields.Many2many(
+        'product.category',
+        'shopify_min_qty_categ_rel', 'min_qty_id', 'categ_id',
+        string='Product Categories',
         help='Leave empty to apply the rule to every product category. '
-             'A rule set on a category also covers its child categories, '
-             'unless a child has a rule of its own.')
+             'A listed category also covers its child categories, unless a '
+             'child is listed on a rule of its own.')
     min_qty = fields.Integer(
         string='Minimum Qty', required=True, default=DEFAULT_MIN_QTY,
         help='Quantity kept out of Shopify. See Strategy for how it is used.')
@@ -81,40 +84,70 @@ class ShopifyMinQty(models.Model):
     # display / integrity
     # ------------------------------------------------------------------
 
-    @api.depends('instance_id', 'warehouse_id', 'categ_id', 'min_qty')
+    @api.depends('warehouse_ids', 'categ_ids', 'min_qty')
     def _compute_display_name(self):
         for rule in self:
+            warehouses = ', '.join(
+                rule.warehouse_ids.mapped('name')) or _('All Warehouses')
+            categories = ', '.join(
+                rule.categ_ids.mapped('complete_name')) or _('All Categories')
             rule.display_name = '%s / %s: %s' % (
-                rule.warehouse_id.name or _('All Warehouses'),
-                rule.categ_id.complete_name or _('All Categories'),
-                rule.min_qty,
-            )
+                warehouses, categories, rule.min_qty)
 
-    @api.constrains('instance_id', 'warehouse_id', 'categ_id', 'active')
+    def _expanded_keys(self):
+        """The concrete (instance, warehouse, category) triples this rule
+        covers, with ``0`` standing for "empty / applies to all".
+
+        This is the same expansion :meth:`_build_index` does, and it is what
+        makes "do two rules overlap?" a plain set intersection.
+        """
+        self.ensure_one()
+        instance_key = self.instance_id.id or 0
+        warehouse_keys = self.warehouse_ids.ids or [0]
+        categ_keys = self.categ_ids.ids or [0]
+        return {(instance_key, warehouse_key, categ_key)
+                for warehouse_key in warehouse_keys
+                for categ_key in categ_keys}
+
+    @api.constrains('instance_id', 'warehouse_ids', 'categ_ids', 'active')
     def _check_unique_rule(self):
-        """No two active rules may target the same combination.
+        """No two active rules may cover the same combination.
 
-        A plain SQL unique index cannot do this: in Postgres NULL is never
-        equal to NULL, so it would happily accept ten "all warehouses, all
-        categories" rows and the resolution would then depend on the id.
+        Only rules of the *same shape* clash: a global default (no warehouse,
+        no category) does not conflict with a rule listing a warehouse,
+        because they expand to different keys - the specific one simply wins
+        at resolution time. Two rules that both list warehouse "Cairo" and
+        both list category "Phones" do clash, and without this check which one
+        applied would depend on the record id.
+
+        A SQL unique index could not do this at all: the pairs live in
+        many2many tables, and in Postgres NULL is never equal to NULL.
         """
         for rule in self:
             if not rule.active:
                 continue
-            duplicate = self.search([
+            keys = rule._expanded_keys()
+            others = self.search([
                 ('id', '!=', rule.id),
                 ('instance_id', '=', rule.instance_id.id),
-                ('warehouse_id', '=', rule.warehouse_id.id),
-                ('categ_id', '=', rule.categ_id.id),
-            ], limit=1)
-            if duplicate:
+            ])
+            for other in others:
+                clash = keys & other._expanded_keys()
+                if not clash:
+                    continue
+                _instance_key, warehouse_key, categ_key = sorted(clash)[0]
                 raise ValidationError(_(
-                    'There is already a minimum quantity rule for '
-                    'instance "%(instance)s", warehouse "%(warehouse)s" and '
-                    'category "%(category)s".',
-                    instance=rule.instance_id.name or _('All'),
-                    warehouse=rule.warehouse_id.name or _('All'),
-                    category=rule.categ_id.complete_name or _('All'),
+                    'Rule "%(other)s" already covers warehouse '
+                    '"%(warehouse)s" and category "%(category)s" for this '
+                    'Shopify instance. Merge the two rules or narrow one of '
+                    'them.',
+                    other=other.display_name,
+                    warehouse=(self.env['stock.warehouse'].browse(
+                        warehouse_key).name if warehouse_key
+                        else _('All Warehouses')),
+                    category=(self.env['product.category'].browse(
+                        categ_key).complete_name if categ_key
+                        else _('All Categories')),
                 ))
 
     # ------------------------------------------------------------------
@@ -123,11 +156,11 @@ class ShopifyMinQty(models.Model):
 
     @api.model
     def _build_index(self, instance=None):
-        """Read the rules once and return a lookup dict.
+        """Read the rules once and return a flat lookup dict.
 
-        The inventory push resolves a minimum for every (location, group)
-        pair, so the rules are read once per batch and matched in memory
-        instead of one search per group.
+        Each rule is expanded into one entry per (warehouse, category) pair it
+        covers, so resolving a minimum during the inventory push is a dict
+        lookup instead of a search per group.
 
         Returns ``{(instance_id, warehouse_id, categ_id): (min_qty,
         strategy)}`` with ``0`` standing for "empty / applies to all".
@@ -138,13 +171,20 @@ class ShopifyMinQty(models.Model):
                       ('instance_id', '=', instance.id)]
         index = {}
         for rule in self.sudo().search_read(
-                domain, ['instance_id', 'warehouse_id', 'categ_id',
+                domain, ['instance_id', 'warehouse_ids', 'categ_ids',
                          'min_qty', 'strategy']):
-            key = (rule['instance_id'] and rule['instance_id'][0] or 0,
-                   rule['warehouse_id'] and rule['warehouse_id'][0] or 0,
-                   rule['categ_id'] and rule['categ_id'][0] or 0)
-            index[key] = (rule['min_qty'],
-                          rule['strategy'] or DEFAULT_STRATEGY)
+            instance_key = rule['instance_id'] and rule['instance_id'][0] or 0
+            value = (rule['min_qty'], rule['strategy'] or DEFAULT_STRATEGY)
+            for warehouse_key in rule['warehouse_ids'] or [0]:
+                for categ_key in rule['categ_ids'] or [0]:
+                    key = (instance_key, warehouse_key, categ_key)
+                    current = index.get(key)
+                    # _check_unique_rule keeps this from happening; should two
+                    # rules still collide (a rule written around the
+                    # constraint), the stricter one wins rather than the last
+                    # one read, so the result never depends on the row order.
+                    if current is None or value[0] > current[0]:
+                        index[key] = value
         return index
 
     @api.model
