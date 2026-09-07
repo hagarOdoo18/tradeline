@@ -198,6 +198,49 @@ class SyncInventory(models.TransientModel):
         } for key, product_ids in key_products.items() if key_variants.get(key)]
 
     # ------------------------------------------------------------------
+    # minimum quantity helpers
+    # ------------------------------------------------------------------
+
+    def _get_categ_by_product(self, product_ids):
+        """Return {product_id: categ_id} for a whole batch in ONE query.
+
+        The minimum quantity is configured per product category, and a push
+        batch resolves it for every (location, group) pair - so the category
+        of every product is read once here instead of browsing per group.
+        """
+        if not product_ids:
+            return {}
+        return {
+            row['id']: (row['categ_id'] and row['categ_id'][0] or 0)
+            for row in self.env['product.product'].sudo().search_read(
+                [('id', 'in', list(product_ids))], ['categ_id'])
+        }
+
+    def _get_group_min_qty(self, product_ids, warehouse, index,
+                           categ_by_product, categ_chains):
+        """Minimum quantity that applies to one inventory group.
+
+        A group can hold variants of different categories (the same physical
+        item entered twice under different categories, for instance). The
+        strictest rule wins, so the higher minimum is the one applied - never
+        publish more than the most protective rule allows.
+        """
+        instance_id = self.shopify_instance_id.id
+        warehouse_id = warehouse.id if warehouse else 0
+        rule_model = self.env['shopify.min.qty'].sudo()
+
+        best = None
+        for product_id in product_ids:
+            categ_id = categ_by_product.get(product_id, 0)
+            min_qty, strategy = rule_model._resolve(
+                index, instance_id, warehouse_id,
+                categ_chains.get(categ_id) or ([categ_id] if categ_id else []))
+            if best is None or min_qty > best[0]:
+                best = (min_qty, strategy)
+        return best or (rule_model._resolve(index, instance_id,
+                                            warehouse_id, []))
+
+    # ------------------------------------------------------------------
     # quantity helpers
     # ------------------------------------------------------------------
 
@@ -746,6 +789,14 @@ class SyncInventory(models.TransientModel):
             for product_id in (group.get('product_ids') or [])
         })
 
+        # Minimum quantity per warehouse / product category. The rules and the
+        # products' categories are read once for the whole batch; resolution
+        # for each (location, group) pair then happens in memory.
+        rule_model = self.env['shopify.min.qty'].sudo()
+        min_qty_index = rule_model._build_index(shopify_instance)
+        categ_by_product = self._get_categ_by_product(all_product_ids)
+        categ_chains = rule_model._categ_chain(categ_by_product.values())
+
         failures = []
         pushed = 0
         retried = 0
@@ -768,7 +819,14 @@ class SyncInventory(models.TransientModel):
                         product_ids, company_id,
                         location.warehouse_id.lot_stock_id,
                         qty_by_product=qty_by_product))
-                    available = total_qty if total_qty > 3 else 0
+                    # Stock kept out of Shopify, configured per warehouse and
+                    # product category (Shopify > Configuration > Minimum
+                    # Quantities). With no rule this falls back to the
+                    # historical "more than 3 units" buffer.
+                    min_qty, strategy = self._get_group_min_qty(
+                        product_ids, location.warehouse_id, min_qty_index,
+                        categ_by_product, categ_chains)
+                    available = rule_model._apply(total_qty, min_qty, strategy)
 
                     # the same total goes to every Shopify variant of the group
                     for variant_id in variant_ids:
