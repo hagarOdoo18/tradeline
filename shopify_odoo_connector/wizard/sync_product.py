@@ -66,6 +66,37 @@ class SyncProduct(models.TransientModel):
         return barcode
 
     @api.model
+    def _primary_variant_for_sku(self, candidates, sku):
+        """The variant that *owns* `sku`, out of everything matching it.
+
+        The same code can sit in `shopify_variant_sku` on one variant and in
+        `barcode` on another, possibly on another template. The
+        `shopify_variant_sku` match wins: it is set deliberately to name this
+        item on Shopify, while a barcode is generic data that may be shared
+        or reused. Ties break on the lowest id.
+
+        This is the same priority as
+        ``sync.inventory._inventory_group_key``::
+
+            code = shopify_variant_sku or barcode
+
+        Keep the two in step - if one ranks the codes differently from the
+        other, a product can bind to one template here and be grouped under
+        another when its stock is pushed.
+
+        Without this the winner was `candidates[0]`, i.e. whatever the search
+        happened to return first - so which Odoo template a Shopify product
+        bound to depended on product ordering, and could flip when someone
+        edited a name or an internal reference.
+        """
+        if not candidates:
+            return candidates
+        code = (sku or '').strip()
+        by_sku = candidates.filtered(
+            lambda variant: (variant.shopify_variant_sku or '').strip() == code)
+        return (by_sku or candidates).sorted('id')[0]
+
+    @api.model
     def _cron_import_products_from_shopify(self):
         """Scheduled action to import products from Shopify for all active
         connected instances. For each instance a transient sync.product
@@ -153,6 +184,16 @@ class SyncProduct(models.TransientModel):
 
         Matches existing products by SKU instead of creating new ones.
 
+        A Shopify SKU is matched against `barcode` and `shopify_variant_sku`,
+        so it finds every variant carrying the code. The
+        **shopify_variant_sku** match decides which template the Shopify
+        product binds to - the same priority the inventory grouping uses (see
+        :meth:`_primary_variant_for_sku`); variants living on another template
+        are linked as well, each carrying the Shopify ids on its own template,
+        so no Odoo product that is already on Shopify is ever left looking
+        unsynced - which is what made `export_products_to_shopify` create a
+        duplicate listing for it.
+
         All lookups for the whole page are batched: two queries for the
         entire batch instead of ~3 queries per product, and one create for
         all the shopify.sync records. Writes are done with
@@ -197,6 +238,9 @@ class SyncProduct(models.TransientModel):
                             | odoo_variant)
 
         sync_vals_list = []
+        # (shopify_variant_id, product_product_id) already queued: two Shopify
+        # variants sharing one SKU must not create the same link twice.
+        seen_variant_links = set()
 
         for product in shopify_products:
             # تحقق من المزامنة المسبقة
@@ -216,11 +260,14 @@ class SyncProduct(models.TransientModel):
             ]
 
             # ٣. البحث عن product.template موجود بأي SKU من الـ variants
+            #    الأولوية لمطابقة shopify_variant_sku ثم الباركود،
+            #    وليس ترتيب البحث
             product_id = None
             for sku in shopify_skus:
-                candidates = variants_by_sku.get(sku)
-                if candidates:
-                    product_id = candidates[0].product_tmpl_id
+                primary = self._primary_variant_for_sku(
+                    variants_by_sku.get(sku), sku)
+                if primary:
+                    product_id = primary.product_tmpl_id
                     break
 
             # ٤. لو ما لقيناش منتج مطابق → skip
@@ -232,28 +279,20 @@ class SyncProduct(models.TransientModel):
                 )
                 continue
 
-            # ٥. ربط الـ template بالـ instance
-            product_id.sudo().with_context(shopify_no_export=True).write({
-                'shopify_product': product['id'],
-                'shopify_instance_id': shopify_instance.id,
-                'synced_product': True,
-            })
-
-            # ٦. تسجيل في shopify.sync على مستوى الـ template
-            sync_vals_list.append({
-                'instance_id': shopify_instance.id,
-                'shopify_product': product['id'],
-                'product_id': product_id.id,
-            })
-
-            # ٧. ربط كل variant بنظيره في أودو عبر الـ SKU
+            # ٥. ربط كل variant بنظيره في أودو عبر الـ SKU
+            #
+            # An alias variant (same code in `shopify_variant_sku`) may live on
+            # another template. It is linked too, instead of being dropped:
+            # its own template then carries the Shopify id and a shopify.sync
+            # row, so `export_products_to_shopify` no longer sees it as a new
+            # product and cannot create a duplicate listing on Shopify.
+            linked_templates = product_id
             for shopify_var in product['variants']:
                 sku = shopify_var.get('sku')
                 if not sku:
                     continue
 
-                odoo_variants = variants_by_sku.get(sku, product_obj).filtered(
-                    lambda v, tmpl=product_id: v.product_tmpl_id == tmpl)
+                odoo_variants = variants_by_sku.get(sku, product_obj)
 
                 if not odoo_variants:
                     _logger.warning(
@@ -261,6 +300,14 @@ class SyncProduct(models.TransientModel):
                         '— skipped.', sku, product_id.name
                     )
                     continue
+
+                foreign = odoo_variants.filtered(
+                    lambda v, tmpl=product_id: v.product_tmpl_id != tmpl)
+                if foreign:
+                    _logger.info(
+                        'Shopify variant SKU "%s" also matches %s on other '
+                        'template(s) than "%s" — linking them as aliases.',
+                        sku, foreign.mapped('display_name'), product_id.name)
 
                 odoo_variants.sudo().with_context(
                     shopify_no_export=True).write({
@@ -270,13 +317,36 @@ class SyncProduct(models.TransientModel):
                     })
 
                 for odoo_variant in odoo_variants:
+                    link = (str(shopify_var['id']), odoo_variant.id)
+                    if link in seen_variant_links:
+                        continue
+                    seen_variant_links.add(link)
                     sync_vals_list.append({
                         'instance_id': shopify_instance.id,
                         'shopify_product': shopify_var['id'],
                         'shopify_variant_id': shopify_var['id'],
                         'product_prod_id': odoo_variant.id,
-                        'product_id': product_id.id,
+                        # the alias's OWN template, so that template is the
+                        # one that counts as synced
+                        'product_id': odoo_variant.product_tmpl_id.id,
                     })
+                    linked_templates |= odoo_variant.product_tmpl_id
+
+            # ٦. ربط كل الـ templates المعنية بالـ instance
+            linked_templates.sudo().with_context(
+                shopify_no_export=True).write({
+                    'shopify_product': product['id'],
+                    'shopify_instance_id': shopify_instance.id,
+                    'synced_product': True,
+                })
+
+            # ٧. تسجيل في shopify.sync على مستوى الـ template
+            for template in linked_templates:
+                sync_vals_list.append({
+                    'instance_id': shopify_instance.id,
+                    'shopify_product': product['id'],
+                    'product_id': template.id,
+                })
 
         # ٨. إنشاء كل سجلات shopify.sync دفعة واحدة
         if sync_vals_list:
