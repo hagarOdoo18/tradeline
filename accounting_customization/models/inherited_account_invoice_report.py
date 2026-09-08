@@ -119,22 +119,27 @@ class AccountInvoiceReport(models.Model):
 
     def _select(self) -> SQL:
             cost_qty_expr = "(line.quantity / NULLIF(COALESCE(uom_line.factor, 1) / COALESCE(uom_template.factor, 1), 0.0))"
-            std_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
-            svl_linked_unit_cost_expr = (
-                "COALESCE(( "
-                "  SELECT ABS(SUM(svl.value) / NULLIF(SUM(svl.quantity), 0.0)) "
-                "  FROM sale_order_line_invoice_rel solir "
-                "  JOIN sale_order_line sol ON sol.id = solir.order_line_id "
-                "  JOIN stock_move sm ON sm.sale_line_id = sol.id "
-                "  JOIN stock_valuation_layer svl ON svl.stock_move_id = sm.id "
-                "  WHERE solir.invoice_line_id = line.id "
-                "    AND sm.product_id = line.product_id "
-                "    AND svl.company_id = line.company_id "
-                "    AND svl.product_id = line.product_id "
-                "    AND svl.quantity < 0 "
-                f"), {std_price_expr})"
+            standard_price_expr = "COALESCE(product.standard_price -> line.company_id::text, to_jsonb(0.0))::float"
+            # The invoice line stores the product cost captured when the invoice is
+            # posted.  Reporting must use that immutable snapshot; otherwise an old
+            # invoice's margin changes whenever today's product valuation changes.
+            # Legacy lines created before the snapshot field was populated may still
+            # contain zero, so only those lines fall back to the current product cost.
+            invoice_unit_cost_expr = (
+                f"COALESCE(NULLIF(line.standard_price, 0.0), {standard_price_expr}, 0.0)"
             )
-            untaxed_cost_expr = f"({cost_qty_expr} * ({svl_linked_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
+            # Odoo's base report embeds the current product standard_price in its
+            # original Margin and Inventory Value measures.  Rewrite those measures
+            # to use the same frozen invoice-line snapshot as the custom measures.
+            base_select = super()._select()
+            base_select = SQL(
+                base_select.code.replace(
+                    standard_price_expr,
+                    invoice_unit_cost_expr,
+                ),
+                *base_select.params,
+            )
+            untaxed_cost_expr = f"({cost_qty_expr} * ({invoice_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
             sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
             credit_note_margin_expr = f"(account_currency_table.rate * (-line.balance + {untaxed_cost_expr}))"
 
@@ -192,9 +197,9 @@ class AccountInvoiceReport(models.Model):
                 "  ELSE (line.price_total / NULLIF(COALESCE(move.invoice_currency_rate, 1), 0)) "
                 "       * account_currency_table.rate "
                 "END AS price_total_converted ",
-                super()._select(),
-                SQL(svl_linked_unit_cost_expr),
-                SQL(svl_linked_unit_cost_expr),
+                base_select,
+                SQL(invoice_unit_cost_expr),
+                SQL(invoice_unit_cost_expr),
                 SQL(str(UNTAX_COST_DIVISOR)),
                 SQL(untaxed_cost_expr),
                 SQL(untaxed_cost_expr),

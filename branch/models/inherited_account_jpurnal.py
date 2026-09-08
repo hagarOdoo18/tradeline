@@ -9,4 +9,4 @@ class AccountMove(models.Model):
     _inherit = 'account.journal'
 
 
-    branch_id = fields.Many2one('res.branch', string="Branch",readonly=False)
+    branch_id = fields.Many2one('res.branch', string="Operational Branch", readonly=False)

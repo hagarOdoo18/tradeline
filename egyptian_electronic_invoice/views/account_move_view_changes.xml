@@ -82,7 +82,7 @@
                                 <div class="o_row" invisible="use_static_signature == False">
                                     <field name="static_sign_url" widget="url"/>
                                     <button type="object" name="get_signature_value"
-                                            icon="fa-refresh" class="btn btn-dark"/>
+                                            icon="fa-refresh" title="Refresh Signature" class="btn btn-dark"/>
                                 </div>
                                 <label for="static_signature" invisible="use_static_signature == False"/>
                                 <field name="static_signature" invisible="use_static_signature == False" class="oe_edit_only" nolabel="1"

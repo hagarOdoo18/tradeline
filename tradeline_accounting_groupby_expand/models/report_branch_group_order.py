@@ -456,13 +456,13 @@ class AccountInvoiceReport(models.Model):
     _inherit = "account.invoice.report"
 
     product_search_text = fields.Char(
-        string="Product",
+        string="Product Search",
         compute="_compute_product_search_text",
         search="_search_product_search_text",
         store=False,
     )
     item_code_search_text = fields.Char(
-        string="Item Code",
+        string="Item Code Search",
         compute="_compute_item_code_search_text",
         search="_search_item_code_search_text",
         store=False,
@@ -586,7 +586,7 @@ class AccountMoveLine(models.Model):
     _inherit = "account.move.line"
 
     product_search_text = fields.Char(
-        string="Product",
+        string="Product Search",
         compute="_compute_product_search_text",
         search="_search_product_search_text",
         store=False,

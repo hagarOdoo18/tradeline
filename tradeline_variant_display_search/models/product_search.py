@@ -411,7 +411,7 @@ class ProductProduct(models.Model):
 
     product_lookup_id = fields.Many2one(
         "product.product",
-        string="Product",
+        string="Product Lookup",
         compute="_compute_product_lookup_id",
         search="_search_product_lookup_id",
         store=False,

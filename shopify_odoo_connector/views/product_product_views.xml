@@ -13,6 +13,17 @@
                 <field name="shopify_variant_sku" />
 
             </xpath>
+            <!--    push this variant's price and quantity to shopify.
+                    Added inside the existing header: product.product's form
+                    is a primary view of the template form, which already
+                    brings a header of its own - a second one would render as
+                    a second status bar.-->
+            <xpath expr="//header" position="inside">
+                <button type="object" name="sync_shopify_product"
+                        class="oe_highlight"
+                        string="Push Price &amp; Qty to Shopify"
+                        invisible="not shopify_sync_ids"/>
+            </xpath>
         </field>
     </record>
     <!--    action to view shopify product variants-->

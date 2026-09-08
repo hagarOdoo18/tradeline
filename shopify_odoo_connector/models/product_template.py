@@ -21,8 +21,19 @@
 #
 ################################################################################
 import json
+import logging
 import requests
 from odoo import fields, models
+
+_logger = logging.getLogger(__name__)
+
+# Only these fields are mirrored to Shopify; a write that touches none of
+# them never triggers an outbound request.
+SHOPIFY_SYNCED_FIELDS = {
+    'type', 'qty_available', 'default_code', 'barcode', 'name',
+    'description_sale', 'list_price',
+}
+SHOPIFY_TIMEOUT = 10
 
 
 class ProductTemplate(models.Model):
@@ -136,63 +147,82 @@ class ProductTemplate(models.Model):
                     vals for vals in create_list)
 
     def write(self, vals):
-        super().write(vals)
-        if self.shopify_sync_ids:
-            for config in self.env['shopify.configuration'].search(
-                    [('company_id', '=', self.env.company.id)]):
-                if self.shopify_sync_ids[0].shopify_product:
-                    product_url = ('https://%s/admin/api/%s/products/'
-                                   '%s.json') % (
-                        config.shop_name, config.version,
-                        self.shopify_sync_ids[0].shopify_product)
-                    headers = config._get_shopify_headers()
-                    for product in self:
-                        variants = []
-                        for line in self.env['shopify.sync'].search(
-                                [('product_id', '=', product.id)]):
-                            variant = {'id': line.shopify_variant_id}
-                            if 'type' in vals.keys():
-                                variant['sku'] = (
-                                    'Storable Product'
-                                    if vals['type'] == 'product' else
-                                    'Consumable'
-                                    if vals['type'] == 'consu' else 'Service')
-                            if 'qty_available' in vals.keys():
-                                variant['inventory_quantity'] = int(
-                                    vals['qty_available'])
-                            if 'default_code' in vals.keys():
-                                variant['sku'] = vals['default_code']
-                            if 'barcode' in vals.keys():
-                                variant['barcode'] = vals['barcode']
-                            if 'list_price' in vals:
-                                variant['price'] = vals['list_price'] + sum(
-                                    line.product_prod_id.
-                                    product_template_variant_value_ids.mapped(
-                                        'price_extra')
-                                ) if line.product_prod_id else vals[
-                                    'list_price']
-                            variants.append(variant)
-                            line_vals = {}
-                            if 'type' in vals.keys():
-                                line_vals['product_type'] = (
-                                    'Storable Product'
-                                    if vals['type'] == 'product' else
-                                    'Consumable'
-                                    if vals['type'] == 'consu' else 'Service')
-                            if 'qty_available' in vals.keys():
-                                line_vals['inventory_quantity'] = int(
-                                    vals['qty_available'])
-                            if 'default_code' in vals.keys():
-                                line_vals['sku'] = vals['default_code']
-                            if 'barcode' in vals.keys():
-                                line_vals['barcode'] = vals['barcode']
-                            if 'name' in vals.keys():
-                                line_vals['title'] = vals['name']
-                            if 'description_sale' in vals.keys():
-                                line_vals['body_html'] = vals[
-                                    'description_sale']
-                            line_vals['variants'] = variants
-                            if any(key != 'id' for key in line_vals):
-                                payload = json.dumps({'product': line_vals})
-                                requests.request('PUT', product_url,
-                                                 headers=headers, data=payload)
+        """Write the record first, then push the change to Shopify.
+
+        ``super().write()`` is called unconditionally and its result
+        returned, so an ORM write is never conditional on a third-party
+        side effect. The Shopify push is skipped entirely when no synced
+        field changed, or when the caller passes ``shopify_no_export=True``
+        (used by the import wizard, which must not echo data back).
+        """
+        res = super().write(vals)
+        if self.env.context.get('shopify_no_export'):
+            return res
+        if not SHOPIFY_SYNCED_FIELDS.intersection(vals):
+            return res
+        for product in self:
+            try:
+                product._push_shopify_product(vals)
+            except Exception:
+                _logger.exception(
+                    'Failed to push product %s to Shopify', product.display_name)
+        return res
+
+    def _push_shopify_product(self, vals):
+        """Send one PUT per Shopify instance for this template."""
+        self.ensure_one()
+        sync_lines = self.shopify_sync_ids
+        if not sync_lines or not sync_lines[0].shopify_product:
+            return
+        configs = self.env['shopify.configuration'].search(
+            [('company_id', '=', self.env.company.id)])
+        if not configs:
+            return
+
+        variants = []
+        for line in sync_lines:
+            variant = {'id': line.shopify_variant_id}
+            if 'type' in vals:
+                variant['sku'] = (
+                    'Storable Product' if vals['type'] == 'product'
+                    else 'Consumable' if vals['type'] == 'consu' else 'Service')
+            if 'qty_available' in vals:
+                variant['inventory_quantity'] = int(vals['qty_available'])
+            if 'default_code' in vals:
+                variant['sku'] = vals['default_code']
+            if 'barcode' in vals:
+                variant['barcode'] = vals['barcode']
+            if 'list_price' in vals:
+                variant['price'] = vals['list_price'] + sum(
+                    line.product_prod_id.product_template_variant_value_ids
+                    .mapped('price_extra')
+                ) if line.product_prod_id else vals['list_price']
+            variants.append(variant)
+
+        line_vals = {}
+        if 'type' in vals:
+            line_vals['product_type'] = (
+                'Storable Product' if vals['type'] == 'product'
+                else 'Consumable' if vals['type'] == 'consu' else 'Service')
+        if 'qty_available' in vals:
+            line_vals['inventory_quantity'] = int(vals['qty_available'])
+        if 'default_code' in vals:
+            line_vals['sku'] = vals['default_code']
+        if 'barcode' in vals:
+            line_vals['barcode'] = vals['barcode']
+        if 'name' in vals:
+            line_vals['title'] = vals['name']
+        if 'description_sale' in vals:
+            line_vals['body_html'] = vals['description_sale']
+        if not line_vals:
+            return
+        line_vals['variants'] = variants
+        payload = json.dumps({'product': line_vals})
+
+        for config in configs:
+            product_url = 'https://%s/admin/api/%s/products/%s.json' % (
+                config.shop_name, config.version,
+                sync_lines[0].shopify_product)
+            requests.request('PUT', product_url,
+                             headers=config._get_shopify_headers(),
+                             data=payload, timeout=SHOPIFY_TIMEOUT)

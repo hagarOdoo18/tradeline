@@ -83,12 +83,12 @@ class SaleOrderLine(models.Model):
         readonly=True,
     )
     family_name = fields.Char(
-        string="Family",
+        string="Family Name",
         compute="_compute_family_name",
         readonly=True,
     )
     warranty_name = fields.Char(
-        string="Warranty",
+        string="Warranty Name",
         compute="_compute_warranty_name",
         readonly=True,
     )
@@ -115,25 +115,25 @@ class SaleOrderLine(models.Model):
         readonly=True,
     )
     categ_product = fields.Char(
-        string="Product Category",
+        string="Category Path",
         related="product_id.categ_id.complete_name",
         store=True,
         readonly=True,
     )
     product_categ_id = fields.Many2one(
         comodel_name="product.category",
-        string="Product Category",
+        string="Reporting Category",
         related="product_id.categ_id",
         store=True,
         readonly=True,
     )
     description_product = fields.Html(
-        string="Description",
+        string="Product Description",
         related="product_id.description",
         readonly=True,
     )
     item_code_product = fields.Char(
-        string="Item Code",
+        string="Product Item Code",
         related="product_id.barcode",
         store=True,
         readonly=True,
@@ -145,13 +145,13 @@ class SaleOrderLine(models.Model):
         readonly=True,
     )
     quantity_product = fields.Float(
-        string="Quantity",
+        string="Reporting Quantity",
         related="product_uom_qty",
         store=True,
         readonly=True,
     )
     amount_total_line = fields.Monetary(
-        string="Total",
+        string="Reporting Total",
         related="price_total",
         currency_field="currency_id",
         store=True,
@@ -164,7 +164,7 @@ class SaleOrderLine(models.Model):
         readonly=True,
     )
     status_sale = fields.Selection(
-        string="Invoice Status",
+        string="Reporting Invoice Status",
         related="invoice_status",
         store=True,
         readonly=True,

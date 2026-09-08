@@ -23,7 +23,7 @@ class ResPartnerInherit(models.Model):
                                     selection=[('person', 'Individual'), ('company', 'Company')],
                                     )
     company_size = fields.Selection(
-        string='Employees',
+        string='Company Size',
         selection=[
             ('small', '21 small : up to 250'),
             ('medium', '21 medium: 250-1000'),

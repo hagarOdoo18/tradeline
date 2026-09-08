@@ -20,7 +20,7 @@
                 <xpath expr="//header/button[@name='button_validate'][1]" position="before">
                     <button
                         name="action_open_request_scrap_wizard"
-                        string="Request Scrap"
+                        string="Service Request Scrap"
                         type="object"
                         class="btn-secondary"
                         groups="service_scrap_control.group_return_picking_internal"

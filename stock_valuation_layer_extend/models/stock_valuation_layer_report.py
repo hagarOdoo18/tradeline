@@ -21,7 +21,7 @@ class StockValuationLayerReport(models.Model):
     cost_method       = fields.Char(                        string='Cost Method',       readonly=True)
     # currency_id       = fields.Many2one('res.currency',     string='Currency',          readonly=True)
     product_search_text = fields.Char(
-        string='Product',
+        string='Product Search',
         compute='_compute_product_search_text',
         search='_search_product_search_text',
         store=False,

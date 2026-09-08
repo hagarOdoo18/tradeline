@@ -26,7 +26,7 @@ class AccountJournal(models.Model):
     """inherit account.journal to add fields and methods"""
     _inherit = 'account.journal'
 
-    sequence_id = fields.Many2one('ir.sequence', string='Sequence',
+    sequence_id = fields.Many2one('ir.sequence', string='Journal Sequence',
                                   help='Select the sequence or create one')
     re_sequence_id = fields.Many2one('ir.sequence', string='Refund Sequence',
                                   help='Select the sequence or create one')

@@ -45,6 +45,7 @@
         'views/product_product_views.xml',
         'views/log_message_views.xml',
         'views/shopify_sync_views.xml',
+        'views/shopify_min_qty_views.xml',
         'views/shopify_collection_views.xml',
         'views/product_pricelist_views.xml',
         'views/job_cron_views.xml',

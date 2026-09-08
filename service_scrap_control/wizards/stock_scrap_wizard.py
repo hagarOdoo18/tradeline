@@ -3,12 +3,12 @@ from odoo.exceptions import UserError
 
 
 class StockScrapWizard(models.TransientModel):
-    _name = 'stock.scrap.wizard'
+    _name = 'service.stock.scrap.wizard'
     _description = 'Service Scrap Wizard'
 
     picking_id = fields.Many2one('stock.picking', required=True)
     vendor = fields.Boolean()
-    line_ids = fields.One2many('scrap.line', 'wizard_id', string='Scrap Lines')
+    line_ids = fields.One2many('service.scrap.line', 'wizard_id', string='Scrap Lines')
 
     @api.model
     def _line_qty_from_move_line(self, move_line):
@@ -246,10 +246,10 @@ class StockScrapWizard(models.TransientModel):
 
 
 class ScrapLine(models.TransientModel):
-    _name = 'scrap.line'
+    _name = 'service.scrap.line'
     _description = 'Service Scrap Wizard Line'
 
-    wizard_id = fields.Many2one('stock.scrap.wizard', required=True, ondelete='cascade')
+    wizard_id = fields.Many2one('service.stock.scrap.wizard', required=True, ondelete='cascade')
     product_id = fields.Many2one('product.product')
     qty = fields.Float(string='Quantity', required=True, digits='Product Unit of Measure')
     product_uom_id = fields.Many2one('uom.uom')

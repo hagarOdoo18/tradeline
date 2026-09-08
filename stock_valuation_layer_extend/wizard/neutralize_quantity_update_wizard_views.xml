@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="stock_valuation_layer_neutralize_wizard_form" model="ir.ui.view">
+        <field name="name">stock.valuation.layer.neutralize.wizard.form</field>
+        <field name="model">stock.valuation.layer.neutralize.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Neutralize Erroneous Quantity Update">
+                <sheet>
+                    <div class="alert alert-warning" role="alert">
+                        This creates an auditable valuation and accounting reversal. It does not change physical stock and does not edit the original posted layer.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="source_svl_id"/>
+                            <field name="product_id"/>
+                            <field name="lot_id"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
+                        </group>
+                        <group string="Current balances">
+                            <field name="current_physical_qty"/>
+                            <field name="current_valuation_qty"/>
+                            <field name="current_valuation_value"/>
+                        </group>
+                    </group>
+                    <group string="Correction preview">
+                        <group>
+                            <field name="correction_quantity"/>
+                            <field name="correction_value"/>
+                        </group>
+                        <group>
+                            <field name="resulting_valuation_qty"/>
+                            <field name="resulting_valuation_value"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="reason" placeholder="Example: Wrong serial was returned and resold; the extra quantity update must be neutralized."/>
+                        <field name="confirmation"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" type="object" string="Create Correction" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_stock_valuation_layer_neutralize" model="ir.actions.act_window">
+        <field name="name">Neutralize Erroneous Quantity Update</field>
+        <field name="res_model">stock.valuation.layer.neutralize.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="stock_valuation_layer_neutralize_wizard_form"/>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="stock_account.model_stock_valuation_layer"/>
+        <field name="binding_view_types">list</field>
+        <field name="groups_id" eval="[(4, ref('stock_valuation_layer_extend.group_stock_valuation_quantity_correction'))]"/>
+    </record>
+</odoo>

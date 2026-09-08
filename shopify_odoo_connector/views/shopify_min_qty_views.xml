@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!--    list view for shopify.min.qty-->
+    <record id="shopify_min_qty_view_list" model="ir.ui.view">
+        <field name="name">shopify.min.qty.view.list</field>
+        <field name="model">shopify.min.qty</field>
+        <field name="arch" type="xml">
+            <list string="Minimum Quantities" editable="bottom">
+                <field name="warehouse_ids" widget="many2many_tags"
+                       placeholder="All Warehouses"
+                       options="{'no_create': True}"/>
+                <field name="categ_ids" widget="many2many_tags"
+                       placeholder="All Categories"
+                       options="{'no_create': True}"/>
+                <field name="min_qty" sum="Total"/>
+                <field name="strategy"/>
+                <field name="instance_id"
+                       placeholder="All Instances"
+                       options="{'no_create': True}" optional="show"/>
+                <field name="company_id" column_invisible="1"/>
+                <field name="active" widget="boolean_toggle" optional="hide"/>
+            </list>
+        </field>
+    </record>
+    <!--    form view for shopify.min.qty-->
+    <record id="shopify_min_qty_view_form" model="ir.ui.view">
+        <field name="name">shopify.min.qty.view.form</field>
+        <field name="model">shopify.min.qty</field>
+        <field name="arch" type="xml">
+            <form string="Minimum Quantity">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <group>
+                        <group string="Applies To">
+                            <field name="warehouse_ids"
+                                   widget="many2many_tags"
+                                   placeholder="All Warehouses"
+                                   options="{'no_create': True}"/>
+                            <field name="categ_ids"
+                                   widget="many2many_tags"
+                                   placeholder="All Categories"
+                                   options="{'no_create': True}"/>
+                            <field name="instance_id"
+                                   placeholder="All Instances"
+                                   options="{'no_create': True}"/>
+                            <field name="company_id" invisible="1"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group string="Quantity Held Back">
+                            <field name="min_qty"/>
+                            <field name="strategy" widget="radio"/>
+                        </group>
+                    </group>
+                    <div class="text-muted mt-3">
+                        <p>
+                            The rule applies to every warehouse and category
+                            listed above. Leave a list empty to make it apply
+                            to all of them - a rule with Warehouses,
+                            Categories and Instance all empty is the global
+                            default.
+                        </p>
+                        <p>
+                            When several rules match a product, the most
+                            specific one wins: the instance first, then the
+                            warehouse, then the closest product category
+                            (a listed category also covers its child
+                            categories).
+                        </p>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <!--    search view for shopify.min.qty-->
+    <record id="shopify_min_qty_view_search" model="ir.ui.view">
+        <field name="name">shopify.min.qty.view.search</field>
+        <field name="model">shopify.min.qty</field>
+        <field name="arch" type="xml">
+            <search string="Minimum Quantities">
+                <field name="warehouse_ids"/>
+                <field name="categ_ids"/>
+                <field name="instance_id"/>
+                <filter name="filter_all_warehouses" string="All Warehouses"
+                        domain="[('warehouse_ids', '=', False)]"/>
+                <filter name="filter_all_categories" string="All Categories"
+                        domain="[('categ_ids', '=', False)]"/>
+                <separator/>
+                <filter name="filter_archived" string="Archived"
+                        domain="[('active', '=', False)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_strategy" string="Strategy"
+                            context="{'group_by': 'strategy'}"/>
+                    <filter name="group_instance" string="Shopify Instance"
+                            context="{'group_by': 'instance_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <!--    action for shopify.min.qty-->
+    <record id="shopify_min_qty_action" model="ir.actions.act_window">
+        <field name="name">Minimum Quantities</field>
+        <field name="res_model">shopify.min.qty</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="shopify_min_qty_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Set a minimum quantity per warehouse and product category
+            </p>
+            <p>
+                Stock at or below the minimum is not advertised on Shopify,
+                so the last units stay for the shops instead of being
+                oversold online. One rule can list several warehouses and
+                several categories; with no rule at all a minimum of 3
+                applies.
+            </p>
+        </field>
+    </record>
+    <!--    menu for shopify.min.qty-->
+    <menuitem id="shopify_min_qty_menu" name="Minimum Quantities"
+              parent="shopify_odoo_connector.shopify_configuration_menu_root"
+              action="shopify_min_qty_action"
+              sequence="20"/>
+</odoo>

@@ -21,9 +21,18 @@
 #
 ################################################################################
 import json
+import logging
 import requests
 from odoo import fields, models, _
 from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
+
+# Partner fields that are mirrored to Shopify. Only writes touching one of
+# these trigger a sync request.
+SHOPIFY_SYNCED_FIELDS = (
+    'name', 'email', 'phone', 'street', 'city', 'country_id', 'zip',
+)
 
 
 class ResPartners(models.Model):
@@ -90,47 +99,78 @@ class ResPartners(models.Model):
                 })
 
     def write(self, vals):
-        for config in self.env['shopify.configuration'].search(
-                [('company_id', '=', self.env.company.id)]):
-            for rec in self.shopify_sync_ids:
-                if rec.customer_id:
-                    store_name = config.shop_name
-                    version = config.version
-                    partner_url = ('https://%s/admin/api/%s/customers/'
-                                   '%s.json') % (
-                                      store_name, version, rec.shopify_customer_ref)
-                    address_url = ('https://%s/admin/api/%s/customers/'
-                                   '%s/addresses.json') % (
-                                      store_name, version, rec.shopify_customer_ref)
-                    headers = config._get_shopify_headers()
-                    partner = requests.request('GET', address_url,
-                                               headers=headers)
-                    line_vals = {'id': rec.shopify_customer_ref}
+        """Write the partner, then push the change to Shopify.
 
-                    addresses = partner.json().get('addresses', [])
-                    address = {'id': addresses[0]['id']} if addresses else {}
-                    if 'name' in vals.keys():
-                        line_vals['first_name'] = vals['name']
-                        address['first_name'] = vals['name']
-                    if 'email' in vals.keys():
-                        line_vals['email'] = vals['email']
-                    if 'phone' in vals.keys():
-                        line_vals['phone'] = ''.join(
-                            c for c in vals['phone'] if c.isdigit())
-                        address['phone'] = ''.join(
-                            c for c in vals['phone'] if c.isdigit())
-                    if 'street' in vals.keys():
-                        address['address1'] = vals['street']
-                    if 'city' in vals.keys():
-                        address['city'] = vals['city']
-                    if 'country_id' in vals.keys():
-                        address['country'] = self.env['res.country'].browse(
-                            [vals['country_id']]).name
-                    if 'zip' in vals.keys():
-                        address['zip'] = vals['zip']
-                    if any(key != 'id' for key in line_vals):
-                        line_vals['addresses'] = [address]
-                        payload = json.dumps({'customer': line_vals})
-                        requests.request('PUT', partner_url,
-                                         headers=headers, data=payload)
-            return super().write(vals)
+        The Odoo write is always performed first and unconditionally: the
+        Shopify sync is a side effect and must never be able to skip or
+        block saving the record.
+        """
+        res = super().write(vals)
+        if any(field in vals for field in SHOPIFY_SYNCED_FIELDS):
+            self._sync_shopify_customer_updates(vals)
+        return res
+
+    def _sync_shopify_customer_updates(self, vals):
+        """Push updated partner data to every Shopify instance it is
+        synced with. Failures are logged and never block the Odoo write."""
+        configs = self.env['shopify.configuration'].sudo().search(
+            [('company_id', '=', self.env.company.id)])
+        if not configs:
+            return
+        for config in configs:
+            for partner in self:
+                for rec in partner.shopify_sync_ids:
+                    if not rec.customer_id or not rec.shopify_customer_ref:
+                        continue
+                    if rec.instance_id and rec.instance_id != config:
+                        continue
+                    try:
+                        partner._push_shopify_customer(config, rec, vals)
+                    except Exception:
+                        _logger.exception(
+                            'Shopify sync failed for partner %s (id %s) on '
+                            'instance %s; the Odoo record was saved anyway.',
+                            partner.display_name, partner.id, config.display_name)
+
+    def _push_shopify_customer(self, config, rec, vals):
+        """Send one customer update to Shopify."""
+        self.ensure_one()
+        store_name = config.shop_name
+        version = config.version
+        partner_url = ('https://%s/admin/api/%s/customers/'
+                       '%s.json') % (
+                          store_name, version, rec.shopify_customer_ref)
+        address_url = ('https://%s/admin/api/%s/customers/'
+                       '%s/addresses.json') % (
+                          store_name, version, rec.shopify_customer_ref)
+        headers = config._get_shopify_headers()
+        partner = requests.request('GET', address_url,
+                                   headers=headers, timeout=30)
+        line_vals = {'id': rec.shopify_customer_ref}
+
+        addresses = partner.json().get('addresses', [])
+        address = {'id': addresses[0]['id']} if addresses else {}
+        if 'name' in vals.keys():
+            line_vals['first_name'] = vals['name']
+            address['first_name'] = vals['name']
+        if 'email' in vals.keys():
+            line_vals['email'] = vals['email']
+        if 'phone' in vals.keys():
+            line_vals['phone'] = ''.join(
+                c for c in vals['phone'] or '' if c.isdigit())
+            address['phone'] = ''.join(
+                c for c in vals['phone'] or '' if c.isdigit())
+        if 'street' in vals.keys():
+            address['address1'] = vals['street']
+        if 'city' in vals.keys():
+            address['city'] = vals['city']
+        if 'country_id' in vals.keys():
+            address['country'] = self.env['res.country'].browse(
+                [vals['country_id']]).name
+        if 'zip' in vals.keys():
+            address['zip'] = vals['zip']
+        if any(key != 'id' for key in line_vals):
+            line_vals['addresses'] = [address]
+            payload = json.dumps({'customer': line_vals})
+            requests.request('PUT', partner_url,
+                             headers=headers, data=payload, timeout=30)

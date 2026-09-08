@@ -15,6 +15,10 @@
                 <field name="vendor_id"         optional="show"  string="Vendor"/>
                 <field name="last_po_cost"      optional="show"  string="Last PO Cost"/>
                 <field name="available_qty"     optional="show"  string="Available Qty"/>
+                <field name="is_quantity_neutralization" optional="hide"/>
+                <field name="quantity_neutralization_source_id" optional="hide"/>
+                <field name="quantity_neutralization_user_id" optional="hide"/>
+                <field name="quantity_neutralization_date" optional="hide"/>
             </xpath>
 
         </field>
