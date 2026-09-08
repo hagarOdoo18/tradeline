@@ -1,0 +1,223 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* tradeline_ai_invoice_chat
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 18.0\n"
+"Report-Msgid-Bugs-To: \n"
+"Last-Translator: Tradeline\n"
+"Language-Team: Arabic\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 && n%100<=10 ? 3 : n%100>=11 ? 4 : 5;\n"
+
+#. module: tradeline_ai_invoice_chat
+msgid "AI Assistant"
+msgstr "المساعد الذكي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Ask the Assistant"
+msgstr "اسأل المساعد"
+
+#. module: tradeline_ai_invoice_chat
+msgid "All Sessions"
+msgstr "كل المحادثات"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Tradeline AI Assistant"
+msgstr "مساعد ترد لاين الذكي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Chat Sessions"
+msgstr "جلسات المحادثة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Session Name"
+msgstr "اسم المحادثة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Messages"
+msgstr "الرسائل"
+
+#. module: tradeline_ai_invoice_chat
+msgid "New Chat"
+msgstr "محادثة جديدة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Chat"
+msgstr "محادثة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Clear this chat"
+msgstr "مسح هذه المحادثة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Clear messages"
+msgstr "مسح الرسائل"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Clear"
+msgstr "مسح"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Quick asks"
+msgstr "أسئلة سريعة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Quick questions"
+msgstr "أسئلة سريعة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Copy answer"
+msgstr "نسخ الإجابة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Copied to clipboard."
+msgstr "تم النسخ."
+
+#. module: tradeline_ai_invoice_chat
+msgid "Could not copy — select the text manually."
+msgstr "تعذّر النسخ — يرجى تحديد النص يدوياً."
+
+#. module: tradeline_ai_invoice_chat
+msgid "Chat cleared."
+msgstr "تم مسح المحادثة."
+
+#. module: tradeline_ai_invoice_chat
+msgid "Good morning"
+msgstr "صباح الخير"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Good afternoon"
+msgstr "مساء الخير"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Good evening"
+msgstr "مساء الخير"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Sorry — I couldn't reach the server just now. Please try again in a moment."
+msgstr "عذراً، تعذّر الوصول إلى الخادم الآن. برجاء المحاولة بعد لحظات."
+
+#. module: tradeline_ai_invoice_chat
+msgid "Looking through your data…"
+msgstr "أبحث في بياناتك…"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Ask about anything in Odoo — in English or Arabic"
+msgstr "اسأل عن أي شيء في أودو — بالعربية أو بالإنجليزية"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Ask me about sales, invoices, payments, stock, POS, purchases, products or people — in plain English or Arabic."
+msgstr "اسألني عن المبيعات، الفواتير، المدفوعات، المخزون، نقاط البيع، المشتريات، المنتجات أو الموظفين — بالعربية أو بالإنجليزية."
+
+#. module: tradeline_ai_invoice_chat
+msgid "No chats yet. Ask me something — I keep every conversation here."
+msgstr "لا توجد محادثات بعد. اسألني أي شيء — كل المحادثات تُحفظ هنا."
+
+#. module: tradeline_ai_invoice_chat
+msgid "Invoicing"
+msgstr "الفوترة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Sales"
+msgstr "المبيعات"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Inventory & POS"
+msgstr "المخزون ونقاط البيع"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Invoice summary for this month"
+msgstr "ملخص الفواتير هذا الشهر"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Invoice summary this month"
+msgstr "ملخص فواتير هذا الشهر"
+
+#. module: tradeline_ai_invoice_chat
+msgid "List overdue invoices"
+msgstr "الفواتير المتأخرة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Overdue invoices"
+msgstr "الفواتير المتأخرة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Payments by branch and journal"
+msgstr "المدفوعات حسب الفرع واليومية"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Top selling products this year"
+msgstr "أعلى المنتجات مبيعاً هذا العام"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Top products this year"
+msgstr "أفضل المنتجات هذا العام"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Top 10 customers this quarter"
+msgstr "أعلى ١٠ عملاء هذا الربع"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Sales orders by status this month"
+msgstr "أوامر البيع حسب الحالة هذا الشهر"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Stock on hand per product"
+msgstr "المخزون المتاح لكل منتج"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Stock on hand"
+msgstr "المخزون المتاح"
+
+#. module: tradeline_ai_invoice_chat
+msgid "POS sales by session today"
+msgstr "مبيعات نقاط البيع حسب الجلسة اليوم"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Purchase orders by vendor last month"
+msgstr "أوامر الشراء حسب المورد الشهر الماضي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "AI Provider"
+msgstr "مزوّد الذكاء الاصطناعي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "AI API Key"
+msgstr "مفتاح واجهة الذكاء الاصطناعي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "API Key"
+msgstr "مفتاح الواجهة"
+
+#. module: tradeline_ai_invoice_chat
+msgid "AI Model"
+msgstr "نموذج الذكاء الاصطناعي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Model"
+msgstr "النموذج"
+
+#. module: tradeline_ai_invoice_chat
+msgid "API Base URL"
+msgstr "رابط الواجهة الأساسي"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Data Scope"
+msgstr "نطاق البيانات"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Max Rows per Query"
+msgstr "أقصى عدد صفوف لكل استعلام"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Allow Any Model"
+msgstr "السماح بأي نموذج بيانات"
+
+#. module: tradeline_ai_invoice_chat
+msgid "Additional Models"
+msgstr "نماذج إضافية"
