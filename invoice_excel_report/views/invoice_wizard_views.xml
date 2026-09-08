@@ -4,7 +4,13 @@
         <field name="name">account.invoice.duo.wizard.form</field>
         <field name="model">account.invoice.duo.wizard</field>
         <field name="arch" type="xml">
-            <form string="Account Invoice Excel Report">
+            <form string="Account Invoice Report">
+                <header>
+                    <button string="View Report" type="object" name="action_view_report"
+                            class="btn-primary"/>
+                    <button string="Generate Excel" type="object"
+                            name="action_account_invoice_search"/>
+                </header>
                 <group>
                     <field name="partner_id"/>
                     <field name="branch_id"/>
@@ -13,8 +19,42 @@
                     <field name="date_from"/>
                     <field name="date_to"/>
                 </group>
+                <div class="alert alert-info" role="alert" invisible="not report_line_ids">
+                    Payment Amount can include report-only attribution from the original invoice.
+                    Amount Due is the report balance; Accounting Amount Due remains Odoo's balance.
+                    This report does not create or change accounting entries.
+                </div>
+                <field name="report_summary" nolabel="1" readonly="1"
+                       invisible="not report_line_ids"/>
+                <field name="report_line_ids" nolabel="1" readonly="1"
+                       invisible="not report_line_ids">
+                    <list create="0" edit="0" delete="0"
+                          decoration-info="is_attributed">
+                        <field name="sequence"/>
+                        <field name="invoice_date"/>
+                        <field name="invoice_id"/>
+                        <field name="branch_name" optional="show"/>
+                        <field name="customer_name"/>
+                        <field name="phone" optional="hide"/>
+                        <field name="payment_label"/>
+                        <field name="payment_amount"/>
+                        <field name="reference" optional="show"/>
+                        <field name="tax_excluded" optional="hide"/>
+                        <field name="tax_14" optional="hide"/>
+                        <field name="subtotal_with_tax_14" optional="hide"/>
+                        <field name="tax_1" optional="hide"/>
+                        <field name="tax_2" optional="hide"/>
+                        <field name="tax_3" optional="hide"/>
+                        <field name="tax_5" optional="hide"/>
+                        <field name="total_net"/>
+                        <field name="report_amount_due"/>
+                        <field name="accounting_amount_due"/>
+                        <field name="currency_id"/>
+                        <field name="allocation_basis"/>
+                        <field name="is_attributed" column_invisible="1"/>
+                    </list>
+                </field>
                 <footer>
-                    <button string="Generate Excel" type="object" name="action_account_invoice_search" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
                   <group  invisible="not excel_file">
@@ -28,7 +68,7 @@
 
 
     <record id="action_account_invoice_duo_wizard" model="ir.actions.act_window">
-        <field name="name">Account Invoice Excel Report</field>
+        <field name="name">Account Invoice Report</field>
         <field name="res_model">account.invoice.duo.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
