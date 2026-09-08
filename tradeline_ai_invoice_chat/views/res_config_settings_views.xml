@@ -1,104 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <!-- Odoo 17/18 settings DSL: <app> / <block> / <setting>.
+         The parent MUST be base_setup.res_config_settings_view_form (a view);
+         base_setup.action_general_configuration is an action, not a view. -->
     <record id="res_config_settings_view_ai_chat" model="ir.ui.view">
-        <field name="name">res.config.settings.view.tradeline.ai.assistant</field>
+        <field name="name">res.config.settings.view.form.inherit.tradeline.ai</field>
         <field name="model">res.config.settings</field>
-        <field name="inherit_id" ref="base_setup.action_general_configuration"/>
+        <field name="priority" eval="90"/>
+        <field name="inherit_id" ref="base_setup.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//div[hasclass('o_settings_container')]" position="inside">
-                <div class="app_settings_block"
+            <xpath expr="//form" position="inside">
+                <app string="Tradeline AI Assistant"
                      data-string="Tradeline AI Assistant"
-                     string="Tradeline AI Assistant"
-                     data-key="tradeline_ai_invoice_chat">
-                    <h2>AI Provider</h2>
-                    <div class="row mt16 o_settings_container">
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane"/>
-                            <div class="o_setting_right_pane">
-                                <span class="o_form_label">API Key</span>
-                                <div class="text-muted">
-                                    Key of an OpenAI-compatible provider (sk-...).
-                                    Without it the assistant only returns raw pinned reports.
-                                </div>
-                                <div class="content-group mt8">
-                                    <field name="ai_invoice_chat_openai_key"
-                                           password="True"
-                                           placeholder="sk-..."/>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane"/>
-                            <div class="o_setting_right_pane">
-                                <span class="o_form_label">Model</span>
-                                <div class="text-muted">
-                                    Must support tool calling, e.g. gpt-4o-mini or gpt-4o.
-                                </div>
-                                <div class="content-group mt8">
-                                    <field name="ai_invoice_chat_openai_model"
-                                           placeholder="gpt-4o-mini"/>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane"/>
-                            <div class="o_setting_right_pane">
-                                <span class="o_form_label">API Base URL</span>
-                                <div class="text-muted">
-                                    Change to use Azure OpenAI, DeepSeek, Groq or a local gateway.
-                                </div>
-                                <div class="content-group mt8">
-                                    <field name="ai_invoice_chat_base_url"
-                                           placeholder="https://api.openai.com/v1"/>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                     name="tradeline_ai_invoice_chat">
 
-                    <h2>Data Scope</h2>
-                    <div class="row mt16 o_settings_container">
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane">
-                                <field name="ai_invoice_chat_allow_all_models"/>
-                            </div>
-                            <div class="o_setting_right_pane">
-                                <label for="ai_invoice_chat_allow_all_models"/>
-                                <div class="text-muted">
-                                    Let the assistant reach every model, not only the curated
-                                    business catalog. Technical and credential models stay
-                                    blocked, and each user only ever sees what their own
-                                    access rights allow.
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane"/>
-                            <div class="o_setting_right_pane">
-                                <span class="o_form_label">Max Rows per Query</span>
-                                <div class="text-muted">
-                                    Row/group ceiling for one query (max 500).
-                                </div>
-                                <div class="content-group mt8">
-                                    <field name="ai_invoice_chat_max_rows"/>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-12 col-lg-6 o_setting_box">
-                            <div class="o_setting_left_pane"/>
-                            <div class="o_setting_right_pane">
-                                <span class="o_form_label">Additional Models</span>
-                                <div class="text-muted">
-                                    Comma-separated technical names to add to the catalog.
-                                </div>
-                                <div class="content-group mt8">
-                                    <field name="ai_invoice_chat_extra_models"
-                                           placeholder="mrp.production, fleet.vehicle"/>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                    <block title="AI Provider" name="tradeline_ai_provider">
+                        <setting string="API Key"
+                                 help="Secret key of an OpenAI-compatible provider (sk-...). Without it the assistant falls back to Odoo IAP, then to raw pinned reports.">
+                            <field name="ai_invoice_chat_openai_key"
+                                   password="True"
+                                   placeholder="sk-..."/>
+                        </setting>
+                        <setting string="Model"
+                                 help="Must support tool calling, e.g. gpt-4o-mini or gpt-4o.">
+                            <field name="ai_invoice_chat_openai_model"
+                                   placeholder="gpt-4o-mini"/>
+                        </setting>
+                        <setting string="API Base URL"
+                                 help="Change it to use Azure OpenAI, DeepSeek, Groq or a local gateway.">
+                            <field name="ai_invoice_chat_base_url"
+                                   placeholder="https://api.openai.com/v1"/>
+                        </setting>
+                    </block>
+
+                    <block title="Data Scope" name="tradeline_ai_scope">
+                        <setting string="Allow Any Model"
+                                 help="Let the assistant reach every model, not only the curated business catalog. Technical and credential models stay blocked, and each user only ever sees what their own access rights allow.">
+                            <field name="ai_invoice_chat_allow_all_models"/>
+                        </setting>
+                        <setting string="Max Rows per Query"
+                                 help="Row/group ceiling for a single query (hard maximum: 500).">
+                            <field name="ai_invoice_chat_max_rows"/>
+                        </setting>
+                        <setting string="Additional Models"
+                                 help="Comma-separated technical model names to add to the catalog.">
+                            <field name="ai_invoice_chat_extra_models"
+                                   placeholder="mrp.production, fleet.vehicle"/>
+                        </setting>
+                    </block>
+
+                </app>
             </xpath>
         </field>
     </record>
