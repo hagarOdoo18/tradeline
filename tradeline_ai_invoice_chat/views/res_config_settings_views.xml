@@ -15,10 +15,6 @@
                      data-string="Tradeline AI Assistant"
                      name="tradeline_ai_invoice_chat">
 
-
-
-
-
                     <block title="AI Provider" name="tradeline_ai_provider">
                         <setting string="API Key"
                                  help="Secret key of an OpenAI-compatible provider (sk-...). Without it the assistant falls back to Odoo IAP, then to raw pinned reports.">
