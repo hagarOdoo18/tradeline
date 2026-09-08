@@ -89,3 +89,19 @@ class TestInvoiceReportSettlementSemantics(TransactionCase):
         for currency in currencies:
             self.assertEqual(summary.count(currency.name), 1)
         self.assertEqual(len(summary.splitlines()), 2)
+
+    def test_tax_columns_use_invoice_currency_precision(self):
+        invoice = Mock(
+            currency_id=Mock(round=lambda value: round(value, 3)),
+            tax_t1=3350.23, tax_t2=0, tax_t2_t=0, tax_t3=0, tax_t5=0,
+            amount_untaxed_in_currency_signed=23930.17,
+        )
+        amounts = self.report._invoice_tax_values(invoice, 1)
+        self.assertEqual(amounts['tax_14'], 3350.23)
+        self.assertEqual(amounts['subtotal_with_tax_14'], 27280.4)
+
+        invoice.tax_t1 = 838.821
+        invoice.amount_untaxed_in_currency_signed = 5991.579
+        amounts = self.report._invoice_tax_values(invoice, 1)
+        self.assertEqual(amounts['tax_14'], 838.821)
+        self.assertEqual(amounts['subtotal_with_tax_14'], 6830.4)

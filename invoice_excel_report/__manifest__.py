@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Invoice Excel Report Wizard',
-    'version': '18.0.1.3.0',
+    'version': '18.0.1.4.0',
     'summary': 'View and export account invoice payment reports',
     'description': 'View or export account invoices filtered by customer, store, date, journal, etc.',
     'category': 'Accounting',
     'author': 'tradeline',
     'website': 'https://tradeline.com',
-    'depends': ['base', 'account', 'branch'],
+    'depends': ['base', 'account', 'branch', 'accounting_customization'],
     'data': [
         'security/ir.model.access.csv',
         'views/invoice_wizard_views.xml',

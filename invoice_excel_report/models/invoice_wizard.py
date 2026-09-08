@@ -421,6 +421,21 @@ class AccountInvoiceWizard(models.TransientModel):
                 basis[credit.id] = 'No original invoice link; no attribution'
         return result, basis
 
+    @staticmethod
+    def _invoice_tax_values(invoice, sign):
+        currency_round = invoice.currency_id.round
+        tax_14 = currency_round((invoice.tax_t1 or 0.0) * sign)
+        return {
+            'tax_14': tax_14,
+            'subtotal_with_tax_14': currency_round(
+                invoice.amount_untaxed_in_currency_signed + tax_14
+            ),
+            'tax_1': currency_round((invoice.tax_t2 or 0.0) * sign),
+            'tax_2': currency_round((invoice.tax_t2_t or 0.0) * sign),
+            'tax_3': currency_round((invoice.tax_t3 or 0.0) * sign),
+            'tax_5': currency_round((invoice.tax_t5 or 0.0) * sign),
+        }
+
     def _prepare_report_rows(self, invoices):
         """Build the rows used by both the on-screen report and Excel."""
         settlements, allocation_basis = self._prepare_report_settlements(invoices)
@@ -436,6 +451,7 @@ class AccountInvoiceWizard(models.TransientModel):
                 total_net - sum(item[1] for item in rounded_rows)
             )
             sign = 1 if invoice.move_type == 'out_invoice' else -1
+            tax_values = self._invoice_tax_values(invoice, sign)
             for offset, (label, amount, kind, journal_id) in enumerate(rounded_rows):
                 show_invoice = offset == 0
                 report_rows.append({
@@ -454,14 +470,14 @@ class AccountInvoiceWizard(models.TransientModel):
                     'tax_excluded': (
                         invoice.amount_untaxed_in_currency_signed if show_invoice else 0
                     ),
-                    'tax_14': round(invoice.tax_t1 * sign, 2) if show_invoice else 0,
-                    'subtotal_with_tax_14': round(
-                        invoice.amount_untaxed_in_currency_signed + invoice.tax_t1 * sign, 2
-                    ) if show_invoice else 0,
-                    'tax_1': round(invoice.tax_t2 * sign, 2) if show_invoice else 0,
-                    'tax_2': round(invoice.tax_t2_t * sign, 2) if show_invoice else 0,
-                    'tax_3': round(invoice.tax_t3 * sign, 2) if show_invoice else 0,
-                    'tax_5': round(invoice.tax_t5 * sign, 2) if show_invoice else 0,
+                    'tax_14': tax_values['tax_14'] if show_invoice else 0,
+                    'subtotal_with_tax_14': (
+                        tax_values['subtotal_with_tax_14'] if show_invoice else 0
+                    ),
+                    'tax_1': tax_values['tax_1'] if show_invoice else 0,
+                    'tax_2': tax_values['tax_2'] if show_invoice else 0,
+                    'tax_3': tax_values['tax_3'] if show_invoice else 0,
+                    'tax_5': tax_values['tax_5'] if show_invoice else 0,
                     'total_net': total_net if show_invoice else 0,
                     'report_amount_due': report_due if show_invoice else 0,
                     'accounting_amount_due': (

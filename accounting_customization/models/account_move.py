@@ -616,45 +616,89 @@ class AccountMove(models.Model):
 
         return result
 
-    tax_t1 = fields.Float(compute='_compute_tax', string="VAT14%")
-    tax_t2 = fields.Float(compute='_compute_tax', string="VAT1%")
-    tax_t3 = fields.Float(compute='_compute_tax', string="VAT3%")
-    tax_t5 = fields.Float(compute='_compute_tax', string="VAT5%")
-    tax_t2_t = fields.Float(compute='_compute_tax', string="VAT2%")
-    total = fields.Float(compute='compute_tax', string="Untaxed + VAT 14%")
+    tax_t1 = fields.Monetary(
+        compute='_compute_tax', string="VAT14%", currency_field='currency_id',
+    )
+    tax_t2 = fields.Monetary(
+        compute='_compute_tax', string="VAT1%", currency_field='currency_id',
+    )
+    tax_t3 = fields.Monetary(
+        compute='_compute_tax', string="VAT3%", currency_field='currency_id',
+    )
+    tax_t5 = fields.Monetary(
+        compute='_compute_tax', string="VAT5%", currency_field='currency_id',
+    )
+    tax_t2_t = fields.Monetary(
+        compute='_compute_tax', string="VAT2%", currency_field='currency_id',
+    )
+    total = fields.Monetary(
+        compute='_compute_tax', string="Untaxed + VAT 14%", currency_field='currency_id',
+    )
 
-    @api.depends('invoice_line_ids')
+    _report_tax_field_by_name = {
+        '14%': 'tax_t1',
+        'Withholding Tax -1%': 'tax_t2',
+        'Withholding Tax -2%': 'tax_t2_t',
+        'Withholding Tax -3%': 'tax_t3',
+        'Withholding Tax -5%': 'tax_t5',
+    }
+
+    @staticmethod
+    def _document_tax_amount(direction_sign, amount_currency):
+        """Normalize a posted tax line to its document-relative tax direction."""
+        return direction_sign * amount_currency
+
+    def _report_tax_field(self, tax):
+        """Keep the legacy bucket names stable regardless of the user's language."""
+        return self._report_tax_field_by_name.get(tax.with_context(lang='en_US').name)
+
+    @api.depends(
+        'line_ids.amount_currency', 'line_ids.tax_line_id', 'move_type', 'state', 'currency_id',
+        'invoice_line_ids.price_unit', 'invoice_line_ids.quantity',
+        'invoice_line_ids.discount', 'invoice_line_ids.tax_ids', 'amount_untaxed',
+    )
     def _compute_tax(self):
         for rec in self:
-            sum_v14 = 0
-            sum_v1 = 0
-            sum_v3 = 0
-            tax_t2_t = 0
-            sum_v5 = 0
+            amounts = {field_name: 0.0 for field_name in self._report_tax_field_by_name.values()}
+            tax_lines = rec.line_ids.filtered('tax_line_id')
+            if tax_lines:
+                for line in tax_lines:
+                    field_name = self._report_tax_field(line.tax_line_id)
+                    if field_name:
+                        amounts[field_name] += self._document_tax_amount(
+                            rec.direction_sign, line.amount_currency,
+                        )
+            elif rec.state == 'draft':
+                # Unsaved draft moves can briefly have invoice lines before Odoo has
+                # generated their dynamic tax lines. Use Odoo's tax engine until the
+                # authoritative tax lines exist.
+                computed_rows = []
+                for line in rec.invoice_line_ids.filtered(lambda item: item.tax_ids):
+                    price_unit = line.price_unit * (1 - (line.discount or 0.0) / 100.0)
+                    result = line.tax_ids.compute_all(
+                        price_unit,
+                        currency=rec.currency_id,
+                        quantity=line.quantity,
+                        product=line.product_id,
+                        partner=rec.partner_id,
+                        is_refund=rec.move_type in ('out_refund', 'in_refund'),
+                    )
+                    computed_rows.extend(result['taxes'])
+                taxes_by_id = {
+                    tax.id: tax
+                    for tax in self.env['account.tax'].browse(
+                        [row['id'] for row in computed_rows]
+                    )
+                }
+                for row in computed_rows:
+                    tax = taxes_by_id.get(row['id'])
+                    field_name = self._report_tax_field(tax) if tax else False
+                    if field_name:
+                        amounts[field_name] += row['amount']
 
-            for line in rec.invoice_line_ids:
-                if line.tax_ids:
-                    for tax in line.tax_ids:
-                        if tax.name == "14%":
-                            sum_v14 += (line.price_subtotal * tax.amount / 100)
-
-                        elif tax.name == "Withholding Tax -1%":
-                            sum_v1 += (line.price_subtotal * tax.amount / 100)
-
-                        elif tax.name == "Withholding Tax -3%":
-                            sum_v3 += (line.price_subtotal * tax.amount / 100)
-                        elif tax.name == "Withholding Tax -5%":
-                            sum_v5 += (line.price_subtotal * tax.amount / 100)
-                        elif tax.name == "Withholding Tax -2%":
-                            tax_t2_t += (line.price_subtotal * tax.amount / 100)
-
-
-            rec.tax_t1 = sum_v14
-            rec.tax_t2 = sum_v1
-            rec.tax_t3 = sum_v3
-            rec.tax_t5 = sum_v5
-            rec.tax_t2_t = tax_t2_t
-            rec.total = sum_v14 + rec.amount_untaxed
+            for field_name, amount in amounts.items():
+                rec[field_name] = rec.currency_id.round(amount)
+            rec.total = rec.currency_id.round(rec.amount_untaxed + amounts['tax_t1'])
 
 
 
