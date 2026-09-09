@@ -39,6 +39,38 @@
             </xpath>
         </field>
     </record>
+    <!--    List view for the Shopify order menus: the standard sale order
+            list plus the Shopify order number. mode="primary" makes this a
+            standalone view used only by the two actions below, so the
+            ordinary Sales list is left exactly as it is. -->
+    <record id="shopify_sale_order_view_tree" model="ir.ui.view">
+        <field name="name">sale.order.list.shopify</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="mode">primary</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="reference_number" string="Shopify Number"
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+    <!--    Matching search view, so the Shopify number can be typed into the
+            search box on those same two menus. -->
+    <record id="shopify_sale_order_view_search" model="ir.ui.view">
+        <field name="name">sale.order.search.shopify</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_sales_order_filter"/>
+        <field name="mode">primary</field>
+        <field name="priority">100</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="reference_number" string="Shopify Number"
+                       filter_domain="[('reference_number', 'ilike', self)]"/>
+            </xpath>
+        </field>
+    </record>
     <!--    action for sale.order-->
     <record id="shopify_sale_order_action" model="ir.actions.act_window">
         <field name="name">Shopify Orders</field>
@@ -48,7 +80,8 @@
         </field>
         <field name="view_mode">list,form</field>
         <field name="target">current</field>
-        <field name="view_id" ref="sale.view_order_tree"/>
+        <field name="view_id" ref="shopify_sale_order_view_tree"/>
+        <field name="search_view_id" ref="shopify_sale_order_view_search"/>
         <field name="context">{'create': False}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_empty_folder">
@@ -65,7 +98,8 @@
         </field>
         <field name="view_mode">list,form</field>
         <field name="target">current</field>
-        <field name="view_id" ref="sale.view_order_tree"/>
+        <field name="view_id" ref="shopify_sale_order_view_tree"/>
+        <field name="search_view_id" ref="shopify_sale_order_view_search"/>
         <field name="context">{'create': False}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_empty_folder">

@@ -22,7 +22,7 @@
 ################################################################################
 {
     'name': "Shopify Odoo Connector",
-    'version': '18.0.1.0.2',
+    'version': '18.0.1.0.3',
     'summary': """Shopify Odoo Connector enables users to connect with  
      shopify to odoo and sync sale orders, customers and  products""",
     'description': """ Shopify Odoo Connector enables users to connect with 
@@ -31,7 +31,11 @@
     'author': 'Cybrosys Techno Solutions',
     'company': 'Cybrosys Techno Solutions',
     'maintainer': 'Cybrosys Techno Solutions',
-    'depends': ['sale_management', 'stock'],
+    # accounting_customization owns sale.order.reference_number, which the
+    # order import writes and the Shopify order list/search views below show.
+    # The dependency was never declared even though the code already relied
+    # on it, so the views could load before the field existed.
+    'depends': ['sale_management', 'stock', 'accounting_customization'],
     'images': ['static/description/banner.png'],
     'data': [
         'security/security.xml',
