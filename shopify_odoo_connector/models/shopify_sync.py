@@ -43,7 +43,7 @@ class ShopifySync(models.Model):
                                   help='Id of product in shopify')
     shopify_variant_id = fields.Char(string='Variant Id',
                                      help='Id of product variant in shopify')
-    shopify_customer_ref = fields.Char(string='Customer Id',
+    shopify_customer_ref = fields.Char(string='Customer Id', index=True,
                                        help='Id of customer in shopify')
     shopify_order_ref = fields.Char(string='Order Id',
                                     help='Id of order in shopify')
