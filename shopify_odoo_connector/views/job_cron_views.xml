@@ -63,5 +63,6 @@
     <menuitem id="job_cron_menu" name="Jobs"
               parent="shopify_odoo_connector.shopify_configuration_menu_root"
               action="job_cron_action"
-              sequence="50"/>
+              sequence="50"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

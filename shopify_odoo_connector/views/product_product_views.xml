@@ -45,5 +45,6 @@
     <menuitem id="product_product_menu" name="Product Variants"
               parent="shopify_odoo_connector.product_template_menu_root"
               sequence="2"
-              action="product_product_action"/>
+              action="product_product_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

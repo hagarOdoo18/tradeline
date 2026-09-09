@@ -107,18 +107,24 @@
             </p>
         </field>
     </record>
-    <!--    menu for sale.order-->
+    <!--    menu for sale.order
+            These three are the only Shopify menus a Shopify / User sees.
+            group_shopify_manager implies group_shopify_user, so a manager
+            gets them as well. -->
     <menuitem id="sale_order_menu_root" name="Orders"
               parent="shopify_odoo_connector.shopify_odoo_connector_menu_root"
-              sequence="3"/>
+              sequence="3"
+              groups="shopify_odoo_connector.group_shopify_user"/>
     <!--Draft orders menu-->
     <menuitem id="shopify_draft_sale_order_menu_root" name="Draft Orders"
               parent="sale_order_menu_root"
               sequence="1"
+              groups="shopify_odoo_connector.group_shopify_user"
               action="shopify_draft_sale_order_action"/>
     <!--Orders menu-->
     <menuitem id="sale_order_menu" name="Orders"
               parent="shopify_odoo_connector.sale_order_menu_root"
               sequence="2"
+              groups="shopify_odoo_connector.group_shopify_user"
               action="shopify_sale_order_action"/>
 </odoo>

@@ -1,6 +1,38 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <odoo>
-<!--    adding multi company rule-->
+    <!-- Application category shown on the user form -->
+    <data>
+        <record id="module_category_shopify" model="ir.module.category">
+            <field name="name">Shopify</field>
+            <field name="description">Access level for the Shopify connector.
+            </field>
+            <field name="sequence">30</field>
+        </record>
+        <!--    Shopify / User: order menus only (Orders and Draft Orders) -->
+        <record id="group_shopify_user" model="res.groups">
+            <field name="name">User</field>
+            <field name="category_id" ref="module_category_shopify"/>
+            <field name="comment">Can open the Shopify Orders and Draft Orders
+                menus. No access to the dashboard, customers, products or the
+                configuration menus.
+            </field>
+        </record>
+        <!--    Shopify / Manager: everything, and implies User so a manager
+                also sees the order menus -->
+        <record id="group_shopify_manager" model="res.groups">
+            <field name="name">Manager</field>
+            <field name="category_id" ref="module_category_shopify"/>
+            <field name="implied_ids" eval="[(4, ref('group_shopify_user'))]"/>
+            <field name="comment">Full access to the Shopify connector:
+                dashboard, customers, products, orders and configuration.
+            </field>
+        </record>
+        <!--    Settings/admin users get the manager level by default -->
+        <record id="base.group_system" model="res.groups">
+            <field name="implied_ids" eval="[(4, ref('group_shopify_manager'))]"/>
+        </record>
+    </data>
+    <!--    adding multi company rule-->
     <data noupdate="1">
         <record id="shopify_configuration_comp_rule" model="ir.rule">
             <field name="name">Shopify Configuration Company Rule</field>

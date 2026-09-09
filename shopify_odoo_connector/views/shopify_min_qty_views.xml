@@ -121,5 +121,6 @@
     <menuitem id="shopify_min_qty_menu" name="Minimum Quantities"
               parent="shopify_odoo_connector.shopify_configuration_menu_root"
               action="shopify_min_qty_action"
-              sequence="20"/>
+              sequence="20"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

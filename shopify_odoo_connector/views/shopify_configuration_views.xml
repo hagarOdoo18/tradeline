@@ -306,17 +306,21 @@
     </record>
     menu for shopify configuration
     <menuitem name="Shopify" id="shopify_odoo_connector_menu_root"
-              web_icon="shopify_odoo_connector,static/description/icon.png"/>
+              web_icon="shopify_odoo_connector,static/description/icon.png"
+              groups="shopify_odoo_connector.group_shopify_user"/>
     <!--Dashboard menu-->
     <menuitem id="shopify_configuration_menu_dashboard" name="Dashboard"
               parent="shopify_odoo_connector_menu_root"
               sequence="0"
-              action="shopify_configuration_action_dashboard"/>
+              action="shopify_configuration_action_dashboard"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
     <!--Configuration menu-->
     <menuitem id="shopify_configuration_menu_root" name="Configuration"
-              parent="shopify_odoo_connector_menu_root"/>
+              parent="shopify_odoo_connector_menu_root"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
     <!--    Shopify configration menu-->
     <menuitem id="shopify_configuration_menu" name="Shopify Instance"
               parent="shopify_configuration_menu_root" sequence="0"
-              action="shopify_configuration_action"/>
+              action="shopify_configuration_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

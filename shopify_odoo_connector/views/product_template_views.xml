@@ -55,10 +55,12 @@
     <!--   Root menu for product template-->
     <menuitem id="product_template_menu_root" name="Products"
               parent="shopify_odoo_connector.shopify_odoo_connector_menu_root"
-              sequence="2"/>
+              sequence="2"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
     <!--Products menu-->
     <menuitem id="product_template_menu" name="Products"
               parent="shopify_odoo_connector.product_template_menu_root"
               sequence="1"
-              action="product_template_action"/>
+              action="product_template_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>
