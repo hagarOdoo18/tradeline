@@ -453,9 +453,17 @@ class SaleOrderSync(models.TransientModel):
 
     def _confirmed_order_tax(self, each, instance, cache):
         """Resolve (creating it if needed) the sale tax for an order, once
-        per distinct rate instead of once per order."""
+        per distinct rate instead of once per order.
+
+        When Shopify sends no tax lines the instance's configured default
+        sale tax is used. `accounting_customization._check_tax_required`
+        rejects any non-service sale order line without a tax, so an untaxed
+        Shopify order otherwise fails on line creation and leaves the order
+        header behind with no lines at all. An instance with no default
+        configured keeps the old behaviour and returns nothing.
+        """
         if not each.get('tax_lines'):
-            return None
+            return instance.default_sale_tax_id
         rate = each['tax_lines'][0]['rate']
         tax_group = each['tax_lines'][0]['title']
         key = (rate, tax_group)
@@ -1106,7 +1114,7 @@ class SaleOrderSync(models.TransientModel):
                                 'city': customer['addresses'][0]['city'],
                                 'country_id': country_id.id if country_id
                                 else False,
-                                'state_id': state_id.id if state_id
+                                'state_id': state_id.ids[0] if state_id
                                 else False,
                                 'zip': customer['addresses'][0]['zip'],
                             }

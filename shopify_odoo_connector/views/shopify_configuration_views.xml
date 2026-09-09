@@ -87,14 +87,27 @@
                             <field name="version"/>
                             <field name="product_last_synced" invisible="1"/>
                             <field name="customer_last_synced" invisible="1"/>
-                            <field name="order_last_synced" invisible="1"/>
                             <field name="company_id"/>
                             <field name="warehouse_id"/>
+                            <field name="default_sale_tax_id"/>
+                            <field name="order_last_synced"/>
                         </group>
                         <group string="Token Status">
                             <field name="access_token" readonly="1"
                                    password="True"/>
                             <field name="token_expiry" readonly="1"/>
+                            <label for="order_api_key"
+                                   string="Order API Key"/>
+                            <div class="o_row">
+                                <field name="order_api_key" nolabel="1"
+                                       readonly="1" password="True"
+                                       placeholder="Not generated"/>
+                                <button name="action_generate_order_api_key"
+                                        type="object" icon="fa-refresh"
+                                        title="Generate or rotate the key used by the Shopify developer"
+                                        class="btn-link"
+                                        string="Generate"/>
+                            </div>
                         </group>
                     </group>
                     <notebook>
