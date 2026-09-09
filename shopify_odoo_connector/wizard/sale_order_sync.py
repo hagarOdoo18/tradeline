@@ -1186,7 +1186,7 @@ class SaleOrderSync(models.TransientModel):
                     taxes = tax * 100
                     tax_name = self.env[
                         'account.tax'].search(
-                        [('amount', '=', taxes),
+                        [('name', '=', '14%'),
                          ('type_tax_use', '=', 'sale'),
                          ('company_id', '=', instance.company_id.id)],
                         limit=1).id
