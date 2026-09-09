@@ -437,6 +437,43 @@ class SaleOrderSync(models.TransientModel):
         cache[key] = ctx
         return ctx
 
+    def _resolve_country_state(self, country_name, province_name):
+        """Map a Shopify address's country and province to Odoo ids.
+
+        Returns (country_id, state_id), each an int id or False.
+
+        These lookups used to run without a limit and then read `.id` off
+        the result. A province name is not unique across countries, so
+        `res.country.state(1807, 278)` came back for a single search and
+        Odoo raised `Expected singleton`, which killed the whole order.
+
+        The state is resolved *inside* the matched country first, so the
+        answer is the right one rather than merely a single one; a
+        name-only match is the fallback for when the country did not map.
+        """
+        country_id = False
+        if country_name:
+            country = self.env['res.country'].sudo().search(
+                [('name', '=', country_name)], order='id asc', limit=1)
+            country_id = country.id
+
+        state_id = False
+        if province_name:
+            state = self.env['res.country.state'].sudo()
+            if country_id:
+                state = state.search(
+                    [('name', '=', province_name),
+                     ('country_id', '=', country_id)],
+                    order='id asc', limit=1)
+            else:
+                state = state.browse()
+            if not state:
+                state = self.env['res.country.state'].sudo().search(
+                    [('name', '=', province_name)], order='id asc', limit=1)
+            state_id = state.id
+
+        return country_id, state_id
+
     def _confirmed_order_currency(self, code, cache):
         """Resolve a Shopify currency code to an active res.currency, once
         per distinct code instead of once per order."""
@@ -606,26 +643,18 @@ class SaleOrderSync(models.TransientModel):
                                 customer_vals = {}
                                 customer = customer_response['customer']
                                 if customer['addresses']:
-                                    country_id = self.env[
-                                        'res.country'].sudo().search(
-                                        [('name', '=',
-                                          customer['addresses'][0]['country'])
-                                         ])
-                                    state_id = self.env[
-                                        'res.country.state'].sudo().search(
-                                        [('name', '=',
-                                          customer['addresses'][0]['province'])])
+                                    address = customer['addresses'][0]
+                                    country_id, state_id = (
+                                        self._resolve_country_state(
+                                            address.get('country'),
+                                            address.get('province')))
                                     customer_vals = {
-                                        'street': customer['addresses'][0][
-                                            'address1'],
-                                        'street2': customer['addresses'][0][
-                                            'address2'],
-                                        'city': customer['addresses'][0]['city'],
-                                        'country_id': country_id.id if
-                                        country_id else False,
-                                        'state_id': state_id.id if
-                                        state_id else False,
-                                        'zip': customer['addresses'][0]['zip'],
+                                        'street': address.get('address1'),
+                                        'street2': address.get('address2'),
+                                        'city': address.get('city'),
+                                        'country_id': country_id,
+                                        'state_id': state_id,
+                                        'zip': address.get('zip'),
                                     }
                                 if (customer['first_name'] and
                                         not customer['last_name']):
@@ -657,14 +686,10 @@ class SaleOrderSync(models.TransientModel):
                                 })
                             vals["partner_id"] = partner_id
                             if each['shipping_address']:
-                                county_id = self.env['res.country'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['country'])
-                                ])
-                                state_id = self.env['res.country.state'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['province'])
-                                ],limit=1)
+                                country_id, state_id = (
+                                    self._resolve_country_state(
+                                        each['shipping_address'].get('country'),
+                                        each['shipping_address'].get('province')))
                                 shipping_child_id = self.env[
                                     'res.partner'].sudo().create([
                                     {"name": each['shipping_address'][
@@ -678,26 +703,26 @@ class SaleOrderSync(models.TransientModel):
                                          'address2'] else '',
                                      "city": each['shipping_address']['city'] if
                                      each['shipping_address']['city'] else '',
-                                     "state_id": state_id.id or None,
+                                     "state_id": state_id or None,
                                      "phone": each['shipping_address']['phone'] if
                                      each['shipping_address']['phone'] else None,
                                      "zip": each['shipping_address']['zip'] if
                                      each['shipping_address']['zip'] else '',
-                                     "country_id": county_id.id or None,
+                                     "country_id": country_id or None,
                                      "parent_id": partner_id,
                                      "type": 'delivery',
                                      }]).id
                                 vals['partner_shipping_id'] = shipping_child_id
                             if each['billing_address'] and each['shipping_address'] :
-
-                                county_id = self.env['res.country'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['country'])
-                                ])
-                                state_id = self.env['res.country.state'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['province'])
-                                ],limit=1)
+                                # this block builds the *billing* contact, so
+                                # its country and province come from
+                                # billing_address -- it read shipping_address
+                                # here, which stamped the wrong country on any
+                                # order billed somewhere other than it shipped
+                                country_id, state_id = (
+                                    self._resolve_country_state(
+                                        each['billing_address'].get('country'),
+                                        each['billing_address'].get('province')))
                                 billing_child_id = self.env[
                                     'res.partner'].sudo().create(
                                     [{
@@ -714,13 +739,13 @@ class SaleOrderSync(models.TransientModel):
                                             'address2'] else '',
                                         "city": each['billing_address']['city'] if
                                         each['billing_address']['city'] else '',
-                                        "state_id": state_id.id or None,
+                                        "state_id": state_id or None,
                                         "phone": each['billing_address']['phone'] if
                                         each['billing_address'][
                                             'phone'] else None,
                                         "zip": each['billing_address']['zip'] if
                                         each['billing_address']['zip'] else '',
-                                        "country_id": county_id.id or None,
+                                        "country_id": country_id or None,
                                         "parent_id": partner_id,
                                         "type": 'invoice'}]).id
                                 vals['partner_invoice_id'] = billing_child_id
@@ -1073,6 +1098,12 @@ class SaleOrderSync(models.TransientModel):
         headers = instance._get_shopify_headers()
         vals = {}
         for each in shopify_orders:
+            # The shipping/billing blocks below read country_id and state_id
+            # that only the new-customer branch assigns. For an order whose
+            # customer already exists in Odoo those names were never bound and
+            # the block raised NameError, so seed them per order.
+            country_id = False
+            state_id = False
             shopify_id = each['id']
             existing_order = self.env['sale.order'].search(
                 [('shopify_sync_ids.shopify_order_ref', '=', shopify_id)])
@@ -1100,23 +1131,21 @@ class SaleOrderSync(models.TransientModel):
                         customer_vals = {}
                         customer = customer_response['customer']
                         if customer['addresses']:
-                            country_id = self.env[
-                                'res.country'].sudo().search(
-                                [('name', '=',
-                                  customer['addresses'][0]['country'])])
-                            state_id = self.env[
-                                'res.country.state'].sudo().search(
-                                [('name', '=',
-                                  customer['addresses'][0]['province'])])
+                            # same unbounded lookups as the confirmed-order
+                            # path had; bounded here too so a province name
+                            # shared by two countries cannot raise
+                            address = customer['addresses'][0]
+                            country_id, state_id = (
+                                self._resolve_country_state(
+                                    address.get('country'),
+                                    address.get('province')))
                             customer_vals = {
-                                'street': customer['addresses'][0]['address1'],
-                                'street2': customer['addresses'][0]['address2'],
-                                'city': customer['addresses'][0]['city'],
-                                'country_id': country_id.id if country_id
-                                else False,
-                                'state_id': state_id.ids[0] if state_id
-                                else False,
-                                'zip': customer['addresses'][0]['zip'],
+                                'street': address.get('address1'),
+                                'street2': address.get('address2'),
+                                'city': address.get('city'),
+                                'country_id': country_id,
+                                'state_id': state_id,
+                                'zip': address.get('zip'),
                             }
                         if (customer['first_name'] and
                                 not customer['last_name']):
@@ -1168,20 +1197,21 @@ class SaleOrderSync(models.TransientModel):
                             "parent_id": partner_id,
                             "type": 'delivery'}
                         if state_id:
-                            partner_creation_data["state_id"] = state_id.id
+                            partner_creation_data["state_id"] = state_id
                         if country_id:
-                            partner_creation_data["country_id"] = country_id.id
+                            partner_creation_data["country_id"] = country_id
                         shipping_child_id = self.env[
                             'res.partner'].sudo().create(
                             partner_creation_data).id
                         vals['partner_shipping_id'] = shipping_child_id
                     if each['billing_address']:
-                        country_id = self.env['res.country'].search([
-                            ('name', '=', each['shipping_address']['country'])
-                        ])
-                        state_id = self.env['res.country.state'].search([
-                            ('name', '=', each['shipping_address']['province'])
-                        ])
+                        # kept reading from shipping_address, as the rest of
+                        # this block does -- only the unbounded searches are
+                        # changed, so a shared province name cannot raise
+                        country_id, state_id = (
+                            self._resolve_country_state(
+                                each['shipping_address'].get('country'),
+                                each['shipping_address'].get('province')))
                         invoice_creation_data = {
                             "name": each['shipping_address'][
                                 'first_name'] if 'first_name' in each[
@@ -1203,9 +1233,9 @@ class SaleOrderSync(models.TransientModel):
                             "parent_id": partner_id,
                             "type": 'invoice'}
                         if state_id:
-                            invoice_creation_data["state_id"] = state_id.id
+                            invoice_creation_data["state_id"] = state_id
                         if country_id:
-                            invoice_creation_data["country_id"] = country_id.id
+                            invoice_creation_data["country_id"] = country_id
                         billing_child_id = self.env[
                             'res.partner'].sudo().create(
                             invoice_creation_data).id
