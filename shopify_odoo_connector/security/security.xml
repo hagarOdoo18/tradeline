@@ -28,9 +28,7 @@
             </field>
         </record>
         <!--    Settings/admin users get the manager level by default -->
-        <record id="base.group_system" model="res.groups">
-            <field name="implied_ids" eval="[(4, ref('group_shopify_manager'))]"/>
-        </record>
+
     </data>
     <!--    adding multi company rule-->
     <data noupdate="1">
