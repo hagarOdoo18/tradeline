@@ -2,6 +2,18 @@
 <odoo>
         <template id="custom_sale_order_payment_print" inherit_id="sale.report_saleorder_document">
 
+            <xpath expr="//table[contains(@class, 'o_main_table')]/thead/tr/th[@name='th_description']" position="after">
+                <th name="th_serial" t-if="doc.inv_type == 'sro'" class="text-start text-nowrap">
+                    Serial Number
+                </th>
+            </xpath>
+
+            <xpath expr="//table[contains(@class, 'o_main_table')]/tbody//td[@name='td_name']" position="after">
+                <td name="td_serial" t-if="doc.inv_type == 'sro'" class="text-start text-nowrap">
+                    <span t-if="line.lot_id" t-field="line.lot_id.name"/>
+                </td>
+            </xpath>
+
             <xpath expr="//div[@name='so_total_summary']" position="after">
                 <div>
                     <t t-set="report_payments" t-value="doc.payment_ids.filtered(lambda payment: payment.payment_type == 'inbound' and payment.state in ('in_process', 'paid', 'posted'))"/>
