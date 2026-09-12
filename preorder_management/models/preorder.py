@@ -834,7 +834,9 @@ class SalePreorder(models.Model):
         "payment_id",
         compute="_compute_applied_payment_summary",
     )
-    prepaid_amount = fields.Monetary(compute="_compute_payment_summary", string="Original Payment")
+    prepaid_amount = fields.Monetary(
+        compute="_compute_payment_summary", string="Original Payment", store=True
+    )
     available_prepayment_amount = fields.Monetary(
         compute="_compute_payment_summary", string="Available Prepayment"
     )
@@ -844,7 +846,9 @@ class SalePreorder(models.Model):
     prepayment_applied_amount = fields.Monetary(
         compute="_compute_applied_payment_summary", string="Applied to Invoice"
     )
-    payment_method_names = fields.Char(compute="_compute_payment_summary", string="Payment Method(s)")
+    payment_method_names = fields.Char(
+        compute="_compute_payment_summary", string="Payment Method(s)", store=True
+    )
     payment_method_breakdown = fields.Text(
         compute="_compute_payment_summary", string="Payment Method Amounts"
     )
@@ -852,19 +856,19 @@ class SalePreorder(models.Model):
         compute="_compute_payment_summary", string="Payment Journal(s)"
     )
     payment_method_1 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 1"
+        compute="_compute_payment_summary", string="Payment Method 1", store=True
     )
     payment_method_2 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 2"
+        compute="_compute_payment_summary", string="Payment Method 2", store=True
     )
     payment_method_3 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 3"
+        compute="_compute_payment_summary", string="Payment Method 3", store=True
     )
     payment_method_4 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 4"
+        compute="_compute_payment_summary", string="Payment Method 4", store=True
     )
     additional_payment_methods = fields.Char(
-        compute="_compute_payment_summary", string="Additional Payments"
+        compute="_compute_payment_summary", string="Additional Payments", store=True
     )
     payment_status = fields.Selection(
         [

@@ -140,6 +140,33 @@
         </field>
     </record>
 
+    <record id="sale_preorder_report_view_list" model="ir.ui.view">
+        <field name="name">sale.preorder.report.list</field>
+        <field name="model">sale.preorder</field>
+        <field name="arch" type="xml">
+            <list string="Pre-order Report" create="false" edit="false" delete="false"
+                  default_order="preorder_date desc, id desc"
+                  decoration-danger="payment_status in ('none', 'returned')"
+                  decoration-muted="state == 'cancelled'">
+                <field name="currency_id" column_invisible="True"/>
+                <field name="name" string="Pre-order"/>
+                <field name="preorder_date" string="Date"/>
+                <field name="customer_id" string="Customer"/>
+                <field name="branch_id" string="Branch"/>
+                <field name="sales_rep_id" string="Sales Rep"/>
+                <field name="discount_id" string="Discount Reason"/>
+                <field name="device_summary" string="Requested Device(s)"/>
+                <field name="requested_qty_total" string="Total Quantity" sum="Total Quantity"/>
+                <field name="prepaid_amount" string="Original Payment" sum="Total Original Payment"/>
+                <field name="payment_method_1" string="Journal 1"/>
+                <field name="payment_method_2" string="Journal 2"/>
+                <field name="payment_method_3" string="Journal 3" optional="show"/>
+                <field name="payment_method_4" string="Journal 4" optional="show"/>
+                <field name="additional_payment_methods" string="Additional Journals" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
     <record id="sale_preorder_view_form" model="ir.ui.view">
         <field name="name">sale.preorder.form</field>
         <field name="model">sale.preorder</field>
@@ -303,6 +330,33 @@
         </field>
     </record>
 
+    <record id="sale_preorder_report_view_search" model="ir.ui.view">
+        <field name="name">sale.preorder.report.search</field>
+        <field name="model">sale.preorder</field>
+        <field name="arch" type="xml">
+            <search string="Pre-order Report">
+                <field name="name" string="Pre-order"/>
+                <field name="preorder_date" string="Date"/>
+                <field name="customer_id"/>
+                <field name="branch_id"/>
+                <field name="sales_rep_id"/>
+                <field name="discount_id"/>
+                <field name="device_ids" string="Requested Device"/>
+                <field name="payment_method_names" string="Payment Journal"/>
+                <separator/>
+                <filter name="active_preorders" string="Active" domain="[('state', '!=', 'cancelled')]"/>
+                <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>
+                <filter name="cancelled" string="Cancelled" domain="[('state', '=', 'cancelled')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_campaign" string="Campaign" context="{'group_by': 'campaign_id'}"/>
+                    <filter name="group_branch" string="Branch" context="{'group_by': 'branch_id'}"/>
+                    <filter name="group_sales_rep" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
+                    <filter name="group_date" string="Date" context="{'group_by': 'preorder_date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
     <record id="sale_preorder_allocation_view_list" model="ir.ui.view">
         <field name="name">sale.preorder.allocation.list</field>
         <field name="model">sale.preorder.allocation</field>
@@ -336,6 +390,17 @@
         <field name="res_model">sale.preorder.allocation</field>
         <field name="view_mode">list</field>
     </record>
+    <record id="sale_preorder_report_action" model="ir.actions.act_window">
+        <field name="name">Pre-order Report</field>
+        <field name="res_model">sale.preorder</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="sale_preorder_report_view_list"/>
+        <field name="search_view_id" ref="sale_preorder_report_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No pre-orders found.</p>
+            <p>Use the filters to review pre-orders by date, branch, sales representative, device, or payment journal.</p>
+        </field>
+    </record>
 
     <menuitem id="sale_preorder_menu_root" name="Pre-orders" parent="sale.sale_menu_root" sequence="29"
               groups="preorder_management.group_preorder_user"/>
@@ -347,4 +412,7 @@
     <menuitem id="sale_preorder_menu_allocations" name="Branch Allocation" parent="sale_preorder_menu_root"
               action="sale_preorder_allocation_action" sequence="30"
               groups="preorder_management.group_preorder_user"/>
+    <menuitem id="sale_preorder_menu_report" name="Pre-order Report" parent="sale.menu_sale_report"
+              action="sale_preorder_report_action" sequence="50"
+              groups="preorder_management.group_preorder_manager"/>
 </odoo>
