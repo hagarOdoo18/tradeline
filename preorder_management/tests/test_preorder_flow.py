@@ -197,6 +197,17 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(len(campaign.allocation_line_ids), len(company_branches))
         self.assertEqual(campaign.allocation_line_ids.product_id, self.product)
 
+    def test_preorder_report_uses_export_safe_payment_columns(self):
+        report_view = self.env.ref("preorder_management.sale_preorder_report_view_list")
+        report_action = self.env.ref("preorder_management.sale_preorder_report_action")
+
+        self.assertEqual(report_action.res_model, "sale.preorder")
+        self.assertEqual(report_action.view_id, report_view)
+        self.assertIn('name="payment_method_1"', report_view.arch_db)
+        self.assertIn('string="Journal 1"', report_view.arch_db)
+        self.assertIn('name="payment_method_2"', report_view.arch_db)
+        self.assertNotIn('widget="html"', report_view.arch_db)
+
     def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
         second_product = self.product.copy(
             {"name": "Automated Second Pre-order Device"}
