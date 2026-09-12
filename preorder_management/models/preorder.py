@@ -683,7 +683,14 @@ class SalePreorder(models.Model):
             limit=1,
         )
 
-    name = fields.Char(default="New", required=True, readonly=True, copy=False, index=True)
+    name = fields.Char(
+        string="Pre-order",
+        default="New",
+        required=True,
+        readonly=True,
+        copy=False,
+        index=True,
+    )
     campaign_id = fields.Many2one(
         "sale.preorder.campaign", required=True, ondelete="restrict", tracking=True, index=True
     )
@@ -792,7 +799,7 @@ class SalePreorder(models.Model):
         "sale.preorder.line", "preorder_id", string="Requested Devices", copy=True
     )
     device_summary = fields.Char(
-        string="Requested Devices", compute="_compute_device_summary", store=True
+        string="Requested Device(s)", compute="_compute_device_summary", store=True
     )
     device_ids = fields.Many2many(
         "product.product",
@@ -801,7 +808,7 @@ class SalePreorder(models.Model):
         string="Devices",
     )
     requested_qty_total = fields.Float(
-        string="Total Qty", compute="_compute_device_summary", store=True
+        string="Total Quantity", compute="_compute_device_summary", store=True
     )
     is_reserved = fields.Boolean(
         string="Reserved", compute="_compute_reservation_status", store=True
@@ -856,19 +863,19 @@ class SalePreorder(models.Model):
         compute="_compute_payment_summary", string="Payment Journal(s)"
     )
     payment_method_1 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 1"
+        compute="_compute_payment_summary", string="Journal 1"
     )
     payment_method_2 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 2"
+        compute="_compute_payment_summary", string="Journal 2"
     )
     payment_method_3 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 3"
+        compute="_compute_payment_summary", string="Journal 3"
     )
     payment_method_4 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 4"
+        compute="_compute_payment_summary", string="Journal 4"
     )
     additional_payment_methods = fields.Char(
-        compute="_compute_payment_summary", string="Additional Payments"
+        compute="_compute_payment_summary", string="Additional Journals"
     )
     payment_status = fields.Selection(
         [
