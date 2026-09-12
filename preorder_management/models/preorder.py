@@ -819,14 +819,13 @@ class SalePreorder(models.Model):
         "account.payment", "preorder_payment_id", string="Direct Pre-order Payments"
     )
     invoice_count = fields.Integer(compute="_compute_document_counts")
-    payment_count = fields.Integer(compute="_compute_payment_summary", store=True)
+    payment_count = fields.Integer(compute="_compute_payment_summary")
     payment_ids = fields.Many2many(
         "account.payment",
         "sale_preorder_original_payment_rel",
         "preorder_id",
         "payment_id",
         compute="_compute_payment_summary",
-        store=True,
     )
     applied_payment_ids = fields.Many2many(
         "account.payment",
@@ -836,40 +835,40 @@ class SalePreorder(models.Model):
         compute="_compute_applied_payment_summary",
     )
     prepaid_amount = fields.Monetary(
-        compute="_compute_payment_summary", string="Original Payment", store=True
+        compute="_compute_payment_summary", string="Original Payment"
     )
     available_prepayment_amount = fields.Monetary(
-        compute="_compute_payment_summary", string="Available Prepayment", store=True
+        compute="_compute_payment_summary", string="Available Prepayment"
     )
     payment_due_amount = fields.Monetary(
-        compute="_compute_payment_summary", string="Payment Due", store=True
+        compute="_compute_payment_summary", string="Payment Due"
     )
     prepayment_applied_amount = fields.Monetary(
         compute="_compute_applied_payment_summary", string="Applied to Invoice"
     )
     payment_method_names = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method(s)", store=True
+        compute="_compute_payment_summary", string="Payment Method(s)"
     )
     payment_method_breakdown = fields.Text(
-        compute="_compute_payment_summary", string="Payment Method Amounts", store=True
+        compute="_compute_payment_summary", string="Payment Method Amounts"
     )
     payment_method_breakdown_html = fields.Html(
-        compute="_compute_payment_summary", string="Payment Journal(s)", store=True
+        compute="_compute_payment_summary", string="Payment Journal(s)"
     )
     payment_method_1 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 1", store=True
+        compute="_compute_payment_summary", string="Payment Method 1"
     )
     payment_method_2 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 2", store=True
+        compute="_compute_payment_summary", string="Payment Method 2"
     )
     payment_method_3 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 3", store=True
+        compute="_compute_payment_summary", string="Payment Method 3"
     )
     payment_method_4 = fields.Char(
-        compute="_compute_payment_summary", string="Payment Method 4", store=True
+        compute="_compute_payment_summary", string="Payment Method 4"
     )
     additional_payment_methods = fields.Char(
-        compute="_compute_payment_summary", string="Additional Payments", store=True
+        compute="_compute_payment_summary", string="Additional Payments"
     )
     payment_status = fields.Selection(
         [
