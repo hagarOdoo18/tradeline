@@ -207,6 +207,13 @@ class TestPreorderFlow(TransactionCase):
         self.assertIn('string="Journal 1"', report_view.arch_db)
         self.assertIn('name="payment_method_2"', report_view.arch_db)
         self.assertNotIn('widget="html"', report_view.arch_db)
+        for field_name in (
+            "prepaid_amount",
+            "payment_method_names",
+            "payment_method_1",
+            "payment_method_2",
+        ):
+            self.assertTrue(self.env["sale.preorder"]._fields[field_name].store)
 
     def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
         second_product = self.product.copy(

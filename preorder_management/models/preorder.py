@@ -819,13 +819,14 @@ class SalePreorder(models.Model):
         "account.payment", "preorder_payment_id", string="Direct Pre-order Payments"
     )
     invoice_count = fields.Integer(compute="_compute_document_counts")
-    payment_count = fields.Integer(compute="_compute_payment_summary")
+    payment_count = fields.Integer(compute="_compute_payment_summary", store=True)
     payment_ids = fields.Many2many(
         "account.payment",
         "sale_preorder_original_payment_rel",
         "preorder_id",
         "payment_id",
         compute="_compute_payment_summary",
+        store=True,
     )
     applied_payment_ids = fields.Many2many(
         "account.payment",
@@ -838,10 +839,10 @@ class SalePreorder(models.Model):
         compute="_compute_payment_summary", string="Original Payment", store=True
     )
     available_prepayment_amount = fields.Monetary(
-        compute="_compute_payment_summary", string="Available Prepayment"
+        compute="_compute_payment_summary", string="Available Prepayment", store=True
     )
     payment_due_amount = fields.Monetary(
-        compute="_compute_payment_summary", string="Payment Due"
+        compute="_compute_payment_summary", string="Payment Due", store=True
     )
     prepayment_applied_amount = fields.Monetary(
         compute="_compute_applied_payment_summary", string="Applied to Invoice"
@@ -850,10 +851,10 @@ class SalePreorder(models.Model):
         compute="_compute_payment_summary", string="Payment Method(s)", store=True
     )
     payment_method_breakdown = fields.Text(
-        compute="_compute_payment_summary", string="Payment Method Amounts"
+        compute="_compute_payment_summary", string="Payment Method Amounts", store=True
     )
     payment_method_breakdown_html = fields.Html(
-        compute="_compute_payment_summary", string="Payment Journal(s)"
+        compute="_compute_payment_summary", string="Payment Journal(s)", store=True
     )
     payment_method_1 = fields.Char(
         compute="_compute_payment_summary", string="Payment Method 1", store=True
