@@ -460,11 +460,13 @@ class TestPreorderFlow(TransactionCase):
         report_action = self.env.ref(
             "preorder_management.action_report_preorder_confirmation"
         )
+        self.campaign.notes = "<p>Bring the original payment receipt on collection.</p>"
         report_html, _ = report_action._render_qweb_html(
             report_action.report_name, preorder.ids
         )
         self.assertIn(b"Reserved Device", report_html)
         self.assertIn(b"Total Paid", report_html)
+        self.assertIn(b"Bring the original payment receipt on collection.", report_html)
         self.assertIn(b">Payment<", report_html)
         self.assertNotIn(b">Journal<", report_html)
         self.assertNotIn(b">Payment Method<", report_html)
