@@ -118,37 +118,8 @@
             <list decoration-danger="payment_status in ('none', 'returned')"
                   decoration-success="state == 'completed'" decoration-muted="state == 'cancelled'">
                 <field name="currency_id" column_invisible="True"/>
-                <field name="name"/>
-                <field name="campaign_id"/>
-                <field name="customer_id"/>
-                <field name="branch_id"/>
-                <field name="preorder_date"/>
-                <field name="sales_rep_id"/>
-                <field name="discount_id" optional="show"/>
-                <field name="device_summary"/>
-                <field name="requested_qty_total" sum="Requested"/>
-                <field name="deposit_amount" sum="Total Required Payment" optional="show"/>
-                <field name="prepaid_amount" sum="Total Original Payment" optional="show"/>
-                <field name="payment_method_1" optional="show"/>
-                <field name="payment_method_2" optional="show"/>
-                <field name="payment_method_3" optional="show"/>
-                <field name="payment_method_4" optional="show"/>
-                <field name="additional_payment_methods" optional="hide"/>
-                <field name="payment_status" widget="badge"/>
-                <field name="state" widget="badge"/>
-            </list>
-        </field>
-    </record>
-
-    <record id="sale_preorder_report_view_list" model="ir.ui.view">
-        <field name="name">sale.preorder.report.list</field>
-        <field name="model">sale.preorder</field>
-        <field name="arch" type="xml">
-            <list string="Pre-order Report" create="false" edit="false" delete="false"
-                  default_order="preorder_date desc, id desc"
-                  decoration-danger="payment_status in ('none', 'returned')"
-                  decoration-muted="state == 'cancelled'">
-                <field name="currency_id" column_invisible="True"/>
+                <field name="payment_status" column_invisible="True"/>
+                <field name="state" column_invisible="True"/>
                 <field name="name" string="Pre-order"/>
                 <field name="preorder_date" string="Date"/>
                 <field name="customer_id" string="Customer"/>
@@ -330,33 +301,6 @@
         </field>
     </record>
 
-    <record id="sale_preorder_report_view_search" model="ir.ui.view">
-        <field name="name">sale.preorder.report.search</field>
-        <field name="model">sale.preorder</field>
-        <field name="arch" type="xml">
-            <search string="Pre-order Report">
-                <field name="name" string="Pre-order"/>
-                <field name="preorder_date" string="Date"/>
-                <field name="customer_id"/>
-                <field name="branch_id"/>
-                <field name="sales_rep_id"/>
-                <field name="discount_id"/>
-                <field name="device_ids" string="Requested Device"/>
-                <field name="payment_method_names" string="Payment Journal"/>
-                <separator/>
-                <filter name="active_preorders" string="Active" domain="[('state', '!=', 'cancelled')]"/>
-                <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>
-                <filter name="cancelled" string="Cancelled" domain="[('state', '=', 'cancelled')]"/>
-                <group expand="0" string="Group By">
-                    <filter name="group_campaign" string="Campaign" context="{'group_by': 'campaign_id'}"/>
-                    <filter name="group_branch" string="Branch" context="{'group_by': 'branch_id'}"/>
-                    <filter name="group_sales_rep" string="Sales Rep" context="{'group_by': 'sales_rep_id'}"/>
-                    <filter name="group_date" string="Date" context="{'group_by': 'preorder_date:day'}"/>
-                </group>
-            </search>
-        </field>
-    </record>
-
     <record id="sale_preorder_allocation_view_list" model="ir.ui.view">
         <field name="name">sale.preorder.allocation.list</field>
         <field name="model">sale.preorder.allocation</field>
@@ -390,18 +334,6 @@
         <field name="res_model">sale.preorder.allocation</field>
         <field name="view_mode">list</field>
     </record>
-    <record id="sale_preorder_report_action" model="ir.actions.act_window">
-        <field name="name">Pre-order Report</field>
-        <field name="res_model">sale.preorder</field>
-        <field name="view_mode">list</field>
-        <field name="view_id" ref="sale_preorder_report_view_list"/>
-        <field name="search_view_id" ref="sale_preorder_report_view_search"/>
-        <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">No pre-orders found.</p>
-            <p>Use the filters to review pre-orders by date, branch, sales representative, device, or payment journal.</p>
-        </field>
-    </record>
-
     <menuitem id="sale_preorder_menu_root" name="Pre-orders" parent="sale.sale_menu_root" sequence="29"
               groups="preorder_management.group_preorder_user"/>
     <menuitem id="sale_preorder_menu_campaigns" name="Campaigns" parent="sale_preorder_menu_root"
@@ -412,7 +344,8 @@
     <menuitem id="sale_preorder_menu_allocations" name="Branch Allocation" parent="sale_preorder_menu_root"
               action="sale_preorder_allocation_action" sequence="30"
               groups="preorder_management.group_preorder_user"/>
-    <menuitem id="sale_preorder_menu_report" name="Pre-order Report" parent="sale.menu_sale_report"
-              action="sale_preorder_report_action" sequence="50"
-              groups="preorder_management.group_preorder_manager"/>
+    <record id="sale_preorder_menu_report" model="ir.ui.menu">
+        <field name="name">Pre-order Report</field>
+        <field name="active" eval="False"/>
+    </record>
 </odoo>

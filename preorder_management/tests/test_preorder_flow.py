@@ -197,16 +197,30 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(len(campaign.allocation_line_ids), len(company_branches))
         self.assertEqual(campaign.allocation_line_ids.product_id, self.product)
 
-    def test_preorder_report_uses_export_safe_payment_columns(self):
-        report_view = self.env.ref("preorder_management.sale_preorder_report_view_list")
-        report_action = self.env.ref("preorder_management.sale_preorder_report_action")
+    def test_customer_preorder_list_uses_export_safe_report_columns(self):
+        preorder_view = self.env.ref("preorder_management.sale_preorder_view_list")
+        report_menu = self.env.ref("preorder_management.sale_preorder_menu_report")
 
-        self.assertEqual(report_action.res_model, "sale.preorder")
-        self.assertEqual(report_action.view_id, report_view)
-        self.assertIn('name="payment_method_1"', report_view.arch_db)
-        self.assertIn('string="Journal 1"', report_view.arch_db)
-        self.assertIn('name="payment_method_2"', report_view.arch_db)
-        self.assertNotIn('widget="html"', report_view.arch_db)
+        expected_columns = [
+            ("name", "Pre-order"),
+            ("preorder_date", "Date"),
+            ("customer_id", "Customer"),
+            ("branch_id", "Branch"),
+            ("sales_rep_id", "Sales Rep"),
+            ("discount_id", "Discount Reason"),
+            ("device_summary", "Requested Device(s)"),
+            ("requested_qty_total", "Total Quantity"),
+            ("prepaid_amount", "Original Payment"),
+            ("payment_method_1", "Journal 1"),
+            ("payment_method_2", "Journal 2"),
+        ]
+        for field_name, label in expected_columns:
+            self.assertIn(
+                'name="%s" string="%s"' % (field_name, label),
+                preorder_view.arch_db,
+            )
+        self.assertNotIn('widget="html"', preorder_view.arch_db)
+        self.assertFalse(report_menu.active)
 
     def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
         second_product = self.product.copy(
