@@ -73,7 +73,7 @@ class JobCron(models.Model):
         processed = 0
         while time.monotonic() - start < JOB_BUDGET_SECONDS:
             job = self.env['job.cron'].sudo().search(
-                [('state', '=', 'pending')], order='id asc', limit=1)
+                [('state', '=', 'pending')], order='id asc', limit=10)
             if not job:
                 break
             job._process()
