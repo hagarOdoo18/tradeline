@@ -101,6 +101,14 @@ class SyncInventory(models.TransientModel):
         required=True,
         help='Warehouses to read / update inventory quantities',
     )
+    update_all_stock = fields.Boolean(
+        string='Update All Stock',
+        help='Push every synced variant, including the ones whose '
+             'quantity Shopify already holds. The work is queued and '
+             'processed in the background instead of inside this '
+             'request, so a full catalogue can be re-published without '
+             'the screen waiting for it.',
+    )
 
     # ------------------------------------------------------------------
     # grouping helpers
@@ -720,6 +728,9 @@ class SyncInventory(models.TransientModel):
         rebuilt from the sync records.
         """
         warehouse_ids = data.get('warehouse_ids', [])
+        # 'force' is set by the Update All Stock action: write every
+        # quantity, including the ones Shopify already agrees with.
+        force = bool(data.get('force'))
         wizard = self.sudo().create({
             'import_inventory': 'shopify',
             'shopify_instance_id': instance.id,
@@ -730,11 +741,12 @@ class SyncInventory(models.TransientModel):
             # legacy payload
             sync_records = self.env['shopify.sync'].sudo().browse(
                 data.get('sync_ids', [])).exists()
-            wizard._sync_to_shopify(sync_records=sync_records)
+            wizard._sync_to_shopify(sync_records=sync_records, force=force)
         else:
-            wizard._sync_to_shopify(groups=groups)
+            wizard._sync_to_shopify(groups=groups, force=force)
 
-    def _sync_to_shopify(self, groups=None, sync_records=None):
+    def _sync_to_shopify(self, groups=None, sync_records=None,
+                         force=False):
         """Push Odoo on-hand quantities to Shopify inventory levels.
 
         `groups` (batch mode via job.cron) is the pre-built list of groups to
@@ -762,9 +774,11 @@ class SyncInventory(models.TransientModel):
             groups = self._build_inventory_groups(
                 shopify_instance, sync_records=sync_records)
 
-        return self._push_inventory_groups(groups, shopify_locations)
+        return self._push_inventory_groups(groups, shopify_locations,
+                                           force=force)
 
-    def _push_inventory_groups(self, groups, shopify_locations):
+    def _push_inventory_groups(self, groups, shopify_locations,
+                               force=False):
         """Publish the summed quantity of each group on Shopify.
 
         For every group the on-hand stock of all its Odoo variants is added up
@@ -871,17 +885,23 @@ class SyncInventory(models.TransientModel):
                 if not desired:
                     continue
 
-                # Only write what actually differs. Reading the current
-                # levels costs one request per 50 items; writing costs one
-                # per item, so on a full resync - where almost nothing
-                # moved - this removes nearly every request.
-                current, read_failures = self._get_current_levels(
-                    session, store_name, version, headers,
-                    location.shopify_location_id, desired)
-                failures.extend(read_failures)
-                changed = {item: qty for item, qty in desired.items()
-                           if current.get(item) != qty}
-                skipped += len(desired) - len(changed)
+                if force:
+                    # Update All Stock: re-publish every quantity, even
+                    # the ones Shopify already agrees with.
+                    changed = dict(desired)
+                else:
+                    # Only write what actually differs. Reading the
+                    # current levels costs one request per 50 items;
+                    # writing costs one per item, so on a full resync -
+                    # where almost nothing moved - this removes nearly
+                    # every request.
+                    current, read_failures = self._get_current_levels(
+                        session, store_name, version, headers,
+                        location.shopify_location_id, desired)
+                    failures.extend(read_failures)
+                    changed = {item: qty for item, qty in desired.items()
+                               if current.get(item) != qty}
+                    skipped += len(desired) - len(changed)
                 if not changed:
                     continue
 
@@ -1154,6 +1174,89 @@ class SyncInventory(models.TransientModel):
     # main action
     # ------------------------------------------------------------------
 
+    def action_queue_full_inventory_push(self):
+        """Queue a push of EVERY synced variant, processed in background.
+
+        This is the 'Update All Stock' action. It takes the same route as
+        the scheduled full resync - the groups are built once, the Shopify
+        inventory item ids are resolved once, and the work is split into
+        job.cron batches - so re-publishing a whole catalogue does not run
+        inside the user's web request, where it would time out long before
+        the last variant.
+
+        The payload carries force=True, so every quantity is written even
+        when Shopify already holds the same number.
+        """
+        self.ensure_one()
+        instance = self.shopify_instance_id
+        locations = self.env['shopify.location'].sudo().search([
+            ('instance_id', '=', instance.id),
+            ('warehouse_id', 'in', self.warehouse_ids.ids),
+            ('active', '=', True),
+        ]).filtered(lambda loc: loc.shopify_location_id)
+        if not locations:
+            raise ValidationError(_(
+                'No Shopify location is mapped to the selected '
+                'warehouse(s). Please map the selected warehouse(s) to a '
+                'Shopify location first (use the Sync Locations wizard).'))
+
+        groups = self._build_inventory_groups(instance)
+        if groups:
+            item_map = self._get_inventory_item_map(
+                instance,
+                {variant_id for group in groups
+                 for variant_id in group['variant_ids']})
+            for group in groups:
+                group['items'] = {
+                    variant_id: item_map[variant_id]
+                    for variant_id in group['variant_ids']
+                    if variant_id in item_map
+                }
+            groups = [group for group in groups if group['items']]
+        if not groups:
+            raise ValidationError(_(
+                'No synced product found for this Shopify instance, so '
+                'there is no stock to update. Import or export the '
+                'products first.'))
+
+        model = self.env['ir.model'].search(
+            [('model', '=', 'sync.inventory')])
+        warehouse_ids = self.warehouse_ids.ids
+        batches = 0
+        for start in range(0, len(groups), INVENTORY_BATCH_SIZE):
+            self.env['job.cron'].sudo().create([{
+                'model_id': model.id,
+                'function': 'export_inventory_to_shopify',
+                'data': {
+                    'groups': groups[start:start + INVENTORY_BATCH_SIZE],
+                    'warehouse_ids': warehouse_ids,
+                    'force': True,
+                },
+                'instance_id': instance.id,
+            }])
+            batches += 1
+
+        variants = sum(len(group['items']) for group in groups)
+        _logger.info(
+            'Update All Stock: queued %d group(s) covering %d variant(s) '
+            'in %d batch(es) for instance %s',
+            len(groups), variants, batches, instance.name)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Stock update queued'),
+                'message': _(
+                    '%(variants)s variant(s) in %(batches)s batch(es) are '
+                    'being pushed to Shopify in the background. Progress '
+                    'is logged under Shopify > Logs.'
+                ) % {'variants': variants, 'batches': batches},
+                'type': 'success',
+                'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
+            },
+        }
+
     def sync_inventory(self):
         """Dispatch to the correct sync direction."""
         if not self.warehouse_ids:
@@ -1162,6 +1265,8 @@ class SyncInventory(models.TransientModel):
 
         try:
             if self.import_inventory == 'shopify':
+                if self.update_all_stock:
+                    return self.action_queue_full_inventory_push()
                 self._sync_to_shopify()
             else:
                 self._sync_from_shopify()
