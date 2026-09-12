@@ -44,6 +44,16 @@ WATERMARK_OVERLAP_MINUTES = 15
 FULL_RESYNC_HOURS = 24
 # Shopify page size (the API default is 50 - 250 is the maximum).
 SHOPIFY_PAGE_LIMIT = 250
+# GET /inventory_levels.json takes at most 50 inventory_item_ids per call.
+INVENTORY_LEVELS_READ_CHUNK = 50
+# Quantities per inventorySetQuantities mutation (GraphQL, 2024-07+).
+GRAPHQL_SET_CHUNK = 250
+# First API version with the inventorySetQuantities mutation, which can
+# set the *available* quantity of many items in one call. Older versions
+# only offer inventorySetOnHandQuantities, which sets on_hand - a
+# different number as soon as Shopify has committed stock - so they stay
+# on the REST endpoint.
+GRAPHQL_INVENTORY_MIN_VERSION = (2024, 7)
 SHOPIFY_TIMEOUT = 30
 # Transient failures to ride out: a dropped keep-alive connection, a gateway
 # that could not reach Shopify ("upstream connect error", 502/503/504) and
@@ -52,6 +62,16 @@ SHOPIFY_TIMEOUT = 30
 SHOPIFY_RETRY_TOTAL = 4
 SHOPIFY_RETRY_BACKOFF = 1.0
 SHOPIFY_RETRY_STATUSES = (429, 500, 502, 503, 504)
+
+# Bulk 'available' write, API version 2024-07 and later. One call carries
+# up to GRAPHQL_SET_CHUNK quantities, replacing that many REST POSTs.
+GRAPHQL_SET_QUANTITIES = '''
+mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
+    userErrors { field message }
+  }
+}
+'''
 
 
 class SyncInventory(models.TransientModel):
@@ -799,7 +819,11 @@ class SyncInventory(models.TransientModel):
 
         failures = []
         pushed = 0
+        skipped = 0
         retried = 0
+        use_graphql = self._supports_graphql_inventory(version)
+        graphql_url = ('https://%s/admin/api/%s/graphql.json'
+                       % (store_name, version))
         # one TCP/TLS connection for the whole batch instead of one per
         # request, and transient gateway/throttle failures are retried
         session = self._shopify_session()
@@ -809,6 +833,11 @@ class SyncInventory(models.TransientModel):
                     all_product_ids, company_id,
                     location.warehouse_id.lot_stock_id)
 
+                # Everything this location should end up with, computed
+                # before a single request goes out, so the quantities can
+                # be compared against Shopify and sent in bulk.
+                desired = {}
+                variant_by_item = {}
                 for group in groups:
                     product_ids = group.get('product_ids') or []
                     variant_ids = group.get('variant_ids') or []
@@ -834,45 +863,51 @@ class SyncInventory(models.TransientModel):
                             str(variant_id))
                         if not inventory_item_id:
                             continue
-                        payload = json.dumps({
-                            'location_id':       location.shopify_location_id,
-                            'inventory_item_id': inventory_item_id,
-                            'available':         available,
-                        })
-                        try:
-                            resp = session.post(set_url, headers=headers,
-                                                data=payload,
-                                                timeout=SHOPIFY_TIMEOUT)
-                        except requests.exceptions.RequestException as error:
-                            failures.append(
-                                'variant %s (group %s, location %s): %s'
-                                % (variant_id, group.get('key'),
-                                   location.shopify_location_id, error))
-                            continue
-                        # count the retries urllib3 already absorbed, so a
-                        # flaky link shows up in the log even when it recovers
-                        raw_retries = getattr(
-                            getattr(resp, 'raw', None), 'retries', None)
-                        retried += len(getattr(raw_retries, 'history', ()) or ())
+                        desired[str(inventory_item_id)] = available
+                        variant_by_item.setdefault(
+                            str(inventory_item_id), (variant_id,
+                                                     group.get('key')))
 
-                        if resp.status_code not in (200, 201):
-                            failures.append(
-                                'variant %s (group %s, location %s): HTTP %s %s'
-                                % (variant_id, group.get('key'),
-                                   location.shopify_location_id,
-                                   resp.status_code,
-                                   (resp.text or '').strip()[:300]))
-                        else:
-                            pushed += 1
+                if not desired:
+                    continue
+
+                # Only write what actually differs. Reading the current
+                # levels costs one request per 50 items; writing costs one
+                # per item, so on a full resync - where almost nothing
+                # moved - this removes nearly every request.
+                current, read_failures = self._get_current_levels(
+                    session, store_name, version, headers,
+                    location.shopify_location_id, desired)
+                failures.extend(read_failures)
+                changed = {item: qty for item, qty in desired.items()
+                           if current.get(item) != qty}
+                skipped += len(desired) - len(changed)
+                if not changed:
+                    continue
+
+                if use_graphql:
+                    done, leftover, errors = self._graphql_set_levels(
+                        session, graphql_url, headers,
+                        location.shopify_location_id, changed)
+                    pushed += done
+                    failures.extend(errors)
+                    changed = leftover   # chunks GraphQL could not place
+
+                done, errors, retries = self._rest_set_levels(
+                    session, set_url, headers, location.shopify_location_id,
+                    changed, variant_by_item)
+                pushed += done
+                failures.extend(errors)
+                retried += retries
         finally:
             session.close()
 
         # One log row per batch instead of one per request (with a commit each
         # one): the per-variant success rows were the bulk of the write load
         # and of the log.message table.
-        summary = ('Inventory push: %d level(s) updated, %d failed '
-                   '(%d group(s), %d location(s))'
-                   % (pushed, len(failures), len(groups),
+        summary = ('Inventory push: %d level(s) updated, %d unchanged '
+                   '(skipped), %d failed (%d group(s), %d location(s))'
+                   % (pushed, skipped, len(failures), len(groups),
                       len(shopify_locations)))
         if retried:
             summary += ' - %d request(s) needed a retry' % retried
@@ -888,7 +923,175 @@ class SyncInventory(models.TransientModel):
                 'model': 'Stock Quantity',
             })
         self.env['log.message'].sudo().create(messages)
-        return {'pushed': pushed, 'failed': len(failures), 'retried': retried}
+        return {'pushed': pushed, 'skipped': skipped,
+                'failed': len(failures), 'retried': retried}
+
+    # ------------------------------------------------------------------
+    # Inventory level transport
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _supports_graphql_inventory(self, version):
+        """True when this API version can set *available* in bulk.
+
+        `inventorySetQuantities` (name: available) landed in API version
+        2024-07. Before that the only bulk mutation is
+        `inventorySetOnHandQuantities`, which writes on_hand - not the
+        same figure once Shopify has committed stock - so older versions
+        keep using the REST endpoint, which does set `available`.
+        """
+        match = re.match(r'^(\d{4})-(\d{2})', (version or '').strip())
+        if not match:
+            return False
+        return ((int(match.group(1)), int(match.group(2)))
+                >= GRAPHQL_INVENTORY_MIN_VERSION)
+
+    def _get_current_levels(self, session, store_name, version, headers,
+                            location_id, inventory_item_ids):
+        """Current `available` per inventory item at one location.
+
+        Returns ``({inventory_item_id: available}, failures)``. Items the
+        read could not cover are simply absent, so they are treated as
+        changed and get pushed - a failed read never silently skips a
+        quantity.
+        """
+        levels = {}
+        failures = []
+        url = ('https://%s/admin/api/%s/inventory_levels.json'
+               % (store_name, version))
+        item_ids = [str(item) for item in inventory_item_ids]
+        for start in range(0, len(item_ids), INVENTORY_LEVELS_READ_CHUNK):
+            chunk = item_ids[start:start + INVENTORY_LEVELS_READ_CHUNK]
+            params = {
+                'inventory_item_ids': ','.join(chunk),
+                'location_ids': str(location_id),
+                'limit': SHOPIFY_PAGE_LIMIT,
+            }
+            try:
+                resp = session.get(url, headers=headers, params=params,
+                                   timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as error:
+                _logger.warning(
+                    'Inventory level read failed (location %s): %s - those '
+                    'items will be pushed unconditionally',
+                    location_id, error)
+                continue
+            if resp.status_code != 200:
+                _logger.warning(
+                    'Inventory level read failed (location %s): HTTP %s %s',
+                    location_id, resp.status_code,
+                    (resp.text or '').strip()[:200])
+                continue
+            try:
+                body = resp.json() or {}
+            except ValueError:
+                continue
+            for level in body.get('inventory_levels') or []:
+                if level.get('available') is None:
+                    continue
+                levels[str(level.get('inventory_item_id'))] = int(
+                    level['available'])
+        return levels, failures
+
+    def _rest_set_levels(self, session, set_url, headers, location_id,
+                         quantities, variant_by_item):
+        """One POST per item to inventory_levels/set.json.
+
+        Returns ``(pushed, failures, retries)``.
+        """
+        pushed = 0
+        retried = 0
+        failures = []
+        for inventory_item_id, available in (quantities or {}).items():
+            variant_id, group_key = variant_by_item.get(
+                inventory_item_id, (inventory_item_id, None))
+            payload = json.dumps({
+                'location_id':       location_id,
+                'inventory_item_id': inventory_item_id,
+                'available':         available,
+            })
+            try:
+                resp = session.post(set_url, headers=headers, data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as error:
+                failures.append('variant %s (group %s, location %s): %s'
+                                % (variant_id, group_key, location_id,
+                                   error))
+                continue
+            # count the retries urllib3 already absorbed, so a flaky link
+            # shows up in the log even when it recovers
+            raw_retries = getattr(getattr(resp, 'raw', None), 'retries', None)
+            retried += len(getattr(raw_retries, 'history', ()) or ())
+            if resp.status_code not in (200, 201):
+                failures.append(
+                    'variant %s (group %s, location %s): HTTP %s %s'
+                    % (variant_id, group_key, location_id,
+                       resp.status_code, (resp.text or '').strip()[:300]))
+            else:
+                pushed += 1
+        return pushed, failures, retried
+
+    def _graphql_set_levels(self, session, graphql_url, headers,
+                            location_id, quantities):
+        """Set `available` for many items at once (API 2024-07+).
+
+        Returns ``(pushed, leftover, failures)``: `leftover` holds the
+        quantities of any chunk the mutation could not place, so the
+        caller can fall back to the REST endpoint for those instead of
+        losing them.
+        """
+        pushed = 0
+        leftover = {}
+        failures = []
+        items = list((quantities or {}).items())
+        for start in range(0, len(items), GRAPHQL_SET_CHUNK):
+            chunk = items[start:start + GRAPHQL_SET_CHUNK]
+            variables = {'input': {
+                'name': 'available',
+                'reason': 'correction',
+                'ignoreCompareQuantity': True,
+                'quantities': [{
+                    'inventoryItemId':
+                        'gid://shopify/InventoryItem/%s' % item,
+                    'locationId': 'gid://shopify/Location/%s' % location_id,
+                    'quantity': int(available),
+                } for item, available in chunk],
+            }}
+            error = None
+            try:
+                resp = session.post(
+                    graphql_url, headers=headers,
+                    data=json.dumps({'query': GRAPHQL_SET_QUANTITIES,
+                                     'variables': variables}),
+                    timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as err:
+                error = str(err)
+            else:
+                if resp.status_code not in (200, 201):
+                    error = 'HTTP %s %s' % (resp.status_code,
+                                            (resp.text or '').strip()[:300])
+                else:
+                    try:
+                        body = resp.json() or {}
+                    except ValueError:
+                        body = {}
+                        error = 'unreadable response'
+                    if not error:
+                        user_errors = (
+                            (body.get('data') or {}).get(
+                                'inventorySetQuantities') or {}
+                        ).get('userErrors') or []
+                        if body.get('errors') or user_errors:
+                            error = json.dumps(
+                                body.get('errors') or user_errors)[:300]
+            if error:
+                failures.append(
+                    'bulk set of %d item(s) at location %s: %s - retried '
+                    'one by one' % (len(chunk), location_id, error))
+                leftover.update(dict(chunk))
+            else:
+                pushed += len(chunk)
+        return pushed, leftover, failures
 
     # ------------------------------------------------------------------
     # From Shopify

@@ -72,15 +72,23 @@ class JobCron(models.Model):
         start = time.monotonic()
         processed = 0
         while time.monotonic() - start < JOB_BUDGET_SECONDS:
-            job = self.env['job.cron'].sudo().search(
+            jobs = self.env['job.cron'].sudo().search(
                 [('state', '=', 'pending')], order='id asc', limit=10)
-            if not job:
+            if not jobs:
                 break
-            job._process()
-            # keep each job's outcome even if a later one blows up, and
-            # release the row locks this job took
-            self.env.cr.commit()
-            processed += 1
+            for job in jobs:
+                # One record at a time: _process() calls ensure_one(), so
+                # handing it the whole batch raised a ValueError before
+                # any job ran. With more than one job pending the tick
+                # died every minute and the queue never drained - which
+                # is what made an inventory push look endless.
+                job._process()
+                # keep each job's outcome even if a later one blows up,
+                # and release the row locks this job took
+                self.env.cr.commit()
+                processed += 1
+                if time.monotonic() - start >= JOB_BUDGET_SECONDS:
+                    break
         if processed:
             _logger.info('Shopify job queue: processed %d job(s) in %.1fs',
                          processed, time.monotonic() - start)
