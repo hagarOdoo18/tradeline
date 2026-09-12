@@ -341,34 +341,54 @@ class SaleOrderSync(models.TransientModel):
 
         return instance.warehouse_id
 
+    @staticmethod
+    def _stock_group_key(product, sku=None):
+        """The code that groups every Odoo product mirroring one Shopify item.
+
+        Priority is `shopify_variant_sku` then `barcode`, deliberately the
+        same order as `sync_inventory._inventory_group_key`: the line must be
+        served out of the very group whose stock was pushed to Shopify. The
+        SKU carried by the order line wins when there is one, so a product
+        resolved through `variant_id` alone is still grouped by what the
+        customer actually bought.
+        """
+        if sku:
+            return str(sku).strip()
+        if not product:
+            return ''
+        return (product.shopify_variant_sku or product.barcode or '').strip()
+
     def _pick_product_with_stock(self, product, warehouse, company_id,
-                                 qty_needed):
+                                 qty_needed, sku=None):
         """Return the variant that can actually be served from `warehouse`.
 
-        One Shopify variant can be mirrored by several Odoo products: the
+        One Shopify item can be mirrored by several Odoo products: the
         "master" product carries the barcode, its aliases carry that same
         value in `shopify_variant_sku`. They are interchangeable for
-        fulfilment, so when the product resolved from the Shopify payload has
-        no free stock in the order's warehouse, switch to a sibling that does.
-        Falls back to the originally resolved product when no sibling can
-        cover the line either, so behaviour is unchanged for single-variant
-        products.
+        fulfilment, so the whole group is looked up on both fields and the
+        line is put on a product that has free stock in the order's
+        warehouse. Falls back to the originally resolved product when nothing
+        in the group has stock either, so behaviour is unchanged for
+        single-variant products.
         """
         if not product or not warehouse or not warehouse.lot_stock_id:
             return product
-
-        barcode = product.barcode or product.shopify_variant_sku
-        if not barcode:
+        # Services (shipping, fees) never carry quants -- leave them alone.
+        if product.type == 'service':
             return product
 
-        siblings = self.env['product.product'].sudo().search([
+        key = self._stock_group_key(product, sku)
+        if not key:
+            return product
+
+        candidates = self.env['product.product'].sudo().search([
             '|',
-            ('barcode', '=', barcode),
-            ('shopify_variant_sku', '=', barcode),
-            ('id', 'not in', product.ids),
+            ('barcode', '=', key),
+            ('shopify_variant_sku', '=', key),
             ('company_id', 'in', [company_id, False]),
         ])
-        if not siblings:
+        candidates |= product
+        if len(candidates) == 1:
             return product
 
         location = warehouse.lot_stock_id
@@ -376,7 +396,6 @@ class SaleOrderSync(models.TransientModel):
         # One grouped read for every candidate instead of a stock.quant
         # search per candidate: an order line with three siblings used to
         # cost four separate quant scans.
-        candidates = product | siblings
         free_by_product = dict.fromkeys(candidates.ids, 0.0)
         for prod, quantity, reserved in self.env['stock.quant'].sudo()._read_group(
                 [('product_id', 'in', candidates.ids),
@@ -390,14 +409,21 @@ class SaleOrderSync(models.TransientModel):
         if free_by_product.get(product.id, 0.0) >= qty_needed:
             return product
 
-        # Otherwise take the sibling with the most free stock that still
-        # covers the ordered quantity.
-        scored = [(candidate, free_by_product.get(candidate.id, 0.0))
-                  for candidate in siblings]
-        scored.sort(key=lambda item: item[1], reverse=True)
+        # Otherwise take the group member with the most free stock. Sort on
+        # (-free, id) so the winner never depends on search order, and prefer
+        # a member that covers the whole line; if none does, still move to the
+        # one holding stock rather than leaving the line on a product with
+        # nothing in this warehouse.
+        scored = sorted(
+            ((candidate, free_by_product.get(candidate.id, 0.0))
+             for candidate in candidates if candidate.id != product.id),
+            key=lambda item: (-item[1], item[0].id))
         for candidate, free in scored:
             if free >= qty_needed:
                 return candidate
+        if scored and scored[0][1] > 0 and \
+                scored[0][1] > free_by_product.get(product.id, 0.0):
+            return scored[0][0]
         return product
 
     def _confirmed_order_warehouse_context(self, code, instance, cache):
@@ -841,12 +867,20 @@ class SaleOrderSync(models.TransientModel):
                         discount = 0.0
                         if line['discount_allocations']:
                             discount = line['discount_allocations'][0]['amount']
-                        product_id = self.env['product.product'].sudo().search(
-                            [('barcode', '=', line['sku']),
+                        sku_candidates = self.env['product.product'].sudo().search(
+                            ['|',('barcode', '=', line['sku']),('shopify_variant_sku', '=', line['sku']),
                              ('shopify_sync_ids.instance_id', '=',
                               shopify_instance.id),
                              ('company_id', 'in', [shopify_instance.company_id.id,
                                                    False])])
+                        # Same precedence as the product import: the
+                        # shopify_variant_sku match names the item, the
+                        # barcode matches are its aliases.
+                        sku_first = sku_candidates.filtered(
+                            lambda p, s=line['sku']: p.shopify_variant_sku == s)
+                        sku_candidates = sku_first + (
+                            sku_candidates - sku_first)
+                        product_id = sku_candidates
                         if line['variant_id']:
                             # narrow within the barcode+instance result first
                             variant_match = product_id.filtered(
@@ -856,7 +890,9 @@ class SaleOrderSync(models.TransientModel):
                                 product_id = variant_match[:1]
                             else:
                                 # fall back: any product in this company with
-                                # the matching Shopify variant id
+                                # the matching Shopify variant id, and if the
+                                # variant id is unknown here keep the SKU
+                                # match rather than re-creating the product.
                                 product_id = self.env[
                                     'product.product'].sudo().search([
                                         ('shopify_variant', '=',
@@ -864,7 +900,7 @@ class SaleOrderSync(models.TransientModel):
                                         ('company_id', 'in', [
                                             shopify_instance.company_id.id,
                                             False]),
-                                    ], limit=1)
+                                    ], limit=1) or sku_candidates[:1]
                         else:
                             product_id = product_id[:1]
                         if not product_id:
@@ -910,13 +946,15 @@ class SaleOrderSync(models.TransientModel):
                                 'model': 'sale.order',
                             }])
                             continue
-                        # Several Odoo products can mirror the same
-                        # Shopify variant; prefer the one that actually
-                        # has free stock in this order's warehouse.
+                        # Several Odoo products can mirror the same Shopify
+                        # item (barcode on one, shopify_variant_sku on its
+                        # aliases); prefer the one that actually has free
+                        # stock in this order's warehouse.
                         product_id = self._pick_product_with_stock(
                             product_id, order_warehouse,
                             shopify_instance.company_id.id,
-                            float(line['quantity']))
+                            float(line['quantity']),
+                            sku=line.get('sku'))
                         str_list = []
                         for desc_index in line['discount_allocations']:
                             discount_type = \
