@@ -451,18 +451,20 @@ class TestPreorderFlow(TransactionCase):
         )
         self.assertIn(
             self.payment_journal.display_name,
-            str(preorder.payment_method_1_html),
+            preorder.payment_method_1,
         )
+        self.assertNotIn("<", preorder.payment_method_1)
         if self.second_payment_journal != self.payment_journal:
             self.assertIn(
                 self.second_payment_journal.display_name,
-                str(preorder.payment_method_2_html),
+                preorder.payment_method_2,
             )
+            self.assertNotIn("<", preorder.payment_method_2)
         else:
-            self.assertFalse(preorder.payment_method_2_html)
-        self.assertFalse(preorder.payment_method_3_html)
-        self.assertFalse(preorder.payment_method_4_html)
-        self.assertFalse(preorder.additional_payment_methods_html)
+            self.assertFalse(preorder.payment_method_2)
+        self.assertFalse(preorder.payment_method_3)
+        self.assertFalse(preorder.payment_method_4)
+        self.assertFalse(preorder.additional_payment_methods)
         self.assertEqual(
             float_compare(
                 preorder.get_report_payment_total(),
