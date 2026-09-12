@@ -851,6 +851,21 @@ class SalePreorder(models.Model):
     payment_method_breakdown_html = fields.Html(
         compute="_compute_payment_summary", string="Payment Journal(s)"
     )
+    payment_method_1_html = fields.Html(
+        compute="_compute_payment_summary", string="Payment Method 1"
+    )
+    payment_method_2_html = fields.Html(
+        compute="_compute_payment_summary", string="Payment Method 2"
+    )
+    payment_method_3_html = fields.Html(
+        compute="_compute_payment_summary", string="Payment Method 3"
+    )
+    payment_method_4_html = fields.Html(
+        compute="_compute_payment_summary", string="Payment Method 4"
+    )
+    additional_payment_methods_html = fields.Html(
+        compute="_compute_payment_summary", string="Additional Payments"
+    )
     payment_status = fields.Selection(
         [
             ("none", "No Payment"),
@@ -1238,6 +1253,25 @@ class SalePreorder(models.Model):
                 )
                 for label, amount in payment_breakdown.items()
             )
+            payment_cells = [
+                Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
+                    escape(label),
+                    escape(format(amount, ",.2f")),
+                    escape(record.currency_id.name),
+                )
+                for label, amount in payment_breakdown.items()
+            ]
+            for index in range(4):
+                setattr(
+                    record,
+                    "payment_method_%s_html" % (index + 1),
+                    payment_cells[index] if index < len(payment_cells) else False,
+                )
+            record.additional_payment_methods_html = Markup(
+                '<div class="text-nowrap">{}</div>'
+            ).format(
+                Markup(" &nbsp;|&nbsp; ").join(payment_cells[4:])
+            ) if len(payment_cells) > 4 else False
             if not all_inbound:
                 record.payment_status = "none"
             elif returned and not usable:

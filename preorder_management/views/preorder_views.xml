@@ -129,7 +129,11 @@
                 <field name="requested_qty_total" sum="Requested"/>
                 <field name="deposit_amount" sum="Total Required Payment" optional="show"/>
                 <field name="prepaid_amount" sum="Total Original Payment" optional="show"/>
-                <field name="payment_method_breakdown_html" widget="html" optional="show"/>
+                <field name="payment_method_1_html" widget="html" optional="show"/>
+                <field name="payment_method_2_html" widget="html" optional="show"/>
+                <field name="payment_method_3_html" widget="html" optional="show"/>
+                <field name="payment_method_4_html" widget="html" optional="show"/>
+                <field name="additional_payment_methods_html" widget="html" optional="hide"/>
                 <field name="payment_status" widget="badge"/>
                 <field name="state" widget="badge"/>
             </list>
