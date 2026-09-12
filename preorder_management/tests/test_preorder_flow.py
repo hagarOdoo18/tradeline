@@ -449,6 +449,20 @@ class TestPreorderFlow(TransactionCase):
             str(preorder.payment_method_breakdown_html).count("text-nowrap"),
             expected_breakdown_rows,
         )
+        self.assertIn(
+            self.payment_journal.display_name,
+            str(preorder.payment_method_1_html),
+        )
+        if self.second_payment_journal != self.payment_journal:
+            self.assertIn(
+                self.second_payment_journal.display_name,
+                str(preorder.payment_method_2_html),
+            )
+        else:
+            self.assertFalse(preorder.payment_method_2_html)
+        self.assertFalse(preorder.payment_method_3_html)
+        self.assertFalse(preorder.payment_method_4_html)
+        self.assertFalse(preorder.additional_payment_methods_html)
         self.assertEqual(
             float_compare(
                 preorder.get_report_payment_total(),
