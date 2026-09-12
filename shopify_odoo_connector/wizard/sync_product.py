@@ -195,10 +195,10 @@ class SyncProduct(models.TransientModel):
         duplicate listing for it.
 
         A Shopify product that already has shopify.sync rows for this
-        instance is NOT skipped: its existing sync rows (template and
-        variant level) are unlinked first and the product is imported
-        again, so the links are always rebuilt from the current Shopify
-        payload.
+        instance is NOT skipped: it is matched again and its sync rows
+        (template and variant level) are deleted and re-created from the
+        current Shopify payload, so the links are always rebuilt. Products
+        that match no Odoo SKU keep the links they had.
 
         All lookups for the whole page are batched: two queries for the
         entire batch instead of ~3 queries per product, and one create for
@@ -212,33 +212,6 @@ class SyncProduct(models.TransientModel):
 
         product_obj = self.env['product.product'].sudo()
         sync_obj = self.env['shopify.sync'].sudo()
-
-        # ١. حذف سجلات المزامنة القديمة لإعادة المزامنة من جديد
-        #    (بدلاً من تخطي المنتج المتزامن مسبقاً)
-        shopify_ids = [str(p['id']) for p in shopify_products if p.get('id')]
-        shopify_variant_ids = [
-            str(shopify_var['id'])
-            for product in shopify_products
-            for shopify_var in (product.get('variants') or [])
-            if shopify_var.get('id')
-        ]
-        #    Only `shopify_product` is queried: it is the indexed column,
-        #    and every product/variant sync row stores its Shopify id
-        #    there - template rows the product id, variant rows the
-        #    variant id - so one indexed IN catches both without the
-        #    unindexed `shopify_variant_id` scan.
-        stale_ids = shopify_ids + shopify_variant_ids
-        if stale_ids:
-            stale_syncs = sync_obj.search([
-                ('instance_id', '=', shopify_instance.id),
-                ('shopify_product', 'in', stale_ids),
-            ])
-            if stale_syncs:
-                _logger.info(
-                    'Shopify product import: removing %d existing '
-                    'shopify.sync record(s) before re-syncing.',
-                    len(stale_syncs))
-                stale_syncs.unlink()
 
         # ٢. تجميع كل الـ SKUs في الدفعة والبحث عنها مرة واحدة
         all_skus = set()
@@ -387,8 +360,32 @@ class SyncProduct(models.TransientModel):
                     'product_id': template.id,
                 })
 
-        # ٨. إنشاء كل سجلات shopify.sync دفعة واحدة
+        # ٨. حذف الروابط القديمة ثم إنشاء الجديدة دفعة واحدة
+        #
+        # Only the Shopify ids that are being re-created are deleted, so a
+        # product that matched nothing in Odoo keeps whatever links it had:
+        # stripping those would make its template look unsynced and
+        # `export_products_to_shopify` would push it to Shopify again as a
+        # new listing.
+        #
+        # `shopify_product` alone is queried: it is the indexed column and
+        # holds the product id on template rows and the variant id on
+        # variant rows, so one indexed IN removes both - no scan of the
+        # unindexed `shopify_variant_id`.
         if sync_vals_list:
+            resync_ids = list({
+                str(vals['shopify_product']) for vals in sync_vals_list
+            })
+            stale_syncs = sync_obj.search([
+                ('instance_id', '=', shopify_instance.id),
+                ('shopify_product', 'in', resync_ids),
+            ])
+            if stale_syncs:
+                _logger.info(
+                    'Shopify product import: removed %d existing '
+                    'shopify.sync record(s) before re-linking.',
+                    len(stale_syncs))
+                stale_syncs.unlink()
             sync_obj.create(sync_vals_list)
         _logger.info('Shopify product import: processed %d products, '
                      'created %d shopify.sync records.',
