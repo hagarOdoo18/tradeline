@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_config_form_preorder_delivery" model="ir.ui.view">
+        <field name="name">pos.config.form.preorder.delivery</field>
+        <field name="model">pos.config</field>
+        <field name="inherit_id" ref="point_of_sale.pos_config_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//setting[@id='other_devices']" position="after">
+                <setting
+                    string="Pre-order Delivery"
+                    title="Deliver fully paid branch pre-orders from POS"
+                    help="Adds a refund-style POS workflow that validates serials, completes the sales delivery, creates the invoice, and applies the original pre-order payment. No POS sale or second payment is created."
+                >
+                    <field name="enable_preorder_delivery" readonly="has_active_session"/>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+</odoo>

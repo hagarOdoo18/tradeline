@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Tradeline Pre-order Management",
-    "version": "18.0.7.0.0",
+    "version": "18.0.8.0.0",
     "category": "Sales",
     "summary": "Branch allocations and payment reuse for product pre-orders",
     "author": "Tradeline",
@@ -23,7 +23,15 @@
         "report/preorder_confirmation_report.xml",
         "views/preorder_views.xml",
         "views/sale_order_views.xml",
+        "views/pos_config_views.xml",
     ],
+    "assets": {
+        "point_of_sale._assets_pos": [
+            "preorder_management/static/src/js/preorder_delivery_dialog.js",
+            "preorder_management/static/src/xml/preorder_delivery_dialog.xml",
+            "preorder_management/static/src/scss/preorder_delivery.scss",
+        ],
+    },
     "installable": True,
     "application": True,
 }

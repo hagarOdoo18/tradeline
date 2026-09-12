@@ -460,11 +460,13 @@ class TestPreorderFlow(TransactionCase):
         report_action = self.env.ref(
             "preorder_management.action_report_preorder_confirmation"
         )
+        self.campaign.notes = "Bring the original ID and reservation receipt."
         report_html, _ = report_action._render_qweb_html(
             report_action.report_name, preorder.ids
         )
         self.assertIn(b"Reserved Device", report_html)
         self.assertIn(b"Total Paid", report_html)
+        self.assertIn(b"Bring the original ID and reservation receipt.", report_html)
         self.assertIn(b">Payment<", report_html)
         self.assertNotIn(b">Journal<", report_html)
         self.assertNotIn(b">Payment Method<", report_html)
@@ -523,3 +525,54 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(
             preorder.final_sale_order_id.order_line.price_unit, original_unit_price
         )
+
+    def test_pos_serial_assignment_preflight(self):
+        serial_product = self.product.copy(
+            {
+                "name": "Automated POS Pre-order Serial Device",
+                "tracking": "serial",
+            }
+        )
+        self.campaign.product_ids = [Command.link(serial_product.id)]
+        self.env["sale.preorder.allocation"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "branch_id": self.branch.id,
+                "product_id": serial_product.id,
+                "allocated_qty": 2.0,
+            }
+        )
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "line_ids": [
+                    Command.create(
+                        {"product_id": serial_product.id, "requested_qty": 1.0}
+                    )
+                ],
+            }
+        )
+        lot = self.env["stock.lot"].sudo().create(
+            {
+                "name": "POS-PREORDER-SERIAL-001",
+                "product_id": serial_product.id,
+                "company_id": self.company.id,
+            }
+        )
+
+        with self.assertRaisesRegex(UserError, "exactly 1 serial"):
+            preorder._prepare_pos_serial_lots({}, self.env["pos.config"])
+        with self.assertRaisesRegex(UserError, "Unknown serial"):
+            preorder._prepare_pos_serial_lots(
+                {str(serial_product.id): ["UNKNOWN-SERIAL"]},
+                self.env["pos.config"],
+            )
+
+        result = preorder._prepare_pos_serial_lots(
+            {str(serial_product.id): [lot.name]},
+            self.env["pos.config"],
+        )
+        self.assertEqual(result[serial_product.id], lot)

@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+    <t t-name="preorder_management.ControlButtonsPreorderDelivery"
+       t-inherit="point_of_sale.ControlButtons"
+       t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('control-buttons')]" position="inside">
+            <button t-if="env.services.pos.config.enable_preorder_delivery"
+                    class="btn btn-secondary control-button preorder-delivery-button"
+                    t-on-click="() => this.openPreorderDelivery()">
+                <i class="fa fa-truck"/>
+                <br/>Pre-order Delivery
+            </button>
+        </xpath>
+    </t>
+
+    <t t-name="preorder_management.PreorderDeliveryDialog">
+        <Dialog title="title"
+                bodyClass="'p-0 overflow-hidden'"
+                contentClass="'h-100 preorder-delivery-dialog'">
+            <div class="d-flex h-100 preorder-delivery-layout">
+                <section class="preorder-delivery-list d-flex flex-column border-end">
+                    <div class="p-3 border-bottom d-flex gap-2 align-items-center">
+                        <Input tModel="[state, 'query']"
+                               class="'flex-grow-1'"
+                               isSmall="ui.isSmall"
+                               placeholder="searchPlaceholder"
+                               icon="{type: 'fa', value: 'fa-search'}"
+                               debounceMillis="150"/>
+                        <button class="btn btn-light border" t-on-click="loadPreorders" title="Refresh">
+                            <i class="fa fa-refresh"/>
+                        </button>
+                    </div>
+                    <div class="overflow-auto flex-grow-1">
+                        <table class="table table-hover mb-0">
+                            <thead class="sticky-top bg-white">
+                                <tr>
+                                    <th>Pre-order</th>
+                                    <th>Customer</th>
+                                    <th>Devices</th>
+                                    <th class="text-end">Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="filteredPreorders" t-as="preorder" t-key="preorder.id"
+                                    t-on-click="() => this.selectPreorder(preorder)"
+                                    t-att-class="{'table-active': state.selected and state.selected.id === preorder.id}">
+                                    <td>
+                                        <strong t-esc="preorder.name"/>
+                                        <div class="small text-muted" t-esc="preorder.date"/>
+                                    </td>
+                                    <td>
+                                        <span t-esc="preorder.customer_name"/>
+                                        <div t-if="preorder.customer_phone" class="small text-muted" t-esc="preorder.customer_phone"/>
+                                    </td>
+                                    <td class="small" t-esc="preorder.device_summary"/>
+                                    <td class="text-end" t-esc="preorder.qty"/>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div t-if="state.loading" class="text-center p-5">
+                            <i class="fa fa-spinner fa-spin fa-2x"/>
+                            <div class="mt-2">Loading ready pre-orders...</div>
+                        </div>
+                        <div t-elif="!filteredPreorders.length" class="text-center text-muted p-5">
+                            <i class="fa fa-inbox fa-2x"/>
+                            <div class="mt-2">No fully paid pre-orders are ready for this branch.</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="preorder-delivery-detail flex-grow-1 overflow-auto p-4">
+                    <div t-if="state.error" class="alert alert-danger" role="alert">
+                        <i class="fa fa-exclamation-triangle me-2"/>
+                        <span t-esc="state.error"/>
+                    </div>
+
+                    <div t-if="state.success" class="h-100 d-flex flex-column align-items-center justify-content-center text-center">
+                        <i class="fa fa-check-circle text-success preorder-success-icon"/>
+                        <h2 class="mt-3">Delivery completed</h2>
+                        <p class="lead mb-1" t-esc="state.success.preorder_name"/>
+                        <p class="text-muted">
+                            Sales order <strong t-esc="state.success.sale_order_name"/> ·
+                            Invoice <strong t-esc="state.success.invoice_name"/>
+                        </p>
+                        <div class="d-flex flex-wrap justify-content-center gap-2 mt-3">
+                            <button class="btn btn-primary btn-lg"
+                                    t-on-click="() => this.print(state.success.invoice_report_url)">
+                                <i class="fa fa-print me-2"/>Print Invoice
+                            </button>
+                            <button class="btn btn-light border btn-lg"
+                                    t-on-click="() => this.print(state.success.preorder_report_url)">
+                                <i class="fa fa-file-text-o me-2"/>Print Pre-order
+                            </button>
+                            <button class="btn btn-light border btn-lg" t-on-click="deliverAnother">
+                                Deliver Another
+                            </button>
+                        </div>
+                    </div>
+
+                    <div t-elif="state.selected">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <div class="text-muted">Ready for delivery</div>
+                                <h2 class="mb-1" t-esc="state.selected.name"/>
+                                <div class="fs-5" t-esc="state.selected.customer_name"/>
+                                <div t-if="state.selected.customer_phone" class="text-muted" t-esc="state.selected.customer_phone"/>
+                            </div>
+                            <div class="text-end">
+                                <div class="text-muted">Original payment</div>
+                                <div class="fs-4 fw-bold text-success" t-esc="state.selected.amount_label"/>
+                                <div class="small" t-esc="state.selected.payment_method"/>
+                            </div>
+                        </div>
+
+                        <div t-if="state.selected.notes" class="alert alert-info">
+                            <strong>Campaign Notes</strong>
+                            <div class="preorder-notes mt-1" t-esc="state.selected.notes"/>
+                        </div>
+                        <div t-if="state.selected.customer_notes" class="alert alert-light border">
+                            <strong>Customer Pre-order Notes</strong>
+                            <div class="preorder-notes mt-1" t-esc="state.selected.customer_notes"/>
+                        </div>
+
+                        <h5 class="mt-4">Reserved devices</h5>
+                        <div t-foreach="state.selected.lines" t-as="line" t-key="line.id"
+                             class="card mb-3 preorder-device-card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between gap-3">
+                                    <strong t-esc="line.product_name"/>
+                                    <span>Qty <t t-esc="line.qty"/></span>
+                                </div>
+                                <div t-if="line.tracking === 'serial'" class="mt-3">
+                                    <label class="form-label text-muted">Scan or type each serial number</label>
+                                    <div class="row g-2">
+                                        <div t-foreach="serialSlots(line)" t-as="slot" t-key="slot" class="col-12 col-xl-6">
+                                            <div class="input-group input-group-lg">
+                                                <span class="input-group-text" t-esc="slot + 1"/>
+                                                <input class="form-control"
+                                                       type="text"
+                                                       autocomplete="off"
+                                                       t-att-value="serialValue(line.product_id, slot)"
+                                                       t-on-input="(event) => this.updateSerial(line.product_id, slot, event)"
+                                                       placeholder="Serial number"/>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div t-else="" class="small text-muted mt-2">
+                                    Stock availability will be checked at confirmation.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-warning mt-4">
+                            This completes the stock delivery, posts the customer invoice, and applies the original payment. No new POS order or payment is created.
+                        </div>
+                    </div>
+
+                    <div t-else="" class="h-100 d-flex flex-column align-items-center justify-content-center text-center text-muted">
+                        <i class="fa fa-shopping-cart fa-3x"/>
+                        <h3 class="mt-3">Select a ready pre-order</h3>
+                        <p>Only fully paid reservations for this POS branch appear here.</p>
+                    </div>
+                </section>
+            </div>
+
+            <t t-set-slot="footer">
+                <div class="d-flex justify-content-between align-items-center w-100 gap-2">
+                    <button class="btn btn-secondary btn-lg" t-on-click="() => this.props.close()">Close</button>
+                    <button t-if="state.selected and !state.success"
+                            class="btn btn-primary btn-lg px-5"
+                            t-att-disabled="!canFinalize or state.loading"
+                            t-on-click="requestFinalize">
+                        <i t-if="state.processing" class="fa fa-spinner fa-spin me-2"/>
+                        <i t-else="" class="fa fa-truck me-2"/>
+                        Deliver &amp; Invoice
+                    </button>
+                </div>
+            </t>
+        </Dialog>
+    </t>
+</templates>

@@ -217,6 +217,13 @@
                             <field name="final_sale_order_id" invisible="not final_sale_order_id"/>
                         </group>
                     </group>
+                    <group string="Fulfillment Audit" invisible="not fulfilled_via">
+                        <field name="fulfilled_via"/>
+                        <field name="fulfillment_pos_config_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_pos_session_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_user_id"/>
+                        <field name="fulfilled_at"/>
+                    </group>
                     <group string="Requested Devices" col="1">
                         <field name="line_ids" readonly="state != 'draft'">
                             <list editable="bottom">

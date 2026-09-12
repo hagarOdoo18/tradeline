@@ -33,6 +33,18 @@ The `preorder_management` module is isolated from the existing flow and is inten
 8. **Invoice & Apply Original Payment** creates/posts the delivery invoice, changes the original posted payment journal date to the delivery invoice accounting date, reposts it, and reconciles its open receivable line. It does not create an outbound refund or a second inbound payment.
 9. If the prepayment is smaller than the invoice, the record moves to **Payment Due** and shows the remaining invoice balance. If it fully settles the invoice, it moves to **Completed**.
 
+### Optional POS final delivery (staging only)
+
+The final delivery step can now run from the branch POS without creating a POS order or a second payment. It is disabled on every POS by default.
+
+1. Enable **Pre-order Delivery** on one staging POS configuration while its session is closed, then reopen the session so the new setting and assets load.
+2. In POS, open **Actions > Pre-order Delivery**. The dialog only lists fully paid, allocated pre-orders for that POS branch while the campaign is in Delivery.
+3. Select the customer, review campaign/customer notes and reserved devices, then scan each required serial number.
+4. **Deliver & Invoice** confirms the normal delivery sales order, validates stock from the exact POS source location, posts the invoice, and applies the original payment in one transaction.
+5. If any serial, stock, accounting, or reconciliation check fails, the whole operation rolls back. Retrying the same request cannot deliver it twice.
+
+Phase one deliberately blocks partial or overpaid pre-orders, lot-tracked products, split stock routes, offline use, and a mismatch between the POS source location and the pre-order warehouse. Those cases remain available through the Sales workflow.
+
 Returned payments are identified and blocked from reuse.
 
 The branch initially records the real deposit collection date. At delivery, the system temporarily returns the original payment to draft, changes its journal date to the posted delivery invoice accounting date, reposts the same payment, and then reconciles it to the invoice. If the payment is already reconciled, hash-protected, or belongs to a locked accounting period, delivery is blocked for Accounting review instead of changing it silently.
@@ -50,9 +62,13 @@ The branch initially records the real deposit collection date. At delivery, the 
    - one already-returned payment (must be blocked);
    - two customers competing for the last unit in a branch quota;
    - a serial-tracked iPhone delivery;
+   - POS delivery with a valid serial in the configured POS source location;
+   - POS delivery with a wrong-location, unknown, duplicate, and already-sold serial (all must be blocked with no partial delivery or invoice);
+   - a repeated POS confirmation/retry (must create only one delivery and one invoice);
    - a discount-reason quotation.
 6. For successful cases, verify that the original `account.payment` IDs and journals are unchanged, their dates now match the delivery invoice accounting date, no outbound return is created, no second inbound payment is created, and the final invoice shows the original payment in its reconciled payments.
 7. Reconcile the staging accounting entries and compare customer partner ledgers before/after. The pre-order credit should move from outstanding to the delivery invoice with no net cash movement.
+8. Confirm no `pos.order`, `pos.payment`, second inbound payment, or outbound refund was created by the POS delivery action.
 
 ## Production gate
 
