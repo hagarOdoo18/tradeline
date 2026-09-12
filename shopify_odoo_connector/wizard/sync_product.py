@@ -194,6 +194,12 @@ class SyncProduct(models.TransientModel):
         unsynced - which is what made `export_products_to_shopify` create a
         duplicate listing for it.
 
+        A Shopify product that already has shopify.sync rows for this
+        instance is NOT skipped: its existing sync rows (template and
+        variant level) are unlinked first and the product is imported
+        again, so the links are always rebuilt from the current Shopify
+        payload.
+
         All lookups for the whole page are batched: two queries for the
         entire batch instead of ~3 queries per product, and one create for
         all the shopify.sync records. Writes are done with
@@ -207,12 +213,32 @@ class SyncProduct(models.TransientModel):
         product_obj = self.env['product.product'].sudo()
         sync_obj = self.env['shopify.sync'].sudo()
 
-        # ١. المنتجات المتزامنة مسبقاً لهذه الـ instance (استعلام واحد للدفعة)
+        # ١. حذف سجلات المزامنة القديمة لإعادة المزامنة من جديد
+        #    (بدلاً من تخطي المنتج المتزامن مسبقاً)
         shopify_ids = [str(p['id']) for p in shopify_products if p.get('id')]
-        already_synced = set(sync_obj.search([
-            ('shopify_product', 'in', shopify_ids),
-            ('instance_id', '=', shopify_instance.id),
-        ]).mapped('shopify_product'))
+        shopify_variant_ids = [
+            str(shopify_var['id'])
+            for product in shopify_products
+            for shopify_var in (product.get('variants') or [])
+            if shopify_var.get('id')
+        ]
+        #    Only `shopify_product` is queried: it is the indexed column,
+        #    and every product/variant sync row stores its Shopify id
+        #    there - template rows the product id, variant rows the
+        #    variant id - so one indexed IN catches both without the
+        #    unindexed `shopify_variant_id` scan.
+        stale_ids = shopify_ids + shopify_variant_ids
+        if stale_ids:
+            stale_syncs = sync_obj.search([
+                ('instance_id', '=', shopify_instance.id),
+                ('shopify_product', 'in', stale_ids),
+            ])
+            if stale_syncs:
+                _logger.info(
+                    'Shopify product import: removing %d existing '
+                    'shopify.sync record(s) before re-syncing.',
+                    len(stale_syncs))
+                stale_syncs.unlink()
 
         # ٢. تجميع كل الـ SKUs في الدفعة والبحث عنها مرة واحدة
         all_skus = set()
@@ -243,10 +269,6 @@ class SyncProduct(models.TransientModel):
         seen_variant_links = set()
 
         for product in shopify_products:
-            # تحقق من المزامنة المسبقة
-            if str(product.get('id')) in already_synced:
-                continue
-
             # ٠. تخطي المنتجات التي ليس لها variants في شوبيفاي
             if not product.get('variants'):
                 _logger.warning(
@@ -309,12 +331,22 @@ class SyncProduct(models.TransientModel):
                         'template(s) than "%s" — linking them as aliases.',
                         sku, foreign.mapped('display_name'), product_id.name)
 
-                odoo_variants.sudo().with_context(
-                    shopify_no_export=True).write({
-                        'shopify_variant': shopify_var['id'],
-                        'shopify_instance_id': shopify_instance.id,
-                        'synced_product': True,
-                    })
+                # Re-syncing usually finds these values already correct;
+                # writing only the records that actually change keeps a
+                # full re-import from costing one ORM write per variant.
+                variant_vals = {
+                    'shopify_variant': shopify_var['id'],
+                    'shopify_instance_id': shopify_instance.id,
+                    'synced_product': True,
+                }
+                outdated_variants = odoo_variants.filtered(
+                    lambda v, sid=str(shopify_var['id']): (
+                        str(v.shopify_variant or '') != sid
+                        or v.shopify_instance_id.id != shopify_instance.id
+                        or not v.synced_product))
+                if outdated_variants:
+                    outdated_variants.sudo().with_context(
+                        shopify_no_export=True).write(variant_vals)
 
                 for odoo_variant in odoo_variants:
                     link = (str(shopify_var['id']), odoo_variant.id)
@@ -333,12 +365,19 @@ class SyncProduct(models.TransientModel):
                     linked_templates |= odoo_variant.product_tmpl_id
 
             # ٦. ربط كل الـ templates المعنية بالـ instance
-            linked_templates.sudo().with_context(
-                shopify_no_export=True).write({
-                    'shopify_product': product['id'],
-                    'shopify_instance_id': shopify_instance.id,
-                    'synced_product': True,
-                })
+            #    (فقط التي تختلف قيمها فعلاً)
+            outdated_templates = linked_templates.filtered(
+                lambda t, pid=str(product['id']): (
+                    str(t.shopify_product or '') != pid
+                    or t.shopify_instance_id.id != shopify_instance.id
+                    or not t.synced_product))
+            if outdated_templates:
+                outdated_templates.sudo().with_context(
+                    shopify_no_export=True).write({
+                        'shopify_product': product['id'],
+                        'shopify_instance_id': shopify_instance.id,
+                        'synced_product': True,
+                    })
 
             # ٧. تسجيل في shopify.sync على مستوى الـ template
             for template in linked_templates:
