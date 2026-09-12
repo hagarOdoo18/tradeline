@@ -219,6 +219,7 @@ class TestPreorderFlow(TransactionCase):
                 'name="%s" string="%s"' % (field_name, label),
                 preorder_view.arch_db,
             )
+            self.assertEqual(self.env["sale.preorder"]._fields[field_name].string, label)
         self.assertNotIn('widget="html"', preorder_view.arch_db)
         self.assertFalse(report_menu.active)
 
