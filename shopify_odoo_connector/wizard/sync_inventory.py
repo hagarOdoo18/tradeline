@@ -48,6 +48,10 @@ SHOPIFY_PAGE_LIMIT = 250
 INVENTORY_LEVELS_READ_CHUNK = 50
 # Quantities per inventorySetQuantities mutation (GraphQL, 2024-07+).
 GRAPHQL_SET_CHUNK = 250
+# Detail lines per log.message row. The per-group breakdown of a push is
+# written as a handful of rows instead of one row per group: the log table
+# stays small, and the whole batch is still readable in one place.
+INVENTORY_DETAIL_LOG_CHUNK = 100
 # First API version with the inventorySetQuantities mutation, which can
 # set the *available* quantity of many items in one call. Older versions
 # only offer inventorySetOnHandQuantities, which sets on_hand - a
@@ -785,12 +789,19 @@ class SyncInventory(models.TransientModel):
         per Shopify location, then that single total is written to every
         Shopify variant of the group.
 
-        Returns {'pushed': n, 'failed': n, 'retried': n} so a caller that has
-        a user waiting can report what actually happened instead of assuming
-        it worked.
+        Every quantity of the batch is always written: the current Shopify
+        levels are no longer read and compared, so nothing is ever skipped
+        and 'skipped' stays 0. `force` is accepted for backwards
+        compatibility with existing callers and payloads but has no effect.
+
+        Returns {'pushed': n, 'skipped': n, 'failed': n, 'retried': n} so a
+        caller that has a user waiting can report what actually happened
+        instead of assuming it worked.
         """
         if not groups:
-            return {'pushed': 0, 'failed': 0, 'retried': 0}
+            # same keys as the normal return, so a caller can read
+            # result['skipped'] without guarding for the empty batch
+            return {'pushed': 0, 'skipped': 0, 'failed': 0, 'retried': 0}
 
         shopify_instance = self.shopify_instance_id
         store_name = shopify_instance.shop_name
@@ -832,6 +843,10 @@ class SyncInventory(models.TransientModel):
         categ_chains = rule_model._categ_chain(categ_by_product.values())
 
         failures = []
+        # One line per (location, group): what was computed and what was
+        # published. Written to log.message at the end of the batch so the
+        # quantity each group received can be checked after the fact.
+        details = []
         pushed = 0
         skipped = 0
         retried = 0
@@ -872,36 +887,35 @@ class SyncInventory(models.TransientModel):
                     available = rule_model._apply(total_qty, min_qty, strategy)
 
                     # the same total goes to every Shopify variant of the group
+                    sent_variants = []
                     for variant_id in variant_ids:
                         inventory_item_id = variant_to_inv_item.get(
                             str(variant_id))
                         if not inventory_item_id:
                             continue
                         desired[str(inventory_item_id)] = available
+                        sent_variants.append(str(variant_id))
                         variant_by_item.setdefault(
                             str(inventory_item_id), (variant_id,
                                                      group.get('key')))
 
+                    details.append(
+                        'group %s | %s (location %s) | on hand %s | '
+                        'min %s (%s) | published %s | variant(s): %s'
+                        % (group.get('key') or '-',
+                           location.warehouse_id.name or '-',
+                           location.shopify_location_id,
+                           total_qty, min_qty, strategy, available,
+                           ', '.join(sent_variants) or 'none (unmapped)'))
+
                 if not desired:
                     continue
 
-                if force:
-                    # Update All Stock: re-publish every quantity, even
-                    # the ones Shopify already agrees with.
-                    changed = dict(desired)
-                else:
-                    # Only write what actually differs. Reading the
-                    # current levels costs one request per 50 items;
-                    # writing costs one per item, so on a full resync -
-                    # where almost nothing moved - this removes nearly
-                    # every request.
-                    current, read_failures = self._get_current_levels(
-                        session, store_name, version, headers,
-                        location.shopify_location_id, desired)
-                    failures.extend(read_failures)
-                    changed = {item: qty for item, qty in desired.items()
-                               if current.get(item) != qty}
-                    skipped += len(desired) - len(changed)
+                # Always re-publish every quantity of the batch: no read of
+                # the current Shopify levels, no comparison, nothing skipped.
+                # The `force` argument is kept for callers that still pass it,
+                # but it no longer changes what is sent.
+                changed = dict(desired)
                 if not changed:
                     continue
 
