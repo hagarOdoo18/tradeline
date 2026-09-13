@@ -2036,6 +2036,94 @@ class SalePreorder(models.Model):
                 invoice.js_assign_outstanding_line(line.id)
                 payment_lines = self._get_available_payment_lines(payments)
 
+    def _check_original_payments_redatable(self, target_date):
+        """Validate and lock payments before the guarded date change.
+
+        ``account.move.button_draft()`` always calls ``remove_move_reconcile``.
+        The installed branch addon correctly protects that operation from POS
+        users, even when the payment has no reconciliation to remove.  The
+        pre-order workflow may bypass that access check, but it must never
+        silently undo a real reconciliation or an accounting lock.
+        """
+        self.ensure_one()
+        target_date = fields.Date.to_date(target_date)
+        if not target_date:
+            raise UserError(_("The delivery invoice accounting date is required."))
+
+        payments = self._get_source_inbound_payments()
+        if not payments:
+            raise UserError(_("The original pre-order payment was returned or is unavailable."))
+
+        self.env.cr.execute(
+            "SELECT id FROM account_payment WHERE id IN %s FOR UPDATE",
+            [tuple(payments.ids)],
+        )
+        payments.invalidate_recordset(["date", "state", "move_id"])
+        for payment in payments.filtered(lambda item: item.date != target_date):
+            move = payment.move_id
+            if not move or move.state != "posted":
+                raise UserError(
+                    _("Payment %s does not have a posted journal entry.")
+                    % payment.display_name
+                )
+
+            reconciled_lines = move.line_ids.filtered(
+                lambda line: line.matched_debit_ids or line.matched_credit_ids
+            )
+            if reconciled_lines:
+                raise UserError(
+                    _(
+                        "Payment %(payment)s is already reconciled with another accounting "
+                        "entry. Accounting must unreconcile it before its date can be moved "
+                        "to %(target_date)s. No delivery was processed."
+                    )
+                    % {
+                        "payment": payment.display_name,
+                        "target_date": target_date,
+                    }
+                )
+
+            # Run Odoo's immutable-entry checks before the POS creates or
+            # validates any stock document.  sudo bypasses only access rights;
+            # _check_draftable still rejects hashed and protected entries.
+            try:
+                move.sudo()._check_draftable()
+            except Exception as error:
+                raise UserError(
+                    _(
+                        "Payment %(payment)s cannot be moved to %(target_date)s. "
+                        "Accounting must resolve the journal restriction before delivery.\n\n"
+                        "Odoo detail: %(detail)s"
+                    )
+                    % {
+                        "payment": payment.display_name,
+                        "target_date": target_date,
+                        "detail": error,
+                    }
+                ) from error
+
+            for date_to_check in {payment.date, target_date}:
+                violations = payment.company_id._get_lock_date_violations(
+                    date_to_check,
+                    fiscalyear=True,
+                    sale=False,
+                    purchase=False,
+                    tax=False,
+                    hard=True,
+                )
+                if violations:
+                    raise UserError(
+                        _(
+                            "Payment %(payment)s cannot be moved because %(date)s is inside "
+                            "a locked accounting period. No delivery was processed."
+                        )
+                        % {
+                            "payment": payment.display_name,
+                            "date": date_to_check,
+                        }
+                    )
+        return payments
+
     def _redate_original_payments_to_invoice(self, invoices):
         """Move the posted pre-order payments to the delivery invoice accounting date."""
         self.ensure_one()
@@ -2053,19 +2141,21 @@ class SalePreorder(models.Model):
                 )
             )
         target_date = invoice_dates.pop()
+        payments = self._check_original_payments_redatable(target_date)
         changed = []
         for payment in payments:
             if payment.date == target_date:
                 continue
-            if not payment.move_id or payment.move_id.state != "posted":
-                raise UserError(
-                    _("Payment %s does not have a posted journal entry.") % payment.display_name
-                )
             old_date = payment.date
             try:
-                payment.action_draft()
-                payment.write({"date": target_date})
-                payment.action_post()
+                # This is the only elevated accounting operation in the
+                # workflow.  It lets POS cashiers perform the same controlled
+                # re-date as Sales without granting them general unreconcile,
+                # journal-entry editing, or payment-posting permissions.
+                guarded_payment = payment.sudo()
+                guarded_payment.action_draft()
+                guarded_payment.write({"date": target_date})
+                guarded_payment.action_post()
             except Exception as error:
                 raise UserError(
                     _(
@@ -2130,6 +2220,16 @@ class SalePreorder(models.Model):
         invoices = self.invoice_ids.filtered(
             lambda move: move.move_type == "out_invoice" and move.state != "cancel"
         )
+        expected_invoice_dates = set(invoices.mapped("date"))
+        expected_invoice_dates.discard(False)
+        if len(expected_invoice_dates) > 1:
+            raise UserError(_("All delivery invoices must use the same accounting date."))
+        expected_invoice_date = (
+            expected_invoice_dates.pop()
+            if expected_invoice_dates
+            else fields.Date.context_today(self)
+        )
+        self._check_original_payments_redatable(expected_invoice_date)
         if order.invoice_status == "to invoice" or not invoices:
             invoices |= order._create_invoices()
         drafts = invoices.filtered(lambda move: move.state == "draft")

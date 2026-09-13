@@ -473,6 +473,10 @@ class SalePreorderPosDelivery(models.Model):
             raise UserError(_("This pre-order is no longer ready for delivery."))
 
         preorder._check_pos_payment_ready()
+        # Fail on genuine accounting locks before creating the sale order or
+        # touching branch stock.  The actual invoice date is checked again
+        # immediately before the guarded payment re-date.
+        preorder._check_original_payments_redatable(fields.Date.context_today(preorder))
         lots_by_product = preorder._prepare_pos_serial_lots(serial_assignments, config)
         preorder.action_create_delivery_order()
         order = preorder.final_sale_order_id

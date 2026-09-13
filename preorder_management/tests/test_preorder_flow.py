@@ -136,7 +136,9 @@ class TestPreorderFlow(TransactionCase):
         )
         cls.campaign.action_open_campaign()
 
-    def _post_payment(self, preorder, amount=None, journal=None, payment_method_line=None):
+    def _post_payment(
+        self, preorder, amount=None, journal=None, payment_method_line=None, date=None
+    ):
         journal = journal or self.payment_journal
         payment_method_line = payment_method_line or journal.inbound_payment_method_line_ids[:1]
         payment = self.env["account.payment"].sudo().create(
@@ -147,7 +149,7 @@ class TestPreorderFlow(TransactionCase):
                 "company_id": preorder.company_id.id,
                 "amount": amount if amount is not None else preorder.deposit_amount,
                 "currency_id": preorder.currency_id.id,
-                "date": fields.Date.today(),
+                "date": date or fields.Date.today(),
                 "journal_id": journal.id,
                 "payment_method_line_id": payment_method_line.id,
                 "memo": preorder.name,
@@ -157,6 +159,73 @@ class TestPreorderFlow(TransactionCase):
         payment.action_post()
         preorder.invalidate_recordset()
         return payment
+
+    def test_guarded_payment_redate_works_without_general_unreconcile_access(self):
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        preorder.action_confirm_preorder()
+        original_date = fields.Date.today() - timedelta(days=1)
+        payment = self._post_payment(preorder, date=original_date)
+        original_name = payment.name
+        original_amount = payment.amount
+        original_journal = payment.journal_id
+
+        workflow_groups = (
+            self.env.ref("base.group_user")
+            | self.env.ref("account.group_account_invoice")
+            | self.env.ref("point_of_sale.group_pos_user")
+            | self.env.ref("branch.group_branch_user")
+            | self.env.ref("preorder_management.group_preorder_user")
+        )
+        cashier = self.env["res.users"].with_context(
+            no_reset_password=True
+        ).sudo().create(
+            {
+                "name": "Automated POS Pre-order Cashier",
+                "login": "automated_pos_preorder_cashier",
+                "email": "automated_pos_preorder_cashier@example.com",
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "branch_id": self.branch.id,
+                "branch_ids": [Command.set(self.branch.ids)],
+                "groups_id": [Command.set(workflow_groups.ids)],
+            }
+        )
+        self.assertFalse(cashier.has_group("branch.group_unreconcile"))
+
+        # The cashier still cannot reset arbitrary payments from the normal UI.
+        with self.assertRaisesRegex(AccessError, "not allowed to unreconcile"):
+            with self.env.cr.savepoint():
+                payment.with_user(cashier).action_draft()
+
+        invoice = self.env["account.move"].with_context(
+            branch_id=self.branch.id
+        ).sudo().create(
+            {
+                "move_type": "out_invoice",
+                "partner_id": self.customer.id,
+                "company_id": self.company.id,
+                "journal_id": self.invoice_journal.id,
+                "invoice_date": fields.Date.today(),
+                "date": fields.Date.today(),
+            }
+        )
+        preorder.with_user(cashier)._redate_original_payments_to_invoice(invoice)
+
+        payment.invalidate_recordset(["date", "state", "move_id"])
+        self.assertEqual(payment.date, fields.Date.today())
+        self.assertEqual(payment.move_id.state, "posted")
+        self.assertEqual(payment.name, original_name)
+        self.assertEqual(payment.amount, original_amount)
+        self.assertEqual(payment.journal_id, original_journal)
 
     def test_campaign_quota_matrix_generation(self):
         second_product = self.product.copy(
