@@ -2,6 +2,7 @@
 
 from odoo import Command, api, fields, models, _
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.osv import expression
 from odoo.tools import float_compare, float_is_zero
 from markupsafe import Markup, escape
 
@@ -691,6 +692,15 @@ class SalePreorder(models.Model):
         copy=False,
         index=True,
     )
+    search_text = fields.Char(
+        string="Search Anything",
+        compute="_compute_search_text",
+        search="_search_search_text",
+        help=(
+            "Search pre-orders by reference, customer, phone, campaign, branch, "
+            "sales rep, device, barcode, journal, sales document, invoice, or notes."
+        ),
+    )
     campaign_id = fields.Many2one(
         "sale.preorder.campaign", required=True, ondelete="restrict", tracking=True, index=True
     )
@@ -1096,6 +1106,44 @@ class SalePreorder(models.Model):
                 line.product_id.display_name for line in record.line_ids
             )
             record.requested_qty_total = sum(record.line_ids.mapped("requested_qty"))
+
+    def _compute_search_text(self):
+        """Virtual field used only by the broad list-view search."""
+        for record in self:
+            record.search_text = False
+
+    @api.model
+    def _search_search_text(self, operator, value):
+        if not value:
+            return []
+        if operator not in ("=", "like", "ilike", "=like", "=ilike"):
+            raise UserError(_("Search Anything only supports positive text searches."))
+
+        searchable_fields = (
+            "name",
+            "campaign_id.name",
+            "customer_id.name",
+            "customer_id.ref",
+            "customer_id.phone",
+            "customer_id.mobile",
+            "branch_id.name",
+            "sales_rep_id.name",
+            "discount_id.name",
+            "device_ids.name",
+            "device_ids.default_code",
+            "device_ids.barcode",
+            "source_order_id.name",
+            "final_sale_order_id.name",
+            "invoice_ids.name",
+            "direct_payment_ids.journal_id.name",
+            "direct_payment_ids.journal_id.code",
+            "source_order_id.payment_ids.journal_id.name",
+            "source_order_id.payment_ids.journal_id.code",
+            "notes",
+        )
+        return expression.OR(
+            [[(field_name, operator, value)] for field_name in searchable_fields]
+        )
 
     @api.depends("line_ids", "line_ids.allocation_id")
     def _compute_reservation_status(self):
