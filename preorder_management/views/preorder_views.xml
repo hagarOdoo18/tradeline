@@ -282,10 +282,14 @@
         <field name="model">sale.preorder</field>
         <field name="arch" type="xml">
             <search>
+                <field name="search_text"/>
                 <field name="name"/>
+                <field name="campaign_id"/>
                 <field name="customer_id"/>
+                <field name="branch_id"/>
                 <field name="device_ids"/>
                 <field name="sales_rep_id"/>
+                <field name="discount_id"/>
                 <filter name="waiting_allocation" string="Paid — Reserved, Waiting Delivery" domain="[('state', '=', 'pending')]"/>
                 <filter name="ready_delivery" string="Ready for Delivery" domain="[('state', '=', 'allocated')]"/>
                 <filter name="payment_problem" string="Payment Problem" domain="[('payment_status', 'in', ('none', 'returned'))]"/>

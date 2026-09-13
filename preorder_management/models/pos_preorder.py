@@ -408,12 +408,30 @@ class SalePreorderPosDelivery(models.Model):
                 skip_backorder=True,
                 picking_ids_not_to_backorder=pickings.ids,
             ).button_validate()
-            picking.invalidate_recordset(["state"])
-            if result is not True or picking.state != "done":
-                raise UserError(
-                    _("The delivery requires an additional stock confirmation and was not completed.")
-                )
+            self._ensure_pos_picking_validation_completed(picking, result)
         return pickings
+
+    @api.model
+    def _ensure_pos_picking_validation_completed(self, picking, validation_result):
+        """Accept post-validation actions only after stock is genuinely done.
+
+        Odoo can return a client action after a successful validation (for
+        example, an automatic delivery-slip print). That action is not a stock
+        confirmation wizard and must not roll the transaction back. Conversely,
+        any action returned while the picking remains open still represents an
+        unfinished validation step and is rejected by the POS workflow.
+        """
+        picking.invalidate_recordset(["state"])
+        if picking.state == "done":
+            return True
+        action_name = ""
+        if isinstance(validation_result, dict):
+            action_name = validation_result.get("name") or ""
+        detail = _(" (%s)") % action_name if action_name else ""
+        raise UserError(
+            _("The delivery requires an additional stock confirmation%s and was not completed.")
+            % detail
+        )
 
     def _pos_delivery_success_payload(self):
         self.ensure_one()

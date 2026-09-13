@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from unittest import SkipTest
+from unittest.mock import Mock
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError
@@ -222,6 +223,66 @@ class TestPreorderFlow(TransactionCase):
             self.assertEqual(self.env["sale.preorder"]._fields[field_name].string, label)
         self.assertNotIn('widget="html"', preorder_view.arch_db)
         self.assertFalse(report_menu.active)
+
+    def test_customer_preorder_search_anything_finds_customer_device_and_journal(self):
+        self.customer.write({"phone": "+20-SEARCH-45819"})
+        self.product.write({"default_code": "DEVICE-SEARCH-45819"})
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "line_ids": [
+                    Command.create(
+                        {"product_id": self.product.id, "requested_qty": 1.0}
+                    )
+                ],
+            }
+        )
+        preorder.action_confirm_preorder()
+        self._post_payment(preorder)
+
+        preorder_model = self.env["sale.preorder"].sudo()
+        for query in (
+            "SEARCH-45819",
+            "DEVICE-SEARCH-45819",
+            self.payment_journal.code,
+        ):
+            self.assertIn(
+                preorder,
+                preorder_model.search([("search_text", "ilike", query)]),
+            )
+
+        search_view = self.env.ref("preorder_management.sale_preorder_view_search")
+        self.assertLess(
+            search_view.arch_db.index('name="search_text"'),
+            search_view.arch_db.index('name="name"'),
+        )
+
+    def test_pos_validation_accepts_a_post_validation_action_when_picking_is_done(self):
+        picking = Mock(state="done")
+        result = {"type": "ir.actions.client", "tag": "do_multi_print"}
+
+        self.assertTrue(
+            self.env["sale.preorder"]._ensure_pos_picking_validation_completed(
+                picking, result
+            )
+        )
+        picking.invalidate_recordset.assert_called_once_with(["state"])
+
+    def test_pos_validation_rejects_a_confirmation_action_while_picking_is_open(self):
+        picking = Mock(state="assigned")
+        result = {
+            "type": "ir.actions.act_window",
+            "name": "Create Backorder?",
+            "res_model": "stock.backorder.confirmation",
+        }
+
+        with self.assertRaisesRegex(UserError, "Create Backorder"):
+            self.env["sale.preorder"]._ensure_pos_picking_validation_completed(
+                picking, result
+            )
 
     def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
         second_product = self.product.copy(
