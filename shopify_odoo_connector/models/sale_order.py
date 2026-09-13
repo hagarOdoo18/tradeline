@@ -160,15 +160,26 @@ class SaleOrder(models.Model):
            boolean: returns true or false
         """
         res = super(SaleOrder, self).action_confirm()
-        if self.shopify_order_ref and self.shopify_instance_id:
-            instance = self.shopify_instance_id
+        # An order that came FROM Shopify must not be pushed back: its id is
+        # a real order id, not a draft order's, so completing a "draft order"
+        # with it either 404s or hits an unrelated draft order. The importer
+        # and the confirmed-order API both set this flag.
+        if self._context.get('skip_shopify_write'):
+            return res
+        # self may hold several orders (confirming from a list view, or a
+        # batch import); reading self.shopify_order_ref directly raised
+        # "Expected singleton" and aborted the whole confirmation.
+        for order in self:
+            if not (order.shopify_order_ref and order.shopify_instance_id):
+                continue
+            instance = order.shopify_instance_id
             store_name = instance.shop_name
             version = instance.version
             order_complete_url = ("https://%s/admin/api/%s/draft_orders/"
                                   "%s/complete.json") % (
-                store_name, version, self.shopify_order_ref)
+                store_name, version, order.shopify_order_ref)
             line_items = []
-            for line in self.order_line:
+            for line in order.order_line:
                 line_vals = {
                     "title": line.product_id.name,
                     "price": line.price_unit,
@@ -177,8 +188,8 @@ class SaleOrder(models.Model):
                 line_items.append(line_vals)
             payload = json.dumps({
                 "draft_order": {"line_items": line_items,
-                                "email": self.partner_id.email,
-                                "id": self.shopify_order_ref,
+                                "email": order.partner_id.email,
+                                "id": order.shopify_order_ref,
                                 "status": "completed",
                                 "use_customer_default_address": True}})
             requests.request("PUT", order_complete_url,

@@ -594,6 +594,98 @@ class SaleOrderSync(models.TransientModel):
             where,
         )
 
+    def _force_shopify_line_prices(self, lines, line_vals_list):
+        """Write the Shopify prices back onto `lines`, bypassing the compute.
+
+        Both create() and action_confirm() trigger Odoo 18's
+        _compute_price_unit, which overwrites price_unit with the pricelist
+        price. The only reliable fix is to:
+          1. flush_all() so all pending ORM writes reach the DB,
+          2. patch price_unit / discount directly via SQL,
+          3. remove those fields from the recompute queue so the engine does
+             not re-run the compute method,
+          4. invalidate the ORM cache and recompute the monetary totals from
+             the corrected price.
+
+        Called once after the lines are created and once more after the order
+        is confirmed, because the confirmation runs the compute again.
+        """
+        if not lines or not line_vals_list:
+            return
+        self.env.flush_all()
+        cr = self.env.cr
+        for sol, lv in zip(lines, line_vals_list):
+            price = float(lv.get('price_unit') or 0)
+            disc = float(lv.get('discount') or 0)
+            cr.execute(
+                "UPDATE sale_order_line "
+                "SET price_unit = %s, discount = %s "
+                "WHERE id = %s",
+                (price, disc, sol.id),
+            )
+        # Drop price_unit/discount from the pending recompute set
+        sol_model = self.env['sale.order.line']
+        pf = sol_model._fields.get('price_unit')
+        df = sol_model._fields.get('discount')
+        tocompute = getattr(getattr(self.env, 'all', None), 'tocompute', {})
+        line_ids = set(lines.ids)
+        for fld in (pf, df):
+            if fld and fld in tocompute:
+                tocompute[fld] -= line_ids
+        # Refresh ORM cache and recompute monetary totals
+        lines.invalidate_recordset(['price_unit', 'discount'])
+        lines.sudo()._compute_amount()
+
+    def _confirm_imported_order(self, order, each, instance, lines,
+                                line_vals_list):
+        """Confirm a freshly imported Shopify order. Returns True on success.
+
+        `skip_shopify_write` is essential: the order came FROM Shopify, and
+        without that flag sale.order.write() PUTs it straight back and
+        action_confirm() posts a *draft order* completion for an id that is
+        not a draft order at all.
+
+        The confirmation runs in its own savepoint and is best effort. A
+        failure here (no stock under a strict availability rule, a missing
+        route, an archived product) must leave the order imported and in
+        draft rather than abort the page or lose it, so it is rolled back to
+        the state right after import, reported, and the page carries on.
+        """
+        try:
+            with self.env.cr.savepoint():
+                order.with_context(
+                    skip_shopify_write=True).action_confirm()
+                # action_confirm re-runs _compute_price_unit: put the
+                # Shopify prices back on top of the pricelist ones.
+                self._force_shopify_line_prices(lines, line_vals_list)
+        except Exception as error:
+            # the savepoint is gone; anything the failed confirmation put in
+            # the cache would now be wrong
+            self.env.invalidate_all()
+            _logger.exception(
+                'Shopify order import: order %s (shopify id %s) was imported '
+                'but could not be confirmed; it stays in draft.',
+                each.get('name'), each.get('id'))
+            try:
+                self.env['log.message'].sudo().create([{
+                    'name': (
+                        'Order <b>%s</b> (Shopify id %s) was imported but '
+                        'could not be confirmed and stays in draft.<br/>'
+                        '<b>%s:</b> %s' % (
+                            escape(each.get('name') or '?'),
+                            escape(str(each.get('id') or '?')),
+                            escape(type(error).__name__),
+                            escape((str(error) or '(no message)')[:2000]))),
+                    'shopify_instance_id': instance.id,
+                    'model': 'sale.order',
+                }])
+            except Exception:
+                _logger.exception(
+                    'Shopify order import: could not record the failed '
+                    'confirmation of order %s.', each.get('id'))
+            return False
+        return True
+
     def import_confirmed_orders_from_shopify(self, shopify_orders, instance,
                                              ref):
         """ Method to import confirmed orders from shopify to odoo.
@@ -609,7 +701,12 @@ class SaleOrderSync(models.TransientModel):
         """
         if not shopify_orders:
             return
-        wizard = self.env['sale.order.sync'].sudo().browse(ref)
+        wizard = self.env['sale.order.sync'].sudo().browse(ref).exists()
+        # sale.order.sync is transient and this page may be processed long
+        # after the run that queued it, so the wizard is often already
+        # vacuumed. With no wizard left the default applies: an imported
+        # order is confirmed.
+        confirm_orders = not (wizard and wizard.draft)
         shopify_instance = instance
         store_name = instance.shop_name
         version = instance.version
@@ -1051,44 +1148,12 @@ class SaleOrderSync(models.TransientModel):
                             continue
                     else:
                         new_lines = self.env['sale.order.line'].browse()
-                    # if not wizard.draft:
-                    #     so.action_confirm()
-                    # Force Shopify prices onto the lines.
-                    # Both create() and action_confirm() trigger Odoo 18's
-                    # _compute_price_unit which overwrites price_unit with the
-                    # pricelist price.  The only reliable fix is to:
-                    #   1. flush_all() so all pending ORM writes reach the DB,
-                    #   2. patch price_unit / discount directly via SQL,
-                    #   3. remove those fields from the recompute queue so
-                    #      the engine does not re-run the compute method,
-                    #   4. invalidate the ORM cache and recompute monetary
-                    #      totals from the corrected price.
-                    if new_lines and line_vals_list:
-                        self.env.flush_all()
-                        cr = self.env.cr
-                        for sol, lv in zip(new_lines, line_vals_list):
-                            price = float(lv.get('price_unit') or 0)
-                            disc = float(lv.get('discount') or 0)
-                            cr.execute(
-                                "UPDATE sale_order_line "
-                                "SET price_unit = %s, discount = %s "
-                                "WHERE id = %s",
-                                (price, disc, sol.id),
-                            )
-                        # Drop price_unit/discount from the pending recompute set
-                        sol_model = self.env['sale.order.line']
-                        pf = sol_model._fields.get('price_unit')
-                        df = sol_model._fields.get('discount')
-                        tocompute = getattr(
-                            getattr(self.env, 'all', None), 'tocompute', {})
-                        line_ids = set(new_lines.ids)
-                        for fld in (pf, df):
-                            if fld and fld in tocompute:
-                                tocompute[fld] -= line_ids
-                        # Refresh ORM cache and recompute monetary totals
-                        new_lines.invalidate_recordset(
-                            ['price_unit', 'discount'])
-                        new_lines.sudo()._compute_amount()
+                    self._force_shopify_line_prices(new_lines, line_vals_list)
+                    # An order with no line would confirm into an empty
+                    # delivery, so only a real order is confirmed.
+                    if confirm_orders and new_lines and so.state == 'draft':
+                        self._confirm_imported_order(
+                            so, each, instance, new_lines, line_vals_list)
                 # a repeat of this Shopify id later in the same page must not
                 # create a second order
                 existing_refs.add(str(shopify_id))
