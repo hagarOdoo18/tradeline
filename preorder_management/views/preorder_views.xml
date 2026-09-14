@@ -148,6 +148,10 @@
                             invisible="state != 'draft'" groups="preorder_management.group_preorder_user"/>
                     <button name="action_register_payment" string="Register Payment" type="object" class="oe_highlight"
                             invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_migrate_payments_to_delivery" string="Reverse Payment Before Delivery" type="object"
+                            class="oe_highlight" invisible="payment_recording_mode != 'preorder' or state not in ('pending', 'allocated')"
+                            groups="preorder_management.group_preorder_manager"
+                            confirm="This preserves the original payment, posts a linked reversal now, and requires the branch to record payment on the delivery date. Continue?"/>
                     <button name="%(preorder_management.action_report_preorder_confirmation)d"
                             string="Print Pre-order Confirmation" type="action"
                             invisible="not is_reserved" groups="preorder_management.group_preorder_user"/>

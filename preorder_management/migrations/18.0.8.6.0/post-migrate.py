@@ -1,10 +1,4 @@
-from odoo import SUPERUSER_ID, api
-
-
 def migrate(cr, version):
-    if not version:
-        return
-    env = api.Environment(cr, SUPERUSER_ID, {})
-    env["sale.preorder"].search(
-        [("state", "not in", ("completed", "cancelled"))]
-    ).migrate_payments_to_delivery()
+    # Payment reversals are financially material and must be initiated from the
+    # explicit manager action on the selected pre-orders, never during upgrade.
+    return

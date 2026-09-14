@@ -1596,6 +1596,18 @@ class SalePreorder(models.Model):
             )
         return migrated
 
+    def action_migrate_payments_to_delivery(self):
+        """Explicit manager action; never run silently during a module upgrade."""
+        _check_preorder_manager(self.env)
+        records = self.filtered(lambda item: item.state not in ("completed", "cancelled"))
+        if not records:
+            raise UserError(_("Only open pre-orders can be migrated."))
+        records.migrate_payments_to_delivery()
+        return {
+            "type": "ir.actions.client",
+            "tag": "reload",
+        }
+
     def _get_available_payment_lines(self, payments=None):
         self.ensure_one()
         payments = payments if payments is not None else self._get_source_inbound_payments()
