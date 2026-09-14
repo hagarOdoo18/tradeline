@@ -19,7 +19,7 @@ class ShopifyOrderAPI(http.Controller):
     def _json_response(payload, status=200):
         return request.make_json_response(payload, status=status)
 
-    @http.route('/api/shopify/v1/orders/confirmed', type='http', auth='public',
+    @http.route('/api/shopify/v1/orders/confirmed', type='http', auth='none',
                 methods=['POST'], csrf=False, save_session=False)
     def confirmed_order(self, **_kwargs):
         """Accept one Shopify order and reserve it in Odoo exactly once."""

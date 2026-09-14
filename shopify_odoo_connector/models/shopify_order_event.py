@@ -540,10 +540,9 @@ class ShopifyOrderEvent(models.Model):
         existing_order = self._find_order()
         try:
             if existing_order:
-                with self.env.cr.savepoint():
-                    reservation = self._ensure_confirmed_and_reserved(
-                        existing_order)
-                    self._queue_inventory_push(existing_order)
+                reservation = self._ensure_confirmed_and_reserved(
+                    existing_order)
+                self._queue_inventory_push(existing_order)
                 self.write({
                     'state': ('duplicate' if reservation in
                               ('reserved', 'not_applicable') else 'blocked'),
