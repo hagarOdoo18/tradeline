@@ -87,5 +87,5 @@
     <menuitem id="shopify_order_event_menu" name="Order API Events"
               parent="shopify_configuration_menu_root"
               action="shopify_order_event_action" sequence="90"
-              groups="shopify_odoo_connector.group_shopify_manager"/>
+              groups="stock.group_stock_manager"/>
 </odoo>
