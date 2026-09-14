@@ -566,7 +566,7 @@ class SaleOrderSync(models.TransientModel):
                                   'amount': taxes,
                                   }])
                     else:
-                        tax_name = None
+                        tax_name = instance.default_sale_tax_id
                     vals["date_order"] = str(odoo.fields.Datetime.to_string(
                         dateutil.parser.parse(each['created_at']).astimezone(
                             pytz.utc)))
