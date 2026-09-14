@@ -47,6 +47,7 @@ class ShopifyOrderEvent(models.Model):
     received_at = fields.Datetime(default=fields.Datetime.now, readonly=True)
     processed_at = fields.Datetime(readonly=True)
     last_attempt_at = fields.Datetime(readonly=True)
+    next_retry_at = fields.Datetime(readonly=True, index=True)
     error_message = fields.Text(readonly=True)
     order_id = fields.Many2one('sale.order', readonly=True, index=True)
     warehouse_id = fields.Many2one('stock.warehouse', readonly=True)
@@ -67,6 +68,13 @@ class ShopifyOrderEvent(models.Model):
          'unique(instance_id, event_id)',
          'This Shopify event has already been received.'),
     ]
+
+    def _next_retry(self):
+        """Progressive retry delay, capped at one hour."""
+        self.ensure_one()
+        delays = (1, 2, 5, 15, 30, 60)
+        delay = delays[min(max(self.attempts - 1, 0), len(delays) - 1)]
+        return fields.Datetime.add(fields.Datetime.now(), minutes=delay)
 
     @api.model
     def _canonical_domain(self, value):
@@ -536,14 +544,18 @@ class ShopifyOrderEvent(models.Model):
             'attempts': self.attempts + 1,
             'last_attempt_at': fields.Datetime.now(),
             'error_message': False,
+            'next_retry_at': False,
         })
         existing_order = self._find_order()
+        previous_reservation = self.reservation_state
         try:
             if existing_order:
                 with self.env.cr.savepoint():
                     reservation = self._ensure_confirmed_and_reserved(
                         existing_order)
-                    self._queue_inventory_push(existing_order)
+                    if (self.attempts == 1 or
+                            reservation != previous_reservation):
+                        self._queue_inventory_push(existing_order)
                 self.write({
                     'state': ('duplicate' if reservation in
                               ('reserved', 'not_applicable') else 'blocked'),
@@ -552,6 +564,10 @@ class ShopifyOrderEvent(models.Model):
                     'reservation_state': reservation,
                     'processed_at': fields.Datetime.now(),
                     'error_message': False,
+                    'next_retry_at': (
+                        False if reservation in
+                        ('reserved', 'not_applicable') else
+                        self._next_retry()),
                 })
                 return
 
@@ -587,6 +603,9 @@ class ShopifyOrderEvent(models.Model):
                 'warehouse_source': source,
                 'reservation_state': reservation,
                 'processed_at': fields.Datetime.now(),
+                'next_retry_at': (
+                    False if reservation in ('reserved', 'not_applicable')
+                    else self._next_retry()),
                 'error_message': (
                     False if reservation in ('reserved', 'not_applicable')
                     else 'Order imported but stock is not fully reserved.'),
@@ -600,6 +619,7 @@ class ShopifyOrderEvent(models.Model):
                     False),
                 'error_message': str(error)[:4000],
                 'processed_at': fields.Datetime.now(),
+                'next_retry_at': self._next_retry(),
             })
             _logger.warning('Shopify order event %s blocked: %s',
                             self.event_id, error)
@@ -610,17 +630,18 @@ class ShopifyOrderEvent(models.Model):
                 'error_message': '%s: %s' % (
                     type(error).__name__, str(error)[:3900]),
                 'processed_at': fields.Datetime.now(),
+                'next_retry_at': self._next_retry(),
             })
             _logger.exception('Shopify order event %s failed', self.event_id)
 
     @api.model
     def _cron_retry_order_events(self):
-        cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=1)
+        now = fields.Datetime.now()
         events = self.sudo().search([
             ('state', 'in', ('received', 'blocked', 'failed')),
-            ('attempts', '<', 1440),
-            '|', ('last_attempt_at', '=', False),
-            ('last_attempt_at', '<=', cutoff),
+            ('attempts', '<', 1000),
+            '|', ('next_retry_at', '=', False),
+            ('next_retry_at', '<=', now),
         ], order='received_at asc', limit=50)
         for event in events:
             try:
