@@ -24,6 +24,8 @@ import ast
 import json
 import logging
 import requests
+import secrets
+from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime, timedelta
 from babel.dates import format_date
 from odoo import fields, models, _
@@ -338,9 +340,12 @@ class ShopifyConfiguration(models.Model):
                 shopify_instance.get_graph())
 
     def _compute_webhook_product(self):
-        https_url = self.env[
-            'ir.config_parameter'].sudo().get_param(
-            'web.base.url').replace("http", "https", 1)
+        base_url = self.env['ir.config_parameter'].sudo().get_param(
+            'web.base.url') or ''
+        parsed = urlsplit(base_url)
+        https_url = urlunsplit((
+            'https', parsed.netloc, parsed.path.rstrip('/'), '', ''
+        )) if parsed.netloc else base_url.rstrip('/')
         for rec in self:
             rec.webhook_product = https_url + '/products'
             rec.webhook_customer = https_url + '/customers'

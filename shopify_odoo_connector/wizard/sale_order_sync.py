@@ -278,9 +278,12 @@ class SaleOrderSync(models.TransientModel):
 
         location_id = code
         if location_id:
+            numeric_id = str(location_id).rsplit('/', 1)[-1]
             loc = location_model.search([
-                ('name', '=', str(location_id)),
                 ('instance_id', '=', instance.id),
+                '|',
+                ('shopify_location_id', '=', numeric_id),
+                ('name', '=ilike', str(location_id)),
             ], limit=1)
             if loc.warehouse_id:
                 return loc.warehouse_id
@@ -366,9 +369,21 @@ class SaleOrderSync(models.TransientModel):
             # from leaking between orders.
             vals = {}
             shopify_id = each['id']
-            existing_order = self.env['sale.order'].search(
-                [('shopify_sync_ids.shopify_order_ref', '=', shopify_id)])
             try:
+                # Serialize imports of the same Shopify order across the
+                # scheduled importer and the real-time endpoint. Re-check the
+                # instance-specific sync only after obtaining the lock.
+                normalized_shopify_id = str(shopify_id).rsplit('/', 1)[-1]
+                self.env.cr.execute(
+                    'SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))',
+                    ('shopify-order:%s:%s' % (
+                        instance.id, normalized_shopify_id),))
+                existing_sync = self.env['shopify.sync'].sudo().search([
+                    ('instance_id', '=', instance.id),
+                    ('shopify_order_ref', '=', str(shopify_id)),
+                    ('order_id', '!=', False),
+                ], limit=1)
+                existing_order = existing_sync.order_id
                 if not existing_order:
                     if each['customer']:
                         customer_id = each['customer'].get('id')
