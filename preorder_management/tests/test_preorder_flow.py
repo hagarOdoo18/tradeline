@@ -227,6 +227,49 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(payment.amount, original_amount)
         self.assertEqual(payment.journal_id, original_journal)
 
+    def test_branch_cashier_can_use_preorder_delivery_in_session_opened_by_another_user(self):
+        workflow_groups = (
+            self.env.ref("base.group_user")
+            | self.env.ref("point_of_sale.group_pos_user")
+            | self.env.ref("branch.group_branch_user")
+            | self.env.ref("preorder_management.group_preorder_user")
+        )
+        cashier = self.env["res.users"].with_context(
+            no_reset_password=True
+        ).sudo().create(
+            {
+                "name": "Automated Secondary POS Cashier",
+                "login": "automated_secondary_pos_cashier",
+                "email": "automated_secondary_pos_cashier@example.com",
+                "company_id": self.company.id,
+                "company_ids": [Command.set(self.company.ids)],
+                "branch_id": self.branch.id,
+                "branch_ids": [Command.set(self.branch.ids)],
+                "groups_id": [Command.set(workflow_groups.ids)],
+            }
+        )
+        config = self.env["pos.config"].sudo().create(
+            {
+                "name": "Automated Shared-Session Pre-order POS",
+                "company_id": self.company.id,
+                "branch_id": self.branch.id,
+                "enable_preorder_delivery": True,
+            }
+        )
+        session = self.env["pos.session"].sudo().create(
+            {"config_id": config.id, "user_id": self.env.user.id}
+        )
+
+        authorized_config, authorized_session = (
+            self.env["sale.preorder"]
+            .with_user(cashier)
+            ._get_authorized_pos_delivery_context(config.id)
+        )
+
+        self.assertEqual(authorized_config, config)
+        self.assertEqual(authorized_session, session)
+        self.assertNotEqual(session.user_id, cashier)
+
     def test_campaign_quota_matrix_generation(self):
         second_product = self.product.copy(
             {"name": "Automated Pre-order Matrix Device"}

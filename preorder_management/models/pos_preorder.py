@@ -103,8 +103,6 @@ class SalePreorderPosDelivery(models.Model):
         session = config.current_session_id
         if not session or session.state not in ("opening_control", "opened"):
             raise UserError(_("Open the Point of Sale session before delivering a pre-order."))
-        if session.user_id.id != user.id and not user.has_group("point_of_sale.group_pos_manager"):
-            raise AccessError(_("Only the user who opened this POS session can deliver a pre-order."))
         return config, session
 
     @api.model
