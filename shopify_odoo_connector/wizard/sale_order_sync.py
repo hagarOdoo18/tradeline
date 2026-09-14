@@ -328,9 +328,12 @@ class SaleOrderSync(models.TransientModel):
 
         location_id = code
         if location_id:
+            numeric_id = str(location_id).rsplit('/', 1)[-1]
             loc = location_model.search([
-                ('name', '=', str(location_id)),
                 ('instance_id', '=', instance.id),
+                '|',
+                ('shopify_location_id', '=', numeric_id),
+                ('name', '=ilike', str(location_id)),
             ], limit=1)
             if loc.warehouse_id:
                 return loc.warehouse_id
@@ -534,7 +537,7 @@ class SaleOrderSync(models.TransientModel):
             return cache[key]
         taxes = rate * 100
         tax_name = self.env['account.tax'].search(
-            [('name', '=', '14%'),
+            [('amount', '=', taxes),
              ('type_tax_use', '=', 'sale'),
              ('company_id', '=', instance.company_id.id)], limit=1)
         if not tax_name:
@@ -718,6 +721,7 @@ class SaleOrderSync(models.TransientModel):
         if shopify_ids:
             existing_refs = set(self.env['shopify.sync'].sudo().search(
                 [('shopify_order_ref', 'in', shopify_ids),
+                 ('instance_id', '=', instance.id),
                  ('order_id', '!=', False)]
             ).mapped('shopify_order_ref'))
 
@@ -742,6 +746,20 @@ class SaleOrderSync(models.TransientModel):
             vals = {}
             shopify_id = each['id']
             try:
+                # Coordinate with the real-time order endpoint. The scheduled
+                # importer and a Shopify Flow delivery can otherwise both see
+                # "not imported" and create the same order concurrently.
+                self.env.cr.execute(
+                    'SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))',
+                    ('shopify-order:%s:%s' % (
+                        instance.id, str(shopify_id).rsplit('/', 1)[-1]),))
+                live_sync = self.env['shopify.sync'].sudo().search([
+                    ('instance_id', '=', instance.id),
+                    ('shopify_order_ref', '=', str(shopify_id)),
+                    ('order_id', '!=', False),
+                ], limit=1)
+                if live_sync:
+                    existing_refs.add(str(shopify_id))
                 if str(shopify_id) not in existing_refs:
                     if each['customer']:
                         customer_id = each['customer'].get('id')
