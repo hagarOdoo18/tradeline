@@ -14,6 +14,13 @@ class AccountPayment(models.Model):
         copy=False,
         ondelete="restrict",
     )
+    preorder_delivery_id = fields.Many2one(
+        "sale.preorder",
+        string="Pre-order Delivery",
+        index=True,
+        copy=False,
+        ondelete="restrict",
+    )
 
     @api.depends(
         "reconciled_invoice_ids",
@@ -23,6 +30,8 @@ class AccountPayment(models.Model):
         "sale_order_id",
         "preorder_payment_id",
         "preorder_payment_id.branch_id",
+        "preorder_delivery_id",
+        "preorder_delivery_id.branch_id",
     )
     def compute_branches(self):
         super().compute_branches()
@@ -30,6 +39,10 @@ class AccountPayment(models.Model):
             payment.branch_id = payment.preorder_payment_id.branch_id
             if payment.move_id:
                 payment.move_id.branch_id = payment.preorder_payment_id.branch_id
+        for payment in self.filtered("preorder_delivery_id"):
+            payment.branch_id = payment.preorder_delivery_id.branch_id
+            if payment.move_id:
+                payment.move_id.branch_id = payment.preorder_delivery_id.branch_id
 
     def _validate_preorder_payment_identity(self):
         for payment in self.filtered("preorder_payment_id"):

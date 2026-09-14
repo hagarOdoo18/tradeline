@@ -15,8 +15,8 @@ class PosConfig(models.Model):
         default=False,
         help=(
             "Allow this POS to deliver fully paid pre-orders reserved for its branch. "
-            "The operation creates the normal sales delivery and invoice and reuses the "
-            "original payment; it does not create a POS order or collect another payment."
+            "Migrated pre-orders collect and record one or more replacement payments at delivery; "
+            "legacy pre-orders continue to reuse their original payment."
         ),
     )
 
@@ -120,6 +120,8 @@ class SalePreorderPosDelivery(models.Model):
 
     def _pos_available_payment_amount(self):
         self.ensure_one()
+        if self.payment_recording_mode == "delivery":
+            return self._get_delivery_payment_confirmed_amount()
         return sum(
             self._payment_line_residual_in_order_currency(line)
             for line in self._get_available_payment_lines()
@@ -164,6 +166,7 @@ class SalePreorderPosDelivery(models.Model):
             "notes": self.campaign_id.notes or "",
             "customer_notes": self.notes or "",
             "state": self.state,
+            "payment_recording_mode": self.payment_recording_mode,
         }
         if include_lines:
             values["lines"] = [
@@ -178,6 +181,24 @@ class SalePreorderPosDelivery(models.Model):
                 for line in self.line_ids
             ]
         return values
+
+    @api.model
+    def _serialize_pos_payment_methods(self, config):
+        methods = []
+        for method in config.payment_method_ids.filtered(lambda item: item.journal_id):
+            journal = method.journal_id
+            inbound_line = journal.inbound_payment_method_line_ids[:1]
+            if not inbound_line:
+                continue
+            methods.append(
+                {
+                    "id": method.id,
+                    "name": method.name,
+                    "journal_id": journal.id,
+                    "journal_name": journal.display_name,
+                }
+            )
+        return methods
 
     @api.model
     def get_ready_preorders_pos(self, pos_config_id, search_text=False, limit=120):
@@ -227,7 +248,72 @@ class SalePreorderPosDelivery(models.Model):
                 _("Lot-tracked products are not supported in POS pre-order delivery yet: %s")
                 % ", ".join(unsupported.product_id.mapped("display_name"))
             )
-        return preorder._serialize_for_pos(include_lines=True)
+        values = preorder._serialize_for_pos(include_lines=True)
+        values["payment_methods"] = self._serialize_pos_payment_methods(config)
+        return values
+
+    def _create_pos_delivery_payments(self, invoice, payment_lines, config):
+        """Post and reconcile branch-collected payment(s) dated at delivery."""
+        self.ensure_one()
+        if not isinstance(payment_lines, (list, tuple)) or not payment_lines:
+            raise UserError(_("Enter at least one delivery payment."))
+        methods = config.payment_method_ids.filtered(lambda item: item.journal_id)
+        Payment = self.env["account.payment"].sudo()
+        created = self.env["account.payment"]
+        total = 0.0
+        for line in payment_lines:
+            if not isinstance(line, dict):
+                raise UserError(_("The delivery payment details are invalid."))
+            try:
+                method_id = int(line.get("method_id") or 0)
+                amount = float(line.get("amount") or 0.0)
+            except (TypeError, ValueError) as error:
+                raise UserError(_("The delivery payment details are invalid.")) from error
+            method = methods.filtered(lambda item: item.id == method_id)[:1]
+            if not method or amount <= 0:
+                raise UserError(_("Select a valid POS payment method and positive amount."))
+            if method.journal_id.company_id != self.company_id:
+                raise UserError(_("Every delivery payment journal must belong to the pre-order company."))
+            inbound_line = method.journal_id.inbound_payment_method_line_ids[:1]
+            if not inbound_line:
+                raise UserError(_("Journal %s has no inbound payment method configured.") % method.journal_id.display_name)
+            payment = Payment.create(
+                {
+                    "payment_type": "inbound",
+                    "partner_type": "customer",
+                    "partner_id": self.customer_id.id,
+                    "amount": amount,
+                    "currency_id": self.currency_id.id,
+                    "journal_id": method.journal_id.id,
+                    "payment_method_line_id": inbound_line.id,
+                    "branch_id": self.branch_id.id,
+                    "sale_order_id": self.final_sale_order_id.id,
+                    "preorder_delivery_id": self.id,
+                    "ref": _("Pre-order delivery payment: %s") % self.name,
+                }
+            )
+            payment.action_post()
+            created |= payment
+            total += amount
+        if float_compare(total, self.deposit_amount, precision_rounding=self.currency_id.rounding) != 0:
+            raise UserError(
+                _(
+                    "Delivery payments must equal %(required).2f %(currency)s; entered %(entered).2f."
+                )
+                % {"required": self.deposit_amount, "currency": self.currency_id.name, "entered": total}
+            )
+        for payment in created.sorted("id"):
+            lines = payment.move_id.line_ids.filtered(
+                lambda line: line.account_id.account_type == "asset_receivable"
+                and not line.reconciled
+                and line.amount_residual < 0
+            )
+            for line in lines:
+                invoice.js_assign_outstanding_line(line.id)
+        invoice.invalidate_recordset(["amount_residual", "payment_state"])
+        if not float_is_zero(invoice.amount_residual, precision_rounding=invoice.currency_id.rounding):
+            raise UserError(_("The delivery payment did not fully settle the invoice."))
+        return created
 
     def _prepare_pos_serial_lots(self, serial_assignments, config):
         self.ensure_one()
@@ -451,7 +537,7 @@ class SalePreorderPosDelivery(models.Model):
 
     @api.model
     def finalize_preorder_delivery_pos(
-        self, preorder_id, serial_assignments, pos_config_id, idempotency_key
+        self, preorder_id, serial_assignments, pos_config_id, idempotency_key, payment_lines=None
     ):
         config, session = self._get_authorized_pos_delivery_context(pos_config_id)
         preorder = self._get_preorder_for_pos(preorder_id, config)
@@ -471,16 +557,33 @@ class SalePreorderPosDelivery(models.Model):
             raise UserError(_("This pre-order is no longer ready for delivery."))
 
         preorder._check_pos_payment_ready()
-        # Fail on genuine accounting locks before creating the sale order or
-        # touching branch stock.  The actual invoice date is checked again
-        # immediately before the guarded payment re-date.
-        preorder._check_original_payments_redatable(fields.Date.context_today(preorder))
+        if preorder.payment_recording_mode != "delivery":
+            # Legacy records retain the original guarded re-date workflow.
+            preorder._check_original_payments_redatable(fields.Date.context_today(preorder))
         lots_by_product = preorder._prepare_pos_serial_lots(serial_assignments, config)
         preorder.action_create_delivery_order()
         order = preorder.final_sale_order_id
         order.action_confirm()
         preorder._set_pos_picking_quantities(order, lots_by_product, config)
-        preorder.action_invoice_and_apply_payment()
+        if preorder.payment_recording_mode == "delivery":
+            if order.invoice_status == "to invoice" or not preorder.invoice_ids:
+                invoices = order._create_invoices()
+            else:
+                invoices = preorder.invoice_ids.filtered(lambda move: move.state != "cancel")
+            drafts = invoices.filtered(lambda move: move.state == "draft")
+            if drafts:
+                drafts.action_post()
+            posted = invoices.filtered(lambda move: move.state == "posted")
+            if not posted:
+                raise UserError(_("No posted customer invoice is available for delivery payment."))
+            for invoice in posted:
+                preorder._create_pos_delivery_payments(invoice, payment_lines, config)
+            preorder._workflow_write({"state": "completed"})
+            preorder.message_post(
+                body=_("Delivered and invoiced from POS. Original pre-order payment was reversed before delivery; replacement payment was recorded at delivery.")
+            )
+        else:
+            preorder.action_invoice_and_apply_payment()
         preorder.invalidate_recordset(["state", "invoice_ids"])
         if preorder.state != "completed":
             raise UserError(

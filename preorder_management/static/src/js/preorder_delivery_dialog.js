@@ -49,6 +49,7 @@ export class PreorderDeliveryDialog extends Component {
             preorders: [],
             selected: null,
             serials: {},
+            paymentLines: [],
             error: "",
             success: null,
         });
@@ -96,13 +97,26 @@ export class PreorderDeliveryDialog extends Component {
         if (!this.state.selected || this.state.processing) {
             return false;
         }
-        return (this.state.selected.lines || []).every((line) => {
+        const serialsReady = (this.state.selected.lines || []).every((line) => {
             if (line.tracking !== "serial") {
                 return true;
             }
             const serials = this.state.serials[line.product_id] || [];
             return serials.length === Math.round(line.qty) && serials.every((value) => String(value || "").trim());
         });
+        if (!serialsReady) {
+            return false;
+        }
+        if (this.state.selected.payment_recording_mode !== "delivery") {
+            return true;
+        }
+        const total = this.state.paymentLines.reduce(
+            (sum, line) => sum + (Number.parseFloat(line.amount) || 0),
+            0
+        );
+        return this.state.paymentLines.length > 0 &&
+            Math.abs(total - Number(this.state.selected.amount || 0)) < 0.005 &&
+            this.state.paymentLines.every((line) => line.method_id && Number.parseFloat(line.amount) > 0);
     }
 
     serialSlots(line) {
@@ -118,6 +132,34 @@ export class PreorderDeliveryDialog extends Component {
         values[index] = event.target.value;
         this.state.serials = { ...this.state.serials, [productId]: values };
         this.state.error = "";
+    }
+
+    updatePaymentMethod(index, event) {
+        const lines = this.state.paymentLines.map((line, lineIndex) =>
+            lineIndex === index ? { ...line, method_id: Number(event.target.value) || false } : line
+        );
+        this.state.paymentLines = lines;
+        this.state.error = "";
+    }
+
+    updatePaymentAmount(index, event) {
+        const lines = this.state.paymentLines.map((line, lineIndex) =>
+            lineIndex === index ? { ...line, amount: event.target.value } : line
+        );
+        this.state.paymentLines = lines;
+        this.state.error = "";
+    }
+
+    addPaymentLine() {
+        const method = this.state.selected?.payment_methods?.[0];
+        this.state.paymentLines = [
+            ...this.state.paymentLines,
+            { method_id: method?.id || false, amount: 0 },
+        ];
+    }
+
+    removePaymentLine(index) {
+        this.state.paymentLines = this.state.paymentLines.filter((_line, lineIndex) => lineIndex !== index);
     }
 
     async loadPreorders() {
@@ -173,6 +215,14 @@ export class PreorderDeliveryDialog extends Component {
                 }
             }
             this.state.serials = serials;
+            if (details.payment_recording_mode === "delivery") {
+                const defaultMethod = details.payment_methods?.[0];
+                this.state.paymentLines = defaultMethod
+                    ? [{ method_id: defaultMethod.id, amount: details.amount }]
+                    : [];
+            } else {
+                this.state.paymentLines = [];
+            }
         } catch (error) {
             this.state.error = rpcErrorMessage(error);
         } finally {
@@ -188,12 +238,10 @@ export class PreorderDeliveryDialog extends Component {
         const selected = this.state.selected;
         this.dialog.add(ConfirmationDialog, {
             title: _t("Deliver and Invoice Pre-order"),
-            body: _t(
-                "Confirm delivery of %s to %s. The original payment will be applied; the customer will not be charged again.",
-                selected.name,
-                selected.customer_name
-            ),
-            confirmLabel: _t("Deliver & Invoice"),
+            body: selected.payment_recording_mode === "delivery"
+                ? _t("Confirm delivery of %s to %s and record the delivery payment.", selected.name, selected.customer_name)
+                : _t("Confirm delivery of %s to %s. The original payment will be applied; the customer will not be charged again.", selected.name, selected.customer_name),
+            confirmLabel: selected.payment_recording_mode === "delivery" ? _t("Pay, Deliver & Invoice") : _t("Deliver & Invoice"),
             confirm: () => this.finalize(),
         });
     }
@@ -217,6 +265,7 @@ export class PreorderDeliveryDialog extends Component {
                         this.serialAssignments,
                         this.configId,
                         this.requestToken,
+                        this.state.paymentLines,
                     ],
                     kwargs: {},
                 }
@@ -242,6 +291,7 @@ export class PreorderDeliveryDialog extends Component {
         this.state.selected = null;
         this.state.success = null;
         this.state.serials = {};
+        this.state.paymentLines = [];
         this.requestToken = null;
         this.loadPreorders();
     }

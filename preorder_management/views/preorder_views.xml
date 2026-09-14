@@ -242,8 +242,9 @@
                             </list>
                         </field>
                     </group>
-                    <group string="Original Payment — reused, re-dated at delivery, never duplicated">
+                    <group string="Payment Timing and Audit">
                         <group>
+                            <field name="payment_recording_mode"/>
                             <field name="source_amount_total" invisible="not source_order_id"/>
                             <field name="prepaid_amount"/>
                             <field name="available_prepayment_amount"/>
@@ -265,6 +266,18 @@
                                     <field name="payment_method_line_id"/>
                                     <field name="amount" sum="Total Paid"/>
                                     <field name="currency_id"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Migration Audit" invisible="payment_recording_mode != 'delivery'">
+                            <field name="payment_confirmation_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="source_date"/>
+                                    <field name="source_payment_id"/>
+                                    <field name="reversal_payment_id"/>
+                                    <field name="payment_channel"/>
+                                    <field name="amount" sum="Confirmed"/>
                                     <field name="state" widget="badge"/>
                                 </list>
                             </field>

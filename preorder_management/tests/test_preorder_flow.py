@@ -160,6 +160,40 @@ class TestPreorderFlow(TransactionCase):
         preorder.invalidate_recordset()
         return payment
 
+    def test_migrate_preorder_payment_reverses_without_releasing_reservation(self):
+        if not self.payment_journal.outbound_payment_method_line_ids:
+            raise SkipTest("No outbound payment method is configured for the test journal.")
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        preorder.action_confirm_preorder()
+        original = self._post_payment(preorder)
+        original_state = original.state
+        self.assertIn(preorder.state, ("pending", "allocated"))
+        reserved_before = preorder.allocation_id.reserved_qty
+
+        preorder.migrate_payments_to_delivery()
+        preorder.invalidate_recordset()
+        original.invalidate_recordset(["state", "date", "move_id"])
+        confirmation = preorder.payment_confirmation_ids.filtered(
+            lambda item: item.source_payment_id == original
+        )
+        self.assertEqual(len(confirmation), 1)
+        self.assertTrue(confirmation.reversal_payment_id)
+        self.assertEqual(confirmation.amount, original.amount)
+        self.assertEqual(preorder.payment_recording_mode, "delivery")
+        self.assertEqual(original.state, original_state)
+        self.assertEqual(preorder._get_delivery_payment_confirmed_amount(), preorder.deposit_amount)
+        preorder.allocation_id.invalidate_recordset(["reserved_qty"])
+        self.assertEqual(preorder.allocation_id.reserved_qty, reserved_before)
+
     def test_guarded_payment_redate_works_without_general_unreconcile_access(self):
         preorder = self.env["sale.preorder"].sudo().create(
             {

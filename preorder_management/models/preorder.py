@@ -835,6 +835,30 @@ class SalePreorder(models.Model):
     direct_payment_ids = fields.One2many(
         "account.payment", "preorder_payment_id", string="Direct Pre-order Payments"
     )
+    payment_recording_mode = fields.Selection(
+        [
+            ("preorder", "Record at pre-order"),
+            ("delivery", "Record at delivery"),
+        ],
+        string="Payment Recording",
+        default="preorder",
+        required=True,
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help=(
+            "Legacy pre-orders keep their original payment workflow. Migrated pre-orders "
+            "reverse the original payment before delivery and record the replacement payment "
+            "on the delivery date."
+        ),
+    )
+    payment_confirmation_ids = fields.One2many(
+        "sale.preorder.payment.confirmation",
+        "preorder_id",
+        string="Payment Confirmations",
+        readonly=True,
+        copy=False,
+    )
     invoice_count = fields.Integer(compute="_compute_document_counts")
     payment_count = fields.Integer(compute="_compute_payment_summary")
     payment_ids = fields.Many2many(
@@ -1268,6 +1292,10 @@ class SalePreorder(models.Model):
         "source_order_id.payment_ids.move_id.line_ids.amount_residual",
         "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
         "source_order_id.payment_ids.reversed_original_payment_id",
+        "payment_recording_mode",
+        "payment_confirmation_ids",
+        "payment_confirmation_ids.amount",
+        "payment_confirmation_ids.state",
     )
     def _compute_payment_summary(self):
         for record in self:
@@ -1275,30 +1303,51 @@ class SalePreorder(models.Model):
             usable = record._get_source_inbound_payments()
             returned = all_inbound - usable
             available_lines = record._get_available_payment_lines(usable)
+            confirmations = record._get_delivery_payment_confirmations()
 
             record.payment_ids = all_inbound
             record.payment_count = len(all_inbound)
-            record.prepaid_amount = sum(
-                record._convert_payment_amount(payment) for payment in all_inbound
-            )
-            usable_paid_amount = sum(
-                record._convert_payment_amount(payment) for payment in usable
-            )
-            record.available_prepayment_amount = sum(
-                record._payment_line_residual_in_order_currency(line) for line in available_lines
-            )
-            record.payment_due_amount = max(record.deposit_amount - usable_paid_amount, 0.0)
-            record.payment_method_names = ", ".join(
-                dict.fromkeys(
-                    payment.journal_id.display_name
-                    for payment in all_inbound
-                    if payment.journal_id
+            if record.payment_recording_mode == "delivery":
+                confirmed_amount = record._get_delivery_payment_confirmed_amount()
+                record.prepaid_amount = confirmed_amount
+                usable_paid_amount = confirmed_amount
+                record.available_prepayment_amount = confirmed_amount
+            else:
+                record.prepaid_amount = sum(
+                    record._convert_payment_amount(payment) for payment in all_inbound
                 )
-            )
+                usable_paid_amount = sum(
+                    record._convert_payment_amount(payment) for payment in usable
+                )
+                record.available_prepayment_amount = sum(
+                    record._payment_line_residual_in_order_currency(line) for line in available_lines
+                )
+            record.payment_due_amount = max(record.deposit_amount - usable_paid_amount, 0.0)
+            if record.payment_recording_mode == "delivery":
+                record.payment_method_names = ", ".join(
+                    dict.fromkeys(
+                        confirmation.payment_channel
+                        for confirmation in confirmations
+                        if confirmation.payment_channel
+                    )
+                )
+            else:
+                record.payment_method_names = ", ".join(
+                    dict.fromkeys(
+                        payment.journal_id.display_name
+                        for payment in all_inbound
+                        if payment.journal_id
+                    )
+                )
             payment_breakdown = {}
-            for payment in usable.sorted(lambda item: (item.date, item.id)):
-                label = payment.journal_id.display_name
-                payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
+            if record.payment_recording_mode == "delivery":
+                for confirmation in confirmations.sorted(lambda item: (item.source_date, item.id)):
+                    label = confirmation.payment_channel or confirmation.journal_id.display_name
+                    payment_breakdown[label] = payment_breakdown.get(label, 0.0) + confirmation.amount
+            else:
+                for payment in usable.sorted(lambda item: (item.date, item.id)):
+                    label = payment.journal_id.display_name
+                    payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
             breakdown_lines = [
                 "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
                 for label, amount in payment_breakdown.items()
@@ -1326,7 +1375,9 @@ class SalePreorder(models.Model):
             record.additional_payment_methods = (
                 " | ".join(payment_cells[4:]) if len(payment_cells) > 4 else False
             )
-            if not all_inbound:
+            if record.payment_recording_mode == "delivery" and confirmations:
+                record.payment_status = "available" if not record.invoice_ids else "used"
+            elif not all_inbound:
                 record.payment_status = "none"
             elif returned and not usable:
                 record.payment_status = "returned"
@@ -1439,6 +1490,111 @@ class SalePreorder(models.Model):
             ]
         ).mapped("reversed_original_payment_id")
         return payments - returned_originals
+
+    def _get_delivery_payment_confirmed_amount(self):
+        """Return the amount preserved by the migration, independent of reversals."""
+        self.ensure_one()
+        return sum(
+            confirmation.amount
+            for confirmation in self.payment_confirmation_ids
+            if confirmation.state in ("confirmed", "consumed")
+        )
+
+    def _get_delivery_payment_confirmations(self):
+        self.ensure_one()
+        return self.payment_confirmation_ids.filtered(
+            lambda confirmation: confirmation.state in ("confirmed", "consumed")
+        )
+
+    def migrate_payments_to_delivery(self):
+        """Reverse open pre-order payments and preserve them for delivery accounting.
+
+        This is intentionally explicit and idempotent. Original posted payments are never
+        deleted or edited; each gets one linked outbound reversal and one immutable audit row.
+        """
+        Confirmation = self.env["sale.preorder.payment.confirmation"].sudo()
+        Payment = self.env["account.payment"].sudo()
+        migrated = self.env["sale.preorder"]
+        failures = []
+        for preorder in self.sudo().filtered(
+            lambda item: item.state not in ("completed", "cancelled")
+            and item.payment_recording_mode != "delivery"
+        ):
+            payments = preorder._get_source_inbound_payments(include_returned=True)
+            if not payments:
+                # Without a posted payment there is nothing to reverse. Keep the
+                # record on the legacy path until a payment-confirmation workflow
+                # is enabled for it.
+                continue
+            try:
+                for payment in payments.sorted(lambda item: (item.date or fields.Date.today(), item.id)):
+                    confirmation = Confirmation.search(
+                        [("preorder_id", "=", preorder.id), ("source_payment_id", "=", payment.id)],
+                        limit=1,
+                    )
+                    if not confirmation:
+                        confirmation = Confirmation.create(
+                            {
+                                "preorder_id": preorder.id,
+                                "source_payment_id": payment.id,
+                                "amount": abs(payment.amount),
+                                "currency_id": payment.currency_id.id,
+                                "journal_id": payment.journal_id.id,
+                                "source_date": payment.date,
+                                "source_reference": payment.name or payment.ref or preorder.name,
+                                "payment_channel": payment.journal_id.display_name,
+                            }
+                        )
+                    if not confirmation.reversal_payment_id:
+                        reversal = Payment.search(
+                            [("reversed_original_payment_id", "=", payment.id)], limit=1
+                        )
+                        if not reversal:
+                            if payment.state not in ("in_process", "paid", "posted") or payment.move_id.state != "posted":
+                                raise UserError(_("Payment %s is not posted and cannot be reversed.") % payment.display_name)
+                            method_line = payment.journal_id.outbound_payment_method_line_ids[:1]
+                            if not method_line:
+                                raise UserError(
+                                    _("Journal %s has no outbound payment method configured.")
+                                    % payment.journal_id.display_name
+                                )
+                            reversal = Payment.create(
+                                {
+                                    "payment_type": "outbound",
+                                    "partner_type": "customer",
+                                    "partner_id": payment.partner_id.id,
+                                    "amount": abs(payment.amount),
+                                    "currency_id": payment.currency_id.id,
+                                    "journal_id": payment.journal_id.id,
+                                    "branch_id": preorder.branch_id.id,
+                                    "reversed_original_payment_id": payment.id,
+                                    "payment_method_line_id": method_line.id,
+                                    "ref": _("Pre-order payment reversal before delivery: %s") % preorder.name,
+                                }
+                            )
+                            reversal.action_post()
+                        confirmation.write({"reversal_payment_id": reversal.id})
+                preorder.with_context(allow_preorder_workflow_write=True).write(
+                    {"payment_recording_mode": "delivery"}
+                )
+                preorder.message_post(
+                    body=_(
+                        "Pre-order payment migration completed. Original payment(s) were preserved "
+                        "and reversed before delivery; the branch must record payment on delivery."
+                    )
+                )
+                migrated |= preorder
+            except Exception as error:
+                failures.append("%s: %s" % (preorder.display_name, error))
+        if failures:
+            raise UserError(
+                _(
+                    "Payment migration stopped for %(count)s pre-order(s). No incomplete record "
+                    "was switched to delivery accounting:\n%(details)s"
+                )
+                % {"count": len(failures), "details": "\n".join(failures)}
+            )
+        return migrated
 
     def _get_available_payment_lines(self, payments=None):
         self.ensure_one()
@@ -1670,10 +1826,14 @@ class SalePreorder(models.Model):
             record.invalidate_recordset(
                 ["direct_payment_ids", "prepaid_amount", "payment_due_amount", "payment_status"]
             )
-            usable_payments = record._get_source_inbound_payments()
-            paid_amount = sum(
-                record._convert_payment_amount(payment) for payment in usable_payments
-            )
+            if record.payment_recording_mode == "delivery":
+                usable_payments = self.env["account.payment"]
+                paid_amount = record._get_delivery_payment_confirmed_amount()
+            else:
+                usable_payments = record._get_source_inbound_payments()
+                paid_amount = sum(
+                    record._convert_payment_amount(payment) for payment in usable_payments
+                )
             comparison = float_compare(
                 paid_amount,
                 record.deposit_amount,
