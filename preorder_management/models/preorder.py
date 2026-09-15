@@ -2147,7 +2147,15 @@ class SalePreorder(models.Model):
             raise UserError(_("Allocate the pre-order before creating its delivery order."))
         if self.campaign_id.state != "delivery":
             raise UserError(_("The campaign must be in Delivery before orders are created."))
-        if not self._get_available_payment_lines():
+        # Migrated pre-orders deliberately reverse their original payment and
+        # preserve the amount in the immutable confirmation rows.  They are
+        # paid again at delivery from POS, so requiring an open receivable line
+        # here incorrectly blocks the delivery-order creation step.  Keep the
+        # original-payment guard for legacy records that still reuse it.
+        if (
+            self.payment_recording_mode != "delivery"
+            and not self._get_available_payment_lines()
+        ):
             raise UserError(_("The original payment is no longer available for this delivery."))
 
         delivery_order = self.env["sale.order"].create(self._prepare_delivery_order_values())
