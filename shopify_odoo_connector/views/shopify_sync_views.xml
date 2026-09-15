@@ -116,5 +116,6 @@
     <menuitem id="shopify_sync_menu" name="Sync Logs"
               parent="shopify_odoo_connector.shopify_configuration_menu_root"
               action="shopify_sync_action"
-              sequence="60"/>
+              sequence="60"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

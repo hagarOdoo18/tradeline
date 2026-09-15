@@ -45,6 +45,22 @@ class AccountInvoiceReportWizard(models.TransientModel):
 
         return act
 
+    @staticmethod
+    def _invoice_amounts(inv):
+        sign = 1 if inv.move_type == 'out_invoice' else -1
+        currency_round = inv.currency_id.round
+        tax_t1 = currency_round(sign * (inv.tax_t1 or 0.0))
+        return {
+            'tax_t1': tax_t1,
+            'tax_t2': currency_round(sign * (inv.tax_t2 or 0.0)),
+            'tax_t2_t': currency_round(sign * (inv.tax_t2_t or 0.0)),
+            'tax_t3': currency_round(sign * (inv.tax_t3 or 0.0)),
+            'tax_t5': currency_round(sign * (inv.tax_t5 or 0.0)),
+            'total': currency_round(inv.amount_untaxed_in_currency_signed + tax_t1),
+            'total_net': currency_round(inv.amount_total_in_currency_signed),
+            'total_converted': inv.company_currency_id.round(inv.amount_total_signed),
+        }
+
     def generate_excel(self, invoices):
         filename = 'Invoices_'
 
@@ -83,43 +99,13 @@ class AccountInvoiceReportWizard(models.TransientModel):
             sheet.write(0, col, head, header_format)
 
         row = 1
-        currency_model = self.env['res.currency']
-        rate_cache = {}
-
         for inv in invoices:
             partner = inv.partner_id
-            sign = 1 if inv.move_type == 'out_invoice' else -1
 
             number = inv.name.split('/')[-1] if inv.name else ''
 
-            # ===== Currency rate cache =====
-            key = (
-                inv.company_currency_id.id,
-                inv.currency_id.id,
-                inv.company_id.id,
-                inv.invoice_date
-            )
-
-            if key not in rate_cache:
-                rate_cache[key] = currency_model._get_conversion_rate(
-                    inv.company_currency_id,
-                    inv.currency_id,
-                    inv.company_id,
-                    inv.invoice_date
-                )
-
-            rate = rate_cache[key]
-
             # ===== Taxes =====
-            tax_t1 = sign * (inv.tax_t1 or 0)
-            tax_t2 = sign * (inv.tax_t2 or 0)
-            tax_t2_t = sign * (inv.tax_t2_t or 0)
-            tax_t3 = sign * (inv.tax_t3 or 0)
-            tax_t5 = sign * (inv.tax_t5 or 0)
-            amount_total = inv.amount_untaxed_in_currency_signed +tax_t1
-            currencyExchangeRate = round(1 / inv.invoice_currency_rate, 5)
-
-            total_converted =   round(inv.amount_total_in_currency_signed *currencyExchangeRate,2)
+            amounts = self._invoice_amounts(inv)
 
 
             # ===== Partner VAT logic =====
@@ -137,14 +123,14 @@ class AccountInvoiceReportWizard(models.TransientModel):
                 local_vat if partner.company_type !='company' else'',
                 foreign_vat,
                 inv.amount_untaxed_in_currency_signed,
-                round(tax_t1,2),
-                round(amount_total,2),
-                round(tax_t2,2),
-                round(tax_t2_t,2),
-                round(tax_t3,2),
-                round(tax_t5,2),
-                inv.amount_total_in_currency_signed ,
-                total_converted,
+                amounts['tax_t1'],
+                amounts['total'],
+                amounts['tax_t2'],
+                amounts['tax_t2_t'],
+                amounts['tax_t3'],
+                amounts['tax_t5'],
+                amounts['total_net'],
+                amounts['total_converted'],
                 inv.currency_id.name,
             ], line_format)
 

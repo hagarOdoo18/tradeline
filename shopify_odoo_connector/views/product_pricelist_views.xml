@@ -28,5 +28,6 @@
     <!--    menu for product pricelist-->
     <menuitem id="product_pricelist_menu" name="Pricelists"
               parent="shopify_odoo_connector.product_template_menu_root" sequence="3"
-              action="product_pricelist_action"/>
+              action="product_pricelist_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

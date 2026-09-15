@@ -49,5 +49,6 @@
     <menuitem id="shopify_collection_menu" name="Collections"
               parent="shopify_odoo_connector.shopify_configuration_menu_root"
               action="shopify_collection_action"
-              sequence="10"/>
+              sequence="10"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

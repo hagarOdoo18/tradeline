@@ -23,7 +23,7 @@
 import json
 import logging
 import requests
-from odoo import fields, models, _
+from odoo import fields, models, tools, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -49,11 +49,25 @@ class ResPartners(models.Model):
     synced_customer = fields.Boolean(readonly=True, string='Synced Product',
                                      help='Will be true for synced customer.')
     shopify_customer_ref = fields.Char(string='Shopify Id', readonly=True,
+                                       index=True,
                                        help='Partner id in shopify')
     shopify_sync_ids = fields.One2many('shopify.sync',
                                        'customer_id',
                                        string='Shopify Sync',
                                        help='shopify sync ids')
+
+    def _auto_init(self):
+        """Index res_partner.mobile.
+
+        The customer import resolves every incoming Shopify customer to an
+        Odoo partner by mobile number. Without this index each lookup is a
+        sequential scan of res_partner. The column belongs to base, so the
+        index is created here rather than by redeclaring the field.
+        """
+        res = super()._auto_init()
+        tools.create_index(self._cr, 'res_partner_mobile_index',
+                           self._table, ['mobile'])
+        return res
 
     def sync_shopify_customer(self):
         """Method to sync odoo partners into shopify."""
@@ -104,8 +118,15 @@ class ResPartners(models.Model):
         The Odoo write is always performed first and unconditionally: the
         Shopify sync is a side effect and must never be able to skip or
         block saving the record.
+
+        `shopify_no_export` in the context suppresses the push. Any code
+        path writing partner data as part of an *inbound* sync must set it —
+        otherwise importing a customer immediately sends that same customer
+        back out (a GET + a PUT per partner, against a rate-limited API).
         """
         res = super().write(vals)
+        if self.env.context.get('shopify_no_export'):
+            return res
         if any(field in vals for field in SHOPIFY_SYNCED_FIELDS):
             self._sync_shopify_customer_updates(vals)
         return res

@@ -47,5 +47,6 @@
     <!--    menu for log message-->
     <menuitem name="Log Messages" id="log_message_menu"
               parent="shopify_configuration_menu_root"
-              action="log_message_action"/>
+              action="log_message_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

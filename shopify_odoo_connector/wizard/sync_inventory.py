@@ -23,6 +23,7 @@
 import json
 import logging
 import re
+import time
 import requests
 import urllib3
 from datetime import timedelta
@@ -32,18 +33,58 @@ from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
 
-# Groups queued per job.cron batch.
-INVENTORY_BATCH_SIZE = 20
-# Never let the queue grow without bound: if this many inventory jobs are
-# already pending for an instance, skip queueing more this run.
+# How many job.cron rows one inventory run may create. The batch size is
+# derived from it (groups / INVENTORY_MAX_JOBS), so the number of jobs stays
+# flat and only the size of each one grows with the catalogue - the opposite
+# of the old fixed batch, where 3000 groups meant 150 jobs.
+# Override per database with the system parameter
+# 'shopify_odoo_connector.inventory_max_jobs'.
+INVENTORY_MAX_JOBS = 5
+# Floor for the derived batch size, so a handful of groups is not spread over
+# one job each.
+INVENTORY_MIN_BATCH_SIZE = 5
+# Kept for reference / other callers only. The cron no longer uses a ceiling:
+# a run covers the whole catalogue, so it skips while ANY export job is still
+# pending rather than waiting for a backlog of this size to build up.
 MAX_PENDING_JOBS = 100
 # Safety overlap when reading "what changed since the last run", to absorb
 # clock skew and rows committed just after the previous watermark was taken.
+# Only used by _changed_products_since, which the cron no longer calls.
 WATERMARK_OVERLAP_MINUTES = 15
-# Re-push everything at least this often, so any drift self-heals.
+# How often the cached variant -> inventory_item_id "misses" are forgotten,
+# so a variant re-created on Shopify is picked up again. The cron queues every
+# group on every run, so this no longer decides how much gets pushed.
 FULL_RESYNC_HOURS = 24
 # Shopify page size (the API default is 50 - 250 is the maximum).
 SHOPIFY_PAGE_LIMIT = 250
+# GET /inventory_levels.json takes at most 50 inventory_item_ids per call.
+INVENTORY_LEVELS_READ_CHUNK = 50
+# Quantities per inventorySetQuantities mutation (GraphQL, 2024-07+).
+GRAPHQL_SET_CHUNK = 250
+# Detail lines per log.message row. The per-group breakdown of a push is
+# written as a handful of rows instead of one row per group: the log table
+# stays small, and the whole batch is still readable in one place.
+INVENTORY_DETAIL_LOG_CHUNK = 100
+# First API version with the inventorySetQuantities mutation, which can
+# set the *available* quantity of many items in one call. Older versions
+# only offer inventorySetOnHandQuantities, which sets on_hand - a
+# different number as soon as Shopify has committed stock - so they stay
+# on the REST endpoint.
+GRAPHQL_INVENTORY_MIN_VERSION = (2024, 7)
+# Version the inventory push falls back to when the instance is configured
+# with something older than GRAPHQL_INVENTORY_MIN_VERSION.
+#
+# Shopify supports each version for about a year and "falls forward" for the
+# rest: a request naming a retired version is answered by the oldest version
+# still accessible. So an instance still set to, say, 2024-01 is already being
+# served by a modern version - the old string buys nothing, and dropping to
+# one REST POST per item (2 requests/second) over it turns a five-minute push
+# into an hour. Naming a supported version here keeps the bulk mutation
+# available whatever the instance field says.
+#
+# Only the inventory push uses this; every other call still uses the
+# instance's own version. Raise it when it leaves Shopify's support window.
+INVENTORY_API_VERSION = '2025-10'
 SHOPIFY_TIMEOUT = 30
 # Transient failures to ride out: a dropped keep-alive connection, a gateway
 # that could not reach Shopify ("upstream connect error", 502/503/504) and
@@ -52,6 +93,16 @@ SHOPIFY_TIMEOUT = 30
 SHOPIFY_RETRY_TOTAL = 4
 SHOPIFY_RETRY_BACKOFF = 1.0
 SHOPIFY_RETRY_STATUSES = (429, 500, 502, 503, 504)
+
+# Bulk 'available' write, API version 2024-07 and later. One call carries
+# up to GRAPHQL_SET_CHUNK quantities, replacing that many REST POSTs.
+GRAPHQL_SET_QUANTITIES = '''
+mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+  inventorySetQuantities(input: $input) {
+    userErrors { field message }
+  }
+}
+'''
 
 
 class SyncInventory(models.TransientModel):
@@ -80,6 +131,14 @@ class SyncInventory(models.TransientModel):
         string='Warehouses',
         required=True,
         help='Warehouses to read / update inventory quantities',
+    )
+    update_all_stock = fields.Boolean(
+        string='Update All Stock',
+        help='Push every synced variant, including the ones whose '
+             'quantity Shopify already holds. The work is queued and '
+             'processed in the background instead of inside this '
+             'request, so a full catalogue can be re-published without '
+             'the screen waiting for it.',
     )
 
     # ------------------------------------------------------------------
@@ -518,11 +577,20 @@ class SyncInventory(models.TransientModel):
         single unit: their stock is summed once and the total is published on
         every Shopify variant of that group.
 
-        Only what actually moved is queued: the products whose stock.quant
-        changed since the previous run (plus variants linked to Shopify since
-        then), with a full pass every FULL_RESYNC_HOURS to heal any drift.
-        Re-queueing the whole catalogue every 5 minutes produced far more jobs
-        than the queue could ever drain.
+        Every run queues EVERY group of the instance - the stock.quant /
+        stock.move.line watermark is no longer used to narrow the run down to
+        what moved. A quantity is therefore re-published on its next tick
+        whether or not Odoo shows a change.
+
+        What protects the queue is the pending check: while ANY export job is
+        still pending for the instance the run is skipped entirely, so a pass
+        always finishes before the next one is queued. The effective cycle is
+        "publish everything, wait for it to land, publish everything again" -
+        not one pass per cron interval.
+
+        The FULL_RESYNC_HOURS timer is kept, but now only paces the cache
+        maintenance (forgetting the "not on Shopify" misses); it no longer
+        decides how much is queued.
 
         The groups are split into batches and queued as job.cron records with
         the function 'export_inventory_to_shopify'; the variant -> inventory
@@ -544,13 +612,20 @@ class SyncInventory(models.TransientModel):
                 if not warehouses:
                     continue
 
-                # Do not pile onto a queue that is still being worked off.
+                # Never queue a second pass while the previous one is still
+                # being worked off. A run now covers the whole catalogue in
+                # INVENTORY_MAX_JOBS jobs, so anything still pending means the
+                # last pass has not finished; queueing another would pile up
+                # stale batches (the quantities are read at push time, so a
+                # batch that waits is a batch that publishes old numbers).
+                # The cycle is: push everything -> wait for it to finish ->
+                # push everything again.
                 pending = self.env['job.cron'].sudo().search_count([
                     ('state', '=', 'pending'),
                     ('function', '=', 'export_inventory_to_shopify'),
                     ('instance_id', '=', instance.id),
                 ])
-                if pending >= MAX_PENDING_JOBS:
+                if pending:
                     _logger.info(
                         'Shopify inventory sync: %d job(s) still pending for '
                         'instance %s, skipping this run', pending,
@@ -561,26 +636,19 @@ class SyncInventory(models.TransientModel):
                 mark_key = ('shopify_odoo_connector.inventory_watermark.%s'
                             % instance.id)
                 full_key = mark_key + '.full'
-                last_run = param.get_param(mark_key)
                 last_full = param.get_param(full_key)
-                full_run = not last_run or not last_full or (
+                # Only paces the cache maintenance now - not how much is
+                # queued. Clearing the miss list forces a catalogue crawl for
+                # anything still unresolved, so it stays on its slow cadence.
+                full_run = not last_full or (
                     run_start - fields.Datetime.to_datetime(last_full)
                     > timedelta(hours=FULL_RESYNC_HOURS))
-
                 if full_run:
-                    products = None     # every synced variant
                     self._clear_inventory_item_misses(instance)
-                else:
-                    products = self._changed_products_since(
-                        instance, warehouses,
-                        fields.Datetime.to_datetime(last_run)
-                        - timedelta(minutes=WATERMARK_OVERLAP_MINUTES))
-                    if not products:
-                        param.set_param(mark_key, fields.Datetime.to_string(run_start))
-                        continue
 
-                groups = self._build_inventory_groups(
-                    instance, products=products)
+                # Every synced variant of the instance, every run: no
+                # "what changed since the watermark" filter.
+                groups = self._build_inventory_groups(instance, products=None)
                 if not groups:
                     param.set_param(mark_key, fields.Datetime.to_string(run_start))
                     if full_run:
@@ -611,7 +679,9 @@ class SyncInventory(models.TransientModel):
                     continue
 
                 warehouse_ids = warehouses.ids
-                size = INVENTORY_BATCH_SIZE
+                # Derived, not fixed: the whole run always fits in at most
+                # INVENTORY_MAX_JOBS job.cron rows.
+                size = self._inventory_batch_size(len(groups))
                 for i in range(0, len(groups), size):
                     self.env['job.cron'].sudo().create([{
                         'model_id': model.id,
@@ -627,9 +697,10 @@ class SyncInventory(models.TransientModel):
                 if full_run:
                     param.set_param(full_key, fields.Datetime.to_string(run_start))
                 _logger.info(
-                    'Shopify inventory sync (%s): queued %d group(s) covering '
-                    '%d variant(s) in %d batch(es) for instance %s',
-                    'full' if full_run else 'incremental',
+                    'Shopify inventory sync (all groups%s): queued %d '
+                    'group(s) covering %d variant(s) in %d batch(es) for '
+                    'instance %s',
+                    ', item cache refreshed' if full_run else '',
                     len(groups),
                     sum(len(group['items']) for group in groups),
                     (len(groups) + size - 1) // size,
@@ -640,8 +711,39 @@ class SyncInventory(models.TransientModel):
                     '%s: %s', instance.name, str(error))
 
     @api.model
+    def _inventory_batch_size(self, total_groups):
+        """Groups per job.cron row, so that `total_groups` fit in at most
+        INVENTORY_MAX_JOBS jobs.
+
+        The batch size is derived instead of fixed: the queue holds the same
+        small number of rows whatever the catalogue size, and one pass is
+        something the cron can wait on before queueing the next. Each job
+        simply carries more groups as the catalogue grows.
+
+        The ceiling can be tuned per database with the system parameter
+        'shopify_odoo_connector.inventory_max_jobs'; a missing or unusable
+        value falls back to INVENTORY_MAX_JOBS.
+        """
+        try:
+            max_jobs = int(self.env['ir.config_parameter'].sudo().get_param(
+                'shopify_odoo_connector.inventory_max_jobs',
+                INVENTORY_MAX_JOBS))
+        except (TypeError, ValueError):
+            max_jobs = INVENTORY_MAX_JOBS
+        max_jobs = max(max_jobs, 1)
+        total = max(int(total_groups or 0), 1)
+        # ceil division: 3000 groups / 5 jobs -> 600 groups per job
+        size = -(-total // max_jobs)
+        return max(size, INVENTORY_MIN_BATCH_SIZE)
+
+    @api.model
     def _changed_products_since(self, instance, warehouses, since):
         """Products whose sellable stock may have moved since `since`.
+
+        No longer called by :meth:`_cron_sync_inventory_to_shopify`, which now
+        queues every group on every run. Kept because it is the incremental
+        filter to put back if the full-catalogue cadence turns out to be too
+        heavy for the queue.
 
         That is every product with a stock.quant touched since then in one of
         the mapped stock locations (a quant is written on both a quantity and
@@ -700,6 +802,9 @@ class SyncInventory(models.TransientModel):
         rebuilt from the sync records.
         """
         warehouse_ids = data.get('warehouse_ids', [])
+        # 'force' is set by the Update All Stock action: write every
+        # quantity, including the ones Shopify already agrees with.
+        force = bool(data.get('force'))
         wizard = self.sudo().create({
             'import_inventory': 'shopify',
             'shopify_instance_id': instance.id,
@@ -710,11 +815,12 @@ class SyncInventory(models.TransientModel):
             # legacy payload
             sync_records = self.env['shopify.sync'].sudo().browse(
                 data.get('sync_ids', [])).exists()
-            wizard._sync_to_shopify(sync_records=sync_records)
+            wizard._sync_to_shopify(sync_records=sync_records, force=force)
         else:
-            wizard._sync_to_shopify(groups=groups)
+            wizard._sync_to_shopify(groups=groups, force=force)
 
-    def _sync_to_shopify(self, groups=None, sync_records=None):
+    def _sync_to_shopify(self, groups=None, sync_records=None,
+                         force=False):
         """Push Odoo on-hand quantities to Shopify inventory levels.
 
         `groups` (batch mode via job.cron) is the pre-built list of groups to
@@ -742,25 +848,42 @@ class SyncInventory(models.TransientModel):
             groups = self._build_inventory_groups(
                 shopify_instance, sync_records=sync_records)
 
-        return self._push_inventory_groups(groups, shopify_locations)
+        return self._push_inventory_groups(groups, shopify_locations,
+                                           force=force)
 
-    def _push_inventory_groups(self, groups, shopify_locations):
+    def _push_inventory_groups(self, groups, shopify_locations,
+                               force=False):
         """Publish the summed quantity of each group on Shopify.
 
         For every group the on-hand stock of all its Odoo variants is added up
         per Shopify location, then that single total is written to every
         Shopify variant of the group.
 
-        Returns {'pushed': n, 'failed': n, 'retried': n} so a caller that has
-        a user waiting can report what actually happened instead of assuming
-        it worked.
+        Every quantity of the batch is always written: the current Shopify
+        levels are no longer read and compared, so nothing is ever skipped
+        and 'skipped' stays 0. `force` is accepted for backwards
+        compatibility with existing callers and payloads but has no effect.
+
+        Besides the summary, a per-group breakdown is written to log.message
+        (one line per group and location: on hand, the minimum rule applied,
+        the quantity published and the variants it went to), chunked
+        INVENTORY_DETAIL_LOG_CHUNK lines to a row.
+
+        Returns {'pushed': n, 'skipped': n, 'failed': n, 'retried': n} so a
+        caller that has a user waiting can report what actually happened
+        instead of assuming it worked.
         """
         if not groups:
-            return {'pushed': 0, 'failed': 0, 'retried': 0}
+            # same keys as the normal return, so a caller can read
+            # result['skipped'] without guarding for the empty batch
+            return {'pushed': 0, 'skipped': 0, 'failed': 0, 'retried': 0}
 
+        started = time.monotonic()
         shopify_instance = self.shopify_instance_id
         store_name = shopify_instance.shop_name
-        version    = shopify_instance.version
+        # Not necessarily the instance's own version - see
+        # :meth:`_inventory_api_version`.
+        version    = self._inventory_api_version(shopify_instance)
         headers    = shopify_instance._get_shopify_headers()
         company_id = shopify_instance.company_id.id
 
@@ -798,8 +921,16 @@ class SyncInventory(models.TransientModel):
         categ_chains = rule_model._categ_chain(categ_by_product.values())
 
         failures = []
+        # One line per (location, group): what was computed and what was
+        # published. Written to log.message at the end of the batch so the
+        # quantity each group received can be checked after the fact.
+        details = []
         pushed = 0
+        skipped = 0
         retried = 0
+        use_graphql = self._supports_graphql_inventory(version)
+        graphql_url = ('https://%s/admin/api/%s/graphql.json'
+                       % (store_name, version))
         # one TCP/TLS connection for the whole batch instead of one per
         # request, and transient gateway/throttle failures are retried
         session = self._shopify_session()
@@ -809,6 +940,11 @@ class SyncInventory(models.TransientModel):
                     all_product_ids, company_id,
                     location.warehouse_id.lot_stock_id)
 
+                # Everything this location should end up with, computed
+                # before a single request goes out, so the quantities can
+                # be compared against Shopify and sent in bulk.
+                desired = {}
+                variant_by_item = {}
                 for group in groups:
                     product_ids = group.get('product_ids') or []
                     variant_ids = group.get('variant_ids') or []
@@ -829,58 +965,85 @@ class SyncInventory(models.TransientModel):
                     available = rule_model._apply(total_qty, min_qty, strategy)
 
                     # the same total goes to every Shopify variant of the group
+                    sent_variants = []
                     for variant_id in variant_ids:
                         inventory_item_id = variant_to_inv_item.get(
                             str(variant_id))
                         if not inventory_item_id:
                             continue
-                        payload = json.dumps({
-                            'location_id':       location.shopify_location_id,
-                            'inventory_item_id': inventory_item_id,
-                            'available':         available,
-                        })
-                        try:
-                            resp = session.post(set_url, headers=headers,
-                                                data=payload,
-                                                timeout=SHOPIFY_TIMEOUT)
-                        except requests.exceptions.RequestException as error:
-                            failures.append(
-                                'variant %s (group %s, location %s): %s'
-                                % (variant_id, group.get('key'),
-                                   location.shopify_location_id, error))
-                            continue
-                        # count the retries urllib3 already absorbed, so a
-                        # flaky link shows up in the log even when it recovers
-                        raw_retries = getattr(
-                            getattr(resp, 'raw', None), 'retries', None)
-                        retried += len(getattr(raw_retries, 'history', ()) or ())
+                        desired[str(inventory_item_id)] = available
+                        sent_variants.append(str(variant_id))
+                        variant_by_item.setdefault(
+                            str(inventory_item_id), (variant_id,
+                                                     group.get('key')))
 
-                        if resp.status_code not in (200, 201):
-                            failures.append(
-                                'variant %s (group %s, location %s): HTTP %s %s'
-                                % (variant_id, group.get('key'),
-                                   location.shopify_location_id,
-                                   resp.status_code,
-                                   (resp.text or '').strip()[:300]))
-                        else:
-                            pushed += 1
+                    details.append(
+                        'group %s | %s (location %s) | on hand %s | '
+                        'min %s (%s) | published %s | variant(s): %s'
+                        % (group.get('key') or '-',
+                           location.warehouse_id.name or '-',
+                           location.shopify_location_id,
+                           total_qty, min_qty, strategy, available,
+                           ', '.join(sent_variants) or 'none (unmapped)'))
+
+                if not desired:
+                    continue
+
+                # Always re-publish every quantity of the batch: no read of
+                # the current Shopify levels, no comparison, nothing skipped.
+                # The `force` argument is kept for callers that still pass it,
+                # but it no longer changes what is sent.
+                changed = dict(desired)
+                if not changed:
+                    continue
+
+                if use_graphql:
+                    done, leftover, errors = self._graphql_set_levels(
+                        session, graphql_url, headers,
+                        location.shopify_location_id, changed)
+                    pushed += done
+                    failures.extend(errors)
+                    changed = leftover   # chunks GraphQL could not place
+
+                done, errors, retries = self._rest_set_levels(
+                    session, set_url, headers, location.shopify_location_id,
+                    changed, variant_by_item)
+                pushed += done
+                failures.extend(errors)
+                retried += retries
         finally:
             session.close()
 
-        # One log row per batch instead of one per request (with a commit each
-        # one): the per-variant success rows were the bulk of the write load
-        # and of the log.message table.
-        summary = ('Inventory push: %d level(s) updated, %d failed '
-                   '(%d group(s), %d location(s))'
-                   % (pushed, len(failures), len(groups),
-                      len(shopify_locations)))
+        # A summary row plus a handful of detail rows per batch - never one
+        # row per request (with a commit each one): the per-variant success
+        # rows were the bulk of the write load and of the log.message table.
+        elapsed = time.monotonic() - started
+        summary = ('Inventory push: %d level(s) updated, %d unchanged '
+                   '(skipped), %d failed (%d group(s), %d location(s)) '
+                   'in %.1fs via %s'
+                   % (pushed, skipped, len(failures), len(groups),
+                      len(shopify_locations), elapsed,
+                      'GraphQL %s' % version if use_graphql
+                      else 'REST %s' % version))
         if retried:
             summary += ' - %d request(s) needed a retry' % retried
+        _logger.info('%s', summary)
         messages = [{
             'name': summary,
             'shopify_instance_id': shopify_instance.id,
             'model': 'Stock Quantity',
         }]
+        # Per-group breakdown: which quantity every group was published with,
+        # per location. Chunked so a large batch does not become one huge row.
+        for start in range(0, len(details), INVENTORY_DETAIL_LOG_CHUNK):
+            chunk = details[start:start + INVENTORY_DETAIL_LOG_CHUNK]
+            header = ('Inventory push detail (%d-%d of %d)'
+                      % (start + 1, start + len(chunk), len(details)))
+            messages.append({
+                'name': '<br/>'.join([header] + chunk),
+                'shopify_instance_id': shopify_instance.id,
+                'model': 'Stock Quantity',
+            })
         if failures:
             messages.append({
                 'name': 'Inventory push failures:\n' + '\n'.join(failures[:50]),
@@ -888,7 +1051,197 @@ class SyncInventory(models.TransientModel):
                 'model': 'Stock Quantity',
             })
         self.env['log.message'].sudo().create(messages)
-        return {'pushed': pushed, 'failed': len(failures), 'retried': retried}
+        return {'pushed': pushed, 'skipped': skipped,
+                'failed': len(failures), 'retried': retried}
+
+    # ------------------------------------------------------------------
+    # Inventory level transport
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _inventory_api_version(self, instance):
+        """API version the inventory push should call.
+
+        The instance's own version when it can run the bulk mutation,
+        INVENTORY_API_VERSION otherwise. An instance left on an old version
+        would otherwise fall back to one REST POST per inventory item, which
+        Shopify serves at two requests a second - minutes of pushing turn into
+        an hour, for a version string Shopify no longer honours anyway (it
+        answers retired versions with the oldest supported one).
+        """
+        version = (instance.version or '').strip()
+        if self._supports_graphql_inventory(version):
+            return version
+        _logger.info(
+            'Shopify instance %s is configured with API version %r, which has '
+            'no bulk inventory mutation; the inventory push uses %s instead. '
+            'Set the instance version to %s or newer to use it everywhere.',
+            instance.name, version or '(empty)', INVENTORY_API_VERSION,
+            INVENTORY_API_VERSION)
+        return INVENTORY_API_VERSION
+
+    @api.model
+    def _supports_graphql_inventory(self, version):
+        """True when this API version can set *available* in bulk.
+
+        `inventorySetQuantities` (name: available) landed in API version
+        2024-07. Before that the only bulk mutation is
+        `inventorySetOnHandQuantities`, which writes on_hand - not the
+        same figure once Shopify has committed stock - so older versions
+        keep using the REST endpoint, which does set `available`.
+        """
+        match = re.match(r'^(\d{4})-(\d{2})', (version or '').strip())
+        if not match:
+            return False
+        return ((int(match.group(1)), int(match.group(2)))
+                >= GRAPHQL_INVENTORY_MIN_VERSION)
+
+    def _get_current_levels(self, session, store_name, version, headers,
+                            location_id, inventory_item_ids):
+        """Current `available` per inventory item at one location.
+
+        Returns ``({inventory_item_id: available}, failures)``. Items the
+        read could not cover are simply absent, so they are treated as
+        changed and get pushed - a failed read never silently skips a
+        quantity.
+        """
+        levels = {}
+        failures = []
+        url = ('https://%s/admin/api/%s/inventory_levels.json'
+               % (store_name, version))
+        item_ids = [str(item) for item in inventory_item_ids]
+        for start in range(0, len(item_ids), INVENTORY_LEVELS_READ_CHUNK):
+            chunk = item_ids[start:start + INVENTORY_LEVELS_READ_CHUNK]
+            params = {
+                'inventory_item_ids': ','.join(chunk),
+                'location_ids': str(location_id),
+                'limit': SHOPIFY_PAGE_LIMIT,
+            }
+            try:
+                resp = session.get(url, headers=headers, params=params,
+                                   timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as error:
+                _logger.warning(
+                    'Inventory level read failed (location %s): %s - those '
+                    'items will be pushed unconditionally',
+                    location_id, error)
+                continue
+            if resp.status_code != 200:
+                _logger.warning(
+                    'Inventory level read failed (location %s): HTTP %s %s',
+                    location_id, resp.status_code,
+                    (resp.text or '').strip()[:200])
+                continue
+            try:
+                body = resp.json() or {}
+            except ValueError:
+                continue
+            for level in body.get('inventory_levels') or []:
+                if level.get('available') is None:
+                    continue
+                levels[str(level.get('inventory_item_id'))] = int(
+                    level['available'])
+        return levels, failures
+
+    def _rest_set_levels(self, session, set_url, headers, location_id,
+                         quantities, variant_by_item):
+        """One POST per item to inventory_levels/set.json.
+
+        Returns ``(pushed, failures, retries)``.
+        """
+        pushed = 0
+        retried = 0
+        failures = []
+        for inventory_item_id, available in (quantities or {}).items():
+            variant_id, group_key = variant_by_item.get(
+                inventory_item_id, (inventory_item_id, None))
+            payload = json.dumps({
+                'location_id':       location_id,
+                'inventory_item_id': inventory_item_id,
+                'available':         available,
+            })
+            try:
+                resp = session.post(set_url, headers=headers, data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as error:
+                failures.append('variant %s (group %s, location %s): %s'
+                                % (variant_id, group_key, location_id,
+                                   error))
+                continue
+            # count the retries urllib3 already absorbed, so a flaky link
+            # shows up in the log even when it recovers
+            raw_retries = getattr(getattr(resp, 'raw', None), 'retries', None)
+            retried += len(getattr(raw_retries, 'history', ()) or ())
+            if resp.status_code not in (200, 201):
+                failures.append(
+                    'variant %s (group %s, location %s): HTTP %s %s'
+                    % (variant_id, group_key, location_id,
+                       resp.status_code, (resp.text or '').strip()[:300]))
+            else:
+                pushed += 1
+        return pushed, failures, retried
+
+    def _graphql_set_levels(self, session, graphql_url, headers,
+                            location_id, quantities):
+        """Set `available` for many items at once (API 2024-07+).
+
+        Returns ``(pushed, leftover, failures)``: `leftover` holds the
+        quantities of any chunk the mutation could not place, so the
+        caller can fall back to the REST endpoint for those instead of
+        losing them.
+        """
+        pushed = 0
+        leftover = {}
+        failures = []
+        items = list((quantities or {}).items())
+        for start in range(0, len(items), GRAPHQL_SET_CHUNK):
+            chunk = items[start:start + GRAPHQL_SET_CHUNK]
+            variables = {'input': {
+                'name': 'available',
+                'reason': 'correction',
+                'ignoreCompareQuantity': True,
+                'quantities': [{
+                    'inventoryItemId':
+                        'gid://shopify/InventoryItem/%s' % item,
+                    'locationId': 'gid://shopify/Location/%s' % location_id,
+                    'quantity': int(available),
+                } for item, available in chunk],
+            }}
+            error = None
+            try:
+                resp = session.post(
+                    graphql_url, headers=headers,
+                    data=json.dumps({'query': GRAPHQL_SET_QUANTITIES,
+                                     'variables': variables}),
+                    timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as err:
+                error = str(err)
+            else:
+                if resp.status_code not in (200, 201):
+                    error = 'HTTP %s %s' % (resp.status_code,
+                                            (resp.text or '').strip()[:300])
+                else:
+                    try:
+                        body = resp.json() or {}
+                    except ValueError:
+                        body = {}
+                        error = 'unreadable response'
+                    if not error:
+                        user_errors = (
+                            (body.get('data') or {}).get(
+                                'inventorySetQuantities') or {}
+                        ).get('userErrors') or []
+                        if body.get('errors') or user_errors:
+                            error = json.dumps(
+                                body.get('errors') or user_errors)[:300]
+            if error:
+                failures.append(
+                    'bulk set of %d item(s) at location %s: %s - retried '
+                    'one by one' % (len(chunk), location_id, error))
+                leftover.update(dict(chunk))
+            else:
+                pushed += len(chunk)
+        return pushed, leftover, failures
 
     # ------------------------------------------------------------------
     # From Shopify
@@ -951,6 +1304,90 @@ class SyncInventory(models.TransientModel):
     # main action
     # ------------------------------------------------------------------
 
+    def action_queue_full_inventory_push(self):
+        """Queue a push of EVERY synced variant, processed in background.
+
+        This is the 'Update All Stock' action. It takes the same route as
+        the scheduled full resync - the groups are built once, the Shopify
+        inventory item ids are resolved once, and the work is split into
+        job.cron batches - so re-publishing a whole catalogue does not run
+        inside the user's web request, where it would time out long before
+        the last variant.
+
+        The payload carries force=True, so every quantity is written even
+        when Shopify already holds the same number.
+        """
+        self.ensure_one()
+        instance = self.shopify_instance_id
+        locations = self.env['shopify.location'].sudo().search([
+            ('instance_id', '=', instance.id),
+            ('warehouse_id', 'in', self.warehouse_ids.ids),
+            ('active', '=', True),
+        ]).filtered(lambda loc: loc.shopify_location_id)
+        if not locations:
+            raise ValidationError(_(
+                'No Shopify location is mapped to the selected '
+                'warehouse(s). Please map the selected warehouse(s) to a '
+                'Shopify location first (use the Sync Locations wizard).'))
+
+        groups = self._build_inventory_groups(instance)
+        if groups:
+            item_map = self._get_inventory_item_map(
+                instance,
+                {variant_id for group in groups
+                 for variant_id in group['variant_ids']})
+            for group in groups:
+                group['items'] = {
+                    variant_id: item_map[variant_id]
+                    for variant_id in group['variant_ids']
+                    if variant_id in item_map
+                }
+            groups = [group for group in groups if group['items']]
+        if not groups:
+            raise ValidationError(_(
+                'No synced product found for this Shopify instance, so '
+                'there is no stock to update. Import or export the '
+                'products first.'))
+
+        model = self.env['ir.model'].search(
+            [('model', '=', 'sync.inventory')])
+        warehouse_ids = self.warehouse_ids.ids
+        batches = 0
+        size = self._inventory_batch_size(len(groups))
+        for start in range(0, len(groups), size):
+            self.env['job.cron'].sudo().create([{
+                'model_id': model.id,
+                'function': 'export_inventory_to_shopify',
+                'data': {
+                    'groups': groups[start:start + size],
+                    'warehouse_ids': warehouse_ids,
+                    'force': True,
+                },
+                'instance_id': instance.id,
+            }])
+            batches += 1
+
+        variants = sum(len(group['items']) for group in groups)
+        _logger.info(
+            'Update All Stock: queued %d group(s) covering %d variant(s) '
+            'in %d batch(es) for instance %s',
+            len(groups), variants, batches, instance.name)
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': _('Stock update queued'),
+                'message': _(
+                    '%(variants)s variant(s) in %(batches)s batch(es) are '
+                    'being pushed to Shopify in the background. Progress '
+                    'is logged under Shopify > Logs.'
+                ) % {'variants': variants, 'batches': batches},
+                'type': 'success',
+                'sticky': False,
+                'next': {'type': 'ir.actions.act_window_close'},
+            },
+        }
+
     def sync_inventory(self):
         """Dispatch to the correct sync direction."""
         if not self.warehouse_ids:
@@ -959,6 +1396,8 @@ class SyncInventory(models.TransientModel):
 
         try:
             if self.import_inventory == 'shopify':
+                if self.update_all_stock:
+                    return self.action_queue_full_inventory_push()
                 self._sync_to_shopify()
             else:
                 self._sync_from_shopify()

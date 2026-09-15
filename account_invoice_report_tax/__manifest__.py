@@ -1,8 +1,8 @@
 {
     "name": "Account Invoice Report Tax Wizard",
     "license": "LGPL-3",
-    "version": "1.0",
-    "depends": ["account"],
+    "version": "18.0.1.1.0",
+    "depends": ["account", "accounting_customization"],
     "data": [
         "security/ir.model.access.csv",
         "wizard/account_invoice_report_tax_wizard_view.xml",

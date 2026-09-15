@@ -24,8 +24,6 @@ import ast
 import json
 import logging
 import requests
-import secrets
-from urllib.parse import urlsplit, urlunsplit
 from datetime import datetime, timedelta
 from babel.dates import format_date
 from odoo import fields, models, _
@@ -230,33 +228,12 @@ class ShopifyConfiguration(models.Model):
     warehouse_id = fields.Many2one('stock.warehouse', string='Warehouse',
                                    help="Warehouse to update the Inventory of "
                                         "Products")
-    default_sale_tax_id = fields.Many2one(
-        'account.tax', string='Default Sale Tax',
-        domain="[('type_tax_use', '=', 'sale'),"
-               " ('company_id', '=', company_id)]",
-        help="Tax put on imported order lines when the Shopify order carries "
-             "no tax lines of its own.")
     active = fields.Boolean(string='Active', default=True, help='Active or not')
     gift_card_count = fields.Integer('Gift Cards',
                                      compute='_compute_gift_card_count',
                                      help='Count of gift card.')
     is_exporting = fields.Boolean(string='Is Exporting',
                                   help='Will be True while exporting records')
-    order_api_key = fields.Char(
-        string='Order API Key', copy=False,
-        help='Shared secret sent in the X-Odoo-Api-Key header when posting '
-             'confirmed Shopify orders. Leave empty to disable the endpoint '
-             'for this instance.')
-
-    def action_generate_order_api_key(self):
-        """Generate or rotate the confirmed-order endpoint shared secret."""
-        for record in self:
-            record.with_context(skip_shopify_write=True).sudo().write({
-                'order_api_key': secrets.token_urlsafe(32),
-            })
-            _logger.info('Order API key generated for Shopify instance %s',
-                         record.name)
-        return True
 
     def _fetch_new_access_token(self):
         self.ensure_one()
@@ -361,12 +338,9 @@ class ShopifyConfiguration(models.Model):
                 shopify_instance.get_graph())
 
     def _compute_webhook_product(self):
-        base_url = self.env['ir.config_parameter'].sudo().get_param(
-            'web.base.url') or ''
-        parsed = urlsplit(base_url)
-        https_url = urlunsplit((
-            'https', parsed.netloc, parsed.path.rstrip('/'), '', ''
-        )) if parsed.netloc else base_url.rstrip('/')
+        https_url = self.env[
+            'ir.config_parameter'].sudo().get_param(
+            'web.base.url').replace("http", "https", 1)
         for rec in self:
             rec.webhook_product = https_url + '/products'
             rec.webhook_customer = https_url + '/customers'

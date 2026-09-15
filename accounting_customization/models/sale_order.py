@@ -1,4 +1,4 @@
-from odoo import fields, models, api, _
+from odoo import Command, fields, models, api, _
 from random import randint
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_compare, float_is_zero
@@ -54,7 +54,14 @@ class SaleOrder(models.Model):
         res = super(SaleOrder, self).create(vals_list)
         if not res.barcode:
             res.generate_barcode()
+        res.filtered(lambda order: order.inv_type == 'sro').order_line._clear_sro_taxes()
         return res
+
+    def write(self, vals):
+        result = super().write(vals)
+        if vals.get('inv_type') == 'sro':
+            self.order_line._clear_sro_taxes()
+        return result
 
     discount_id = fields.Many2one(
         comodel_name='discount.reason',
@@ -156,6 +163,9 @@ class SaleOrder(models.Model):
     @api.onchange("inv_type")
     def _onchange_inv_type_validate_downpayment(self):
         for order in self:
+            if order.inv_type == "sro":
+                for line in order.order_line:
+                    line.tax_id = False
             if order.inv_type != "quotation" and order._has_downpayment_product_lines():
                 raise UserError(_("Down Payment product can only be used when Invoice Type is Quotation."))
 
@@ -920,6 +930,26 @@ class SaleOrder(models.Model):
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
+    def _clear_sro_taxes(self):
+        sro_lines = self.filtered(
+            lambda line: line.order_id.inv_type == 'sro' and line.tax_id
+        )
+        if sro_lines:
+            super(SaleOrderLine, sro_lines).write({
+                'tax_id': [Command.clear()],
+            })
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        lines = super().create(vals_list)
+        lines._clear_sro_taxes()
+        return lines
+
+    def write(self, vals):
+        result = super().write(vals)
+        self._clear_sro_taxes()
+        return result
+
     product_point = fields.Float(
         string='Product point',
         required=False)
@@ -1006,6 +1036,8 @@ class SaleOrderLine(models.Model):
             and self.order_id._is_downpayment_quotation_line(self)
         ):
             raise UserError(_("Down Payment product can only be used when Invoice Type is Quotation."))
+        if self.order_id and self.order_id.inv_type == "sro":
+            self.tax_id = False
 
 
     def _prepare_invoice_line(self, **optional_values):

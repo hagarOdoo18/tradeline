@@ -35,6 +35,6 @@
             id="sale_order_sync_menu"
             action="sale_order_sync_action"
             name="Sync orders"
-            parent="shopify_odoo_connector.sale_order_menu_root"
+            parent="shopify_odoo_connector.group_shopify_manager"
             sequence="3"/>
 </odoo>

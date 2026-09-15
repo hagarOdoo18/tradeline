@@ -49,10 +49,12 @@
     <!--Customers root menu-->
     <menuitem id="res_partner_menu_root" name="Customers"
               parent="shopify_odoo_connector.shopify_odoo_connector_menu_root"
-              sequence="1"/>
+              sequence="1"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
     <!--Customers menu-->
     <menuitem id="res_partner_menu" name="Customers"
               parent="shopify_odoo_connector.res_partner_menu_root"
               sequence="1"
-              action="res_partner_action"/>
+              action="res_partner_action"
+              groups="shopify_odoo_connector.group_shopify_manager"/>
 </odoo>

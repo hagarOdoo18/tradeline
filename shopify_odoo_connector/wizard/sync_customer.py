@@ -216,121 +216,200 @@ class SyncCustomer(models.TransientModel):
                         'customer_id': customer.id,
                     })
 
+    @staticmethod
+    def _shopify_customer_phones(customer):
+        """Return the phone spellings a Shopify customer may match on.
+
+        A number stored in Odoo without its '+2' Egyptian prefix must still
+        resolve to the same partner, so both spellings are candidates.
+        """
+        phone = (customer.get('phone') or '').strip()
+        if not phone:
+            return []
+        if phone.startswith('+2'):
+            return [phone, phone[2:]]
+        return [phone]
+
+    def _prefetch_import_customers(self, shopify_customers):
+        """Resolve, in one query each, everything the import loop looks up
+        per customer: partners by mobile, countries and states by name, and
+        the Shopify ids that already carry a shopify.sync line.
+
+        Doing this per customer is what made the import slow: five searches
+        for every record in the page, on unindexed columns and on a
+        translated (jsonb) country name.
+        """
+        phones = set()
+        country_names = set()
+        state_names = set()
+        for customer in shopify_customers:
+            phones.update(self._shopify_customer_phones(customer))
+            addresses = customer.get('addresses') or []
+            if addresses:
+                if addresses[0].get('country'):
+                    country_names.add(addresses[0]['country'])
+                if addresses[0].get('province'):
+                    state_names.add(addresses[0]['province'])
+
+        partners_by_mobile = {}
+        if phones:
+            # ordered by id so a duplicated mobile always resolves to the
+            # same, oldest partner instead of an arbitrary one
+            for partner in self.env['res.partner'].sudo().search(
+                    [('mobile', 'in', list(phones))], order='id asc'):
+                partners_by_mobile.setdefault(partner.mobile, partner)
+
+        countries_by_name = {}
+        if country_names:
+            for country in self.env['res.country'].sudo().search(
+                    [('name', 'in', list(country_names))]):
+                countries_by_name.setdefault(country.name, country.id)
+
+        states_by_name = {}
+        if state_names:
+            for state in self.env['res.country.state'].sudo().search(
+                    [('name', 'in', list(state_names))], order='id asc'):
+                states_by_name.setdefault(state.name, state.id)
+
+        shopify_ids = [str(customer['id']) for customer in shopify_customers
+                       if customer.get('id')]
+        synced_refs = set()
+        if shopify_ids:
+            synced_refs = set(self.env['shopify.sync'].sudo().search(
+                [('shopify_customer_ref', 'in', shopify_ids)]
+            ).mapped('shopify_customer_ref'))
+
+        return (partners_by_mobile, countries_by_name, states_by_name,
+                synced_refs)
+
+    @staticmethod
+    def _shopify_customer_vals(customer, instance, countries_by_name,
+                               states_by_name):
+        """Build the res.partner values for one Shopify customer."""
+        vals = {}
+        addresses = customer.get('addresses') or []
+        if addresses:
+            address = addresses[0]
+            vals.update({
+                'street': address.get('address1'),
+                'street2': address.get('address2'),
+                'city': address.get('city'),
+                'country_id': countries_by_name.get(address.get('country'),
+                                                    False),
+                'state_id': states_by_name.get(address.get('province'), False),
+                'zip': address.get('zip'),
+            })
+        first_name = customer.get('first_name')
+        last_name = customer.get('last_name')
+        if first_name and last_name:
+            vals['name'] = '%s %s' % (first_name, last_name)
+        elif first_name:
+            vals['name'] = first_name
+        elif last_name:
+            vals['name'] = last_name
+        elif customer.get('email'):
+            vals['name'] = customer['email']
+        vals.update({
+            'email': customer.get('email'),
+            'mobile': customer.get('phone'),
+            'shopify_customer_ref': customer.get('id'),
+            'shopify_instance_id': instance.id,
+            'synced_customer': True,
+            'company_id': instance.company_id.id,
+        })
+        return vals
+
     def import_customers_from_shopify(self, shopify_customers, instance):
         """Method to import partners from shopify to odoo.
             Queue job evokes this method for creating partners in odoo.
 
             shopify_customers(list):list of dictionary with shopify partner
             details.
+
+        Every partner write goes out under `shopify_no_export`. Without it
+        res.partner.write() pushes each imported customer straight back to
+        Shopify — a GET plus a PUT per record against a rate-limited API,
+        which dominated the runtime of this job. An import must never echo
+        the imported data back out.
         """
+        if not shopify_customers:
+            return
         shopify_instance = instance
+        partner_model = self.env['res.partner'].sudo().with_context(
+            shopify_no_export=True)
+        (partners_by_mobile, countries_by_name, states_by_name,
+         synced_refs) = self._prefetch_import_customers(shopify_customers)
 
-
+        sync_vals = []
+        log_vals = []
         for customer in shopify_customers:
             try:
-                phone = customer['phone'] or ''
-                exist_customers = self.env['res.partner'].search(
-                    [('mobile', '=', phone)])
-                if not exist_customers and phone.startswith('+2'):
-                    exist_customers = self.env['res.partner'].search(
-                        [('mobile', '=', phone[2:])])
-                if not exist_customers:
-                    vals = {}
-                    if customer['addresses']:
-                        country_id = self.env['res.country'].sudo().search([
-                            ('name', '=', customer['addresses'][0]['country'])
-                        ])
-                        state_id = self.env['res.country.state'].sudo().search([
-                            ('name', '=', customer['addresses'][0]['province'])
-                        ],limit=1)
-                        vals = {
-                            'street': customer['addresses'][0]['address1'],
-                            'street2': customer['addresses'][0]['address2'],
-                            'city': customer['addresses'][0]['city'],
-                            'country_id': country_id.id if country_id else False,
-                            'state_id': state_id.id if state_id else False,
-                            'zip': customer['addresses'][0]['zip'],
-                        }
-                    if customer['first_name']:
-                        vals['name'] = customer['first_name']
-                    if customer['last_name']:
-                        if customer['first_name']:
-                            vals['name'] = (customer['first_name'] + ' ' +
-                                            customer['last_name'])
-                        else:
-                            vals['name'] = customer['last_name']
-                    if (not customer['first_name'] and
-                            not customer['last_name'] and customer['email']):
-                        vals['name'] = customer['email']
-                    vals['email'] = customer['email']
-                    vals['mobile'] = customer['phone']
-                    vals['shopify_customer_ref'] = customer['id']
-                    vals['shopify_instance_id'] = shopify_instance.id
-                    vals['synced_customer'] = True
-                    vals['company_id'] = shopify_instance.company_id.id
-                    if customer['first_name']:
+                exist_customer = None
+                for phone in self._shopify_customer_phones(customer):
+                    exist_customer = partners_by_mobile.get(phone)
+                    if exist_customer:
+                        break
+                vals = self._shopify_customer_vals(
+                    customer, shopify_instance, countries_by_name,
+                    states_by_name)
+                shopify_ref = str(customer.get('id'))
 
-                        new_customer = self.env['res.partner'].sudo().create(vals)
-                        new_customer.shopify_sync_ids.sudo().create({
-                            'instance_id': instance.id,
-                            'shopify_customer_ref': customer['id'],
-                            'customer_id': new_customer.id,
-                        })
-                        self.env['log.message'].sudo().create([{
-                            'name': 'Customer Creation  processed for '
-                                    'shopify id : ' + str(customer['id']),
-                            'shopify_instance_id': self.shopify_instance_id.id,
-                            'model': 'res.partner',
-                        }])
-                    else:
-                        self.env['log.message'].sudo().create([{
+                if not exist_customer:
+                    if not customer.get('first_name'):
+                        log_vals.append({
                             'name': 'Customer Creation not processed for '
-                                    'shopify id : ' + str(customer['id']),
-                            'shopify_instance_id': self.shopify_instance_id.id,
+                                    'shopify id : ' + shopify_ref,
+                            'shopify_instance_id': shopify_instance.id,
                             'model': 'res.partner',
-                        }])
+                        })
+                        continue
+                    # a savepoint per record: a database error on one
+                    # customer rolls back that customer only, instead of
+                    # poisoning the transaction for the rest of the page
+                    with self.env.cr.savepoint():
+                        new_customer = partner_model.create(vals)
+                    # keep the page's own duplicates resolving to this new
+                    # partner instead of creating it twice
+                    for phone in self._shopify_customer_phones(customer):
+                        partners_by_mobile.setdefault(phone, new_customer)
+                    sync_vals.append({
+                        'instance_id': instance.id,
+                        'shopify_customer_ref': customer['id'],
+                        'customer_id': new_customer.id,
+                    })
+                    synced_refs.add(shopify_ref)
+                    log_vals.append({
+                        'name': 'Customer Creation  processed for '
+                                'shopify id : ' + shopify_ref,
+                        'shopify_instance_id': shopify_instance.id,
+                        'model': 'res.partner',
+                    })
                 else:
-                    _logger.info(shopify_customers)
-                    vals = {}
-                    if customer['addresses']:
-                        country_id = self.env['res.country'].sudo().search([
-                            ('name', '=', customer['addresses'][0]['country'])
-                        ])
-                        state_id = self.env['res.country.state'].sudo().search([
-                            ('name', '=', customer['addresses'][0]['province'])
-                        ],limit=1)
-                        vals = {
-                            'street': customer['addresses'][0]['address1'],
-                            'street2': customer['addresses'][0]['address2'],
-                            'city': customer['addresses'][0]['city'],
-                            'country_id': country_id.id if country_id else False,
-                            'state_id': state_id.id if state_id else False,
-                            'zip': customer['addresses'][0]['zip'],
-                        }
-                    if customer['first_name']:
-                        vals['name'] = customer['first_name']
-                    if customer['last_name']:
-                        if customer['first_name']:
-                            vals['name'] = (customer['first_name'] + ' ' +
-                                            customer['last_name'])
-                    if (not customer['first_name'] and
-                            not customer['last_name'] and customer['email']):
-                        vals['name'] = customer['email']
-                    vals['email'] = customer['email']
-                    vals['mobile'] = customer['phone']if customer['phone'] else '011'
-                    vals['shopify_customer_ref'] = customer['id']
-                    exist_customers.shopify_instance_id = shopify_instance.id
-                    exist_customers.shopify_customer_ref = customer['id']
-                    vals['synced_customer'] = True
-                    vals['company_id'] = shopify_instance.company_id.id
-                    exist_customers.write(vals)
-                    # self.env['res.partner'].sudo().write(vals)
-                    sync = self.env['shopify.sync'].sudo().search([('shopify_customer_ref','=', customer['id'])])
-                    if not sync:
-                        exist_customers.shopify_sync_ids.sudo().create({
+                    # one write, not three: the instance and the Shopify ref
+                    # are already in vals
+                    with self.env.cr.savepoint():
+                        exist_customer.with_context(
+                            shopify_no_export=True).write(vals)
+                    if shopify_ref not in synced_refs:
+                        sync_vals.append({
                             'instance_id': instance.id,
                             'shopify_customer_ref': customer['id'],
-                            'customer_id': exist_customers.id,
+                            'customer_id': exist_customer.id,
                         })
-            except Exception as e:
+                        synced_refs.add(shopify_ref)
+            except Exception:
+                # one bad record must not abort the page, but it must leave
+                # a trace — the old bare `continue` hid every failure
+                _logger.exception(
+                    'Shopify customer import failed for shopify id %s '
+                    '(instance %s); skipping this record.',
+                    customer.get('id'), shopify_instance.display_name)
                 continue
+
+        if sync_vals:
+            self.env['shopify.sync'].sudo().create(sync_vals)
+        if log_vals:
+            self.env['log.message'].sudo().create(log_vals)
+        _logger.info(
+            'Shopify customer import: %d record(s), %d sync line(s) created.',
+            len(shopify_customers), len(sync_vals))

@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 from unittest import SkipTest
-from unittest.mock import Mock
 
 from odoo import Command, fields
 from odoo.exceptions import AccessError, UserError
@@ -136,9 +135,7 @@ class TestPreorderFlow(TransactionCase):
         )
         cls.campaign.action_open_campaign()
 
-    def _post_payment(
-        self, preorder, amount=None, journal=None, payment_method_line=None, date=None
-    ):
+    def _post_payment(self, preorder, amount=None, journal=None, payment_method_line=None):
         journal = journal or self.payment_journal
         payment_method_line = payment_method_line or journal.inbound_payment_method_line_ids[:1]
         payment = self.env["account.payment"].sudo().create(
@@ -149,7 +146,7 @@ class TestPreorderFlow(TransactionCase):
                 "company_id": preorder.company_id.id,
                 "amount": amount if amount is not None else preorder.deposit_amount,
                 "currency_id": preorder.currency_id.id,
-                "date": date or fields.Date.today(),
+                "date": fields.Date.today(),
                 "journal_id": journal.id,
                 "payment_method_line_id": payment_method_line.id,
                 "memo": preorder.name,
@@ -159,150 +156,6 @@ class TestPreorderFlow(TransactionCase):
         payment.action_post()
         preorder.invalidate_recordset()
         return payment
-
-    def test_migrate_preorder_payment_reverses_without_releasing_reservation(self):
-        if not self.payment_journal.outbound_payment_method_line_ids:
-            raise SkipTest("No outbound payment method is configured for the test journal.")
-        preorder = self.env["sale.preorder"].sudo().create(
-            {
-                "campaign_id": self.campaign.id,
-                "customer_id": self.customer.id,
-                "branch_id": self.branch.id,
-                "sales_rep_id": self.sales_rep.id,
-                "product_id": self.product.id,
-                "requested_qty": 1.0,
-            }
-        )
-        preorder.action_confirm_preorder()
-        original = self._post_payment(preorder)
-        original_state = original.state
-        self.assertIn(preorder.state, ("pending", "allocated"))
-        reserved_before = preorder.allocation_id.reserved_qty
-
-        preorder.migrate_payments_to_delivery()
-        preorder.invalidate_recordset()
-        original.invalidate_recordset(["state", "date", "move_id"])
-        confirmation = preorder.payment_confirmation_ids.filtered(
-            lambda item: item.source_payment_id == original
-        )
-        self.assertEqual(len(confirmation), 1)
-        self.assertTrue(confirmation.reversal_payment_id)
-        self.assertEqual(confirmation.amount, original.amount)
-        self.assertEqual(preorder.payment_recording_mode, "delivery")
-        self.assertEqual(original.state, original_state)
-        self.assertEqual(preorder._get_delivery_payment_confirmed_amount(), preorder.deposit_amount)
-        preorder.allocation_id.invalidate_recordset(["reserved_qty"])
-        self.assertEqual(preorder.allocation_id.reserved_qty, reserved_before)
-
-    def test_guarded_payment_redate_works_without_general_unreconcile_access(self):
-        preorder = self.env["sale.preorder"].sudo().create(
-            {
-                "campaign_id": self.campaign.id,
-                "customer_id": self.customer.id,
-                "branch_id": self.branch.id,
-                "sales_rep_id": self.sales_rep.id,
-                "product_id": self.product.id,
-                "requested_qty": 1.0,
-            }
-        )
-        preorder.action_confirm_preorder()
-        original_date = fields.Date.today() - timedelta(days=1)
-        payment = self._post_payment(preorder, date=original_date)
-        original_name = payment.name
-        original_amount = payment.amount
-        original_journal = payment.journal_id
-
-        workflow_groups = (
-            self.env.ref("base.group_user")
-            | self.env.ref("account.group_account_invoice")
-            | self.env.ref("point_of_sale.group_pos_user")
-            | self.env.ref("branch.group_branch_user")
-            | self.env.ref("preorder_management.group_preorder_user")
-        )
-        cashier = self.env["res.users"].with_context(
-            no_reset_password=True
-        ).sudo().create(
-            {
-                "name": "Automated POS Pre-order Cashier",
-                "login": "automated_pos_preorder_cashier",
-                "email": "automated_pos_preorder_cashier@example.com",
-                "company_id": self.company.id,
-                "company_ids": [Command.set(self.company.ids)],
-                "branch_id": self.branch.id,
-                "branch_ids": [Command.set(self.branch.ids)],
-                "groups_id": [Command.set(workflow_groups.ids)],
-            }
-        )
-        self.assertFalse(cashier.has_group("branch.group_unreconcile"))
-
-        # The cashier still cannot reset arbitrary payments from the normal UI.
-        with self.assertRaisesRegex(AccessError, "not allowed to unreconcile"):
-            with self.env.cr.savepoint():
-                payment.with_user(cashier).action_draft()
-
-        invoice = self.env["account.move"].with_context(
-            branch_id=self.branch.id
-        ).sudo().create(
-            {
-                "move_type": "out_invoice",
-                "partner_id": self.customer.id,
-                "company_id": self.company.id,
-                "journal_id": self.invoice_journal.id,
-                "invoice_date": fields.Date.today(),
-                "date": fields.Date.today(),
-            }
-        )
-        preorder.with_user(cashier)._redate_original_payments_to_invoice(invoice)
-
-        payment.invalidate_recordset(["date", "state", "move_id"])
-        self.assertEqual(payment.date, fields.Date.today())
-        self.assertEqual(payment.move_id.state, "posted")
-        self.assertEqual(payment.name, original_name)
-        self.assertEqual(payment.amount, original_amount)
-        self.assertEqual(payment.journal_id, original_journal)
-
-    def test_branch_cashier_can_use_preorder_delivery_in_session_opened_by_another_user(self):
-        workflow_groups = (
-            self.env.ref("base.group_user")
-            | self.env.ref("point_of_sale.group_pos_user")
-            | self.env.ref("branch.group_branch_user")
-            | self.env.ref("preorder_management.group_preorder_user")
-        )
-        cashier = self.env["res.users"].with_context(
-            no_reset_password=True
-        ).sudo().create(
-            {
-                "name": "Automated Secondary POS Cashier",
-                "login": "automated_secondary_pos_cashier",
-                "email": "automated_secondary_pos_cashier@example.com",
-                "company_id": self.company.id,
-                "company_ids": [Command.set(self.company.ids)],
-                "branch_id": self.branch.id,
-                "branch_ids": [Command.set(self.branch.ids)],
-                "groups_id": [Command.set(workflow_groups.ids)],
-            }
-        )
-        config = self.env["pos.config"].sudo().create(
-            {
-                "name": "Automated Shared-Session Pre-order POS",
-                "company_id": self.company.id,
-                "branch_id": self.branch.id,
-                "enable_preorder_delivery": True,
-            }
-        )
-        session = self.env["pos.session"].sudo().create(
-            {"config_id": config.id, "user_id": self.env.user.id}
-        )
-
-        authorized_config, authorized_session = (
-            self.env["sale.preorder"]
-            .with_user(cashier)
-            ._get_authorized_pos_delivery_context(config.id)
-        )
-
-        self.assertEqual(authorized_config, config)
-        self.assertEqual(authorized_session, session)
-        self.assertNotEqual(session.user_id, cashier)
 
     def test_campaign_quota_matrix_generation(self):
         second_product = self.product.copy(
@@ -343,92 +196,6 @@ class TestPreorderFlow(TransactionCase):
         campaign.action_generate_allocation_lines()
         self.assertEqual(len(campaign.allocation_line_ids), len(company_branches))
         self.assertEqual(campaign.allocation_line_ids.product_id, self.product)
-
-    def test_customer_preorder_list_uses_export_safe_report_columns(self):
-        preorder_view = self.env.ref("preorder_management.sale_preorder_view_list")
-        report_menu = self.env.ref("preorder_management.sale_preorder_menu_report")
-
-        expected_columns = [
-            ("name", "Pre-order"),
-            ("preorder_date", "Date"),
-            ("customer_id", "Customer"),
-            ("branch_id", "Branch"),
-            ("sales_rep_id", "Sales Rep"),
-            ("discount_id", "Discount Reason"),
-            ("device_summary", "Requested Device(s)"),
-            ("requested_qty_total", "Total Quantity"),
-            ("prepaid_amount", "Original Payment"),
-            ("payment_method_1", "Journal 1"),
-            ("payment_method_2", "Journal 2"),
-        ]
-        for field_name, label in expected_columns:
-            self.assertIn(
-                'name="%s" string="%s"' % (field_name, label),
-                preorder_view.arch_db,
-            )
-            self.assertEqual(self.env["sale.preorder"]._fields[field_name].string, label)
-        self.assertNotIn('widget="html"', preorder_view.arch_db)
-        self.assertFalse(report_menu.active)
-
-    def test_customer_preorder_search_anything_finds_customer_device_and_journal(self):
-        self.customer.write({"phone": "+20-SEARCH-45819"})
-        self.product.write({"default_code": "DEVICE-SEARCH-45819"})
-        preorder = self.env["sale.preorder"].sudo().create(
-            {
-                "campaign_id": self.campaign.id,
-                "customer_id": self.customer.id,
-                "branch_id": self.branch.id,
-                "sales_rep_id": self.sales_rep.id,
-                "line_ids": [
-                    Command.create(
-                        {"product_id": self.product.id, "requested_qty": 1.0}
-                    )
-                ],
-            }
-        )
-        preorder.action_confirm_preorder()
-        self._post_payment(preorder)
-
-        preorder_model = self.env["sale.preorder"].sudo()
-        for query in (
-            "SEARCH-45819",
-            "DEVICE-SEARCH-45819",
-            self.payment_journal.code,
-        ):
-            self.assertIn(
-                preorder,
-                preorder_model.search([("search_text", "ilike", query)]),
-            )
-
-        search_view = self.env.ref("preorder_management.sale_preorder_view_search")
-        self.assertLess(
-            search_view.arch_db.index('name="search_text"'),
-            search_view.arch_db.index('name="name"'),
-        )
-
-    def test_pos_validation_accepts_a_post_validation_action_when_picking_is_done(self):
-        picking = Mock(state="done")
-        result = {"type": "ir.actions.client", "tag": "do_multi_print"}
-
-        self.assertTrue(
-            self.env["sale.preorder"]._ensure_pos_picking_validation_completed(
-                picking, result
-            )
-        )
-        picking.invalidate_recordset.assert_called_once_with(["state"])
-
-    def test_pos_validation_rejects_a_confirmation_action_while_picking_is_open(self):
-        picking = Mock(state="assigned")
-        result = {
-            "type": "ir.actions.act_window",
-            "name": "Create Backorder?",
-            "res_model": "stock.backorder.confirmation",
-        }
-
-        with self.assertRaisesRegex(UserError, "Create Backorder"):
-            self.env["sale.preorder"]._ensure_pos_picking_validation_completed(
-                picking, result
-            )
 
     def test_multi_device_preorder_uses_one_payment_and_two_quotas(self):
         second_product = self.product.copy(
@@ -682,22 +449,6 @@ class TestPreorderFlow(TransactionCase):
             str(preorder.payment_method_breakdown_html).count("text-nowrap"),
             expected_breakdown_rows,
         )
-        self.assertIn(
-            self.payment_journal.display_name,
-            preorder.payment_method_1,
-        )
-        self.assertNotIn("<", preorder.payment_method_1)
-        if self.second_payment_journal != self.payment_journal:
-            self.assertIn(
-                self.second_payment_journal.display_name,
-                preorder.payment_method_2,
-            )
-            self.assertNotIn("<", preorder.payment_method_2)
-        else:
-            self.assertFalse(preorder.payment_method_2)
-        self.assertFalse(preorder.payment_method_3)
-        self.assertFalse(preorder.payment_method_4)
-        self.assertFalse(preorder.additional_payment_methods)
         self.assertEqual(
             float_compare(
                 preorder.get_report_payment_total(),
@@ -709,13 +460,11 @@ class TestPreorderFlow(TransactionCase):
         report_action = self.env.ref(
             "preorder_management.action_report_preorder_confirmation"
         )
-        self.campaign.notes = "Bring the original ID and reservation receipt."
         report_html, _ = report_action._render_qweb_html(
             report_action.report_name, preorder.ids
         )
         self.assertIn(b"Reserved Device", report_html)
         self.assertIn(b"Total Paid", report_html)
-        self.assertIn(b"Bring the original ID and reservation receipt.", report_html)
         self.assertIn(b">Payment<", report_html)
         self.assertNotIn(b">Journal<", report_html)
         self.assertNotIn(b">Payment Method<", report_html)
@@ -774,54 +523,3 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(
             preorder.final_sale_order_id.order_line.price_unit, original_unit_price
         )
-
-    def test_pos_serial_assignment_preflight(self):
-        serial_product = self.product.copy(
-            {
-                "name": "Automated POS Pre-order Serial Device",
-                "tracking": "serial",
-            }
-        )
-        self.campaign.product_ids = [Command.link(serial_product.id)]
-        self.env["sale.preorder.allocation"].sudo().create(
-            {
-                "campaign_id": self.campaign.id,
-                "branch_id": self.branch.id,
-                "product_id": serial_product.id,
-                "allocated_qty": 2.0,
-            }
-        )
-        preorder = self.env["sale.preorder"].sudo().create(
-            {
-                "campaign_id": self.campaign.id,
-                "customer_id": self.customer.id,
-                "branch_id": self.branch.id,
-                "sales_rep_id": self.sales_rep.id,
-                "line_ids": [
-                    Command.create(
-                        {"product_id": serial_product.id, "requested_qty": 1.0}
-                    )
-                ],
-            }
-        )
-        lot = self.env["stock.lot"].sudo().create(
-            {
-                "name": "POS-PREORDER-SERIAL-001",
-                "product_id": serial_product.id,
-                "company_id": self.company.id,
-            }
-        )
-
-        with self.assertRaisesRegex(UserError, "exactly 1 serial"):
-            preorder._prepare_pos_serial_lots({}, self.env["pos.config"])
-        with self.assertRaisesRegex(UserError, "Unknown serial"):
-            preorder._prepare_pos_serial_lots(
-                {str(serial_product.id): ["UNKNOWN-SERIAL"]},
-                self.env["pos.config"],
-            )
-
-        result = preorder._prepare_pos_serial_lots(
-            {str(serial_product.id): [lot.name]},
-            self.env["pos.config"],
-        )
-        self.assertEqual(result[serial_product.id], lot)

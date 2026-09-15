@@ -14,11 +14,22 @@
                     <field name="warehouse_ids"
                            widget="many2many_tags"
                            string="Warehouses to Push / Pull"/>
+                    <field name="update_all_stock"
+                           invisible="import_inventory != 'shopify'"/>
                 </group>
                 <div class="alert alert-info" role="alert"
-                     invisible="import_inventory != 'shopify'">
+                     invisible="import_inventory != 'shopify' or update_all_stock">
                     Selected warehouses' on-hand quantities will be pushed
-                    to all active Shopify locations.
+                    to all active Shopify locations. Quantities Shopify
+                    already holds are left alone.
+                </div>
+                <div class="alert alert-warning" role="alert"
+                     invisible="import_inventory != 'shopify' or not update_all_stock">
+                    Every synced variant will be re-published to all active
+                    Shopify locations, including the ones whose quantity is
+                    already correct. The work is queued and runs in the
+                    background - you can close this window, and follow it
+                    under Shopify &gt; Logs.
                 </div>
                 <div class="alert alert-info" role="alert"
                      invisible="import_inventory != 'odoo'">
@@ -30,7 +41,12 @@
                             string="Push to Shopify"
                             class="btn-primary"
                             type="object"
-                            invisible="import_inventory != 'shopify'"/>
+                            invisible="import_inventory != 'shopify' or update_all_stock"/>
+                    <button name="sync_inventory"
+                            string="Update All Stock"
+                            class="btn-primary"
+                            type="object"
+                            invisible="import_inventory != 'shopify' or not update_all_stock"/>
                     <button name="sync_inventory"
                             string="Pull from Shopify"
                             class="btn-primary"
