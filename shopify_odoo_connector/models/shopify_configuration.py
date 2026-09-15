@@ -24,7 +24,6 @@ import ast
 import json
 import logging
 import requests
-import secrets
 from datetime import datetime, timedelta
 from babel.dates import format_date
 from odoo import fields, models, _
@@ -244,27 +243,10 @@ class ShopifyConfiguration(models.Model):
                                      help='Count of gift card.')
     is_exporting = fields.Boolean(string='Is Exporting',
                                   help='Will be True while exporting records')
-    order_api_key = fields.Char(string='Order API Key', copy=False,
-                                help='Shared secret the Shopify developer '
-                                     'sends in the X-Odoo-Api-Key header when '
-                                     'posting confirmed orders to '
-                                     '/api/shopify/v1/orders/confirmed. '
-                                     'Leave empty to disable that endpoint '
-                                     'for this instance.')
-
-    def action_generate_order_api_key(self):
-        """Generate (or rotate) the shared secret of the confirmed order API.
-
-        Rotating the key immediately invalidates the previous one, so the
-        Shopify side has to be updated with the new value.
-        """
-        for record in self:
-            record.with_context(skip_shopify_write=True).sudo().write({
-                'order_api_key': secrets.token_urlsafe(32),
-            })
-            _logger.info('Order API key generated for Shopify instance %s',
-                         record.name)
-        return True
+    api_token_ids = fields.One2many(
+        'shopify.api.token', 'instance_id', string='Order API Tokens',
+        help='Tokens issued by POST /api/shopify/v1/auth for the confirmed '
+             'order API. Untick Active (Revoke) to cut a token off.')
 
     def _fetch_new_access_token(self):
         self.ensure_one()

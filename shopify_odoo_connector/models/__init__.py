@@ -30,6 +30,7 @@ from . import res_partner
 from . import sale_order
 from . import sale_order_line
 from . import shopify_collection
+from . import shopify_api_token
 from . import shopify_configuration
 from . import shopify_payment
 from . import shopify_location

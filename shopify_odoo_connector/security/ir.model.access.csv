@@ -14,3 +14,4 @@ access_sync_location_user,access.sync.location.user,model_sync_location,base.gro
 access_sync_pricing_user,access.sync.pricing.user,model_sync_pricing,base.group_user,1,1,1,1
 access_shopify_min_qty_user,access.shopify.min.qty.user,model_shopify_min_qty,base.group_user,1,0,0,0
 access_shopify_min_qty_manager,access.shopify.min.qty.manager,model_shopify_min_qty,stock.group_stock_manager,1,1,1,1
+access_shopify_api_token_manager,access.shopify.api.token.manager,model_shopify_api_token,shopify_odoo_connector.group_shopify_manager,1,1,0,1

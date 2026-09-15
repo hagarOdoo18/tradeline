@@ -96,21 +96,30 @@
                             <field name="access_token" readonly="1"
                                    password="True"/>
                             <field name="token_expiry" readonly="1"/>
-                            <label for="order_api_key"
-                                   string="Order API Key"/>
-                            <div class="o_row">
-                                <field name="order_api_key" nolabel="1"
-                                       readonly="1" password="True"
-                                       placeholder="Not generated"/>
-                                <button name="action_generate_order_api_key"
-                                        type="object" icon="fa-refresh"
-                                        title="Generate or rotate the key used by the Shopify developer"
-                                        class="btn-link"
-                                        string="Generate"/>
-                            </div>
                         </group>
                     </group>
                     <notebook>
+                        <page string="Order API Tokens"
+                              groups="shopify_odoo_connector.group_shopify_manager">
+                            <p class="text-muted">
+                                Issued by POST /api/shopify/v1/auth (Store Name
+                                + Client Secret), valid 24 hours.
+                            </p>
+                            <field name="api_token_ids"
+                                   context="{'active_test': False}">
+                                <list create="0" edit="0"
+                                      decoration-muted="not is_valid">
+                                    <field name="create_date" string="Issued"/>
+                                    <field name="expires_at"/>
+                                    <field name="last_used"/>
+                                    <field name="is_valid"/>
+                                    <field name="active" column_invisible="1"/>
+                                    <button name="action_revoke" type="object"
+                                            string="Revoke" icon="fa-ban"
+                                            invisible="not active"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Export">
                             <group>
                                 <field name="export_product"
