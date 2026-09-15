@@ -57,6 +57,28 @@ class ProductProductPreorderPos(models.Model):
         products = _ready_preorder_records_for_config(self.env, config).mapped("line_ids.product_id")
         return OR([domain, [("id", "in", products.ids)]]) if products else domain
 
+    def _load_pos_data(self, data):
+        """Make ready pre-order products available even with limited POS loading.
+
+        Odoo's standard limited-product loader does not use
+        ``_load_pos_data_domain``.  Maadi has that optimisation enabled, so a
+        branch-ready product could be visible in the pre-order dialog while its
+        POS record was absent from the local product cache.  Append the small,
+        branch-scoped reservation set after the standard loader in both modes.
+        """
+        result = super()._load_pos_data(data)
+        config = self.env["pos.config"].browse(data["pos.config"]["data"][0]["id"])
+        ready_products = _ready_preorder_records_for_config(self.env, config).mapped(
+            "line_ids.product_id"
+        )
+        loaded_ids = {product["id"] for product in result["data"]}
+        missing_ids = (ready_products.ids and set(ready_products.ids) - loaded_ids) or set()
+        if missing_ids:
+            result["data"].extend(
+                self._load_product_with_domain([("id", "in", list(missing_ids))], config.id)
+            )
+        return result
+
 
 class ResPartnerPreorderPos(models.Model):
     _inherit = "res.partner"
