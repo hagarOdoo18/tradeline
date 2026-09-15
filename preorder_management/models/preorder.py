@@ -1541,7 +1541,7 @@ class SalePreorder(models.Model):
                                 "currency_id": payment.currency_id.id,
                                 "journal_id": payment.journal_id.id,
                                 "source_date": payment.date,
-                                "source_reference": payment.name or payment.ref or preorder.name,
+                                "source_reference": payment.name or getattr(payment, "ref", False) or preorder.name,
                                 "payment_channel": payment.journal_id.display_name,
                             }
                         )
@@ -1569,7 +1569,7 @@ class SalePreorder(models.Model):
                                     "branch_id": preorder.branch_id.id,
                                     "reversed_original_payment_id": payment.id,
                                     "payment_method_line_id": method_line.id,
-                                    "ref": _("Pre-order payment reversal before delivery: %s") % preorder.name,
+                                    "memo": _("Pre-order payment reversal before delivery: %s") % preorder.name,
                                 }
                             )
                             reversal.action_post()

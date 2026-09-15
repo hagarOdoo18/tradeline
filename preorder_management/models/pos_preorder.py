@@ -289,7 +289,7 @@ class SalePreorderPosDelivery(models.Model):
                     "branch_id": self.branch_id.id,
                     "sale_order_id": self.final_sale_order_id.id,
                     "preorder_delivery_id": self.id,
-                    "ref": _("Pre-order delivery payment: %s") % self.name,
+                    "memo": _("Pre-order delivery payment: %s") % self.name,
                 }
             )
             payment.action_post()
