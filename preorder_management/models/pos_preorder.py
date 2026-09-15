@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from odoo import Command, api, fields, models, _
 from odoo.exceptions import AccessError, UserError
+from odoo.osv.expression import OR
 from odoo.tools import float_compare, float_is_zero
 
 
@@ -30,6 +31,42 @@ class PosSession(models.Model):
         if "enable_preorder_delivery" not in fields_to_load:
             fields_to_load.append("enable_preorder_delivery")
         return params
+
+
+def _ready_preorder_records_for_config(env, config):
+    """Return open, branch-owned pre-orders whose products/customers must be POS-loadable."""
+    if not config.branch_id:
+        return env["sale.preorder"]
+    return env["sale.preorder"].sudo().search(
+        [
+            ("company_id", "=", config.company_id.id),
+            ("branch_id", "=", config.branch_id.id),
+            ("state", "=", "allocated"),
+            ("campaign_id.state", "=", "delivery"),
+        ]
+    )
+
+
+class ProductProductPreorderPos(models.Model):
+    _inherit = "product.product"
+
+    @api.model
+    def _load_pos_data_domain(self, data):
+        domain = super()._load_pos_data_domain(data)
+        config = self.env["pos.config"].browse(data["pos.config"]["data"][0]["id"])
+        products = _ready_preorder_records_for_config(self.env, config).mapped("line_ids.product_id")
+        return OR([domain, [("id", "in", products.ids)]]) if products else domain
+
+
+class ResPartnerPreorderPos(models.Model):
+    _inherit = "res.partner"
+
+    @api.model
+    def _load_pos_data_domain(self, data):
+        domain = super()._load_pos_data_domain(data)
+        config = self.env["pos.config"].browse(data["pos.config"]["data"][0]["id"])
+        customers = _ready_preorder_records_for_config(self.env, config).mapped("customer_id")
+        return OR([domain, [("id", "in", customers.ids)]]) if customers else domain
 
 
 class SalePreorderPosDelivery(models.Model):

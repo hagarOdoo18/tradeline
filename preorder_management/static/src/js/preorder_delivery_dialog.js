@@ -269,6 +269,12 @@ export class PreorderDeliveryDialog extends Component {
             }
             this.state.serials = serials;
             this.state.paymentLines = [];
+            // Migrated pre-orders are fulfilled through the normal POS checkout.
+            // Selecting one is the deliberate user action that loads it into the cart;
+            // legacy pre-orders still require the detail/serial/payment confirmation flow.
+            if (details.payment_recording_mode === "delivery") {
+                await this.addToCart();
+            }
         } catch (error) {
             this.state.error = rpcErrorMessage(error);
         } finally {
