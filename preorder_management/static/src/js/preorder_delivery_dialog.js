@@ -2,6 +2,7 @@
 
 import { Component, onWillStart, useState } from "@odoo/owl";
 import { ControlButtons } from "@point_of_sale/app/screens/product_screen/control_buttons/control_buttons";
+import { PosOrder } from "@point_of_sale/app/models/pos_order";
 import { Dialog } from "@web/core/dialog/dialog";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { Input } from "@point_of_sale/app/generic_components/inputs/input/input";
@@ -28,6 +29,58 @@ function newRequestToken() {
         return globalThis.crypto.randomUUID();
     }
     return `preorder-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function modelRecord(pos, modelName, id) {
+    return pos?.models?.[modelName]?.getBy?.("id", id) || null;
+}
+
+function addProductToOrder(pos, order, product, quantity) {
+    const options = { quantity, merge: false };
+    if (order && typeof order.addProduct === "function") {
+        order.addProduct(product, options);
+        return order;
+    }
+    if (pos && typeof pos.addProductToCurrentOrder === "function") {
+        pos.addProductToCurrentOrder(product, options);
+        return pos.get_order ? pos.get_order() : order;
+    }
+    if (order && typeof order.add_product === "function") {
+        order.add_product(product, options);
+        return order;
+    }
+    throw new Error(_t("Could not add the pre-order product to the current POS order."));
+}
+
+function selectedOrderline(order) {
+    if (typeof order?.getSelectedOrderline === "function") {
+        return order.getSelectedOrderline();
+    }
+    if (typeof order?.get_selected_orderline === "function") {
+        return order.get_selected_orderline();
+    }
+    return null;
+}
+
+function setOrderlineValues(line, quantity, priceUnit, discount) {
+    if (!line) {
+        return;
+    }
+    if (typeof line.setQuantity === "function") {
+        line.setQuantity(quantity);
+    } else if (typeof line.set_quantity === "function") {
+        line.set_quantity(quantity);
+    }
+    if (typeof line.setUnitPrice === "function") {
+        line.setUnitPrice(priceUnit);
+    } else if (typeof line.set_unit_price === "function") {
+        line.set_unit_price(priceUnit);
+    }
+    if (typeof line.setDiscount === "function") {
+        line.setDiscount(discount);
+    } else if (typeof line.set_discount === "function") {
+        line.set_discount(discount);
+    }
 }
 
 
@@ -215,18 +268,79 @@ export class PreorderDeliveryDialog extends Component {
                 }
             }
             this.state.serials = serials;
-            if (details.payment_recording_mode === "delivery") {
-                const defaultMethod = details.payment_methods?.[0];
-                this.state.paymentLines = defaultMethod
-                    ? [{ method_id: defaultMethod.id, amount: details.amount }]
-                    : [];
-            } else {
-                this.state.paymentLines = [];
-            }
+            this.state.paymentLines = [];
         } catch (error) {
             this.state.error = rpcErrorMessage(error);
         } finally {
             this.state.loading = false;
+        }
+    }
+
+    async addToCart() {
+        const details = this.state.selected;
+        if (!details || this.state.processing) {
+            return;
+        }
+        const order = this.props.pos?.get_order?.();
+        if (!order) {
+            this.state.error = _t("Open a POS order before adding a pre-order.");
+            return;
+        }
+        if (order.preorder_id && Number(order.preorder_id) !== Number(details.id)) {
+            this.state.error = _t("This cart already contains another pre-order. Complete it before loading a different one.");
+            return;
+        }
+
+        const currentPartner = order.get_partner?.() || order.getPartner?.();
+        if (currentPartner && currentPartner.id !== details.customer_id && order.get_orderlines?.().length) {
+            this.state.error = _t("The current cart belongs to another customer. Start a new order for this pre-order.");
+            return;
+        }
+
+        const products = (details.lines || []).map((line) => ({
+            line,
+            product: modelRecord(this.props.pos, "product.product", line.product_id),
+        }));
+        const missing = products.filter((item) => !item.product);
+        if (missing.length) {
+            this.state.error = _t("These pre-order products are not loaded in this POS: %s")
+                .replace("%s", missing.map((item) => item.line.product_name || item.line.product_id).join(", "));
+            return;
+        }
+
+        this.state.processing = true;
+        this.state.error = "";
+        try {
+            const partner = modelRecord(this.props.pos, "res.partner", details.customer_id);
+            if (!partner) {
+                throw new Error(_t("The pre-order customer is not available in this POS."));
+            }
+            if (typeof order.set_partner === "function") {
+                order.set_partner(partner);
+            } else if (typeof order.setPartner === "function") {
+                order.setPartner(partner);
+            }
+
+            let workingOrder = order;
+            for (const { line, product } of products) {
+                const quantity = Number(line.qty || 0);
+                workingOrder = addProductToOrder(this.props.pos, workingOrder, product, quantity);
+                setOrderlineValues(
+                    selectedOrderline(workingOrder),
+                    quantity,
+                    Number(line.price_unit || 0),
+                    Number(line.discount || 0)
+                );
+            }
+            workingOrder.preorder_id = details.id;
+            workingOrder.preorder_name = details.name || "";
+            workingOrder.preorder_line_ids = (details.lines || []).map((line) => line.id);
+            workingOrder.to_invoice = true;
+            this.props.close();
+        } catch (error) {
+            this.state.error = error?.message || _t("The pre-order could not be added to the cart.");
+        } finally {
+            this.state.processing = false;
         }
     }
 
@@ -296,6 +410,30 @@ export class PreorderDeliveryDialog extends Component {
         this.loadPreorders();
     }
 }
+
+
+patch(PosOrder.prototype, {
+    setup(vals) {
+        super.setup(...arguments);
+        this.preorder_id = this.preorder_id || vals?.preorder_id || false;
+        this.preorder_name = this.preorder_name || vals?.preorder_name || "";
+        this.preorder_line_ids = this.preorder_line_ids || vals?.preorder_line_ids || [];
+    },
+
+    serialize() {
+        const serialized = super.serialize(...arguments);
+        serialized.preorder_id = this.preorder_id || false;
+        serialized.preorder_name = this.preorder_name || "";
+        serialized.preorder_line_ids = Array.isArray(this.preorder_line_ids)
+            ? this.preorder_line_ids
+            : [];
+        if (this.preorder_id) {
+            // A pre-order cart must produce the normal POS customer invoice.
+            serialized.to_invoice = true;
+        }
+        return serialized;
+    },
+});
 
 
 patch(ControlButtons.prototype, {

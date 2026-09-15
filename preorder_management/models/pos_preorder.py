@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 
-from odoo import api, fields, models, _
+from odoo import Command, api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 from odoo.tools import float_compare, float_is_zero
 
@@ -15,8 +15,8 @@ class PosConfig(models.Model):
         default=False,
         help=(
             "Allow this POS to deliver fully paid pre-orders reserved for its branch. "
-            "Migrated pre-orders collect and record one or more replacement payments at delivery; "
-            "legacy pre-orders continue to reuse their original payment."
+            "Migrated pre-orders are loaded into the normal cart so the branch can add items and "
+            "collect one or more POS payments at delivery; legacy pre-orders continue to reuse their original payment."
         ),
     )
 
@@ -39,6 +39,7 @@ class SalePreorderPosDelivery(models.Model):
         "fulfilled_via",
         "fulfillment_pos_config_id",
         "fulfillment_pos_session_id",
+        "fulfillment_pos_order_id",
         "fulfillment_user_id",
         "fulfilled_at",
         "pos_fulfillment_token",
@@ -56,6 +57,9 @@ class SalePreorderPosDelivery(models.Model):
     )
     fulfillment_pos_session_id = fields.Many2one(
         "pos.session", string="Fulfillment POS Session", readonly=True, copy=False
+    )
+    fulfillment_pos_order_id = fields.Many2one(
+        "pos.order", string="Fulfillment POS Order", readonly=True, copy=False, index=True
     )
     fulfillment_user_id = fields.Many2one(
         "res.users", string="Fulfilled By", readonly=True, copy=False
@@ -175,6 +179,8 @@ class SalePreorderPosDelivery(models.Model):
                     "product_id": line.product_id.id,
                     "product_name": line.product_id.display_name,
                     "qty": line.requested_qty,
+                    "price_unit": line.price_unit,
+                    "discount": line.discount,
                     "tracking": line.product_id.tracking,
                     "uom_rounding": line.product_id.uom_id.rounding,
                 }
@@ -242,15 +248,10 @@ class SalePreorderPosDelivery(models.Model):
                 _("POS pre-order delivery requires stocked products: %s")
                 % ", ".join(non_stocked.product_id.mapped("display_name"))
             )
-        unsupported = preorder.line_ids.filtered(lambda line: line.product_id.tracking == "lot")
-        if unsupported:
-            raise UserError(
-                _("Lot-tracked products are not supported in POS pre-order delivery yet: %s")
-                % ", ".join(unsupported.product_id.mapped("display_name"))
-            )
         values = preorder._serialize_for_pos(include_lines=True)
         values["payment_methods"] = self._serialize_pos_payment_methods(config)
         return values
+
 
     def _create_pos_delivery_payments(self, invoice, payment_lines, config):
         """Post and reconcile branch-collected payment(s) dated at delivery."""
@@ -604,3 +605,185 @@ class SalePreorderPosDelivery(models.Model):
             % {"pos": config.display_name, "user": self.env.user.display_name}
         )
         return preorder._pos_delivery_success_payload()
+
+
+class PosOrderPreorderDelivery(models.Model):
+    """Attach a migrated pre-order to the normal POS sale.
+
+    The branch must be able to add accessories or other products before taking
+    payment. Therefore the POS order, invoice, stock picking, and POS payment
+    records are the accounting documents for the delivery. The pre-order is
+    marked complete only after the normal POS pipeline has finished.
+    """
+
+    _inherit = "pos.order"
+
+    preorder_id = fields.Many2one(
+        "sale.preorder",
+        string="Customer Pre-order",
+        copy=False,
+        readonly=True,
+        index=True,
+        ondelete="restrict",
+    )
+    preorder_line_ids = fields.Many2many(
+        "sale.preorder.line",
+        "pos_order_preorder_line_rel",
+        "pos_order_id",
+        "preorder_line_id",
+        string="Pre-order Lines",
+        copy=False,
+        readonly=True,
+    )
+
+    @api.model
+    def _extract_preorder_id(self, value):
+        if isinstance(value, dict):
+            value = value.get("id")
+        elif isinstance(value, (list, tuple)):
+            value = value[0] if value else False
+        try:
+            value = int(value or 0)
+        except (TypeError, ValueError):
+            return False
+        return value or False
+
+    @api.model
+    def _extract_preorder_line_ids(self, value):
+        if not isinstance(value, (list, tuple)):
+            return []
+        result = []
+        for item in value:
+            if isinstance(item, dict):
+                item = item.get("id")
+            try:
+                item = int(item or 0)
+            except (TypeError, ValueError):
+                continue
+            if item and item not in result:
+                result.append(item)
+        return result
+
+    @api.model
+    def _order_fields(self, ui_order):
+        payload = ui_order.get("data") if isinstance(ui_order.get("data"), dict) else ui_order
+        order_fields = super()._order_fields(ui_order)
+        preorder_id = self._extract_preorder_id(payload.get("preorder_id"))
+        if not preorder_id:
+            return order_fields
+
+        preorder = self.env["sale.preorder"].sudo().browse(preorder_id).exists()
+        if not preorder:
+            raise UserError(_("The selected pre-order no longer exists."))
+        line_ids = self._extract_preorder_line_ids(payload.get("preorder_line_ids"))
+        if set(line_ids) != set(preorder.line_ids.ids):
+            raise UserError(_("The POS cart does not contain the complete pre-order."))
+        order_fields["preorder_id"] = preorder.id
+        order_fields["preorder_line_ids"] = [Command.set(line_ids)]
+        return order_fields
+
+    def _validate_preorder_cart(self):
+        self.ensure_one()
+        preorder = self.preorder_id.sudo()
+        if not preorder:
+            return
+        pos_branch = self.branch_id or self.config_id.branch_id
+        if preorder.company_id != self.company_id:
+            raise UserError(_("The pre-order and POS order belong to different companies."))
+        if preorder.branch_id != pos_branch:
+            raise UserError(_("The pre-order and POS order belong to different branches."))
+        if self.partner_id.commercial_partner_id != preorder.customer_id.commercial_partner_id:
+            raise UserError(_("The POS customer must match the pre-order customer."))
+        if preorder.payment_recording_mode != "delivery":
+            raise UserError(
+                _("This pre-order uses the legacy payment workflow and must be delivered from the Pre-order screen.")
+            )
+        if set(self.preorder_line_ids.ids) != set(preorder.line_ids.ids):
+            raise UserError(_("The POS cart does not contain every reserved pre-order line."))
+
+        quantities = defaultdict(float)
+        for line in self.lines.filtered(lambda item: item.qty > 0 and not item.refunded_orderline_id):
+            quantities[line.product_id.id] += line.qty
+        for preorder_line in preorder.line_ids:
+            if float_compare(
+                quantities[preorder_line.product_id.id],
+                preorder_line.requested_qty,
+                precision_rounding=preorder_line.product_id.uom_id.rounding,
+            ) < 0:
+                raise UserError(
+                    _("The POS cart is missing the reserved quantity for %s.")
+                    % preorder_line.product_id.display_name
+                )
+
+    def _complete_preorder_from_pos(self):
+        self.ensure_one()
+        preorder = self.preorder_id.sudo()
+        if not preorder:
+            return
+
+        self._validate_preorder_cart()
+        self.env.cr.execute(
+            "SELECT id FROM sale_preorder WHERE id = %s FOR UPDATE", [preorder.id]
+        )
+        preorder.invalidate_recordset(
+            [
+                "state",
+                "campaign_id",
+                "invoice_ids",
+                "fulfillment_pos_order_id",
+                "pos_fulfillment_token",
+            ]
+        )
+        if preorder.fulfillment_pos_order_id:
+            if preorder.fulfillment_pos_order_id == self:
+                return
+            raise UserError(_("This pre-order has already been delivered from another POS order."))
+        if preorder.state != "allocated" or preorder.campaign_id.state != "delivery":
+            raise UserError(_("This pre-order is no longer ready for delivery."))
+        confirmations = preorder.payment_confirmation_ids.filtered(lambda item: item.state == "confirmed")
+        if not confirmations:
+            raise UserError(_("The pre-order payment migration is incomplete; no delivery payment confirmation exists."))
+
+        invoice = self.account_move
+        if not invoice:
+            self.action_pos_order_invoice()
+            self.invalidate_recordset(["account_move"])
+            invoice = self.account_move
+        if not invoice:
+            raise UserError(_("The POS order did not produce a customer invoice."))
+        if invoice.state == "draft":
+            invoice.sudo().action_post()
+        if invoice.state != "posted":
+            raise UserError(_("The POS customer invoice could not be posted."))
+
+        invoice.sudo().write({"preorder_id": preorder.id})
+        confirmations.write({"state": "consumed"})
+        token = self.pos_reference or self.name or "POS-%s" % self.id
+        preorder.with_context(allow_preorder_workflow_write=True).write(
+            {
+                "state": "completed",
+                "fulfilled_via": "pos",
+                "fulfillment_pos_config_id": self.config_id.id,
+                "fulfillment_pos_session_id": self.session_id.id,
+                "fulfillment_pos_order_id": self.id,
+                "fulfillment_user_id": self.env.user.id,
+                "fulfilled_at": fields.Datetime.now(),
+                "pos_fulfillment_token": token,
+            }
+        )
+        preorder.message_post(
+            body=_(
+                "Delivered and invoiced in POS order %(order)s at %(pos)s. "
+                "The branch collected the complete POS order payment on the delivery date; "
+                "the migrated pre-order payment confirmation is now consumed."
+            )
+            % {"order": self.display_name, "pos": self.config_id.display_name}
+        )
+
+    def _process_order(self, order, existing_order):
+        result = super()._process_order(order, existing_order)
+        order_id = getattr(result, "id", result)
+        pos_order = self.browse(order_id).exists()
+        if pos_order.preorder_id:
+            pos_order._complete_preorder_from_pos()
+        return result

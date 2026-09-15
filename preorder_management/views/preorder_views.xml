@@ -227,6 +227,7 @@
                         <field name="fulfilled_via"/>
                         <field name="fulfillment_pos_config_id" invisible="fulfilled_via != 'pos'"/>
                         <field name="fulfillment_pos_session_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_pos_order_id" invisible="fulfilled_via != 'pos'"/>
                         <field name="fulfillment_user_id"/>
                         <field name="fulfilled_at"/>
                     </group>
