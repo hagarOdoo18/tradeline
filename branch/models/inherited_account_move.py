@@ -78,7 +78,7 @@ class AccountMoveLine(models.Model):
     branch_id = fields.Many2one('res.branch', related="move_id.branch_id",store=True,string="Branch")
 
     def remove_move_reconcile(self):
-        if not self.env.user.has_group(
+        if not self.env.su and not self.env.user.has_group(
                 'branch.group_unreconcile'
         ):
             raise AccessError(

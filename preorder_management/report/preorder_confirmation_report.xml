@@ -146,6 +146,11 @@
                     </table>
                 </div>
 
+                <div t-if="o.campaign_id.notes" class="mt-4">
+                    <h3>Notes</h3>
+                    <div t-field="o.campaign_id.notes"/>
+                </div>
+
                 <div class="mt-4" style="font-size: 8px; text-align: right;">
                     <div t-foreach="o.line_ids" t-as="line" t-if="line.product_id.product_notes">
                         <strong t-field="line.product_id"/><br/>
