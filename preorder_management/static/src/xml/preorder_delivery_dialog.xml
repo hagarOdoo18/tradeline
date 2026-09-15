@@ -165,7 +165,7 @@
                                 <div t-if="!state.selected.payment_methods or !state.selected.payment_methods.length" class="alert alert-danger mt-3 mb-0">
                                     No inbound payment journal is configured for this POS.
                                 </div>
-                                <div t-foreach="state.paymentLines" t-as="payment" t-key="payment_index" t-foreach-index="payment_index" class="row g-2 align-items-center mt-2">
+                                <div t-foreach="state.paymentLines" t-as="payment" t-key="payment_index" class="row g-2 align-items-center mt-2">
                                     <div class="col">
                                         <select class="form-select" t-on-change="(event) => this.updatePaymentMethod(payment_index, event)">
                                             <option t-foreach="state.selected.payment_methods" t-as="method" t-key="method.id" t-att-value="method.id" t-att-selected="method.id === payment.method_id">
