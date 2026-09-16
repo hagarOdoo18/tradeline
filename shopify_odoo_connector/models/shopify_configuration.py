@@ -248,6 +248,12 @@ class ShopifyConfiguration(models.Model):
              'confirmed Shopify orders. Leave empty to disable the endpoint '
              'for this instance.')
 
+    api_token_ids = fields.One2many(
+        'shopify.api.token', 'instance_id', string='API Tokens',
+        context={'active_test': False}, groups='base.group_system',
+        help='Bearer tokens issued by POST /api/shopify/v1/auth for this '
+             'instance, including revoked and expired ones.')
+
     def action_generate_order_api_key(self):
         """Generate or rotate the confirmed-order endpoint shared secret."""
         for record in self:

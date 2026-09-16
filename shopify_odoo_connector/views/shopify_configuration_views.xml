@@ -223,6 +223,30 @@
                                 </group>
                             </group>
                         </page>
+                        <page string="API Tokens" name="api_tokens"
+                              groups="base.group_system">
+                            <field name="api_token_ids"
+                                   context="{'active_test': False}"
+                                   readonly="1">
+                                <list create="0" delete="0"
+                                      decoration-muted="not is_valid"
+                                      decoration-success="is_valid">
+                                    <field name="create_date"
+                                           string="Issued At"/>
+                                    <field name="expires_at"/>
+                                    <field name="last_used"/>
+                                    <field name="is_valid"/>
+                                    <field name="active" string="Active"
+                                           widget="boolean"/>
+                                    <button name="action_revoke"
+                                            type="object" string="Revoke"
+                                            icon="fa-ban"
+                                            class="btn-link text-danger"
+                                            invisible="not active"
+                                            confirm="Revoke this token? Calls using it will be refused immediately."/>
+                                </list>
+                            </field>
+                        </page>
                     </notebook>
                 </sheet>
             </form>
