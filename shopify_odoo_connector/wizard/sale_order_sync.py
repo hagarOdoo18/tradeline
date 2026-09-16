@@ -369,6 +369,10 @@ class SaleOrderSync(models.TransientModel):
             # from leaking between orders.
             vals = {}
             shopify_id = each['id']
+            # One savepoint per order: a failure rolls back only this order
+            # (and leaves the cursor usable), so the reason can be logged and
+            # the next order still imported.
+            savepoint = self.env.cr.savepoint()
             try:
                 # Serialize imports of the same Shopify order across the
                 # scheduled importer and the real-time endpoint. Re-check the
@@ -805,11 +809,11 @@ class SaleOrderSync(models.TransientModel):
                         discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
                         so.discount_id = discount_reason.id
                     if line_vals_list:
-                        try:
-                            new_lines = self.env['sale.order.line'].sudo().create(
-                                line_vals_list)
-                        except Exception as e:
-                            continue
+                        # no local except: a failure here must reach the
+                        # order-level handler, which rolls the order back
+                        # and logs why
+                        new_lines = self.env['sale.order.line'].sudo().create(
+                            line_vals_list)
                     else:
                         new_lines = self.env['sale.order.line'].browse()
                     # if not wizard.draft:
@@ -850,8 +854,34 @@ class SaleOrderSync(models.TransientModel):
                         new_lines.invalidate_recordset(
                             ['price_unit', 'discount'])
                         new_lines.sudo()._compute_amount()
-            except Exception as e:
+            except Exception as error:
+                self._log_confirmed_order_failure(
+                    savepoint, each, instance, error)
                 continue
+            finally:
+                if not savepoint.closed:
+                    try:
+                        savepoint.close(rollback=False)
+                    except Exception as error:
+                        self._log_confirmed_order_failure(
+                            savepoint, each, instance, error)
+
+    def _log_confirmed_order_failure(self, savepoint, order, instance, error):
+        """Roll one Shopify order back and record why it failed.
+
+        Written as a `sale.order` log.message so the confirmed-order API can
+        return it as the rejection reason."""
+        if not savepoint.closed:
+            savepoint.close(rollback=True)
+        name = order.get('name') or order.get('id')
+        _logger.exception('Shopify order %s could not be imported', name)
+        message = str(error) or error.__class__.__name__
+        self.env['log.message'].sudo().create([{
+            'name': 'Creation of order %s failed: %s' % (name, message),
+            'shopify_instance_id': instance.id,
+            'model': 'sale.order',
+        }])
+
     def import_draft_orders_from_shopify(self, shopify_orders, instance):
         """ Method to import draft orders from shopify to odoo.
              job evokes this method for creating draft orders in odoo.

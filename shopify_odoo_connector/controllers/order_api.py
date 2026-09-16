@@ -21,6 +21,7 @@ from datetime import datetime
 from odoo import SUPERUSER_ID
 from odoo import fields, http
 from odoo.http import request
+from odoo.tools import html2plaintext
 
 
 _logger = logging.getLogger(__name__)
@@ -468,6 +469,8 @@ class ShopifyOrderApi(http.Controller):
                 ('shopify_instance_id', '=', instance.id),
                 ('model', '=', 'sale.order'),
             ], order='id desc', limit=1).name
+            # log.message.name is HTML; the API caller gets plain text
+            reason = html2plaintext(reason).strip() if reason else ''
             raise _OrderRejected(
                 'not_imported',
                 'The order was not imported: %s' % (
