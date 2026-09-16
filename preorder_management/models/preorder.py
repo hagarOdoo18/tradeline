@@ -821,7 +821,7 @@ class SalePreorder(models.Model):
         string="Total Quantity", compute="_compute_device_summary", store=True
     )
     is_reserved = fields.Boolean(
-        string="Reserved", compute="_compute_reservation_status", store=True
+        string="Reserved", compute="_compute_is_reserved", store=True
     )
     allocation_ids = fields.Many2many(
         "sale.preorder.allocation",
@@ -919,7 +919,7 @@ class SalePreorder(models.Model):
             ("used", "Used"),
             ("returned", "Returned"),
         ],
-        compute="_compute_payment_summary",
+        compute="_compute_payment_status",
         store=True,
         index=True,
     )
@@ -1169,10 +1169,17 @@ class SalePreorder(models.Model):
             [[(field_name, operator, value)] for field_name in searchable_fields]
         )
 
+    # Stored and non-stored fields use distinct compute methods: sharing one
+    # method between them makes Odoo warn at every registry load
+    # ("inconsistent 'store' / 'compute_sudo' for computed fields").
     @api.depends("line_ids", "line_ids.allocation_id")
     def _compute_reservation_status(self):
         for record in self:
             record.allocation_ids = record.line_ids.mapped("allocation_id")
+
+    @api.depends("line_ids", "line_ids.allocation_id")
+    def _compute_is_reserved(self):
+        for record in self:
             record.is_reserved = bool(record.line_ids) and all(
                 line.allocation_id for line in record.line_ids
             )
@@ -1273,6 +1280,106 @@ class SalePreorder(models.Model):
         for record in self:
             record.invoice_count = len(record.invoice_ids.filtered(lambda move: move.state != "cancel"))
 
+    def _get_payment_summary_values(self):
+        """Compute every payment summary value of one pre-order.
+
+        Shared by the non-stored `_compute_payment_summary` and the stored
+        `_compute_payment_status`."""
+        self.ensure_one()
+        record = self
+        vals = {}
+        all_inbound = record._get_source_inbound_payments(include_returned=True)
+        usable = record._get_source_inbound_payments()
+        returned = all_inbound - usable
+        available_lines = record._get_available_payment_lines(usable)
+        confirmations = record._get_delivery_payment_confirmations()
+
+        vals["payment_ids"] = all_inbound
+        vals["payment_count"] = len(all_inbound)
+        if record.payment_recording_mode == "delivery":
+            confirmed_amount = record._get_delivery_payment_confirmed_amount()
+            vals["prepaid_amount"] = confirmed_amount
+            usable_paid_amount = confirmed_amount
+            vals["available_prepayment_amount"] = confirmed_amount
+        else:
+            vals["prepaid_amount"] = sum(
+                record._convert_payment_amount(payment) for payment in all_inbound
+            )
+            usable_paid_amount = sum(
+                record._convert_payment_amount(payment) for payment in usable
+            )
+            vals["available_prepayment_amount"] = sum(
+                record._payment_line_residual_in_order_currency(line) for line in available_lines
+            )
+        vals["payment_due_amount"] = max(record.deposit_amount - usable_paid_amount, 0.0)
+        if record.payment_recording_mode == "delivery":
+            vals["payment_method_names"] = ", ".join(
+                dict.fromkeys(
+                    confirmation.payment_channel
+                    for confirmation in confirmations
+                    if confirmation.payment_channel
+                )
+            )
+        else:
+            vals["payment_method_names"] = ", ".join(
+                dict.fromkeys(
+                    payment.journal_id.display_name
+                    for payment in all_inbound
+                    if payment.journal_id
+                )
+            )
+        payment_breakdown = {}
+        if record.payment_recording_mode == "delivery":
+            for confirmation in confirmations.sorted(lambda item: (item.source_date, item.id)):
+                label = confirmation.payment_channel or confirmation.journal_id.display_name
+                payment_breakdown[label] = payment_breakdown.get(label, 0.0) + confirmation.amount
+        else:
+            for payment in usable.sorted(lambda item: (item.date, item.id)):
+                label = payment.journal_id.display_name
+                payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
+        breakdown_lines = [
+            "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
+            for label, amount in payment_breakdown.items()
+        ]
+        vals["payment_method_breakdown"] = "\n".join(breakdown_lines)
+        vals["payment_method_breakdown_html"] = Markup("").join(
+            Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
+                escape(label),
+                escape(format(amount, ",.2f")),
+                escape(record.currency_id.name),
+            )
+            for label, amount in payment_breakdown.items()
+        )
+        payment_cells = [
+            "%s — %s %s"
+            % (label, format(amount, ",.2f"), record.currency_id.name)
+            for label, amount in payment_breakdown.items()
+        ]
+        for index in range(4):
+            vals["payment_method_%s" % (index + 1)] = (
+                payment_cells[index] if index < len(payment_cells) else False
+            )
+        vals["additional_payment_methods"] = (
+            " | ".join(payment_cells[4:]) if len(payment_cells) > 4 else False
+        )
+        if record.payment_recording_mode == "delivery" and confirmations:
+            vals["payment_status"] = "available" if not record.invoice_ids else "used"
+        elif not all_inbound:
+            vals["payment_status"] = "none"
+        elif returned and not usable:
+            vals["payment_status"] = "returned"
+        elif available_lines and float_compare(
+            vals["available_prepayment_amount"],
+            vals["prepaid_amount"],
+            precision_rounding=record.currency_id.rounding,
+        ) < 0:
+            vals["payment_status"] = "part_used"
+        elif available_lines:
+            vals["payment_status"] = "available"
+        else:
+            vals["payment_status"] = "used"
+        return vals
+
     @api.depends(
         "deposit_amount",
         "direct_payment_ids",
@@ -1299,98 +1406,51 @@ class SalePreorder(models.Model):
     )
     def _compute_payment_summary(self):
         for record in self:
-            all_inbound = record._get_source_inbound_payments(include_returned=True)
-            usable = record._get_source_inbound_payments()
-            returned = all_inbound - usable
-            available_lines = record._get_available_payment_lines(usable)
-            confirmations = record._get_delivery_payment_confirmations()
+            vals = record._get_payment_summary_values()
+            for field_name in (
+                "payment_ids",
+                "payment_count",
+                "prepaid_amount",
+                "available_prepayment_amount",
+                "payment_due_amount",
+                "payment_method_names",
+                "payment_method_breakdown",
+                "payment_method_breakdown_html",
+                "additional_payment_methods",
+                "payment_method_1",
+                "payment_method_2",
+                "payment_method_3",
+                "payment_method_4",
+            ):
+                record[field_name] = vals[field_name]
 
-            record.payment_ids = all_inbound
-            record.payment_count = len(all_inbound)
-            if record.payment_recording_mode == "delivery":
-                confirmed_amount = record._get_delivery_payment_confirmed_amount()
-                record.prepaid_amount = confirmed_amount
-                usable_paid_amount = confirmed_amount
-                record.available_prepayment_amount = confirmed_amount
-            else:
-                record.prepaid_amount = sum(
-                    record._convert_payment_amount(payment) for payment in all_inbound
-                )
-                usable_paid_amount = sum(
-                    record._convert_payment_amount(payment) for payment in usable
-                )
-                record.available_prepayment_amount = sum(
-                    record._payment_line_residual_in_order_currency(line) for line in available_lines
-                )
-            record.payment_due_amount = max(record.deposit_amount - usable_paid_amount, 0.0)
-            if record.payment_recording_mode == "delivery":
-                record.payment_method_names = ", ".join(
-                    dict.fromkeys(
-                        confirmation.payment_channel
-                        for confirmation in confirmations
-                        if confirmation.payment_channel
-                    )
-                )
-            else:
-                record.payment_method_names = ", ".join(
-                    dict.fromkeys(
-                        payment.journal_id.display_name
-                        for payment in all_inbound
-                        if payment.journal_id
-                    )
-                )
-            payment_breakdown = {}
-            if record.payment_recording_mode == "delivery":
-                for confirmation in confirmations.sorted(lambda item: (item.source_date, item.id)):
-                    label = confirmation.payment_channel or confirmation.journal_id.display_name
-                    payment_breakdown[label] = payment_breakdown.get(label, 0.0) + confirmation.amount
-            else:
-                for payment in usable.sorted(lambda item: (item.date, item.id)):
-                    label = payment.journal_id.display_name
-                    payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
-            breakdown_lines = [
-                "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
-                for label, amount in payment_breakdown.items()
-            ]
-            record.payment_method_breakdown = "\n".join(breakdown_lines)
-            record.payment_method_breakdown_html = Markup("").join(
-                Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
-                    escape(label),
-                    escape(format(amount, ",.2f")),
-                    escape(record.currency_id.name),
-                )
-                for label, amount in payment_breakdown.items()
-            )
-            payment_cells = [
-                "%s — %s %s"
-                % (label, format(amount, ",.2f"), record.currency_id.name)
-                for label, amount in payment_breakdown.items()
-            ]
-            for index in range(4):
-                setattr(
-                    record,
-                    "payment_method_%s" % (index + 1),
-                    payment_cells[index] if index < len(payment_cells) else False,
-                )
-            record.additional_payment_methods = (
-                " | ".join(payment_cells[4:]) if len(payment_cells) > 4 else False
-            )
-            if record.payment_recording_mode == "delivery" and confirmations:
-                record.payment_status = "available" if not record.invoice_ids else "used"
-            elif not all_inbound:
-                record.payment_status = "none"
-            elif returned and not usable:
-                record.payment_status = "returned"
-            elif available_lines and float_compare(
-                record.available_prepayment_amount,
-                record.prepaid_amount,
-                precision_rounding=record.currency_id.rounding,
-            ) < 0:
-                record.payment_status = "part_used"
-            elif available_lines:
-                record.payment_status = "available"
-            else:
-                record.payment_status = "used"
+    @api.depends(
+        "deposit_amount",
+        "direct_payment_ids",
+        "direct_payment_ids.amount",
+        "direct_payment_ids.state",
+        "direct_payment_ids.journal_id",
+        "direct_payment_ids.payment_method_line_id",
+        "direct_payment_ids.move_id.state",
+        "direct_payment_ids.move_id.line_ids.amount_residual",
+        "direct_payment_ids.move_id.line_ids.amount_residual_currency",
+        "source_order_id.payment_ids",
+        "source_order_id.payment_ids.amount",
+        "source_order_id.payment_ids.state",
+        "source_order_id.payment_ids.journal_id",
+        "source_order_id.payment_ids.payment_method_line_id",
+        "source_order_id.payment_ids.move_id.state",
+        "source_order_id.payment_ids.move_id.line_ids.amount_residual",
+        "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
+        "source_order_id.payment_ids.reversed_original_payment_id",
+        "payment_recording_mode",
+        "payment_confirmation_ids",
+        "payment_confirmation_ids.amount",
+        "payment_confirmation_ids.state",
+    )
+    def _compute_payment_status(self):
+        for record in self:
+            record.payment_status = record._get_payment_summary_values()["payment_status"]
 
     @api.depends(
         "invoice_ids.payment_state",
