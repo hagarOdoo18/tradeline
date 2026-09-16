@@ -10,7 +10,7 @@
     """,
     'category': 'Inventory/Products',
     'author': 'Tradeline',
-    'depends': ['product'],
+    'depends': ['product','stock'],
     'data': [
         'security/ir.model.access.csv',
         'views/update_product_price_wizard_view.xml',
