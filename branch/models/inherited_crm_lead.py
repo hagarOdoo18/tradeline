@@ -6,6 +6,7 @@ class Crmteam(models.Model):
 
     branch_id = fields.Many2one('res.branch', string="Branch",required=False)
 
+
 class CrmLead(models.Model):
     _inherit = 'crm.lead'
 
