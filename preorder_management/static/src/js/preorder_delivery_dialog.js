@@ -35,19 +35,35 @@ function modelRecord(pos, modelName, id) {
     return pos?.models?.[modelName]?.getBy?.("id", id) || null;
 }
 
-function addProductToOrder(pos, order, product, quantity) {
+async function addProductToOrder(pos, order, product, quantity) {
+    // Odoo 18's supported store API avoids the legacy addProduct/add_product
+    // compatibility chain.  Several installed POS modules patch both aliases,
+    // and calling either alias directly can make those fallbacks recurse.
+    if (pos && typeof pos.addLineToCurrentOrder === "function") {
+        const line = await pos.addLineToCurrentOrder(
+            { product_id: product, qty: quantity },
+            { merge: false },
+            false
+        );
+        return {
+            order: pos.get_order ? pos.get_order() : order,
+            line,
+        };
+    }
+
     const options = { quantity, merge: false };
     if (order && typeof order.addProduct === "function") {
         order.addProduct(product, options);
-        return order;
+        return { order, line: selectedOrderline(order) };
     }
     if (pos && typeof pos.addProductToCurrentOrder === "function") {
         pos.addProductToCurrentOrder(product, options);
-        return pos.get_order ? pos.get_order() : order;
+        const currentOrder = pos.get_order ? pos.get_order() : order;
+        return { order: currentOrder, line: selectedOrderline(currentOrder) };
     }
     if (order && typeof order.add_product === "function") {
         order.add_product(product, options);
-        return order;
+        return { order, line: selectedOrderline(order) };
     }
     throw new Error(_t("Could not add the pre-order product to the current POS order."));
 }
@@ -330,9 +346,15 @@ export class PreorderDeliveryDialog extends Component {
             let workingOrder = order;
             for (const { line, product } of products) {
                 const quantity = Number(line.qty || 0);
-                workingOrder = addProductToOrder(this.props.pos, workingOrder, product, quantity);
+                const added = await addProductToOrder(
+                    this.props.pos,
+                    workingOrder,
+                    product,
+                    quantity
+                );
+                workingOrder = added.order;
                 setOrderlineValues(
-                    selectedOrderline(workingOrder),
+                    added.line || selectedOrderline(workingOrder),
                     quantity,
                     Number(line.price_unit || 0),
                     Number(line.discount || 0)
