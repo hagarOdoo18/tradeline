@@ -98,6 +98,7 @@ class SyncPricing(models.TransientModel):
     # helpers
     # ------------------------------------------------------------------
 
+
     def _get_synced_templates(self):
         """Return the product templates eligible for a price push."""
         domain = [
