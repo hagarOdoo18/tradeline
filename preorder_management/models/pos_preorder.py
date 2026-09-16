@@ -729,6 +729,9 @@ class PosOrderPreorderDelivery(models.Model):
     def _order_fields(self, ui_order):
         payload = ui_order.get("data") if isinstance(ui_order.get("data"), dict) else ui_order
         order_fields = super()._order_fields(ui_order)
+        # Older open POS tabs may still submit this client-only display label.
+        # It is not a pos.order column, so discard it before create validates vals.
+        order_fields.pop("preorder_name", None)
         preorder_id = self._extract_preorder_id(payload.get("preorder_id"))
         if not preorder_id:
             return order_fields

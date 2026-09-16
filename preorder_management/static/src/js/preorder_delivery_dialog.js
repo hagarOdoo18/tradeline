@@ -373,7 +373,6 @@ export class PreorderDeliveryDialog extends Component {
             // sales.rep record so the button, validation, and JSON export all use it.
             workingOrder.sales_rep_id = salesRep;
             workingOrder.preorder_id = details.id;
-            workingOrder.preorder_name = details.name || "";
             workingOrder.preorder_line_ids = (details.lines || []).map((line) => line.id);
             workingOrder.to_invoice = true;
             this.props.close();
@@ -456,14 +455,12 @@ patch(PosOrder.prototype, {
     setup(vals) {
         super.setup(...arguments);
         this.preorder_id = this.preorder_id || vals?.preorder_id || false;
-        this.preorder_name = this.preorder_name || vals?.preorder_name || "";
         this.preorder_line_ids = this.preorder_line_ids || vals?.preorder_line_ids || [];
     },
 
     serialize() {
         const serialized = super.serialize(...arguments);
         serialized.preorder_id = this.preorder_id || false;
-        serialized.preorder_name = this.preorder_name || "";
         serialized.preorder_line_ids = Array.isArray(this.preorder_line_ids)
             ? this.preorder_line_ids
             : [];
