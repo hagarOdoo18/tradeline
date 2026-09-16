@@ -52,7 +52,10 @@ mutation productVariantsBulkUpdate($productId: ID!,
 
 
 class SyncPricing(models.TransientModel):
-    """Wizard to push Odoo pricelist prices to Shopify variant prices.
+    """Wizard to push each variant's own sales price to Shopify.
+
+        The price sent is the variant price (`lst_price` = template sales
+        price + attribute `price_extra`), not a pricelist price.
 
         Methods:
             action_sync_pricing(self):
@@ -68,12 +71,6 @@ class SyncPricing(models.TransientModel):
         string='Shopify Instance',
         required=True,
         help='Shopify instance the prices are pushed to',
-    )
-    pricelist_id = fields.Many2one(
-        'product.pricelist',
-        string='Pricelist',
-        required=True,
-        help='Odoo pricelist used to compute the price sent to Shopify',
     )
     product_ids = fields.Many2many(
         'product.template',
@@ -91,10 +88,10 @@ class SyncPricing(models.TransientModel):
     )
     currency_id = fields.Many2one(
         'res.currency',
-        string='Pricelist Currency',
-        related='pricelist_id.currency_id',
+        string='Currency',
+        default=lambda self: self.env.company.currency_id,
         readonly=True,
-        help='Currency of the selected pricelist',
+        help='Currency of the variant sales prices sent to Shopify',
     )
 
     # ------------------------------------------------------------------
@@ -112,20 +109,12 @@ class SyncPricing(models.TransientModel):
         return self.env['product.template'].sudo().search(domain)
 
     def _get_variant_price(self, variant):
-        """Compute the price of one variant from the selected pricelist.
+        """Return the variant's own sales price.
 
-        Falls back to the variant sales price when the pricelist cannot
-        produce a price for the product."""
-        try:
-            price = self.pricelist_id._get_product_price(variant, 1.0)
-        except Exception as error:
-            _logger.warning(
-                'Pricelist %s could not price variant %s (%s) - falling back '
-                'to lst_price: %s',
-                self.pricelist_id.display_name, variant.id,
-                variant.display_name, error)
-            price = variant.lst_price
-        return float(self.pricelist_id.currency_id.round(price or 0.0))
+        `lst_price` is the template sales price plus the attribute
+        `price_extra` of the variant; no pricelist is involved."""
+        currency = variant.currency_id or self.env.company.currency_id
+        return float(currency.round(variant.lst_price or 0.0))
 
     def _shopify_graphql(self, query, variables):
         """Post a GraphQL query to Shopify and return the decoded response."""
@@ -150,7 +139,7 @@ class SyncPricing(models.TransientModel):
         self.env['log.message'].sudo().create([{
             'name': message,
             'shopify_instance_id': self.shopify_instance_id.id,
-            'model': 'product.pricelist',
+            'model': 'product.product',
         }])
 
     @staticmethod
@@ -234,22 +223,14 @@ class SyncPricing(models.TransientModel):
         """Process a single queued pricing batch (called by job.cron._do_job).
 
         `data` is the Json payload stored on the job.cron record and holds the
-        `template_ids` of this batch and the `pricelist_id` to price them
-        with."""
+        `template_ids` of this batch. Each variant is priced with its own
+        sales price. A `pricelist_id` left in batches queued before this
+        change is ignored."""
         template_ids = data.get('template_ids', [])
-        pricelist_id = data.get('pricelist_id')
-        if not template_ids or not pricelist_id:
-            return
-        pricelist = self.env['product.pricelist'].sudo().browse(
-            pricelist_id).exists()
-        if not pricelist:
-            _logger.warning(
-                'Shopify pricing: pricelist %s no longer exists - batch '
-                'skipped.', pricelist_id)
+        if not template_ids:
             return
         wizard = self.sudo().create({
             'shopify_instance_id': instance.id,
-            'pricelist_id': pricelist.id,
         })
         templates = self.env['product.template'].sudo().browse(
             template_ids).exists()
@@ -282,7 +263,6 @@ class SyncPricing(models.TransientModel):
                 'function': 'export_pricing_to_shopify',
                 'data': {
                     'template_ids': template_ids[index:index + size],
-                    'pricelist_id': self.pricelist_id.id,
                 },
                 'instance_id': self.shopify_instance_id.id,
             }])
@@ -290,9 +270,8 @@ class SyncPricing(models.TransientModel):
         batches = (len(template_ids) + size - 1) // size
         _logger.info(
             'Shopify pricing: queued %d product(s) in %d batch(es) for '
-            'instance %s using pricelist %s',
-            len(template_ids), batches, self.shopify_instance_id.name,
-            self.pricelist_id.display_name)
+            'instance %s using variant sales prices',
+            len(template_ids), batches, self.shopify_instance_id.name)
 
         return {
             'type': 'ir.actions.client',
