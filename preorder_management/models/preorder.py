@@ -859,6 +859,13 @@ class SalePreorder(models.Model):
         readonly=True,
         copy=False,
     )
+    delivery_payment_ids = fields.One2many(
+        "account.payment",
+        "preorder_delivery_id",
+        string="Delivery Payments",
+        readonly=True,
+        copy=False,
+    )
     invoice_count = fields.Integer(compute="_compute_document_counts")
     payment_count = fields.Integer(compute="_compute_payment_summary")
     payment_ids = fields.Many2many(
