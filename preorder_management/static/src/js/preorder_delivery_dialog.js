@@ -343,6 +343,15 @@ export class PreorderDeliveryDialog extends Component {
                 order.setPartner(partner);
             }
 
+            const salesRep = modelRecord(this.props.pos, "sales.rep", details.sales_rep_id);
+            if (!salesRep) {
+                throw new Error(
+                    details.sales_rep_name
+                        ? _t("Sales Representative %s is not available in this POS.").replace("%s", details.sales_rep_name)
+                        : _t("The pre-order does not have a Sales Representative.")
+                );
+            }
+
             let workingOrder = order;
             for (const { line, product } of products) {
                 const quantity = Number(line.qty || 0);
@@ -360,6 +369,9 @@ export class PreorderDeliveryDialog extends Component {
                     Number(line.discount || 0)
                 );
             }
+            // Match the normal POS Sales Rep action: the order stores the loaded
+            // sales.rep record so the button, validation, and JSON export all use it.
+            workingOrder.sales_rep_id = salesRep;
             workingOrder.preorder_id = details.id;
             workingOrder.preorder_name = details.name || "";
             workingOrder.preorder_line_ids = (details.lines || []).map((line) => line.id);

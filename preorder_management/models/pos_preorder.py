@@ -221,6 +221,8 @@ class SalePreorderPosDelivery(models.Model):
             "customer_id": self.customer_id.id,
             "customer_name": self.customer_id.display_name,
             "customer_phone": self.customer_id.phone or self.customer_id.mobile or "",
+            "sales_rep_id": self.sales_rep_id.id,
+            "sales_rep_name": self.sales_rep_id.display_name,
             "device_summary": self.device_summary or "",
             "qty": self.requested_qty_total,
             "amount": self.deposit_amount,

@@ -406,6 +406,23 @@ class TestPreorderFlow(TransactionCase):
             search_view.arch_db.index('name="name"'),
         )
 
+    def test_pos_preorder_payload_includes_sales_representative(self):
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+
+        payload = preorder._serialize_for_pos(include_lines=True)
+
+        self.assertEqual(payload["sales_rep_id"], self.sales_rep.id)
+        self.assertEqual(payload["sales_rep_name"], self.sales_rep.display_name)
+
     def test_pos_validation_accepts_a_post_validation_action_when_picking_is_done(self):
         picking = Mock(state="done")
         result = {"type": "ir.actions.client", "tag": "do_multi_print"}
