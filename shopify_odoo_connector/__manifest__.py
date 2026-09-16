@@ -22,7 +22,7 @@
 ################################################################################
 {
     'name': "Shopify Odoo Connector",
-    'version': '18.0.1.1.1',
+    'version': '18.0.1.1.2',
     'summary': """Shopify Odoo Connector enables users to connect with  
      shopify to odoo and sync sale orders, customers and  products""",
     'description': """ Shopify Odoo Connector enables users to connect with 
@@ -31,7 +31,7 @@
     'author': 'Cybrosys Techno Solutions',
     'company': 'Cybrosys Techno Solutions',
     'maintainer': 'Cybrosys Techno Solutions',
-    'depends': ['sale_management', 'stock'],
+    'depends': ['sale_management', 'stock', 'accounting_customization'],
     'images': ['static/description/banner.png'],
     'data': [
         'security/security.xml',
