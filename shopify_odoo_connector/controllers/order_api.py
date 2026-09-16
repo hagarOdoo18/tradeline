@@ -21,8 +21,8 @@ from datetime import datetime
 from odoo import SUPERUSER_ID
 from odoo import fields, http
 from odoo.http import request
+from odoo.tools import html2plaintext
 
-from ..models.shopify_api_token import TOKEN_LIFETIME
 
 _logger = logging.getLogger(__name__)
 
@@ -253,14 +253,19 @@ class ShopifyOrderApi(http.Controller):
                 return self._error('invalid_credentials',
                                    'Wrong store name or client secret.', 401)
 
-            token, record = self._model('shopify.api.token')._issue(instance)
-            _logger.info('Shopify order API: token issued for %s',
+            token, record, created = self._model(
+                'shopify.api.token')._issue(instance)
+            _logger.info('Shopify order API: %s token for %s',
+                         'issued new' if created else 'returned live',
                          instance.name)
+            expires_in = int(
+                (record.expires_at - fields.Datetime.now()).total_seconds())
             return self._respond({
                 'success': True,
                 'access_token': token,
                 'token_type': 'Bearer',
-                'expires_in': int(TOKEN_LIFETIME.total_seconds()),
+                'expires_in': max(expires_in, 0),
+                'reused': not created,
                 'expires_at': record.expires_at.isoformat() + 'Z',
                 'instance': instance.name,
                 'store_name': instance.shop_name,
@@ -435,6 +440,11 @@ class ShopifyOrderApi(http.Controller):
         # record carries the "confirm" option (draft=True -> not confirmed).
         # skip_shopify_write: the order came FROM Shopify, so the sale.order
         # writes/confirmation must not push it back.
+        # Remember where the log stood, so a failure is explained only by
+        # order-import lines written during THIS import - never by the
+        # inventory cron's lines that share the same table.
+        log_model = self._model('log.message')
+        last_log = log_model.search([], order='id desc', limit=1)
         sync_model = self._model('sale.order.sync', company).with_context(
             skip_shopify_write=True)
         sync_wizard = sync_model.create({
@@ -453,14 +463,19 @@ class ShopifyOrderApi(http.Controller):
         ], limit=1).order_id
         if not order:
             # the importer logs and swallows its failures: surface the
-            # latest log line it wrote as the reason
-            reason = self._model('log.message').search(
-                [('shopify_instance_id', '=', instance.id)],
-                order='id desc', limit=1).name
+            # order log line it wrote during this import as the reason
+            reason = log_model.search([
+                ('id', '>', last_log.id or 0),
+                ('shopify_instance_id', '=', instance.id),
+                ('model', '=', 'sale.order'),
+            ], order='id desc', limit=1).name
+            # log.message.name is HTML; the API caller gets plain text
+            reason = html2plaintext(reason).strip() if reason else ''
             raise _OrderRejected(
                 'not_imported',
                 'The order was not imported: %s' % (
-                    reason or 'see the Shopify log'), 422)
+                    reason or 'the importer skipped it without logging a '
+                              'reason (see the Shopify log)'), 422)
 
         if not order.order_line:
             # The import keeps a header without lines; an API caller is

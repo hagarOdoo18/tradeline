@@ -369,6 +369,10 @@ class SaleOrderSync(models.TransientModel):
             # from leaking between orders.
             vals = {}
             shopify_id = each['id']
+            # One savepoint per order: a failure rolls back only this order
+            # (and leaves the cursor usable), so the reason can be logged and
+            # the next order still imported.
+            savepoint = self.env.cr.savepoint()
             try:
                 # Serialize imports of the same Shopify order across the
                 # scheduled importer and the real-time endpoint. Re-check the
@@ -385,166 +389,69 @@ class SaleOrderSync(models.TransientModel):
                 ], limit=1)
                 existing_order = existing_sync.order_id
                 if not existing_order:
-                    if each['customer']:
-                        customer_id = each['customer'].get('id')
-                        if (each['customer']['first_name'] or
-                                each['customer']['last_name']):
-                            partner_id = self.env['res.partner'].sudo().search(
-                                [('shopify_sync_ids.shopify_customer_ref', '=',
-                                  customer_id),
-                                 ('shopify_sync_ids.instance_id', '=',
-                                  shopify_instance.id),
-                                 ('company_id', 'in',
-                                  [shopify_instance.company_id.id, False])],
-                                limit=1).id
-                            if not partner_id:
-                                customer_url = ("https://%s/admin/api/%s/"
-                                                "customers/%s.json") % (
-                                                   store_name, version, customer_id)
-                                response = requests.request("GET", customer_url,
-                                                            headers=headers,
-                                                            data=[])
-                                customer_response = response.json()
-                                customer_vals = {}
-                                customer = customer_response['customer']
-                                if customer['addresses']:
-                                    country_id = self.env[
-                                        'res.country'].sudo().search(
-                                        [('name', '=',
-                                          customer['addresses'][0]['country'])
-                                         ])
-                                    state_id = self.env[
-                                        'res.country.state'].sudo().search(
-                                        [('name', '=',
-                                          customer['addresses'][0]['province'])])
-                                    customer_vals = {
-                                        'street': customer['addresses'][0][
-                                            'address1'],
-                                        'street2': customer['addresses'][0][
-                                            'address2'],
-                                        'city': customer['addresses'][0]['city'],
-                                        'country_id': country_id.id if
-                                        country_id else False,
-                                        'state_id': state_id.id if
-                                        state_id else False,
-                                        'zip': customer['addresses'][0]['zip'],
-                                    }
-                                if (customer['first_name'] and
-                                        not customer['last_name']):
-                                    customer_vals['name'] = customer['first_name']
-                                if (customer['last_name'] and
-                                        not customer['first_name']):
-                                    customer_vals['name'] = customer['last_name']
-                                if customer['first_name'] and customer['last_name']:
-                                    customer_vals['name'] = (customer['first_name']
-                                                             + ' '
-                                                             + customer['last_name'])
-                                customer_vals['email'] = customer['email']
-                                customer_vals['phone'] = customer['phone']
-                                customer_vals['shopify_customer_ref'] = customer[
-                                    'id']
-                                customer_vals[
-                                    'shopify_instance_id'] = shopify_instance.id
-                                customer_vals['synced_customer'] = True
-                                customer_vals[
-                                    'company_id'] = shopify_instance.company_id.id
-                                partner_id = self.env['res.partner'].sudo().create(
-                                    customer_vals).id
-                                partner_ = self.env['res.partner'].browse(
-                                    partner_id)
-                                partner_.shopify_sync_ids.sudo().create({
-                                    'instance_id': instance.id,
-                                    'shopify_customer_ref': customer_id,
-                                    'customer_id': partner_id,
-                                })
-                            vals["partner_id"] = partner_id
-                            if each['shipping_address']:
-                                county_id = self.env['res.country'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['country'])
-                                ])
-                                state_id = self.env['res.country.state'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['province'])
-                                ],limit=1)
-                                shipping_child_id = self.env[
-                                    'res.partner'].sudo().create([
-                                    {"name": each['shipping_address'][
-                                        'first_name'] if each['shipping_address'][
-                                        'first_name'] else '',
-                                     "street": each['shipping_address'][
-                                         'address1'] if each['shipping_address'][
-                                         'address1'] else '',
-                                     "street2": each['shipping_address'][
-                                         'address2'] if each['shipping_address'][
-                                         'address2'] else '',
-                                     "city": each['shipping_address']['city'] if
-                                     each['shipping_address']['city'] else '',
-                                     "state_id": state_id.id or None,
-                                     "phone": each['shipping_address']['phone'] if
-                                     each['shipping_address']['phone'] else None,
-                                     "zip": each['shipping_address']['zip'] if
-                                     each['shipping_address']['zip'] else '',
-                                     "country_id": county_id.id or None,
-                                     "parent_id": partner_id,
-                                     "type": 'delivery',
-                                     }]).id
-                                vals['partner_shipping_id'] = shipping_child_id
-                            if each['billing_address'] and each['shipping_address'] :
+                    self._normalize_shopify_order(each, instance)
+                    shipping_address = each['shipping_address'] or {}
+                    billing_address = each['billing_address'] or {}
+                    # an order without a customer (or with an unknown one)
+                    # gets a partner found or created from its own data
+                    partner_id = self._find_or_create_order_partner(
+                        each, shopify_instance).id
+                    vals["partner_id"] = partner_id
+                    if shipping_address:
+                        county_id = self.env['res.country'].search([
+                            ('name', '=',
+                             shipping_address.get('country'))
+                        ], limit=1)
+                        state_id = self.env['res.country.state'].search([
+                            ('name', '=',
+                             shipping_address.get('province'))
+                        ],limit=1)
+                        shipping_child_id = self.env[
+                            'res.partner'].sudo().create([
+                            {"name": shipping_address.get('first_name') if shipping_address.get('first_name') else '',
+                             "street": shipping_address.get('address1') if shipping_address.get('address1') else '',
+                             "street2": shipping_address.get('address2') if shipping_address.get('address2') else '',
+                             "city": shipping_address.get('city') if
+                             shipping_address.get('city') else '',
+                             "state_id": state_id.id or None,
+                             "phone": shipping_address.get('phone') if
+                             shipping_address.get('phone') else None,
+                             "zip": shipping_address.get('zip') if
+                             shipping_address.get('zip') else '',
+                             "country_id": county_id.id or None,
+                             "parent_id": partner_id,
+                             "type": 'delivery',
+                             }]).id
+                        vals['partner_shipping_id'] = shipping_child_id
+                    if billing_address and shipping_address :
 
-                                county_id = self.env['res.country'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['country'])
-                                ])
-                                state_id = self.env['res.country.state'].search([
-                                    ('name', '=',
-                                     each['shipping_address']['province'])
-                                ],limit=1)
-                                billing_child_id = self.env[
-                                    'res.partner'].sudo().create(
-                                    [{
-                                        "name": each['billing_address'][
-                                            'first_name'] if
-                                        each['billing_address'][
-                                            'first_name'] else '',
-                                        "street": each['billing_address'][
-                                            'address1'] if
-                                        each['billing_address'][
-                                            'address1'] else '',
-                                        "street2": each['billing_address'][
-                                            'address2'] if each['billing_address'][
-                                            'address2'] else '',
-                                        "city": each['billing_address']['city'] if
-                                        each['billing_address']['city'] else '',
-                                        "state_id": state_id.id or None,
-                                        "phone": each['billing_address']['phone'] if
-                                        each['billing_address'][
-                                            'phone'] else None,
-                                        "zip": each['billing_address']['zip'] if
-                                        each['billing_address']['zip'] else '',
-                                        "country_id": county_id.id or None,
-                                        "parent_id": partner_id,
-                                        "type": 'invoice'}]).id
-                                vals['partner_invoice_id'] = billing_child_id
-                        else:
-                            self.env['log.message'].sudo().create([{
-                                'name': ' Creation of order : ' + each[
-                                    'name'] + ' is not processed. Customer does'
-                                              ' not have a name.',
-                                'shopify_instance_id': instance.id,
-                                'model': 'sale.order',
-                            }])
-                            continue
-                    else:
-                        self.env['log.message'].sudo().create(
+                        county_id = self.env['res.country'].search([
+                            ('name', '=',
+                             shipping_address.get('country'))
+                        ], limit=1)
+                        state_id = self.env['res.country.state'].search([
+                            ('name', '=',
+                             shipping_address.get('province'))
+                        ],limit=1)
+                        billing_child_id = self.env[
+                            'res.partner'].sudo().create(
                             [{
-                                'name': 'Creation order : ' + each[
-                                    'name'] + ' is not processed. Order does not '
-                                              'contain a customer.',
-                                'shopify_instance_id': instance.id,
-                                'model': 'sale.order',
-                            }])
-                        continue
+                                "name": billing_address.get('first_name') if
+                                billing_address.get('first_name') else '',
+                                "street": billing_address.get('address1') if
+                                billing_address.get('address1') else '',
+                                "street2": billing_address.get('address2') if billing_address.get('address2') else '',
+                                "city": billing_address.get('city') if
+                                billing_address.get('city') else '',
+                                "state_id": state_id.id or None,
+                                "phone": billing_address.get('phone') if
+                                billing_address.get('phone') else None,
+                                "zip": billing_address.get('zip') if
+                                billing_address.get('zip') else '',
+                                "country_id": county_id.id or None,
+                                "parent_id": partner_id,
+                                "type": 'invoice'}]).id
+                        vals['partner_invoice_id'] = billing_child_id
                     if each['tax_lines']:
                         tax = each['tax_lines'][0]['rate']
                         tax_group = each['tax_lines'][0]["title"]
@@ -604,10 +511,12 @@ class SaleOrderSync(models.TransientModel):
 
                     product_id = self.env.ref(
                         'shopify_odoo_connector.product_shopify_shipping_cost')
-                    line = shipping_lines[0]
+                    # no shipping line -> no location code: the resolver
+                    # falls back to the instance's default warehouse
+                    line = shipping_lines[0] if shipping_lines else {}
 
                     order_warehouse = self._get_shopify_order_warehouse(
-                        line['code'], shopify_instance)
+                        line.get('code'), shopify_instance)
                     vals['warehouse_id'] = (
                         order_warehouse.id if order_warehouse else False)
                     team = self.env['crm.team'].search(
@@ -805,15 +714,15 @@ class SaleOrderSync(models.TransientModel):
                         discount_reason =self.env['discount.reason'].search([('shopify_discount', '=',discount_code)], limit=1)
                         so.discount_id = discount_reason.id
                     if line_vals_list:
-                        try:
-                            new_lines = self.env['sale.order.line'].sudo().create(
-                                line_vals_list)
-                        except Exception as e:
-                            continue
+                        # no local except: a failure here must reach the
+                        # order-level handler, which rolls the order back
+                        # and logs why
+                        new_lines = self.env['sale.order.line'].sudo().create(
+                            line_vals_list)
                     else:
                         new_lines = self.env['sale.order.line'].browse()
                     # if not wizard.draft:
-                    #     so.action_confirm()
+                    so.action_confirm()
                     # Force Shopify prices onto the lines.
                     # Both create() and action_confirm() trigger Odoo 18's
                     # _compute_price_unit which overwrites price_unit with the
@@ -850,8 +759,213 @@ class SaleOrderSync(models.TransientModel):
                         new_lines.invalidate_recordset(
                             ['price_unit', 'discount'])
                         new_lines.sudo()._compute_amount()
-            except Exception as e:
+            except Exception as error:
+                self._log_confirmed_order_failure(
+                    savepoint, each, instance, error)
                 continue
+            finally:
+                if not savepoint.closed:
+                    try:
+                        savepoint.close(rollback=False)
+                    except Exception as error:
+                        self._log_confirmed_order_failure(
+                            savepoint, each, instance, error)
+
+    # ------------------------------------------------------------------
+    # order payload helpers
+    # ------------------------------------------------------------------
+    _ORDER_LIST_KEYS = ('line_items', 'tax_lines', 'discount_applications',
+                        'discount_codes', 'refunds', 'shipping_lines',
+                        'payment_gateway_names')
+
+    def _normalize_shopify_order(self, order, instance):
+        """Fill the keys the importer reads but a payload may leave out
+        (API test orders, trimmed webhooks), so a missing key is never a
+        KeyError. Values Shopify did send are left untouched."""
+        for key in self._ORDER_LIST_KEYS:
+            if order.get(key) is None:
+                order[key] = []
+        for key in ('customer', 'shipping_address', 'billing_address',
+                    'note', 'fulfillment_status', 'financial_status'):
+            order.setdefault(key, None)
+        if not order.get('name'):
+            order['name'] = '#%s' % order.get('id')
+        if not order.get('number'):
+            order['number'] = order['name']
+        if not order.get('created_at'):
+            order['created_at'] = fields.Datetime.now().isoformat() + 'Z'
+        if not order.get('currency'):
+            order['currency'] = instance.company_id.currency_id.name
+        if order.get('current_total_discounts') in (None, ''):
+            order['current_total_discounts'] = '0'
+        order.setdefault('current_total_discounts_set', {})
+        for item in order['line_items']:
+            if not isinstance(item, dict):
+                continue
+            for key in ('discount_allocations', 'tax_lines'):
+                if item.get(key) is None:
+                    item[key] = []
+            item.setdefault('taxable', bool(item['tax_lines']))
+            for key in ('sku', 'variant_id', 'product_id', 'title', 'name'):
+                item.setdefault(key, None)
+            item.setdefault('quantity', 1)
+            item.setdefault('price', '0')
+        return order
+
+    @staticmethod
+    def _shopify_person_name(data):
+        data = data or {}
+        name = ' '.join(part for part in (
+            (data.get('first_name') or '').strip(),
+            (data.get('last_name') or '').strip()) if part)
+        return name or (data.get('name') or '').strip()
+
+    def _shopify_address_vals(self, address):
+        """res.partner address values from a Shopify address dict."""
+        address = address or {}
+        if not address:
+            return {}
+        country = self.env['res.country'].sudo()
+        if address.get('country_code'):
+            country = country.search(
+                [('code', '=ilike', address['country_code'])], limit=1)
+        if not country and address.get('country'):
+            country = self.env['res.country'].sudo().search(
+                [('name', '=ilike', address['country'])], limit=1)
+        state = self.env['res.country.state'].sudo()
+        if address.get('province'):
+            domain = [('name', '=ilike', address['province'])]
+            if country:
+                domain.append(('country_id', '=', country.id))
+            state = state.search(domain, limit=1)
+        return {
+            'street': address.get('address1') or False,
+            'street2': address.get('address2') or False,
+            'city': address.get('city') or False,
+            'zip': address.get('zip') or False,
+            'country_id': country.id or False,
+            'state_id': state.id or False,
+        }
+
+    def _fetch_shopify_customer(self, instance, customer_ref):
+        """Customer record from the Shopify API, or {} when it cannot be
+        read (test order, deleted customer, network error)."""
+        try:
+            response = requests.get(
+                'https://%s/admin/api/%s/customers/%s.json' % (
+                    instance.shop_name, instance.version, customer_ref),
+                headers=instance._get_shopify_headers(), timeout=30)
+            if response.status_code == 200:
+                return response.json().get('customer') or {}
+            _logger.info('Shopify customer %s not readable (HTTP %s); using '
+                         'the order data', customer_ref, response.status_code)
+        except Exception as error:  # noqa: BLE001
+            _logger.info('Shopify customer %s not readable (%s); using the '
+                         'order data', customer_ref, error)
+        return {}
+
+    def _find_or_create_order_partner(self, order, instance):
+        """Return the res.partner for a Shopify order, creating it when no
+        existing customer matches.
+
+        Match order: Shopify customer id (shopify.sync) -> email -> phone.
+        When nothing matches, a partner is created from the Shopify customer
+        (API), falling back to the order's own customer / billing / shipping
+        data, so an order is never refused for lacking a customer.
+        """
+        Partner = self.env['res.partner'].sudo().with_context(
+            shopify_no_export=True)
+        company_domain = [('company_id', 'in',
+                           [instance.company_id.id, False])]
+        customer = order.get('customer') or {}
+        billing = order.get('billing_address') or {}
+        shipping = order.get('shipping_address') or {}
+        customer_ref = customer.get('id')
+        customer_ref = str(customer_ref) if customer_ref else False
+
+        partner = Partner.browse()
+        if customer_ref:
+            partner = Partner.search([
+                ('shopify_sync_ids.shopify_customer_ref', '=', customer_ref),
+                ('shopify_sync_ids.instance_id', '=', instance.id),
+            ] + company_domain, limit=1)
+            if partner:
+                return partner
+
+        details = dict(customer)
+        if customer_ref:
+            details.update({key: value for key, value in
+                            self._fetch_shopify_customer(
+                                instance, customer_ref).items()
+                            if value})
+
+        email = (details.get('email') or order.get('email')
+                 or order.get('contact_email') or '').strip()
+        phone = (details.get('phone') or order.get('phone')
+                 or billing.get('phone') or shipping.get('phone') or '').strip()
+        if email:
+            partner = Partner.search(
+                [('email', '=ilike', email)] + company_domain, limit=1)
+        if not partner and phone:
+            partner = Partner.search(
+                ['|', ('mobile', '=', phone), ('phone', '=', phone)]
+                + company_domain, limit=1)
+
+        created = False
+        if not partner:
+            address = (details.get('default_address')
+                       or (details.get('addresses') or [None])[0]
+                       or billing or shipping)
+            name = (self._shopify_person_name(details)
+                    or self._shopify_person_name(billing)
+                    or self._shopify_person_name(shipping)
+                    or email or phone
+                    or _('Shopify customer %s') % order.get('name'))
+            partner_vals = dict(self._shopify_address_vals(address), **{
+                'name': name,
+                'email': email or False,
+                'mobile': phone or False,
+                'shopify_instance_id': instance.id,
+                'synced_customer': bool(customer_ref),
+                'shopify_customer_ref': customer_ref,
+                'company_id': instance.company_id.id,
+            })
+            partner = Partner.create(partner_vals)
+            created = True
+
+        if customer_ref and not partner.shopify_sync_ids.filtered(
+                lambda sync: sync.instance_id == instance
+                and sync.shopify_customer_ref == customer_ref):
+            self.env['shopify.sync'].sudo().create({
+                'instance_id': instance.id,
+                'shopify_customer_ref': customer_ref,
+                'customer_id': partner.id,
+            })
+        if created:
+            self.env['log.message'].sudo().create([{
+                'name': 'Customer %s created from Shopify order %s' % (
+                    partner.name, order.get('name')),
+                'shopify_instance_id': instance.id,
+                'model': 'res.partner',
+            }])
+        return partner
+
+    def _log_confirmed_order_failure(self, savepoint, order, instance, error):
+        """Roll one Shopify order back and record why it failed.
+
+        Written as a `sale.order` log.message so the confirmed-order API can
+        return it as the rejection reason."""
+        if not savepoint.closed:
+            savepoint.close(rollback=True)
+        name = order.get('name') or order.get('id')
+        _logger.exception('Shopify order %s could not be imported', name)
+        message = str(error) or error.__class__.__name__
+        self.env['log.message'].sudo().create([{
+            'name': 'Creation of order %s failed: %s' % (name, message),
+            'shopify_instance_id': instance.id,
+            'model': 'sale.order',
+        }])
+
     def import_draft_orders_from_shopify(self, shopify_orders, instance):
         """ Method to import draft orders from shopify to odoo.
              job evokes this method for creating draft orders in odoo.
