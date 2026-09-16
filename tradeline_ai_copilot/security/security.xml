@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="rule_ai_copilot_conversation_own" model="ir.rule">
+        <field name="name">AI Copilot conversations: own records</field>
+        <field name="model_id" ref="model_ai_copilot_conversation"/>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_message_own" model="ir.rule">
+        <field name="name">AI Copilot messages: own conversation</field>
+        <field name="model_id" ref="model_ai_copilot_message"/>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_generated_file_own" model="ir.rule">
+        <field name="name">AI Copilot generated files: own</field>
+        <field name="model_id" ref="model_ai_copilot_generated_file"/>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_audit_log_own" model="ir.rule">
+        <field name="name">AI Copilot audit logs: own for non-admin</field>
+        <field name="model_id" ref="model_ai_copilot_audit_log"/>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="domain_force">[('user_id', '=', user.id)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_conversation_admin_all" model="ir.rule">
+        <field name="name">AI Copilot conversations: admin all</field>
+        <field name="model_id" ref="model_ai_copilot_conversation"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_message_admin_all" model="ir.rule">
+        <field name="name">AI Copilot messages: admin all</field>
+        <field name="model_id" ref="model_ai_copilot_message"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_generated_file_admin_all" model="ir.rule">
+        <field name="name">AI Copilot generated files: admin all</field>
+        <field name="model_id" ref="model_ai_copilot_generated_file"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+
+    <record id="rule_ai_copilot_audit_log_admin_all" model="ir.rule">
+        <field name="name">AI Copilot audit logs: admin all</field>
+        <field name="model_id" ref="model_ai_copilot_audit_log"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>
+

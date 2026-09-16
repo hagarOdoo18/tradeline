@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_stock_multi_update_user,stock.multi.update user,model_stock_multi_update,stock.group_stock_user,1,1,1,0
+access_stock_multi_update_manager,stock.multi.update manager,model_stock_multi_update,stock.group_stock_manager,1,1,1,1
+access_stock_multi_update_import_wizard,stock.multi.update.import.wizard,model_stock_multi_update_import_wizard,,1,1,1,1
+access_stock_multi_update_line_user,stock.multi.update.line user,model_stock_multi_update_line,stock.group_stock_user,1,1,1,1
+access_stock_multi_update_line_manager,stock.multi.update.line manager,model_stock_multi_update_line,stock.group_stock_manager,1,1,1,1
+access_stock_multi_update_import_preview_line,stock.multi.update.import.preview.liner,model_stock_multi_update_import_preview_line,,1,1,1,1

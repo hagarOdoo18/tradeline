@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_change_sales_rep_wizard_manager,change.sales.rep.wizard manager,model_change_sales_rep_wizard,sales_team.group_sale_manager,1,1,1,1
+access_change_sales_rep_wizard_admin,change.sales.rep.wizard admin,model_change_sales_rep_wizard,base.group_system,1,1,1,1

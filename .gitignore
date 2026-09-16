@@ -1,0 +1,34 @@
+# Python bytecode/cache artifacts
+__pycache__/
+*.py[cod] 
+*.pyo
+
+# Local scratch and investigation files
+.tmp/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets
+.env
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Stray files
+1
+
+# Streamlit / non-Odoo
+streamlit_executive_dashboard/.venv/
+
+# Data artifacts
+*.csv.bak
+valaution inspection/
+node_executive_dashboard/
+
+# Local notes not to be committed
+tradeline_executive_pocket_dashboard/README.md

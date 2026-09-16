@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data>
+        <record model="ir.module.category" id="integration_mall_category">
+            <field name="name">Integration Mall</field>
+            <field name="sequence">2</field>
+        </record>
+
+        <record id="group_integration_mall" model="res.groups">
+            <field name="name">User</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="category_id" ref="tradeline_mall_integration.integration_mall_category"/>
+        </record>
+        <record id="group_manager_integration_mall" model="res.groups">
+            <field name="name">Manager</field>
+            <field name="implied_ids" eval="[(4, ref('tradeline_mall_integration.group_integration_mall'))]"/>
+            <field name="category_id" ref="tradeline_mall_integration.integration_mall_category"/>
+        </record>
+        <record id="manager_record_rule_mall_integration" model="ir.rule">
+            <field name="name">user record rule for mall integration</field>
+            <field ref="tradeline_mall_integration.model_config_day_line" name="model_id"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+
+            <!-- You can attach this rule to a specific group, Or make it Global -->
+            <field name="groups" eval="[(4, ref('tradeline_mall_integration.group_manager_integration_mall'))]"/>
+            <!--<field name="global" eval="1"/> -->
+        </record>
+
+        <record id="user_record_rule_mall_integration" model="ir.rule">
+            <field name="name">user record rule for mall integration</field>
+            <field ref="tradeline_mall_integration.model_config_day_line" name="model_id"/>
+            <field name="domain_force">['|',('branch_id','=',False),('branch_id','in',user.branch_ids.ids)]</field>
+
+            <!-- You can attach this rule to a specific group, Or make it Global -->
+            <field name="groups" eval="[(4, ref('tradeline_mall_integration.group_integration_mall'))]"/>
+            <!--<field name="global" eval="1"/> -->
+        </record>
+
+    </data>
+</odoo>

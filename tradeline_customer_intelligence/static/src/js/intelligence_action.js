@@ -1,0 +1,656 @@
+/** @odoo-module **/
+
+import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
+import { Component, onWillStart, useState } from "@odoo/owl";
+
+export class TradelineCustomerIntelligence extends Component {
+    setup() {
+        this.orm = useService("orm");
+        this.action = useService("action");
+        this.notification = useService("notification");
+        this.state = useState({
+            activeView: "product",
+            loading: true,
+            ownershipLoading: false,
+            catalogLoading: true,
+            exporting: false,
+            evidenceLoading: false,
+            error: "",
+            query: "Apple iPhone 17 256GB Black",
+            selectedEntity: null,
+            source: "auto",
+            startDate: "2025-01-01",
+            endDate: new Date().toISOString().slice(0, 10),
+            catalogOpen: true,
+            catalog: { brands: [], vendors: [], categories: [], products: [], variants: [] },
+            catalogSelection: { browse_by: "category", category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 },
+            bundle: null,
+            comparison: null,
+            comparisonLoading: false,
+            comparisonError: "",
+            selectedCompanionKey: null,
+            selectedCustomerKey: null,
+            audienceOpen: false,
+            commandOpen: false,
+            exportOpen: false,
+            evidenceOpen: false,
+            ownerGeneration: "all",
+            ownerReachability: "all",
+            customerType: "all",
+            customerCompanyId: 0,
+            operatingCompanyId: 0,
+            filterOptions: { customer_types: [], customer_companies: [], operating_companies: [] },
+        });
+        onWillStart(async () => {
+            await this.loadFilterOptions();
+            await this.initializeCatalog();
+            await this.loadProduct();
+        });
+    }
+
+    get navItems() {
+        return [
+            { key: "product", label: "Basket intelligence" },
+            { key: "ownership", label: "Owner & upgrade opportunities" },
+            { key: "comparison", label: "Sales Timeline" },
+            { key: "customer", label: "Customer 360" },
+            { key: "bundle", label: "Bundle Lab" },
+            { key: "audience", label: "Audience Builder" },
+            { key: "launch", label: "Launch Cockpit" },
+            { key: "quality", label: "Data Quality" },
+        ];
+    }
+    get bundle() { return this.state.bundle || {}; }
+    get product() { return this.bundle.product || { name: this.state.query, grain_label: "Search match" }; }
+    get summary() { return this.bundle.summary || {}; }
+    get companions() { return this.bundle.companions || []; }
+    get customers() { return this.bundle.customers || []; }
+    get paymentMix() { return this.bundle.payment_mix || []; }
+    get dimensions() { return this.bundle.dimensions || {}; }
+    get trend() { return this.dimensions.trend || []; }
+    get storeMix() { return this.dimensions.store_mix || []; }
+    get salespersonMix() { return this.dimensions.salesperson_mix || []; }
+    get discountMix() { return this.dimensions.discount_mix || []; }
+    get channelMix() { return this.dimensions.channel_mix || []; }
+    get customerSegments() { return this.bundle.customer_segments || []; }
+    get coverageSources() { return this.bundle.coverage?.sources || []; }
+    get recommendation() { return this.bundle.recommendation || {}; }
+    get availablePeriod() { return this.bundle.available_period || {}; }
+    get ownership() { return this.bundle.ownership || { summary: {}, customers: [], coverage: {} }; }
+    get ownershipSummary() { return this.ownership.summary || {}; }
+    get ownerGenerations() {
+        return [...new Set((this.ownership.customers || []).map(row => Number(row.generation || 0)).filter(Boolean))]
+            .sort((a, b) => b - a);
+    }
+    get ownershipCustomers() {
+        return (this.ownership.customers || []).filter(row => {
+            const generationMatch = this.state.ownerGeneration === "all"
+                || Number(row.generation || 0) === Number(this.state.ownerGeneration);
+            const reachable = row.reachability !== "Needs enrichment";
+            const reachabilityMatch = this.state.ownerReachability === "all"
+                || (this.state.ownerReachability === "reachable" && reachable)
+                || (this.state.ownerReachability === "enrichment" && !reachable);
+            return generationMatch && reachabilityMatch;
+        });
+    }
+    get catalogSelection() { return this.state.catalogSelection; }
+    get catalog() { return this.state.catalog || {}; }
+    get selectedVariantLabel() {
+        return this.catalog.variants?.find(row => Number(row.id) === Number(this.catalogSelection.variant_id))?.name
+            || this.product.name
+            || "Choose a product";
+    }
+    get catalogActionLabel() {
+        if (this.catalogSelection.variant_id) return "Analyze exact item";
+        if (this.catalogSelection.product_id) return "Analyze item";
+        if (this.catalogSelection.browse_by === "category" && this.catalogSelection.category_id) return "Analyze category";
+        return "Choose an item";
+    }
+    get catalogFilterReady() {
+        const selection = this.catalogSelection;
+        if (selection.browse_by === "brand") return Boolean(selection.brand);
+        if (selection.browse_by === "vendor") return Boolean(selection.vendor_id);
+        return Boolean(selection.category_id);
+    }
+    get catalogCanAnalyze() {
+        return Boolean(
+            this.catalogSelection.product_id
+            || this.catalogSelection.variant_id
+            || (this.catalogSelection.browse_by === "category" && this.catalogSelection.category_id)
+        );
+    }
+    get comparison() { return this.state.comparison || {}; }
+    get comparisonMonths() { return this.comparison.months || []; }
+    get selectedCompanion() {
+        return this.companions.find(row => row.product_key === this.state.selectedCompanionKey) || this.companions[0] || null;
+    }
+    get selectedCustomer() {
+        return this.customers.find(row => row.customer_key === this.state.selectedCustomerKey) || this.customers[0] || null;
+    }
+    get maxAttachRate() {
+        return Math.max(...this.companions.map(row => Number(row.attach_rate || 0)), 1);
+    }
+    get sourceButtonLabel() {
+        if (this.state.source === "current") return "Current operations";
+        if (this.state.source === "legacy") return "Historical sales";
+        return "Unified sales history";
+    }
+    get launchSentence() {
+        if (!this.selectedCompanion) return "Expand the period or select another product to reveal a launch opportunity.";
+        return `Lead with ${this.selectedCompanion.product_name}; retarget identified ${this.product.name} owners for the next upgrade cycle.`;
+    }
+    get paymentTotal() {
+        return this.paymentMix.reduce((total, row) => total + Number(row.baskets || 0), 0);
+    }
+    get emailReady() { return this.customers.filter(customer => customer.email).length; }
+    get mobileReady() { return this.customers.filter(customer => customer.mobile).length; }
+    get priorityCustomers() { return this.customers.filter(customer => customer.segment === "Priority").length; }
+    get topStore() { return this.storeMix[0] || null; }
+    get customerCompanies() { return this.state.filterOptions.customer_companies || []; }
+    get operatingCompanies() { return this.state.filterOptions.operating_companies || []; }
+    get activeOperatingCompanyLabel() {
+        if (!this.state.operatingCompanyId) return "Tradeline + XPRS";
+        return this.operatingCompanies.find(company => Number(company.id) === Number(this.state.operatingCompanyId))?.name || "Selected business";
+    }
+    get activeCustomerTypeLabel() {
+        return ({ all: "All customers", individual: "Individuals", company: "Companies" })[this.state.customerType];
+    }
+    get analysisFilters() {
+        return {
+            customer_type: this.state.customerType,
+            customer_company_id: Number(this.state.customerCompanyId || 0),
+            operating_company_id: Number(this.state.operatingCompanyId || 0),
+        };
+    }
+
+    navClass(key) {
+        return `tl-intel-nav-item ${this.state.activeView === key ? "is-active" : ""}`;
+    }
+    rowClass(row) {
+        return `tl-affinity-row ${this.selectedCompanion?.product_key === row.product_key ? "is-selected" : ""}`;
+    }
+    sourceClass(source) {
+        return `tl-source-dot is-${source.status || "empty"}`;
+    }
+    attachWidth(row) {
+        return `${Math.max(4, Number(row.attach_rate || 0) / this.maxAttachRate * 100)}%`;
+    }
+    paymentWidth(row) {
+        return `${this.paymentTotal ? Number(row.baskets || 0) / this.paymentTotal * 100 : 0}%`;
+    }
+    paymentClass(row) {
+        const key = String(row.name || "other").toLowerCase().replace(/[^a-z]/g, "");
+        return `tl-payment-segment is-${key || "other"}`;
+    }
+    segmentClass(segment) {
+        return `tl-segment is-${String(segment || "core").toLowerCase()}`;
+    }
+    dimensionWidth(row, rows) {
+        const maximum = Math.max(...rows.map(item => Number(item.baskets || 0)), 1);
+        return `${Math.max(3, Number(row.baskets || 0) / maximum * 100)}%`;
+    }
+    formatNumber(value) {
+        return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
+    }
+    formatCurrency(value) {
+        return new Intl.NumberFormat("en-US", { style: "currency", currency: "EGP", maximumFractionDigits: 0 }).format(Number(value || 0));
+    }
+    formatPercent(value) {
+        return `${Number(value || 0).toFixed(2)}%`;
+    }
+    formatLift(value) {
+        return `${Number(value || 0).toFixed(2)}×`;
+    }
+    formatSignedPercent(value) {
+        if (value === null || value === undefined || value === false) return "—";
+        const amount = Number(value || 0);
+        return `${amount > 0 ? "+" : ""}${amount.toFixed(1)}%`;
+    }
+    isNonNegative(value) { return Number(value || 0) >= 0; }
+    round(value) { return Math.round(Number(value || 0)); }
+    extractError(error) {
+        return error?.data?.message || error?.message || "The intelligence engine could not load this scope.";
+    }
+
+    async loadFilterOptions() {
+        try {
+            this.state.filterOptions = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_filter_options",
+                []
+            );
+            this.state.operatingCompanyId = Number(this.state.filterOptions.default_operating_company_id || 0);
+        } catch {
+            this.state.filterOptions = { customer_types: [], customer_companies: [], operating_companies: [] };
+        }
+    }
+
+    async initializeCatalog() {
+        this.state.catalogLoading = true;
+        try {
+            const matches = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "search_entities",
+                ["Apple iPhone 17 256GB Black", 12]
+            );
+            const exact = matches.find(item => item.type === "variant"
+                && String(item.name || "").toLowerCase().includes("iphone 17")
+                && String(item.name || "").toLowerCase().includes("256gb")
+                && String(item.name || "").toLowerCase().includes("black"))
+                || matches.find(item => item.type === "variant");
+            if (exact) {
+                this.state.catalogSelection.variant_id = Number(exact.id || 0);
+                this.state.selectedEntity = {
+                    type: "variant",
+                    id: Number(exact.id || 0),
+                    name: exact.name,
+                    source: "unified",
+                    item_code: exact.item_code || "",
+                    prefix5: exact.prefix5 || "",
+                };
+                this.state.query = exact.name;
+            }
+            await this.loadCatalogOptions();
+            if (!this.state.selectedEntity && this.catalog.selected_variant) {
+                this.applyCatalogVariant(this.catalog.selected_variant);
+            }
+            await this.useAllAvailableHistory();
+        } catch (error) {
+            this.state.error = this.extractError(error);
+            await this.loadCatalogOptions();
+        } finally {
+            this.state.catalogLoading = false;
+        }
+    }
+
+    async loadCatalogOptions() {
+        this.state.catalogLoading = true;
+        try {
+            const catalog = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_catalog_options",
+                [this.state.catalogSelection]
+            );
+            this.state.catalog = catalog;
+            this.state.catalogSelection = {
+                ...this.state.catalogSelection,
+                ...(catalog.selection || {}),
+            };
+        } finally {
+            this.state.catalogLoading = false;
+        }
+    }
+
+    applyCatalogVariant(variant) {
+        if (!variant) return;
+        this.state.catalogSelection.variant_id = Number(variant.id || 0);
+        this.state.query = variant.name;
+        this.state.selectedEntity = {
+            type: "variant",
+            id: Number(variant.id || 0),
+            name: variant.name,
+            source: "unified",
+            item_code: variant.item_code || "",
+            prefix5: variant.prefix5 || "",
+        };
+        this.state.comparison = null;
+    }
+
+    async useAllAvailableHistory() {
+        if (!this.state.selectedEntity) return;
+        const period = await this.orm.call(
+            "tradeline.customer.intelligence.service",
+            "get_available_period",
+            [this.state.query, this.state.selectedEntity, this.analysisFilters]
+        );
+        this.state.startDate = period.start_date;
+        this.state.endDate = period.end_date;
+    }
+
+    async onCatalogChange(ev) {
+        const field = ev.currentTarget.dataset.field;
+        const rawValue = ev.target.value;
+        const value = ["brand", "browse_by"].includes(field) ? rawValue : Number(rawValue || 0);
+        this.state.catalogSelection[field] = value;
+        if (field === "browse_by") {
+            this.state.catalogSelection.category_first = value === "category";
+            this.state.catalogSelection.brand = "";
+            this.state.catalogSelection.vendor_id = 0;
+            this.state.catalogSelection.category_id = 0;
+            this.state.catalogSelection.product_id = 0;
+            this.state.catalogSelection.variant_id = 0;
+            this.state.selectedEntity = null;
+            await this.loadCatalogOptions();
+            return;
+        }
+        if (["brand", "vendor_id", "category_id"].includes(field)) {
+            for (const browseField of ["brand", "vendor_id", "category_id"]) {
+                if (browseField !== field) {
+                    this.state.catalogSelection[browseField] = browseField === "brand" ? "" : 0;
+                }
+            }
+            this.state.catalogSelection.product_id = 0;
+            this.state.catalogSelection.variant_id = 0;
+        } else if (field === "product_id") {
+            this.state.catalogSelection.variant_id = 0;
+        }
+        if (field !== "variant_id") {
+            this.state.selectedEntity = null;
+        }
+        await this.loadCatalogOptions();
+        if (field === "variant_id" && value) {
+            const variant = this.catalog.variants?.find(item => Number(item.id) === value);
+            this.applyCatalogVariant(variant);
+            await this.useAllAvailableHistory();
+            await this.loadProduct();
+            this.state.catalogOpen = false;
+        } else if (field === "product_id" && value) {
+            const product = this.catalog.products?.find(item => Number(item.id) === value);
+            if (product) {
+                this.state.selectedEntity = {
+                    type: "product",
+                    id: Number(product.id),
+                    name: product.name,
+                    source: "unified",
+                };
+                this.state.query = product.name;
+                this.state.comparison = null;
+                await this.useAllAvailableHistory();
+                await this.loadProduct();
+            }
+        }
+    }
+
+    async onClearCatalog() {
+        this.state.catalogSelection = { browse_by: "category", category_first: true, brand: "", vendor_id: 0, category_id: 0, product_id: 0, variant_id: 0 };
+        this.state.selectedEntity = null;
+        await this.loadCatalogOptions();
+    }
+
+    async onAnalyzeCatalog() {
+        const selection = this.state.catalogSelection;
+        let selected = null;
+        if (selection.variant_id) {
+            const variant = this.catalog.variants?.find(
+                item => Number(item.id) === Number(selection.variant_id)
+            );
+            this.applyCatalogVariant(variant);
+            selected = this.state.selectedEntity;
+        } else if (selection.product_id) {
+            const product = this.catalog.products?.find(
+                item => Number(item.id) === Number(selection.product_id)
+            );
+            if (product) selected = { type: "product", id: Number(product.id), name: product.name, source: "unified" };
+        } else if (selection.browse_by === "category" && selection.category_id) {
+            const category = this.catalog.categories?.find(
+                item => Number(item.id) === Number(selection.category_id)
+            );
+            if (category) selected = { type: "category", id: Number(category.id), name: category.name, source: "unified" };
+        }
+        if (!selected) return;
+        this.state.selectedEntity = selected;
+        this.state.query = selected.name;
+        this.state.comparison = null;
+        await this.useAllAvailableHistory();
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
+        this.state.catalogOpen = false;
+    }
+
+    async loadProduct() {
+        this.state.loading = true;
+        this.state.error = "";
+        try {
+            const bundle = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_product_360",
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, 20, this.state.selectedEntity, this.analysisFilters, 200, false]
+            );
+            this.state.bundle = bundle;
+            this.state.selectedCompanionKey = bundle.companions?.[0]?.product_key || null;
+            this.state.selectedCustomerKey = bundle.customers?.[0]?.customer_key || null;
+            this.loadOwnership();
+        } catch (error) {
+            this.state.error = this.extractError(error);
+        } finally {
+            this.state.loading = false;
+        }
+    }
+
+    async loadOwnership() {
+        if (!this.state.selectedEntity) return;
+        const entityId = Number(this.state.selectedEntity.id || 0);
+        this.state.ownershipLoading = true;
+        try {
+            const ownership = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_ownership_insights",
+                [this.state.query, this.state.selectedEntity, this.analysisFilters, 200]
+            );
+            if (Number(this.state.selectedEntity?.id || 0) === entityId && this.state.bundle) {
+                this.state.bundle = { ...this.state.bundle, ownership };
+            }
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "warning" });
+        } finally {
+            if (Number(this.state.selectedEntity?.id || 0) === entityId) {
+                this.state.ownershipLoading = false;
+            }
+        }
+    }
+
+    async loadComparison() {
+        this.state.comparisonLoading = true;
+        this.state.comparisonError = "";
+        try {
+            this.state.comparison = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "get_legacy_comparison",
+                [this.state.query, this.state.selectedEntity, this.analysisFilters]
+            );
+        } catch (error) {
+            this.state.comparisonError = this.extractError(error);
+        } finally {
+            this.state.comparisonLoading = false;
+        }
+    }
+
+    async onNavigate(ev) {
+        this.state.activeView = ev.currentTarget.dataset.view;
+        this.state.commandOpen = false;
+        if (this.state.activeView === "comparison" && !this.state.comparison) {
+            await this.loadComparison();
+        }
+    }
+    onToggleCommand() {
+        this.state.catalogOpen = !this.state.catalogOpen;
+        this.state.exportOpen = false;
+        this.state.evidenceOpen = false;
+    }
+    onSearchInput(ev) {
+        this.state.searchInput = ev.target.value;
+        clearTimeout(this.searchTimer);
+        const query = this.state.searchInput.trim();
+        if (query.length < 2) {
+            this.state.suggestions = [];
+            this.state.suggestionsOpen = false;
+            return;
+        }
+        this.searchTimer = setTimeout(async () => {
+            try {
+                this.state.suggestions = await this.orm.call(
+                    "tradeline.customer.intelligence.service",
+                    "search_entities",
+                    [query, 10]
+                );
+                this.state.suggestionsOpen = true;
+            } catch {
+                this.state.suggestions = [];
+            }
+        }, 180);
+    }
+    async onSearchKeydown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            const query = this.state.searchInput.trim();
+            if (query.length >= 2) {
+                const normalized = query.toLowerCase();
+                const preferred = this.state.suggestions.find(item => {
+                    const name = String(item.name || "").toLowerCase();
+                    const code = String(item.item_code || "").toLowerCase();
+                    return (item.type === "variant" && code === normalized)
+                        || (item.type === "product" && (name === normalized || name.endsWith(normalized)));
+                });
+                if (preferred) {
+                    this.applySuggestion(preferred);
+                    await this.loadProduct();
+                    if (this.state.activeView === "comparison") await this.loadComparison();
+                    return;
+                }
+                this.state.query = query;
+                this.state.selectedEntity = { type: "query", id: 0, name: query, source: "auto" };
+                this.state.comparison = null;
+                await this.loadProduct();
+                if (this.state.activeView === "comparison") await this.loadComparison();
+            }
+        } else if (ev.key === "Escape") {
+            this.state.suggestionsOpen = false;
+        }
+    }
+    async onSelectSuggestion(ev) {
+        const key = ev.currentTarget.dataset.key;
+        const selected = this.state.suggestions.find(item => item.key === key);
+        if (!selected) return;
+        this.applySuggestion(selected);
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
+    }
+    applySuggestion(selected) {
+        this.state.searchInput = selected.name;
+        this.state.query = selected.name;
+        this.state.selectedEntity = {
+            type: selected.type,
+            id: Number(selected.id || 0),
+            name: selected.name,
+            source: selected.source,
+            item_code: selected.item_code || "",
+            prefix5: selected.prefix5 || "",
+        };
+        this.state.comparison = null;
+    }
+    async onDateChange() {
+        await this.loadProduct();
+    }
+    async onSourceChange(ev) {
+        this.state.source = ev.target.value;
+        await this.loadProduct();
+    }
+    async onCustomerTypeChange(ev) {
+        this.state.customerType = ev.currentTarget.dataset.type;
+        if (this.state.customerType === "individual") this.state.customerCompanyId = 0;
+        await this.useAllAvailableHistory();
+        await this.loadProduct();
+    }
+    async onCustomerCompanyChange(ev) {
+        this.state.customerCompanyId = Number(ev.target.value || 0);
+        if (this.state.customerCompanyId) this.state.customerType = "company";
+        await this.useAllAvailableHistory();
+        await this.loadProduct();
+    }
+    async onOperatingCompanyChange(ev) {
+        this.state.operatingCompanyId = Number(ev.target.value || 0);
+        this.state.comparison = null;
+        await this.useAllAvailableHistory();
+        await this.loadProduct();
+        if (this.state.activeView === "comparison") await this.loadComparison();
+    }
+    onSelectCompanion(ev) {
+        this.state.selectedCompanionKey = ev.currentTarget.dataset.key;
+    }
+    onSelectCustomer(ev) {
+        this.state.selectedCustomerKey = ev.currentTarget.dataset.key;
+    }
+    onBuildAudience() {
+        this.state.audienceOpen = true;
+        this.state.activeView = "audience";
+    }
+    onCloseAudience() {
+        this.state.audienceOpen = false;
+    }
+    onOpenLaunch() {
+        this.state.activeView = "launch";
+    }
+    onToggleExport() {
+        this.state.exportOpen = !this.state.exportOpen;
+        this.state.catalogOpen = false;
+        this.state.evidenceOpen = false;
+    }
+    onToggleEvidence() {
+        this.state.evidenceOpen = !this.state.evidenceOpen;
+        this.state.exportOpen = false;
+    }
+    onOwnerGenerationChange(ev) {
+        this.state.ownerGeneration = ev.target.value;
+    }
+    onOwnerReachabilityChange(ev) {
+        this.state.ownerReachability = ev.target.value;
+    }
+    async onExport(ev) {
+        const exportMode = ev?.currentTarget?.dataset?.mode || "current_view";
+        this.state.exportOpen = false;
+        this.state.exporting = true;
+        try {
+            const action = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "export_product_insight",
+                [this.state.query, this.state.startDate, this.state.endDate, this.state.source, this.state.selectedEntity, this.analysisFilters, exportMode]
+            );
+            await this.action.doAction(action);
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "danger" });
+        } finally {
+            this.state.exporting = false;
+        }
+    }
+    async onOpenEvidence(ev) {
+        ev.stopPropagation();
+        const evidenceSource = ev.currentTarget.dataset.source || this.state.source;
+        const companionKey = ev.currentTarget.dataset.companion || null;
+        this.state.evidenceOpen = false;
+        this.state.evidenceLoading = true;
+        try {
+            const action = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "open_evidence",
+                [this.state.query, this.state.startDate, this.state.endDate, evidenceSource, this.state.selectedEntity, companionKey, this.analysisFilters]
+            );
+            await this.action.doAction(action);
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "danger" });
+        } finally {
+            this.state.evidenceLoading = false;
+        }
+    }
+    async onOpenOwnerEvidence(ev) {
+        ev.stopPropagation();
+        const evidenceSource = ev.currentTarget.dataset.source;
+        const customerKey = ev.currentTarget.dataset.customer;
+        this.state.evidenceLoading = true;
+        try {
+            const action = await this.orm.call(
+                "tradeline.customer.intelligence.service",
+                "open_owner_evidence",
+                [this.state.query, evidenceSource, this.state.selectedEntity, customerKey, this.analysisFilters]
+            );
+            await this.action.doAction(action);
+        } catch (error) {
+            this.notification.add(this.extractError(error), { type: "danger" });
+        } finally {
+            this.state.evidenceLoading = false;
+        }
+    }
+}
+
+TradelineCustomerIntelligence.template = "tradeline_customer_intelligence.Main";
+registry.category("actions").add("tradeline_customer_intelligence.main", TradelineCustomerIntelligence);

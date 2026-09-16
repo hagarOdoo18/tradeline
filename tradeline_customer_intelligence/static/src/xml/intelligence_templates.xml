@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+<t t-name="tradeline_customer_intelligence.Main">
+<div class="tl-intel-app">
+    <header class="tl-intel-topbar">
+        <div class="tl-intel-brand">
+            <img src="/tradeline_customer_intelligence/static/description/tradeline_mark.png" alt="Tradeline"/>
+            <strong>Tradeline Intelligence</strong>
+        </div>
+        <button class="tl-command-toggle" aria-label="Choose a product" t-on-click="onToggleCommand" t-att-aria-expanded="state.catalogOpen ? 'true' : 'false'">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+            <span>Explore</span>
+        </button>
+        <div class="tl-selected-product"><span>Selected product</span><strong><t t-esc="selectedVariantLabel"/></strong></div>
+        <details class="tl-history-scope">
+            <summary><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18"/></svg><span><small>Sales evidence window</small><strong><t t-esc="state.startDate"/> — <t t-esc="state.endDate"/></strong></span></summary>
+            <div><label>From<input type="date" aria-label="From date" t-model="state.startDate" t-on-change="onDateChange"/></label><label>To<input type="date" aria-label="To date" t-model="state.endDate" t-on-change="onDateChange"/></label></div>
+        </details>
+        <select class="tl-top-company" aria-label="Business scope" t-model="state.operatingCompanyId" t-on-change="onOperatingCompanyChange">
+            <option value="0">Tradeline + XPRS</option>
+            <option t-foreach="operatingCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option>
+        </select>
+        <div class="tl-export-wrap">
+            <button class="tl-export-btn" aria-label="Export to Excel" t-on-click="onToggleExport" t-att-disabled="state.exporting ? 'disabled' : null">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/></svg>
+                <span><t t-esc="state.exporting ? 'Preparing…' : 'Export to Excel'"/></span>
+            </button>
+            <div class="tl-export-menu" t-if="state.exportOpen">
+                <strong>Choose workbook</strong>
+                <button data-mode="current_view" t-on-click="onExport"><span>Executive view</span><small>Summary, companions, customers and lineage</small></button>
+                <button data-mode="detail_rows" t-on-click="onExport"><span>Detail rows</span><small>Full companion and customer tables</small></button>
+                <button data-mode="ownership" t-on-click="onExport"><span>Owner &amp; upgrade audience</span><small>Owned products, opportunity score and contacts</small></button>
+                <button data-mode="legacy_live" t-on-click="onExport"><span>Sales timeline</span><small>Historical sales and current operations</small></button>
+            </div>
+        </div>
+    </header>
+
+    <section class="tl-catalog-explorer" t-if="state.catalogOpen">
+        <label class="is-browse-mode"><span>1. Browse products by</span><select data-field="browse_by" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="category" t-att-selected="catalogSelection.browse_by === 'category' ? 'selected' : null">Category</option><option value="brand" t-att-selected="catalogSelection.browse_by === 'brand' ? 'selected' : null">Brand</option><option value="vendor" t-att-selected="catalogSelection.browse_by === 'vendor' ? 'selected' : null">Vendor</option></select></label>
+        <label class="is-browse-filter" t-if="catalogSelection.browse_by === 'category'"><span>2. Choose one category</span><select data-field="category_id" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.category_id ? 'selected' : null">Choose a category</option><option t-foreach="catalog.categories || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.category_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> items</option></select></label>
+        <label class="is-browse-filter" t-if="catalogSelection.browse_by === 'brand'"><span>2. Choose one brand</span><select data-field="brand" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="" t-att-selected="!catalogSelection.brand ? 'selected' : null">Choose a brand</option><option t-foreach="catalog.brands || []" t-as="option" t-key="option.key" t-att-value="option.key" t-att-selected="option.key === catalogSelection.brand ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> options</option></select></label>
+        <label class="is-browse-filter" t-if="catalogSelection.browse_by === 'vendor'"><span>2. Choose one vendor</span><select data-field="vendor_id" t-on-change="onCatalogChange" t-att-disabled="state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.vendor_id ? 'selected' : null">Choose a vendor</option><option t-foreach="catalog.vendors || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.vendor_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> options</option></select></label>
+        <label class="is-product"><span>3. Item <em>Choose from the filtered list</em></span><select data-field="product_id" t-on-change="onCatalogChange" t-att-disabled="!catalogFilterReady || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.product_id ? 'selected' : null">Choose an item</option><option t-foreach="catalog.products || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.product_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="formatNumber(option.count)"/> option<t t-if="option.count !== 1">s</t></option></select></label>
+        <label class="is-variant"><span>4. Exact item / variant <em>Optional</em></span><select data-field="variant_id" t-on-change="onCatalogChange" t-att-disabled="!catalogSelection.product_id || state.catalogLoading ? 'disabled' : null"><option value="0" t-att-selected="!catalogSelection.variant_id ? 'selected' : null">All variants for this item</option><option t-foreach="catalog.variants || []" t-as="option" t-key="option.id" t-att-value="option.id" t-att-selected="option.id === catalogSelection.variant_id ? 'selected' : null"><t t-esc="option.name"/> · <t t-esc="option.coverage_label"/></option></select></label>
+        <button class="tl-catalog-use" t-on-click="onAnalyzeCatalog" t-att-disabled="!catalogCanAnalyze || state.catalogLoading ? 'disabled' : null"><t t-esc="catalogActionLabel"/></button>
+        <button class="tl-catalog-clear" t-on-click="onClearCatalog">Clear all</button>
+        <div class="tl-catalog-window"><span>Data used for this result</span><div><small>Earliest sale</small><strong><t t-esc="availablePeriod.start_date || state.startDate"/></strong><i>→</i><small>Latest sale</small><strong><t t-esc="availablePeriod.end_date || state.endDate"/></strong></div><p>Automatically based on the first and last matching sale.</p></div>
+    </section>
+
+    <main class="tl-intel-main">
+        <t t-if="state.error">
+            <div class="tl-intel-error"><strong>Analysis unavailable</strong><span><t t-esc="state.error"/></span><button t-on-click="loadProduct">Try again</button></div>
+        </t>
+        <t t-elif="state.loading">
+            <div class="tl-intel-loading"><span></span><span></span><span></span><p>Reading sales baskets and customer signals…</p></div>
+        </t>
+        <t t-else="">
+            <section class="tl-product-heading">
+                <div>
+                    <h1><t t-esc="product.name"/></h1>
+                    <p>Based on supporting sales · <strong><t t-esc="availablePeriod.start_date || state.startDate"/></strong> — <strong><t t-esc="availablePeriod.end_date || state.endDate"/></strong></p>
+                </div>
+                <div class="tl-scope-tools">
+                    <div class="tl-customer-type-filter"><span>Customer type</span><div><button data-type="all" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'all' ? 'is-active' : ''">All</button><button data-type="individual" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'individual' ? 'is-active' : ''">Individuals</button><button data-type="company" t-on-click="onCustomerTypeChange" t-att-class="state.customerType === 'company' ? 'is-active' : ''">Companies</button></div></div>
+                    <label class="tl-company-filter"><span>Specific company</span><select t-model="state.customerCompanyId" t-on-change="onCustomerCompanyChange" t-att-disabled="state.customerType === 'individual' ? 'disabled' : null"><option value="0">All companies</option><option t-foreach="customerCompanies" t-as="company" t-key="company.id" t-att-value="company.id"><t t-esc="company.name"/></option></select></label>
+                    <div class="tl-evidence-wrap">
+                        <button class="tl-evidence-button is-primary" t-on-click="onToggleEvidence" t-att-disabled="state.evidenceLoading ? 'disabled' : null"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg><span><t t-esc="state.evidenceLoading ? 'Opening records…' : 'View supporting records'"/></span></button>
+                        <div class="tl-evidence-menu" t-if="state.evidenceOpen"><strong>Supporting ledgers</strong><button data-source="legacy" t-on-click="onOpenEvidence">Historical sales</button><button data-source="current" t-on-click="onOpenEvidence">Current operations</button></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tl-kpi-rail">
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatNumber(summary.baskets)"/></strong><span>Baskets</span><small><t t-esc="state.startDate"/> — <t t-esc="state.endDate"/></small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.attach_rate)"/></strong><span>Companion attach rate</span><small>Distinct baskets, no double counting</small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatNumber(summary.companion_baskets)"/></strong><span>Baskets with companions</span><small>At least one non-anchor item</small></div>
+                <div><button class="tl-inline-evidence" t-on-click="onOpenEvidence">Evidence</button><strong><t t-esc="formatPercent(summary.identified_coverage)"/></strong><span>Identified-customer coverage</span><small><t t-esc="formatNumber(summary.identified_baskets)"/> linked baskets</small></div>
+            </section>
+
+            <nav class="tl-workspace-tabs" aria-label="Intelligence workspace">
+                <button data-view="product" t-on-click="onNavigate" t-att-class="state.activeView === 'product' ? 'is-active' : ''">Basket intelligence</button>
+                <button data-view="ownership" t-on-click="onNavigate" t-att-class="state.activeView === 'ownership' ? 'is-active' : ''">Owner &amp; upgrade opportunities</button>
+                <button data-view="comparison" t-on-click="onNavigate" t-att-class="state.activeView === 'comparison' ? 'is-active' : ''">Sales timeline</button>
+                <button data-view="quality" t-on-click="onNavigate" t-att-class="state.activeView === 'quality' ? 'is-active' : ''">Evidence &amp; data quality</button>
+            </nav>
+
+            <t t-if="state.activeView === 'product' or state.activeView === 'bundle'">
+                <section class="tl-affinity-section">
+                    <div class="tl-section-title">
+                        <div><h2><t t-esc="state.activeView === 'bundle' ? 'Bundle Lab' : 'Frequently bought together'"/></h2><p t-if="state.activeView === 'bundle'">Rank companions by volume, attach rate and lift before setting bundle mechanics.</p></div>
+                        <span><t t-esc="formatNumber(companions.length)"/> ranked signals</span>
+                    </div>
+                    <div class="tl-affinity-table-wrap">
+                        <table class="tl-affinity-table">
+                            <thead><tr><th>#</th><th>Companion</th><th class="is-number">Co-baskets</th><th>Attach rate</th><th class="is-number">Lift</th><th>Confidence</th><th>Decision score</th><th>Evidence</th></tr></thead>
+                            <tbody>
+                                <tr t-foreach="companions" t-as="row" t-key="row.product_key" t-att-class="rowClass(row)" t-att-data-key="row.product_key" t-on-click="onSelectCompanion">
+                                    <td><t t-esc="row_index + 1"/></td>
+                                    <td class="tl-product-cell"><t t-esc="row.product_name"/></td>
+                                    <td class="is-number"><t t-esc="formatNumber(row.co_baskets)"/></td>
+                                    <td><div class="tl-rate-cell"><span><t t-esc="formatPercent(row.attach_rate)"/></span><i><b t-att-style="'width:' + attachWidth(row)"></b></i></div></td>
+                                    <td class="is-number"><t t-esc="formatLift(row.lift)"/></td>
+                                    <td class="tl-confidence-cell"><strong><t t-esc="row.confidence"/></strong><small>95% CI <t t-esc="formatPercent(row.attach_ci_low)"/>–<t t-esc="formatPercent(row.attach_ci_high)"/></small></td>
+                                    <td><div class="tl-score-cell"><strong><t t-esc="round(row.opportunity_score)"/></strong><i><b t-att-style="'width:' + row.opportunity_score + '%'"/></i></div></td>
+                                    <td class="tl-row-evidence"><button t-if="row.source_keys &amp;&amp; row.source_keys.legacy" class="tl-evidence-button is-row" data-source="legacy" t-att-data-companion="row.source_keys.legacy" t-on-click="onOpenEvidence" title="Historical records">H</button><button t-if="row.source_keys &amp;&amp; row.source_keys.current" class="tl-evidence-button is-row" data-source="current" t-att-data-companion="row.source_keys.current" t-on-click="onOpenEvidence" title="Current records">C</button><button t-if="!row.source_keys" class="tl-evidence-button is-row" t-att-data-companion="row.product_key" t-on-click="onOpenEvidence">Evidence</button></td>
+                                </tr>
+                                <tr t-if="!companions.length"><td colspan="8" class="tl-table-empty">No companion products were found for this scope and period.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="tl-recommendation-strip" t-if="recommendation.title">
+                    <div><span>Recommended next move</span><strong><t t-esc="recommendation.title"/></strong><p><t t-esc="recommendation.rationale"/> · <t t-esc="formatNumber(recommendation.reachable_baskets)"/> observed co-baskets</p></div>
+                    <div><button class="tl-secondary-button" t-on-click="onBuildAudience">Build audience</button><button class="tl-primary-button" t-on-click="onOpenLaunch">Open Launch Cockpit</button></div>
+                </section>
+
+                <section class="tl-lower-band">
+                    <div class="tl-mix-block">
+                        <h2>Customer &amp; payment mix</h2>
+                        <small>Payment signal</small>
+                        <div class="tl-payment-bar">
+                            <span t-foreach="paymentMix" t-as="payment" t-key="payment.name" t-att-class="paymentClass(payment)" t-att-style="'width:' + paymentWidth(payment)"><t t-if="payment.pct &gt;= 9"><t t-esc="round(payment.pct)"/>%</t></span>
+                        </div>
+                        <div class="tl-payment-legend"><span t-foreach="paymentMix" t-as="payment" t-key="payment.name"><i t-att-class="paymentClass(payment)"></i><t t-esc="payment.name"/></span></div>
+                    </div>
+                    <div class="tl-customer-mix">
+                        <small>Customer mix</small>
+                        <div><strong t-att-style="'width:' + summary.identified_coverage + '%'"/><span><t t-esc="formatPercent(summary.identified_coverage)"/> identified</span></div>
+                        <p><t t-esc="formatNumber(summary.identified_customers)"/> reachable customer records in this result set</p>
+                    </div>
+                    <div class="tl-coverage-mini">
+                        <h2>Data coverage</h2>
+                        <div class="tl-coverage-line">
+                            <div t-foreach="coverageSources" t-as="source" t-key="source.key"><i t-att-class="sourceClass(source)"></i><strong><t t-esc="source.label"/></strong><small><t t-esc="source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' anchor baskets' : (source.status === 'pending' ? 'Backfill pending' : 'No anchor baskets')"/></small></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="tl-evidence-lineage">
+                    <div class="tl-section-title"><div><h2>Evidence &amp; lineage</h2><p>See which system and records support the decision. Product identity stays prefix-based behind the scenes.</p></div><button class="tl-evidence-button" t-on-click="onOpenEvidence">Open supporting records</button></div>
+                    <div class="tl-lineage-grid">
+                        <article t-foreach="coverageSources" t-as="source" t-key="source.key">
+                            <i t-att-class="sourceClass(source)"></i>
+                            <div><strong><t t-esc="source.label"/></strong><p><t t-esc="source.note || (source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' matching baskets in this filtered population.' : 'No matching records in this filtered population.')"/></p></div>
+                            <button t-if="source.key !== 'history'" t-att-data-source="source.key" t-on-click="onOpenEvidence">View evidence</button>
+                            <button t-if="source.key === 'history'" data-view="comparison" t-on-click="onNavigate">Open comparison</button>
+                        </article>
+                    </div>
+                    <div class="tl-lineage-rule"><strong><t t-esc="product.identity_label || 'Unified product identity'"/></strong><span><t t-esc="product.identity_precision === 'prefix_family' ? 'Audited prefix family' : 'Matched automatically'"/></span><p><t t-esc="product.identity_note || 'The engine resolves the selected product across historical sales and current operations while retaining source evidence.'"/></p></div>
+                </section>
+
+                <section class="tl-dimension-grid">
+                    <article class="tl-dimension-card is-trend">
+                        <div class="tl-dimension-heading"><div><small>Momentum</small><h3>Sales trend</h3></div><strong t-att-class="'is-' + dimensions.trend_direction"><t t-esc="formatSignedPercent(dimensions.trend_change_pct)"/></strong></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="trend" t-as="period" t-key="period.period"><span><t t-esc="period.label"/></span><i><b t-att-style="'width:' + dimensionWidth(period, trend)"/></i><strong><t t-esc="formatNumber(period.baskets)"/></strong></div>
+                            <p t-if="!trend.length">No monthly trend is available for this scope.</p>
+                        </div>
+                    </article>
+                    <article class="tl-dimension-card">
+                        <div class="tl-dimension-heading"><div><small>Distribution</small><h3>Top stores / teams</h3></div><strong><t t-esc="formatNumber(storeMix.length)"/></strong></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="storeMix" t-as="store" t-key="store.name"><span><t t-esc="store.name"/></span><i><b t-att-style="'width:' + dimensionWidth(store, storeMix)"/></i><strong><t t-esc="formatNumber(store.baskets)"/></strong></div>
+                            <p t-if="!storeMix.length">No store attribution is available.</p>
+                        </div>
+                    </article>
+                    <article class="tl-dimension-card">
+                        <div class="tl-dimension-heading"><div><small>Commercial behavior</small><h3>Discount posture</h3></div></div>
+                        <div class="tl-mini-bars">
+                            <div t-foreach="discountMix" t-as="discount" t-key="discount.name"><span><t t-esc="discount.name"/></span><i><b t-att-style="'width:' + dimensionWidth(discount, discountMix)"/></i><strong><t t-esc="formatNumber(discount.baskets)"/></strong></div>
+                            <p t-if="!discountMix.length">No discount signal is available.</p>
+                        </div>
+                        <div class="tl-channel-chips" t-if="channelMix.length"><span t-foreach="channelMix" t-as="channel" t-key="channel.name"><t t-esc="channel.name"/> · <b><t t-esc="formatNumber(channel.baskets)"/></b></span></div>
+                    </article>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'ownership'">
+                <section class="tl-workspace-view tl-ownership-view">
+                    <div t-if="state.ownershipLoading" class="tl-owner-loading"><span></span><strong>Building the complete owner population…</strong><small>Category ownership, generation, value and contact evidence are being reconciled.</small></div>
+                    <div class="tl-owner-heading">
+                        <div><h2>Owner &amp; upgrade opportunities</h2><p>Category scope: <strong><t t-esc="ownership.category_name"/></strong> · <t t-esc="ownership.rule_note"/></p></div>
+                        <div class="tl-owner-filters"><label>Generation<select t-model="state.ownerGeneration" t-on-change="onOwnerGenerationChange"><option value="all">All generations</option><option t-foreach="ownerGenerations" t-as="generation" t-key="generation" t-att-value="generation">iPhone <t t-esc="generation"/></option></select></label><label>Contact readiness<select t-model="state.ownerReachability" t-on-change="onOwnerReachabilityChange"><option value="all">All</option><option value="reachable">Reachable</option><option value="enrichment">Needs enrichment</option></select></label></div>
+                    </div>
+                    <div class="tl-owner-summary"><div><strong><t t-esc="formatNumber(ownershipSummary.identified_owners)"/></strong><span>Identified owners</span></div><div><strong><t t-esc="formatNumber(ownershipSummary.upgrade_ready)"/></strong><span>Upgrade-ready</span></div><div><strong><t t-esc="formatNumber(ownershipSummary.reachable)"/></strong><span>Reachable</span></div><div><strong><t t-esc="formatNumber(ownershipCustomers.length)"/></strong><span>Shown after filters</span></div></div>
+                    <div class="tl-owner-table-wrap"><table class="tl-owner-table"><thead><tr><th>Customer</th><th>Type</th><th>Owned product</th><th>Last purchase</th><th>Observed value</th><th>Upgrade opportunity</th><th>Reachability</th><th>Evidence</th></tr></thead><tbody><tr t-foreach="ownershipCustomers" t-as="owner" t-key="owner.customer_key"><td><strong><t t-esc="owner.name"/></strong><small t-if="owner.company_name"><t t-esc="owner.company_name"/></small></td><td><t t-esc="owner.is_company ? 'Company' : 'Individual'"/></td><td><strong><t t-esc="owner.owned_product"/></strong><small t-if="owner.owned_products.length &gt; 1">+ <t t-esc="owner.owned_products.length - 1"/> more observed</small></td><td><t t-esc="owner.last_purchase || '—'"/></td><td><t t-esc="formatCurrency(owner.revenue)"/></td><td><span t-att-class="'tl-upgrade is-' + owner.upgrade_opportunity.toLowerCase()"><t t-esc="owner.upgrade_opportunity"/> · <t t-esc="owner.upgrade_score"/>/100</span><small><t t-esc="owner.upgrade_reason"/></small></td><td><t t-esc="owner.reachability"/></td><td class="tl-row-evidence"><button t-if="owner.evidence_sources.includes('legacy')" class="tl-evidence-button is-row" data-source="legacy" t-att-data-customer="owner.customer_key" t-on-click="onOpenOwnerEvidence" title="Historical records">H</button><button t-if="owner.evidence_sources.includes('current')" class="tl-evidence-button is-row" data-source="current" t-att-data-customer="owner.customer_key" t-on-click="onOpenOwnerEvidence" title="Current records">C</button></td></tr><tr t-if="!ownershipCustomers.length"><td colspan="8" class="tl-table-empty">No identified owners match these filters.</td></tr></tbody></table></div>
+                    <div class="tl-owner-foot"><span>Ownership coverage: <t t-esc="ownership.coverage.label"/></span><button data-mode="ownership" t-on-click="onExport">Export owner audience</button></div>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'comparison'">
+                <section class="tl-workspace-view tl-comparison-view">
+                    <div class="tl-section-title"><div><h2>Sales history and current performance</h2><p>One product timeline, joined with Tradeline’s authoritative five-character item-code key.</p></div><span>Unified product identity</span></div>
+                    <div t-if="state.comparisonLoading" class="tl-comparison-loading"><span></span><p>Building the 2025 history-to-current product timeline…</p></div>
+                    <div t-elif="state.comparisonError" class="tl-intel-error"><strong>Comparison unavailable</strong><span><t t-esc="state.comparisonError"/></span><button t-on-click="loadComparison">Try again</button></div>
+                    <div t-elif="!comparison.available" class="tl-comparison-empty"><strong>Comparison view unavailable</strong><p><t t-esc="comparison.note"/></p></div>
+                    <t t-else="">
+                        <div t-att-class="'tl-identity-status is-' + (comparison.identity_state || 'unresolved')">
+                            <div><small>Variant identity status</small><strong><t t-esc="comparison.identity_state_label"/></strong><p>Existence is checked independently in the historical facts and current catalog. Monthly zeroes mean no sales activity, not a missing product.</p></div>
+                            <span><t t-esc="comparison.company_scope.name"/></span>
+                        </div>
+                        <div class="tl-prefix-rule">
+                            <div><small>Cross-version identity</small><strong><t t-esc="comparison.rule_label"/></strong><p><t t-esc="comparison.normalization"/></p></div>
+                            <div class="tl-prefix-chips"><span t-foreach="(comparison.prefixes || []).slice(0, 16)" t-as="prefix" t-key="prefix"><t t-esc="prefix"/></span><em t-if="comparison.prefix_count &gt; 16">+<t t-esc="formatNumber(comparison.prefix_count - 16)"/> more</em></div>
+                        </div>
+                        <div class="tl-identity-grid">
+                            <article t-foreach="comparison.identity_rows || []" t-as="identity" t-key="identity.prefix5" t-att-class="'is-' + identity.state">
+                                <header><code><t t-esc="identity.prefix5"/></code><span><t t-esc="identity.state_label"/></span></header>
+                                <div><small>Historical product</small><strong><t t-esc="identity.legacy_exists ? (identity.legacy_name || 'Historical variant') : 'Not found'"/></strong><em><t t-esc="identity.legacy_item_code || '—'"/> · <t t-esc="formatNumber(identity.legacy_variant_count)"/> variant<t t-if="identity.legacy_variant_count !== 1">s</t></em></div>
+                                <div><small>Current catalog · <t t-esc="identity.current_catalog_status"/></small><strong><t t-esc="identity.current_exists ? (identity.current_name || 'Current variant') : 'Not found'"/></strong><em><t t-esc="identity.current_item_code || '—'"/> · <t t-esc="formatNumber(identity.current_active_variant_count)"/> active / <t t-esc="formatNumber(identity.current_variant_count)"/> total</em></div>
+                            </article>
+                        </div>
+                        <div class="tl-comparison-kpis">
+                            <article><small>2025 historical sales</small><strong><t t-esc="formatCurrency(comparison.legacy.full_year_amount)"/></strong><span><t t-esc="formatNumber(comparison.legacy.full_year_qty)"/> net units</span></article>
+                            <article><small>2026 current YTD</small><strong><t t-esc="formatCurrency(comparison.current.ytd_amount)"/></strong><span>Through month <t t-esc="comparison.current.through_month || '—'"/> · <t t-esc="formatNumber(comparison.current.ytd_qty)"/> units</span></article>
+                            <article t-att-class="isNonNegative(comparison.delta.amount_pct) ? 'is-positive' : 'is-negative'"><small>Revenue vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.amount_pct)"/></strong><span>Comparable-period change</span></article>
+                            <article t-att-class="isNonNegative(comparison.delta.qty_pct) ? 'is-positive' : 'is-negative'"><small>Units vs same 2025 months</small><strong><t t-esc="formatSignedPercent(comparison.delta.qty_pct)"/></strong><span>Comparable-period change</span></article>
+                            <article><small>Catalog match status</small><strong><t t-esc="formatNumber(comparison.shared_prefix_count)"/> / <t t-esc="formatNumber(comparison.prefix_count)"/></strong><span><t t-esc="formatNumber(comparison.legacy_only_prefix_count)"/> history-only · <t t-esc="formatNumber(comparison.current_only_prefix_count)"/> current-only</span></article>
+                            <article><small>Historical fact coverage</small><strong><t t-esc="formatNumber(comparison.coverage.legacy_fact_rows)"/></strong><span><t t-esc="comparison.coverage.legacy_fact_months"/> months · <t t-esc="comparison.coverage.legacy_fact_start"/> to <t t-esc="comparison.coverage.legacy_fact_end"/></span></article>
+                        </div>
+                        <div class="tl-comparison-table-wrap">
+                            <table class="tl-comparison-table">
+                                <thead><tr><th>Month</th><th class="is-number">2025 units</th><th class="is-number">2025 revenue</th><th class="is-number">2026 units</th><th class="is-number">2026 revenue</th><th class="is-number">Revenue change</th></tr></thead>
+                                <tbody><tr t-foreach="comparisonMonths" t-as="period" t-key="period.month"><td><strong><t t-esc="period.label"/></strong></td><td class="is-number"><t t-esc="period.has_legacy ? formatNumber(period.legacy_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_legacy ? formatCurrency(period.legacy_amount) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatNumber(period.current_qty) : '—'"/></td><td class="is-number"><t t-esc="period.has_current ? formatCurrency(period.current_amount) : '—'"/></td><td class="is-number"><strong t-att-class="isNonNegative(period.amount_delta_pct) ? 'is-positive' : 'is-negative'"><t t-esc="period.has_current ? formatSignedPercent(period.amount_delta_pct) : '—'"/></strong></td></tr></tbody>
+                            </table>
+                        </div>
+                        <div class="tl-comparison-provenance"><strong>Decision-grade separation</strong><p>Product comparison uses full monthly facts and the prefix-5 identity. <t t-esc="comparison.company_scope.note"/> Bundles, customer lists, payment behavior and basket affinity use invoice-level records for the selected dates; they are never silently inferred from monthly facts.</p></div>
+                    </t>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'customer'">
+                <section class="tl-workspace-view tl-customer-view">
+                    <div class="tl-section-title"><div><h2>Customer 360</h2><p>Prioritize identified owners by basket history, value and recency.</p></div><span><t t-esc="formatNumber(customers.length)"/> customer records</span></div>
+                    <div class="tl-customer-split">
+                        <div class="tl-customer-list">
+                            <button t-foreach="customers" t-as="customer" t-key="customer.customer_key" t-att-data-key="customer.customer_key" t-on-click="onSelectCustomer" t-att-class="selectedCustomer?.customer_key === customer.customer_key ? 'is-selected' : ''">
+                                <span class="tl-avatar"><t t-esc="(customer.name || '?').slice(0,1).toUpperCase()"/></span>
+                                <span><strong><t t-esc="customer.name"/> <em t-att-class="segmentClass(customer.segment)"><t t-esc="customer.segment"/></em></strong><small><t t-esc="formatNumber(customer.baskets)"/> baskets · last <t t-esc="customer.last_purchase"/></small></span>
+                                <b><t t-esc="formatCurrency(customer.revenue)"/></b>
+                            </button>
+                            <div t-if="!customers.length" class="tl-table-empty">No identified customer links are available in this scope.</div>
+                        </div>
+                        <div class="tl-customer-detail" t-if="selectedCustomer">
+                            <span class="tl-avatar is-large"><t t-esc="(selectedCustomer.name || '?').slice(0,1).toUpperCase()"/></span>
+                            <h3><t t-esc="selectedCustomer.name"/></h3>
+                            <p><t t-esc="selectedCustomer.email || 'No email on file'"/></p><p><t t-esc="selectedCustomer.mobile || 'No mobile on file'"/></p>
+                            <dl><div><dt>Activation score</dt><dd><t t-esc="selectedCustomer.activation_score"/>/100</dd></div><div><dt>Product baskets</dt><dd><t t-esc="formatNumber(selectedCustomer.baskets)"/></dd></div><div><dt>Observed value</dt><dd><t t-esc="formatCurrency(selectedCustomer.revenue)"/></dd></div><div><dt>Average basket</dt><dd><t t-esc="formatCurrency(selectedCustomer.avg_basket_value)"/></dd></div><div><dt>Last purchase</dt><dd><t t-esc="selectedCustomer.last_purchase"/></dd></div><div><dt>Reachability</dt><dd><t t-esc="selectedCustomer.contact_status"/></dd></div></dl>
+                            <button class="tl-primary-button" t-on-click="onBuildAudience">Add to audience preview</button>
+                        </div>
+                    </div>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'audience'">
+                <section class="tl-workspace-view tl-audience-view">
+                    <div class="tl-section-title"><div><h2>Audience Builder</h2><p>Preview the reachable owners behind this product signal before activating a campaign.</p></div><span>Preview only</span></div>
+                    <div class="tl-audience-summary"><div><strong><t t-esc="formatNumber(summary.identified_customers)"/></strong><span>identified customers</span></div><div><strong><t t-esc="formatNumber(priorityCustomers)"/></strong><span>priority candidates</span></div><div><strong><t t-esc="formatNumber(emailReady)"/></strong><span>email-ready</span></div><div><strong><t t-esc="formatNumber(mobileReady)"/></strong><span>mobile-ready</span></div></div>
+                    <div class="tl-audience-rule"><strong>Audience definition</strong><span>Bought within <t t-esc="product.name"/> between <t t-esc="state.startDate"/> and <t t-esc="state.endDate"/></span><span>Grain: <t t-esc="product.grain_label"/></span><span>Identified customer only</span><span>Source: <t t-esc="bundle.source_label"/></span></div>
+                    <table class="tl-audience-table"><thead><tr><th>Customer</th><th>Segment</th><th>Score</th><th>Contact readiness</th><th>Baskets</th><th>Last purchase</th></tr></thead><tbody><tr t-foreach="customers" t-as="customer" t-key="customer.customer_key"><td><t t-esc="customer.name"/></td><td><em t-att-class="segmentClass(customer.segment)"><t t-esc="customer.segment"/></em></td><td><strong><t t-esc="customer.activation_score"/>/100</strong></td><td><t t-esc="customer.contact_status"/></td><td><t t-esc="formatNumber(customer.baskets)"/></td><td><t t-esc="customer.last_purchase"/></td></tr></tbody></table>
+                    <div class="tl-activation-note"><strong>Activation guardrail</strong><p>The engine prepares the segment; it does not send email or SMS until an authorized campaign owner reviews consent, exclusions and message content.</p></div>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'launch'">
+                <section class="tl-workspace-view tl-launch-view">
+                    <div class="tl-section-title"><div><h2>Launch Cockpit</h2><p>Turn product affinity and owner coverage into an iPhone 18 launch decision.</p></div><span>Decision draft</span></div>
+                    <div class="tl-launch-hero"><span>Recommended commercial move</span><h3><t t-esc="recommendation.title"/></h3><p><t t-esc="recommendation.rationale"/> across <strong><t t-esc="formatNumber(recommendation.reachable_baskets)"/></strong> observed co-baskets.</p></div>
+                    <div class="tl-launch-steps"><div><b>01</b><strong>Merchandising</strong><p>Validate stock and margin for the highest decision-score companion.</p></div><div><b>02</b><strong>CRM</strong><p>Start with <t t-esc="formatNumber(priorityCustomers)"/> priority owners, then review the growth segment.</p></div><div><b>03</b><strong>Store test</strong><p t-if="topStore">Pilot in <t t-esc="topStore.name"/>, the leading observed store/team for this scope.</p><p t-else="">Choose a pilot store after source attribution is available.</p></div></div>
+                    <div class="tl-decision-statement"><strong>Executive readout</strong><p><t t-esc="launchSentence"/></p></div>
+                </section>
+            </t>
+
+            <t t-if="state.activeView === 'quality'">
+                <section class="tl-workspace-view tl-quality-view">
+                    <div class="tl-section-title"><div><h2>Data Quality</h2><p>Know exactly which records support every combined decision.</p></div><span>Auditable identity join</span></div>
+                    <div class="tl-quality-rule"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3 8 8 10 5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 2.5 2.5L16 9"/></svg><div><strong>Traceable unification is active</strong><p><t t-esc="bundle.coverage?.rule"/></p></div></div>
+                    <div class="tl-source-list"><article t-foreach="coverageSources" t-as="source" t-key="source.key"><i t-att-class="sourceClass(source)"></i><div><h3><t t-esc="source.label"/></h3><p><t t-esc="source.note || (source.anchor_baskets ? formatNumber(source.anchor_baskets) + ' matching baskets in the selected scope.' : 'No matching anchor baskets in the selected scope.')"/></p></div><strong><t t-esc="source.status"/></strong></article></div>
+                </section>
+            </t>
+        </t>
+    </main>
+</div>
+</t>
+</templates>

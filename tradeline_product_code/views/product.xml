@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Inherit Form View to Modify it -->
+        <record id="product_product_form_inh_code" model="ir.ui.view">
+            <field name="name">product.product.product.form.inh.code</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="product.product_normal_form_view"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//page[5]" position="after">
+                    <page name="E-Invoicing Data" string="E-Invoicing Data" groups="tradeline_product_code.group_e_invoicing_data">
+                        <group>
+                            <group>
+                                <field name="e_invoicing_code"/>
+                                <field name="code_type"/>
+                                <field name="gs1_code"/>
+                                <field name="ar_description"/>
+                            </group>
+                        </group>
+                    </page>
+                </xpath>
+
+            </field>
+        </record>
+        <record id="product_product_tree_inh_code" model="ir.ui.view">
+            <field name="name">product.product.product.tree.inh.code</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="inventory_customization.product_product_list_barcode_view"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//field[@name='barcode']" position="after">
+                    <field name="e_invoicing_code" groups="tradeline_product_code.group_e_invoicing_data"/>
+                    <!-- Add new fields here -->
+                </xpath>
+
+            </field>
+        </record>
+
+         <record id="res_company_inh_vat" model="ir.ui.view">
+            <field name="name">res.company.inh.vat</field>
+            <field name="model">res.company</field>
+            <field name="inherit_id" ref="base.view_company_form"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//field[@name='vat']" position="after">
+                    <field name="anther_vat" />
+                    <!-- Add new fields here -->
+                </xpath>
+
+            </field>
+        </record>
+
+
+
+    </data>
+</odoo>

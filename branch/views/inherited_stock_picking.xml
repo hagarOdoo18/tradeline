@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+         <record id="update_branch_picking" model="ir.actions.server">
+        <field name="name">Update Branch</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="state">code</field>
+        <field name="code">
+            if records:
+                action = records.set_branch()
+        </field>
+    </record>
+
+        <!-- Stock Picking Inherit Form View to Modify it -->
+        <record id="view_picking_form_inherit_branch" model="ir.ui.view">
+            <field name="name">view.picking.form.inherit.branch</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form" />
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='origin']" position="after">
+                    <field name="branch_id"  readonly="1" options="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
+                </xpath>
+                <xpath expr="//field[@name='partner_id']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='origin']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='location_id']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='picking_type_id']" position="attributes">
+                    <attribute name="invisible">picking_type_code == 'incoming'</attribute>
+                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+                </xpath>
+                <xpath expr="//field[@name='location_dest_id'][2]" position="attributes">
+                    <attribute name="invisible">picking_type_code == 'incoming'</attribute>
+                    <attribute name="readonly">picking_type_code == 'outgoing' or state != 'draft'</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+
+                </xpath> <xpath expr="//field[@name='location_id'][2]" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+
+
+                </xpath>
+                <xpath expr="//field[@name='lot_ids']" position="attributes">
+                    <attribute name="optional">show</attribute>
+                </xpath>
+                <xpath expr="//field[@name='quantity']" position="attributes">
+                    <attribute name="readonly">1</attribute>
+                </xpath>
+                <xpath expr="//field[@name='product_id']" position="attributes">
+                    <attribute name="options">{'no_edit': True, 'no_create': True, 'no_open': True}</attribute>
+                    <attribute name="readonly">state != 'draft'</attribute>
+                </xpath>
+                <xpath expr="//field[@name='product_id']" position="after">
+                  <field name="item_code"/>
+                  <field name="default_code"/>
+                </xpath>
+                <xpath expr="//button[@name='%(stock.act_stock_return_picking)d']" position="attributes">
+                <attribute name="groups">branch.action_return_picking</attribute>
+            </xpath>
+                <xpath expr="//button[@name='action_cancel']" position="attributes">
+                <attribute name="groups">branch.action_cancel_picking</attribute>
+            </xpath>  <xpath expr="//field[@name='move_ids_without_package']" position="attributes">
+                <attribute name="widget"></attribute>
+            </xpath>
+
+            </field>
+        </record>
+         <record id="view_lot_inherit_list" model="ir.ui.view">
+            <field name="name">view.lot.list.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_tree" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//list" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+        <record id="product_product_stock_create_list" model="ir.ui.view">
+            <field name="name">product.product.stock.list.create</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="stock.product_product_stock_tree" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//list" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+                    <xpath expr="//button[@name=%(stock.stock_move_line_action)d]" position="attributes">
+                <attribute name="groups">branch.group_h_stock_report</attribute>
+            </xpath>  <xpath expr="//button[@name='action_view_orderpoints']" position="attributes">
+                <attribute name="groups">branch.group_orderpoints_report</attribute>
+            </xpath>
+
+            </field>
+         </record>
+        <record id="view_lot_inherit_kanban" model="ir.ui.view">
+            <field name="name">view.lot.kanban.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_kanban" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//kanban" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+        <record id="view_lot_inherit_form" model="ir.ui.view">
+            <field name="name">view.lot.form.inherit.create</field>
+            <field name="model">stock.lot</field>
+            <field name="inherit_id" ref="stock.view_production_lot_form" />
+            <field name="arch" type="xml">
+
+                 <xpath expr="//form" position="attributes">
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="create">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="import">false</attribute>
+                </xpath>
+
+            </field>
+         </record>
+
+          <record id="stock.action_product_stock_view" model="ir.actions.act_window">
+                        <field name="view_mode">list</field>
+
+        </record>
+
+
+        <template id="picking_upc_product" inherit_id="stock.report_picking">
+            <xpath expr="//table[@class='table table-borderless mt16']" position="replace">
+                      <table class="table table-borderless mt16" t-if="o.move_line_ids and o.move_ids_without_package">
+                                <t t-set="has_barcode" t-value="any(move_line.product_id and move_line.product_id.sudo().barcode or move_line.package_id for move_line in o.move_line_ids)"/>
+                                <t t-set="has_serial_number" t-value="any(move_line.lot_id or move_line.lot_name for move_line in o.move_line_ids)" groups="stock.group_production_lot"/>
+                                <thead>
+                                    <tr>
+                                        <th name="th_product">
+                                            <div align="left"><strong>Product</strong></div>
+                                        </th>
+                                        <th name="th_product">
+                                            <div align="left"><strong>UPC</strong></div>
+                                        </th>
+                                          <th name="th_product_itemcode">
+                                            <div align="left"><strong>Item code</strong></div>
+                                        </th>
+                                        <th class="text-end">
+                                            <strong>Quantity</strong>
+                                        </th>
+                                        <th name="th_from" t-if="o.picking_type_id.code != 'incoming'" align="left" groups="stock.group_stock_multi_locations" class="text-start">
+                                            <strong>From</strong>
+                                        </th>
+                                        <th name="th_to" t-if="o.picking_type_id.code != 'outgoing'" groups="stock.group_stock_multi_locations" class="text-start">
+                                            <strong>To</strong>
+                                        </th>
+                                        <th name="th_serial_number" class="text-center" t-if="has_serial_number">
+                                           <strong>Lot/Serial Number</strong>
+                                        </th>
+                                        <th name="th_barcode" class="text-center" t-if="has_barcode">
+                                            <strong>Product Barcode</strong>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- In case you come across duplicated lines, ask NIM or LAP -->
+                                    <tr t-foreach="o.move_line_ids_without_package.sorted(lambda ml: (ml.location_id.complete_name, ml.location_dest_id.complete_name))" t-as="ml">
+                                        <td>
+                                            <span t-field="ml.product_id.display_name">Customizable Desk</span><br/>
+                                            <span t-if="ml.product_id.description_picking" t-field="ml.product_id.description_picking"></span>
+                                        </td>
+                                        <td>
+                                            <span t-field="ml.product_id.default_code"></span><br/>
+
+                                        </td>
+                                        <td>
+                                            <span t-field="ml.product_id.barcode"></span><br/>
+
+                                        </td>
+                                        <td class="o_td_quantity text-end">
+                                            <span t-field="ml.quantity" class="text-nowrap">3.00</span>
+                                            <span t-field="ml.product_uom_id" groups="uom.group_uom">units</span>
+                                            <span t-if="ml.move_id.product_packaging_id">
+                                                <span t-if="o.state != 'done'">
+                                                    (<span t-field="ml.product_packaging_qty" t-options='{"widget": "integer"}'/> <span t-field="ml.move_id.product_packaging_id.name"/>)
+                                                </span>
+                                                <span t-if="o.state == 'done'">
+                                                    (<span t-field="ml.product_packaging_qty" t-options='{"widget": "integer"}'/> <span t-field="ml.move_id.product_packaging_id.name"/>)
+                                                </span>
+                                            </span>
+                                        </td>
+                                        <td t-if="o.picking_type_id.code != 'incoming'" groups="stock.group_stock_multi_locations" class="text-end">
+                                            <span t-esc="ml.location_id.display_name">WH/Stock</span>
+                                                <t t-if="ml.package_id">
+                                                    <span t-field="ml.package_id">Package A</span>
+                                                </t>
+                                        </td>
+                                        <td t-if="o.picking_type_id.code != 'outgoing'" groups="stock.group_stock_multi_locations" class="text-end">
+                                            <div>
+                                                <span t-field="ml.location_dest_id">WH/Outgoing</span>
+                                                <t t-if="ml.result_package_id">
+                                                    <span t-field="ml.result_package_id">Package B</span>
+                                                </t>
+                                            </div>
+                                        </td>
+                                        <td class=" text-center h6" t-if="has_serial_number">
+                                            <span t-if="has_serial_number and (ml.lot_id or ml.lot_name)" t-esc="ml.lot_id.name or ml.lot_name" t-options="{'widget': 'barcode', 'humanreadable': 1, 'width': 400, 'height': 100, 'img_style': 'width:100%;height:35px;'}">
+                                                <div class="bg-light border-1 rounded d-flex flex-column align-items-center justify-content-center px-1 py-2 opacity-75 text-muted text-center">
+                                                    (serial barcode)
+                                                </div>
+                                            </span>
+                                        </td>
+                                        <td class="text-center" t-if="has_barcode">
+                                            <t t-if="product_barcode != ml.product_id.barcode">
+                                                <span t-if="ml.product_id and ml.product_id.barcode">
+                                                    <div t-field="ml.product_id.barcode" t-options="{'widget': 'barcode', 'symbology': 'auto', 'width': 400, 'height': 100, 'quiet': 0, 'img_style': 'height:35px;'}">
+                                                        <div class="bg-light border-1 rounded d-flex flex-column align-items-center justify-content-center px-1 py-2 opacity-75 text-muted text-center">
+                                                            (product barcode)
+                                                        </div>
+                                                    </div>
+                                                </span>
+                                                <t t-set="product_barcode" t-value="ml.product_id.barcode"/>
+                                            </t>
+                                        </td>
+                                    </tr>
+                                  </tbody>
+                            </table>
+
+            </xpath>
+        </template>
+
+
+
+
+
+    </data>
+</odoo>

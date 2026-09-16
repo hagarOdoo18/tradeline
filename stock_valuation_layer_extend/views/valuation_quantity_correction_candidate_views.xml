@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="valuation_quantity_correction_candidate_list" model="ir.ui.view">
+        <field name="name">stock.valuation.quantity.correction.candidate.list</field>
+        <field name="model">stock.valuation.quantity.correction.candidate</field>
+        <field name="arch" type="xml">
+            <list string="Valuation Quantity Corrections" create="false" edit="false" delete="false" multi_edit="false">
+                <field name="source_date"/>
+                <field name="reference"/>
+                <field name="product_id"/>
+                <field name="item_code"/>
+                <field name="lot_id"/>
+                <field name="physical_qty" sum="Physical"/>
+                <field name="valuation_qty" sum="Valuation" decoration-danger="valuation_qty &lt; 0"/>
+                <field name="valuation_value" sum="Valuation Value" decoration-danger="valuation_value &lt; 0"/>
+                <field name="correction_qty" sum="Correction Qty" decoration-success="correction_qty &gt; 0"/>
+                <field name="correction_value" sum="Correction Value" decoration-success="correction_value &gt; 0"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="currency_id" column_invisible="True"/>
+                <field name="source_svl_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="valuation_quantity_correction_candidate_search" model="ir.ui.view">
+        <field name="name">stock.valuation.quantity.correction.candidate.search</field>
+        <field name="model">stock.valuation.quantity.correction.candidate</field>
+        <field name="arch" type="xml">
+            <search string="Valuation Quantity Corrections">
+                <field name="product_id"/>
+                <field name="item_code"/>
+                <field name="lot_id"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <group expand="0" string="Group By">
+                    <filter string="Product" name="group_product" context="{'group_by': 'product_id'}"/>
+                    <filter string="Company" name="group_company" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_valuation_quantity_correction_candidates" model="ir.actions.act_window">
+        <field name="name">Valuation Quantity Corrections</field>
+        <field name="res_model">stock.valuation.quantity.correction.candidate</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="valuation_quantity_correction_candidate_list"/>
+        <field name="search_view_id" ref="valuation_quantity_correction_candidate_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No eligible erroneous quantity updates were found.</p>
+            <p>Only serials with physical quantity 0, valuation quantity -1, and one uncorrected Product Quantity Updated layer appear here.</p>
+        </field>
+    </record>
+
+    <menuitem
+        id="menu_valuation_quantity_correction_candidates"
+        name="Valuation Quantity Corrections"
+        parent="stock.menu_valuation"
+        action="action_valuation_quantity_correction_candidates"
+        groups="stock_valuation_layer_extend.group_stock_valuation_quantity_correction"
+        sequence="30"/>
+
+    <record id="valuation_quantity_correction_candidate_company_rule" model="ir.rule">
+        <field name="name">Valuation Quantity Correction Candidates: Multi-Company</field>
+        <field name="model_id" ref="model_stock_valuation_quantity_correction_candidate"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_preorder_campaign_view_list" model="ir.ui.view">
+        <field name="name">sale.preorder.campaign.list</field>
+        <field name="model">sale.preorder.campaign</field>
+        <field name="arch" type="xml">
+            <list decoration-success="state == 'delivery'" decoration-muted="state in ('closed', 'cancelled')">
+                <field name="name"/>
+                <field name="date_start"/>
+                <field name="date_end"/>
+                <field name="preorder_count"/>
+                <field name="requested_quantity" sum="Requested"/>
+                <field name="quota_quantity" sum="Quota"/>
+                <field name="allocated_quantity" sum="Reserved"/>
+                <field name="available_quantity" sum="Available" decoration-warning="available_quantity == 0"/>
+                <field name="delivered_quantity" sum="Delivered"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="state" widget="badge"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="sale_preorder_campaign_view_form" model="ir.ui.view">
+        <field name="name">sale.preorder.campaign.form</field>
+        <field name="model">sale.preorder.campaign</field>
+        <field name="arch" type="xml">
+            <form string="Pre-order Campaign">
+                <header>
+                    <button name="action_generate_allocation_lines" string="Generate Quota Lines" type="object"
+                            invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_open_campaign" string="Open Pre-orders" type="object" class="oe_highlight"
+                            invisible="state != 'draft'" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_open_allocation_delivery" string="Open Allocation &amp; Delivery" type="object" class="oe_highlight"
+                            invisible="state != 'open'" groups="preorder_management.group_preorder_manager"
+                            confirm="Fully paid pre-orders already reserved quota automatically. This now opens delivery work and makes those reservations ready for delivery. Continue?"/>
+                    <button name="action_retry_auto_reservations" string="Refresh Paid Reservations" type="object"
+                            invisible="state not in ('allocation', 'delivery')" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_close_campaign" string="Close" type="object"
+                            invisible="state != 'delivery'" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_cancel_campaign" string="Cancel" type="object"
+                            invisible="state in ('closed', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
+                    <button name="action_reset_to_setup" string="Reset to Setup" type="object"
+                            invisible="state not in ('open', 'allocation', 'delivery', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,open,allocation,delivery,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_preorders" type="object" class="oe_stat_button" icon="fa-list">
+                            <field name="preorder_count" widget="statinfo" string="Pre-orders"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Cancelled" bg_color="text-bg-danger" invisible="state != 'cancelled'"/>
+                    <div class="oe_title"><h1><field name="name"/></h1></div>
+                    <group>
+                        <group>
+                            <field name="date_start" readonly="state != 'draft'"/>
+                            <field name="date_end" readonly="state != 'draft'"/>
+                            <field name="company_id" readonly="state != 'draft'" groups="base.group_multi_company"/>
+                        </group>
+                        <group>
+                            <field name="product_ids" string="Devices" widget="many2many_tags" readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="select_all_branches" readonly="state != 'draft'"/>
+                            <field name="branch_ids" widget="many2many_tags" readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="default_branch_quota" string="Branch Quota" readonly="state != 'draft'" placeholder="5"/>
+                        </group>
+                    </group>
+                    <group string="Live Campaign Quantities">
+                        <field name="requested_quantity" readonly="1"/>
+                        <field name="quota_quantity" readonly="1"/>
+                        <field name="allocated_quantity" readonly="1"/>
+                        <field name="available_quantity" readonly="1"/>
+                        <field name="delivered_quantity" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Branch Allocation">
+                            <field name="allocation_line_ids" readonly="state in ('closed', 'cancelled')">
+                                <list editable="bottom">
+                                    <field name="company_id" column_invisible="True"/>
+                                    <field name="branch_id" options="{'no_create': True}"/>
+                                    <field name="product_id" options="{'no_create': True}" domain="[('id', 'in', parent.product_ids)]"/>
+                                    <field name="allocated_qty" sum="Quota"/>
+                                    <field name="reserved_qty" sum="Reserved" readonly="1"/>
+                                    <field name="delivered_qty" sum="Delivered" readonly="1"/>
+                                    <field name="available_qty" sum="Available" readonly="1" decoration-danger="available_qty &lt; 0"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Customer Pre-orders">
+                            <field name="preorder_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="customer_id"/>
+                                    <field name="branch_id"/>
+                                    <field name="preorder_date"/>
+                                    <field name="sales_rep_id"/>
+                                    <field name="discount_id" optional="show"/>
+                                    <field name="device_summary"/>
+                                    <field name="requested_qty_total"/>
+                                    <field name="payment_status" widget="badge"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes"><field name="notes"/></page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="sale_preorder_view_list" model="ir.ui.view">
+        <field name="name">sale.preorder.list</field>
+        <field name="model">sale.preorder</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="payment_status in ('none', 'returned')"
+                  decoration-success="state == 'completed'" decoration-muted="state == 'cancelled'">
+                <field name="currency_id" column_invisible="True"/>
+                <field name="payment_status" column_invisible="True"/>
+                <field name="state" column_invisible="True"/>
+                <field name="name" string="Pre-order"/>
+                <field name="preorder_date" string="Date"/>
+                <field name="customer_id" string="Customer"/>
+                <field name="branch_id" string="Branch"/>
+                <field name="sales_rep_id" string="Sales Rep"/>
+                <field name="discount_id" string="Discount Reason"/>
+                <field name="device_summary" string="Requested Device(s)"/>
+                <field name="requested_qty_total" string="Total Quantity" sum="Total Quantity"/>
+                <field name="prepaid_amount" string="Original Payment" sum="Total Original Payment"/>
+                <field name="payment_method_1" string="Journal 1"/>
+                <field name="payment_method_2" string="Journal 2"/>
+                <field name="payment_method_3" string="Journal 3" optional="show"/>
+                <field name="payment_method_4" string="Journal 4" optional="show"/>
+                <field name="additional_payment_methods" string="Additional Journals" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="sale_preorder_view_form" model="ir.ui.view">
+        <field name="name">sale.preorder.form</field>
+        <field name="model">sale.preorder</field>
+        <field name="arch" type="xml">
+            <form string="Customer Pre-order">
+                <header>
+                    <button name="action_confirm_preorder" string="Confirm Pre-order" type="object" class="oe_highlight"
+                            invisible="state != 'draft'" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_register_payment" string="Register Payment" type="object" class="oe_highlight"
+                            invisible="state != 'confirmed'" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_migrate_payments_to_delivery" string="Reverse Payment Before Delivery" type="object"
+                            class="oe_highlight" invisible="payment_recording_mode != 'preorder' or state not in ('pending', 'allocated')"
+                            groups="preorder_management.group_preorder_manager"
+                            confirm="This preserves the original payment, posts a linked reversal now, and requires the branch to record payment on the delivery date. Continue?"/>
+                    <button name="%(preorder_management.action_report_preorder_confirmation)d"
+                            string="Print Pre-order Confirmation" type="action"
+                            invisible="not is_reserved" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_create_delivery_order" string="Create Delivery Order" type="object" class="oe_highlight"
+                            invisible="state != 'allocated'" groups="preorder_management.group_preorder_user"/>
+                    <button name="action_invoice_and_apply_payment" string="Invoice &amp; Apply Original Payment" type="object" class="oe_highlight"
+                            invisible="state not in ('delivery', 'invoiced')"
+                            groups="preorder_management.group_preorder_user"
+                            confirm="The delivery must already be validated. This posts the invoice, changes the original payment journal date to the delivery invoice date, and reconciles that same payment. It does not charge or refund the customer."/>
+                    <button name="action_cancel_preorder" string="Cancel" type="object"
+                            invisible="state in ('delivery', 'invoiced', 'completed', 'cancelled')"
+                            groups="preorder_management.group_preorder_user"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object"
+                            invisible="state not in ('confirmed', 'pending', 'cancelled')" groups="preorder_management.group_preorder_manager"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,pending,allocated,delivery,invoiced,completed"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-danger" role="alert" invisible="payment_status != 'returned'">
+                        The original payment has already been returned. This record cannot use the no-refund delivery workflow.
+                    </div>
+                    <div class="alert alert-info" role="alert" invisible="state != 'invoiced'">
+                        The original payment was applied, but the delivery invoice still has a remaining balance.
+                    </div>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_source_order" type="object" class="oe_stat_button" icon="fa-file-text-o"
+                                invisible="not source_order_id">
+                            <div class="o_stat_info"><span class="o_stat_text">Quotation</span></div>
+                        </button>
+                        <button name="action_open_payments" type="object" class="oe_stat_button" icon="fa-money"
+                                invisible="payment_count == 0">
+                            <field name="payment_count" widget="statinfo" string="Payments"/>
+                        </button>
+                        <button name="action_open_delivery_order" type="object" class="oe_stat_button" icon="fa-truck"
+                                invisible="not final_sale_order_id">
+                            <div class="o_stat_info"><span class="o_stat_text">Delivery Order</span></div>
+                        </button>
+                        <button name="action_open_invoices" type="object" class="oe_stat_button" icon="fa-pencil-square-o"
+                                invisible="invoice_count == 0">
+                            <field name="invoice_count" widget="statinfo" string="Invoices"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Completed" bg_color="text-bg-success" invisible="state != 'completed'"/>
+                    <widget name="web_ribbon" title="Cancelled" bg_color="text-bg-danger" invisible="state != 'cancelled'"/>
+                    <widget name="web_ribbon" title="Reserved" bg_color="text-bg-info"
+                            invisible="not is_reserved or state in ('delivery', 'invoiced', 'completed', 'cancelled')"/>
+                    <div class="oe_title"><h1><field name="name"/></h1></div>
+                    <group>
+                        <group string="Customer Request">
+                            <field name="campaign_id" readonly="state != 'draft'"
+                                   domain="[('state', '=', 'open')]" options="{'no_create': True}"/>
+                            <field name="campaign_company_id" invisible="1"/>
+                            <field name="customer_id" readonly="state != 'draft'"/>
+                            <field name="branch_id" readonly="1" options="{'no_create': True}"/>
+                            <field name="preorder_date" readonly="1"/>
+                            <field name="sales_rep_id" readonly="state != 'draft'" options="{'no_create': True}"/>
+                            <field name="discount_id" readonly="state != 'draft'" options="{'no_create': True}"/>
+                            <field name="source_order_id" readonly="1" invisible="not source_order_id"/>
+                            <field name="source_state" invisible="not source_order_id"/>
+                        </group>
+                        <group string="Order Totals">
+                            <field name="campaign_product_ids" invisible="1"/>
+                            <field name="device_ids" invisible="1"/>
+                            <field name="requested_qty_total" readonly="1"/>
+                            <field name="amount_untaxed" readonly="1"/>
+                            <field name="amount_tax" readonly="1"/>
+                            <field name="deposit_amount" readonly="1"/>
+                            <field name="is_reserved" readonly="1"/>
+                            <field name="allocation_ids" widget="many2many_tags" readonly="1" invisible="not allocation_ids"/>
+                            <field name="final_sale_order_id" invisible="not final_sale_order_id"/>
+                        </group>
+                    </group>
+                    <group string="Fulfillment Audit" invisible="not fulfilled_via">
+                        <field name="fulfilled_via"/>
+                        <field name="fulfillment_pos_config_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_pos_session_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_pos_order_id" invisible="fulfilled_via != 'pos'"/>
+                        <field name="fulfillment_user_id"/>
+                        <field name="fulfilled_at"/>
+                    </group>
+                    <group string="Requested Devices" col="1">
+                        <field name="line_ids" readonly="state != 'draft'">
+                            <list editable="bottom">
+                                <field name="currency_id" column_invisible="True"/>
+                                <field name="product_id" options="{'no_create': True}"
+                                       domain="[('id', 'in', parent.campaign_product_ids)]"/>
+                                <field name="requested_qty"/>
+                                <field name="price_unit" readonly="1"/>
+                                <field name="discount"/>
+                                <field name="tax_names" readonly="1" optional="show"/>
+                                <field name="amount_untaxed" readonly="1" sum="Subtotal"/>
+                                <field name="amount_total" readonly="1" sum="Total"/>
+                                <field name="allocation_id" readonly="1" optional="hide"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Payment Timing and Audit">
+                        <group>
+                            <field name="payment_recording_mode"/>
+                            <field name="source_amount_total" invisible="not source_order_id"/>
+                            <field name="prepaid_amount"/>
+                            <field name="available_prepayment_amount"/>
+                            <field name="payment_due_amount"/>
+                        </group>
+                        <group>
+                            <field name="payment_method_names"/>
+                            <field name="payment_method_breakdown" readonly="1"/>
+                            <field name="payment_status" widget="badge"/>
+                            <field name="prepayment_applied_amount"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Payment Records">
+                            <field name="payment_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="date"/>
+                                    <field name="journal_id"/>
+                                    <field name="payment_method_line_id"/>
+                                    <field name="amount" sum="Total Paid"/>
+                                    <field name="currency_id"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Migration Audit" invisible="payment_recording_mode != 'delivery'">
+                            <field name="payment_confirmation_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="source_date"/>
+                                    <field name="source_payment_id"/>
+                                    <field name="reversal_payment_id"/>
+                                    <field name="payment_channel"/>
+                                    <field name="amount" sum="Confirmed"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes"><field name="notes"/></page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="sale_preorder_view_search" model="ir.ui.view">
+        <field name="name">sale.preorder.search</field>
+        <field name="model">sale.preorder</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="search_text"/>
+                <field name="name"/>
+                <field name="campaign_id"/>
+                <field name="customer_id"/>
+                <field name="branch_id"/>
+                <field name="device_ids"/>
+                <field name="sales_rep_id"/>
+                <field name="discount_id"/>
+                <filter name="waiting_allocation" string="Paid — Reserved, Waiting Delivery" domain="[('state', '=', 'pending')]"/>
+                <filter name="ready_delivery" string="Ready for Delivery" domain="[('state', '=', 'allocated')]"/>
+                <filter name="payment_problem" string="Payment Problem" domain="[('payment_status', 'in', ('none', 'returned'))]"/>
+                <filter name="completed" string="Completed" domain="[('state', '=', 'completed')]"/>
+                <group expand="0" string="Group By">
+                    <filter name="group_campaign" string="Campaign" context="{'group_by': 'campaign_id'}"/>
+                    <filter name="group_branch" string="Branch" context="{'group_by': 'branch_id'}"/>
+                    <filter name="group_product" string="Device Combination" context="{'group_by': 'device_summary'}"/>
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_payment" string="Payment Status" context="{'group_by': 'payment_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="sale_preorder_allocation_view_list" model="ir.ui.view">
+        <field name="name">sale.preorder.allocation.list</field>
+        <field name="model">sale.preorder.allocation</field>
+        <field name="arch" type="xml">
+            <list editable="bottom" decoration-danger="available_qty &lt; 0">
+                <field name="campaign_id"/>
+                <field name="company_id" column_invisible="True"/>
+                <field name="branch_id" options="{'no_create': True}"/>
+                <field name="product_id" options="{'no_create': True}"/>
+                <field name="allocated_qty" sum="Quota"/>
+                <field name="reserved_qty" sum="Reserved" readonly="1"/>
+                <field name="delivered_qty" sum="Delivered" readonly="1"/>
+                <field name="available_qty" sum="Available" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="sale_preorder_campaign_action" model="ir.actions.act_window">
+        <field name="name">Pre-order Campaigns</field>
+        <field name="res_model">sale.preorder.campaign</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <record id="sale_preorder_action" model="ir.actions.act_window">
+        <field name="name">Customer Pre-orders</field>
+        <field name="res_model">sale.preorder</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="sale_preorder_view_search"/>
+    </record>
+    <record id="sale_preorder_migrate_payments_server_action" model="ir.actions.server">
+        <field name="name">Reverse Payments Before Delivery</field>
+        <field name="model_id" ref="model_sale_preorder"/>
+        <field name="binding_model_id" ref="model_sale_preorder"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">records.action_migrate_payments_to_delivery()</field>
+        <field name="groups_id" eval="[(4, ref('preorder_management.group_preorder_manager'))]"/>
+    </record>
+    <record id="sale_preorder_allocation_action" model="ir.actions.act_window">
+        <field name="name">Branch Allocation</field>
+        <field name="res_model">sale.preorder.allocation</field>
+        <field name="view_mode">list</field>
+    </record>
+    <menuitem id="sale_preorder_menu_root" name="Pre-orders" parent="sale.sale_menu_root" sequence="29"
+              groups="preorder_management.group_preorder_user"/>
+    <menuitem id="sale_preorder_menu_campaigns" name="Campaigns" parent="sale_preorder_menu_root"
+              action="sale_preorder_campaign_action" sequence="10"
+              groups="preorder_management.group_preorder_manager"/>
+    <menuitem id="sale_preorder_menu_orders" name="Customer Pre-orders" parent="sale_preorder_menu_root"
+              action="sale_preorder_action" sequence="20"/>
+    <menuitem id="sale_preorder_menu_allocations" name="Branch Allocation" parent="sale_preorder_menu_root"
+              action="sale_preorder_allocation_action" sequence="30"
+              groups="preorder_management.group_preorder_user"/>
+    <record id="sale_preorder_menu_report" model="ir.ui.menu">
+        <field name="name">Pre-order Report</field>
+        <field name="active" eval="False"/>
+    </record>
+</odoo>

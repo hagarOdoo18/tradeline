@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_ai_copilot_workspace" model="ir.actions.client">
+        <field name="name">AI Copilot Workspace</field>
+        <field name="tag">tradeline_ai_copilot.workspace_action</field>
+        <field name="target">current</field>
+    </record>
+
+    <record id="action_ai_copilot_conversations" model="ir.actions.act_window">
+        <field name="name">Conversations</field>
+        <field name="res_model">ai.copilot.conversation</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[]</field>
+    </record>
+
+    <record id="action_ai_copilot_generated_files" model="ir.actions.act_window">
+        <field name="name">Generated Reports</field>
+        <field name="res_model">ai.copilot.generated.file</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[]</field>
+    </record>
+
+    <record id="action_ai_copilot_audit_logs" model="ir.actions.act_window">
+        <field name="name">Query Logs</field>
+        <field name="res_model">ai.copilot.audit.log</field>
+        <field name="view_mode">list,form</field>
+        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+    </record>
+
+    <record id="action_ai_copilot_allowed_models" model="ir.actions.act_window">
+        <field name="name">Model Access Policy</field>
+        <field name="res_model">ai.copilot.allowed.model</field>
+        <field name="view_mode">list,form</field>
+        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+    </record>
+
+    <record id="action_ai_copilot_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">ai.copilot.settings</field>
+        <field name="view_mode">form</field>
+        <field name="res_id" ref="ai_copilot_default_settings"/>
+        <field name="target">current</field>
+        <field name="groups_id" eval="[(6, 0, [ref('base.group_system')])]"/>
+    </record>
+
+    <record id="action_ai_copilot_refresh_policy" model="ir.actions.server">
+        <field name="name">Refresh Auto-Enabled Models</field>
+        <field name="model_id" ref="model_ai_copilot_allowed_model"/>
+        <field name="state">code</field>
+        <field name="code">env['ai.copilot.service'].refresh_allowed_models()</field>
+    </record>
+
+    <menuitem id="menu_tradeline_ai_root" name="Tradeline AI" sequence="30" groups="base.group_user"/>
+    <menuitem id="menu_tradeline_ai_workspace" name="Chat Workspace" parent="menu_tradeline_ai_root" action="action_ai_copilot_workspace" sequence="1" groups="base.group_user"/>
+    <menuitem id="menu_tradeline_ai_conversations" name="Conversations" parent="menu_tradeline_ai_root" action="action_ai_copilot_conversations" sequence="2" groups="base.group_user"/>
+    <menuitem id="menu_tradeline_ai_generated_files" name="Generated Reports" parent="menu_tradeline_ai_root" action="action_ai_copilot_generated_files" sequence="3" groups="base.group_user"/>
+
+    <menuitem id="menu_tradeline_ai_admin" name="Administration" parent="menu_tradeline_ai_root" sequence="20" groups="base.group_system"/>
+    <menuitem id="menu_tradeline_ai_logs" name="Query Logs" parent="menu_tradeline_ai_admin" action="action_ai_copilot_audit_logs" sequence="1" groups="base.group_system"/>
+    <menuitem id="menu_tradeline_ai_policy" name="Model Access Policy" parent="menu_tradeline_ai_admin" action="action_ai_copilot_allowed_models" sequence="2" groups="base.group_system"/>
+    <menuitem id="menu_tradeline_ai_settings" name="Settings" parent="menu_tradeline_ai_admin" action="action_ai_copilot_settings" sequence="3" groups="base.group_system"/>
+    <menuitem id="menu_tradeline_ai_refresh" name="Refresh Policy Models" parent="menu_tradeline_ai_admin" action="action_ai_copilot_refresh_policy" sequence="4" groups="base.group_system"/>
+</odoo>

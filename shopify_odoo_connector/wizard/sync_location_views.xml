@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+    <!-- Wizard form -->
+    <record id="sync_location_view_form" model="ir.ui.view">
+        <field name="name">sync.location.view.form</field>
+        <field name="model">sync.location</field>
+        <field name="arch" type="xml">
+            <form string="Sync Shopify Locations">
+                <group>
+                    <field name="shopify_instance_id"/>
+                    <field name="warehouse_ids"
+                           widget="many2many_tags"
+                           string="Warehouses to Push to Shopify"/>
+                </group>
+                <div class="alert alert-info" role="alert">
+                    <b>Pull from Shopify:</b> fetches all Shopify locations
+                    into Odoo so you can map each one to an Odoo warehouse.<br/>
+                    <b>Push to Shopify:</b> creates the selected Odoo
+                    warehouses as new locations in Shopify (skips any already
+                    pushed).
+                </div>
+                <footer>
+                    <button name="action_push_locations"
+                            string="Push to Shopify"
+                            type="object"
+                            class="btn-primary"/>
+                    <button name="action_sync_locations"
+                            string="Pull from Shopify"
+                            type="object"
+                            class="btn-secondary"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Shopify location list view (editable warehouse mapping) -->
+    <record id="shopify_location_view_list" model="ir.ui.view">
+        <field name="name">shopify.location.list</field>
+        <field name="model">shopify.location</field>
+        <field name="arch" type="xml">
+            <list string="Shopify Locations" editable="bottom"
+                  create="false" delete="false">
+                <field name="name"/>
+                <field name="shopify_location_id"/>
+                <field name="address"/>
+                <field name="active"/>
+                <field name="warehouse_id"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Shopify location form view -->
+    <record id="shopify_location_view_form" model="ir.ui.view">
+        <field name="name">shopify.location.form</field>
+        <field name="model">shopify.location</field>
+        <field name="arch" type="xml">
+            <form string="Shopify Location">
+                <group>
+                    <group string="Shopify">
+                        <field name="name"/>
+                        <field name="shopify_location_id"/>
+                        <field name="instance_id"/>
+                        <field name="address"/>
+                        <field name="active"/>
+                    </group>
+                    <group string="Odoo Mapping">
+                        <field name="warehouse_id"/>
+                    </group>
+                </group>
+            </form>
+        </field>
+    </record>
+
+    <!-- Window action for the wizard -->
+    <record id="sync_location_action" model="ir.actions.act_window">
+        <field name="name">Sync Locations</field>
+        <field name="res_model">sync.location</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="sync_location_view_form"/>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Window action for the location list -->
+    <record id="shopify_location_action" model="ir.actions.act_window">
+        <field name="name">Shopify Locations</field>
+        <field name="res_model">shopify.location</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Menu entries -->
+    <menuitem id="sync_location_menu"
+              name="Sync Locations"
+              parent="shopify_odoo_connector.product_template_menu_root"
+              action="sync_location_action"
+              sequence="6"/>
+
+    <menuitem id="shopify_location_menu"
+              name="Shopify Locations"
+              parent="shopify_odoo_connector.product_template_menu_root"
+              action="shopify_location_action"
+              sequence="7"/>
+
+</odoo>

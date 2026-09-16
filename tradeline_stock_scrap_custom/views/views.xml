@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_stock_scrap_wizard" model="ir.ui.view">
+            <field name="name">view.stock.scrap.wizard</field>
+            <field name="model">stock.scrap.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Scrap">
+                    <sheet>
+                        <group>
+                            <field name="scrap_lines" nolabel="1">
+                                <list editable="top" create="0">
+                                    <field name="product_id" options="{'no_create': True, 'no_open': True}" readonly="1" force_save="1"/>
+                                    <field name="quantity"/>
+                                    <field name="product_uom_id" readonly="1" groups="uom.group_uom" force_save="1"/>
+                                    <field name="lot_id" readonly="1" force_save="1"/>
+                                </list>
+                            </field>
+                        </group>
+                        <group>
+                            <field name="location_id"/>
+                            <field name="scrap_location_id"/>
+                        </group>
+                    </sheet>
+                    <footer>
+                        <button name="create_scrap" type="object" string="Create Scrap" class="oe_highlight"/>
+                        <button string="Cancel" class="btn-default" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_request_scrap_wizard" model="ir.ui.view">
+            <field name="name">view.request.scrap.wizard</field>
+            <field name="model">request.scrap.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Request Scrap">
+                    <sheet>
+                        <group>
+                            <field name="note"/>
+                        </group>
+                    </sheet>
+                    <footer>
+                        <button name="request_scrap" type="object" string="Request Scrap" class="oe_highlight"/>
+                        <button string="Cancel" class="btn-default" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_request_stock_picking_scrap" model="ir.ui.view">
+            <field name="name">view.request.stock.picking.form.return</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form"/>
+
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='origin']" position="after">
+                    <field name="approve_scrap" invisible="1"/>
+                    <field name="check_scrap_new" invisible="1"/>
+                </xpath>
+                <xpath expr="//button[@name='button_validate']" position="after">
+                                        <button name="button_scrap" invisible="  (
+            picking_type_code != 'incoming'
+            or state in ('draft', 'cancel', 'waiting')
+            or (picking_type_code == 'incoming' and state != 'done')
+            or not is_locked
+            or not check_scrap_new
+        )
+        and not approve_scrap" string="Scrap" type="object" class="oe_highlight" data-hotkey="w"/>
+                     <field name="request_scrap" invisible="1"/>
+                    <field name="wait_approve_scrap" invisible="1"/>
+                    <button name="function_approve_scrap" type="object" string="Approve Scrap"
+                            groups="tradeline_stock_scrap_custom.group_approval_scrap"
+                            invisible="not wait_approve_scrap"/>
+                    <button name="request_request" type="object" string="Request Scrap"
+                            groups="tradeline_stock_scrap_custom.group_return_picking_internal"
+                            invisible="request_scrap"/>
+                    <button name="button_vendor" type="object" string="Vendor Scrap"
+                            groups="tradeline_stock_scrap_custom.group_return_picking_internal"/>
+
+
+                </xpath>
+            </field>
+        </record>
+
+
+        <record id="stock_location_form_vendor_scrap" model="ir.ui.view">
+            <field name="name">stock.location.form.vendor.scrap</field>
+            <field name="model">stock.location</field>
+            <field name="inherit_id" ref="stock.view_location_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='scrap_location']" position="after">
+                    <field name="scrap_vendor_location"/>
+                </xpath>
+            </field>
+        </record>
+    </data>
+</odoo>

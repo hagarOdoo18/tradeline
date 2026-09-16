@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-inherit="point_of_sale.EditListInput" t-inherit-mode="extension">
+        <xpath expr="//input" position="attributes">
+            <attribute name="t-att-readOnly">false</attribute>
+            <attribute name="placeholder">Search Serial / Lot</attribute>
+        </xpath>
+    </t>
+
+</templates>

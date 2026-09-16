@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+
+    <!-- ============================================================
+         Main Chat Client Action
+    ============================================================ -->
+    <t t-name="tradeline_ai_invoice_chat.ChatClient">
+        <div class="o_ai_chat_root d-flex h-100">
+
+            <!-- Sidebar -->
+            <aside class="o_ai_chat_sidebar d-flex flex-column">
+                <div class="o_ai_chat_sidebar_header p-3">
+                    <button class="btn btn-primary w-100" t-on-click="newSession">
+                        <i class="fa fa-plus me-2"/>New Chat
+                    </button>
+                </div>
+
+                <div class="o_ai_chat_sessions flex-grow-1 overflow-auto">
+                    <t t-foreach="state.sessions" t-as="s" t-key="s.id">
+                        <div
+                            class="o_ai_chat_session_item d-flex align-items-center px-3 py-2"
+                            t-att-class="{ active: state.sessionId === s.id }"
+                            t-on-click="() => this.loadSession(s.id)"
+                        >
+                            <i class="fa fa-comment-o me-2 text-muted"/>
+                            <div class="flex-grow-1 text-truncate">
+                                <div class="fw-semibold text-truncate" t-esc="s.name"/>
+                                <small class="text-muted" t-esc="s.message_count + ' messages'"/>
+                            </div>
+                            <button
+                                class="btn btn-sm btn-link text-danger p-0 ms-1 o_ai_clear_btn"
+                                title="Clear this chat"
+                                t-on-click.stop="() => this.clearSession(s.id)"
+                            >
+                                <i class="fa fa-trash"/>
+                            </button>
+                        </div>
+                    </t>
+                    <div t-if="state.sessions.length === 0" class="text-center text-muted py-4 px-3">
+                        <i class="fa fa-comments-o fa-2x mb-2 d-block"/>
+                        <small>No chats yet. Ask me something — I keep every conversation here.</small>
+                    </div>
+                </div>
+
+                <div class="o_ai_chat_sidebar_footer p-3 border-top">
+                    <small class="text-muted">
+                        <i class="fa fa-lock me-1"/>You only ever see data your Odoo
+                        access rights allow.
+                    </small>
+                </div>
+            </aside>
+
+            <!-- Main Chat Area -->
+            <main class="o_ai_chat_main d-flex flex-column flex-grow-1">
+
+                <!-- Header -->
+                <div class="o_ai_chat_header d-flex align-items-center px-4 py-3 border-bottom">
+                    <div class="o_ai_chat_avatar me-3">
+                        <div class="o_ai_avatar_circle o_ai_avatar_bot">
+                            <i class="fa fa-magic"/>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 min-w-0">
+                        <h5 class="mb-0 fw-bold text-truncate"
+                            t-esc="state.sessionName || 'Tradeline AI Assistant'"/>
+                        <small class="text-muted">
+                            Ask about anything in Odoo — in English or Arabic
+                        </small>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button
+                            class="btn btn-sm btn-outline-secondary"
+                            title="Quick questions"
+                            t-on-click="toggleQuickAsks"
+                        >
+                            <i class="fa fa-bolt me-1"/>Quick asks
+                        </button>
+                        <button
+                            t-if="state.sessionId"
+                            class="btn btn-sm btn-outline-secondary"
+                            title="Clear messages"
+                            t-on-click="clearCurrentSession"
+                        >
+                            <i class="fa fa-eraser me-1"/>Clear
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Messages -->
+                <div class="o_ai_chat_messages flex-grow-1 overflow-auto p-4" t-ref="messagesContainer">
+
+                    <!-- Welcome -->
+                    <t t-if="state.messages.length === 0">
+                        <div class="o_ai_chat_welcome">
+                            <div class="text-center mb-4">
+                                <div class="o_ai_welcome_icon mb-2">
+                                    <i class="fa fa-magic fa-3x"/>
+                                </div>
+                                <h4 class="fw-bold mb-1">
+                                    <t t-esc="greeting"/>! How can I help?
+                                </h4>
+                                <p class="text-muted mb-0">Ask me about sales, invoices, payments, stock, POS, purchases, products or people — in plain English or Arabic.</p>
+                            </div>
+
+                            <div class="row g-3">
+                                <t t-foreach="suggestionGroups" t-as="group" t-key="group.title">
+                                    <div class="col-12 col-lg-4">
+                                        <div class="o_ai_sug_card h-100 p-3">
+                                            <div class="o_ai_sug_title mb-2">
+                                                <i t-att-class="'fa me-2 ' + group.icon"/>
+                                                <t t-esc="group.title"/>
+                                            </div>
+                                            <t t-foreach="group.items" t-as="item" t-key="item">
+                                                <button
+                                                    class="o_ai_sug_btn w-100 text-start"
+                                                    t-on-click="() => this.useSuggestion(item)"
+                                                    t-esc="item"
+                                                />
+                                            </t>
+                                        </div>
+                                    </div>
+                                </t>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- Message bubbles -->
+                    <t t-foreach="state.messages" t-as="msg" t-key="msg_index">
+                        <div
+                            class="o_ai_chat_msg d-flex mb-3"
+                            t-att-class="msg.role === 'user' ? 'justify-content-end' : 'justify-content-start'"
+                        >
+                            <t t-if="msg.role === 'assistant'">
+                                <div class="o_ai_msg_avatar me-2 flex-shrink-0">
+                                    <div class="o_ai_avatar_circle o_ai_avatar_bot">
+                                        <i class="fa fa-magic"/>
+                                    </div>
+                                </div>
+                            </t>
+                            <div class="o_ai_msg_wrap">
+                                <div
+                                    class="o_ai_msg_bubble"
+                                    t-att-class="msg.role === 'user' ? 'o_ai_msg_user' : 'o_ai_msg_assistant'"
+                                    t-att-dir="directionOf(msg.content)"
+                                >
+                                    <div class="o_ai_msg_content" t-out="renderContent(msg.content)"/>
+                                </div>
+                                <div class="o_ai_msg_meta d-flex align-items-center gap-2"
+                                     t-att-class="msg.role === 'user' ? 'justify-content-end' : ''">
+                                    <small class="text-muted" t-esc="formatTime(msg.time)"/>
+                                    <button
+                                        t-if="msg.role === 'assistant'"
+                                        class="btn btn-link btn-sm p-0 o_ai_copy_btn"
+                                        title="Copy answer"
+                                        t-on-click="() => this.copyMessage(msg.content)"
+                                    >
+                                        <i class="fa fa-clone"/>
+                                    </button>
+                                </div>
+                            </div>
+                            <t t-if="msg.role === 'user'">
+                                <div class="o_ai_msg_avatar ms-2 flex-shrink-0">
+                                    <div class="o_ai_avatar_circle o_ai_avatar_user">
+                                        <i class="fa fa-user"/>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </t>
+
+                    <!-- Typing indicator -->
+                    <div t-if="state.loading" class="o_ai_chat_msg d-flex mb-3 justify-content-start">
+                        <div class="o_ai_msg_avatar me-2">
+                            <div class="o_ai_avatar_circle o_ai_avatar_bot">
+                                <i class="fa fa-magic"/>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="o_ai_msg_bubble o_ai_msg_assistant o_ai_typing">
+                                <span/><span/><span/>
+                            </div>
+                            <div class="o_ai_msg_meta">
+                                <small class="text-muted">Looking through your data…</small>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- Quick asks -->
+                <div t-if="state.showQuickAsks" class="o_ai_quick_bar px-4 pt-2">
+                    <t t-foreach="quickAsks" t-as="q" t-key="q">
+                        <button class="o_ai_chip" t-on-click="() => this.useSuggestion(q)" t-esc="q"/>
+                    </t>
+                </div>
+
+                <!-- Input bar -->
+                <div class="o_ai_chat_input_bar border-top px-4 py-3">
+                    <div class="input-group">
+                        <textarea
+                            class="form-control o_ai_textarea"
+                            placeholder="Ask me anything about your data… / اسألني عن أي بيانات في النظام…"
+                            rows="1"
+                            t-ref="inputArea"
+                            t-on-keydown="onKeyDown"
+                        />
+                        <button
+                            class="btn btn-primary"
+                            t-att-disabled="state.loading"
+                            t-on-click="sendMessage"
+                        >
+                            <i t-if="!state.loading" class="fa fa-paper-plane"/>
+                            <i t-else="" class="fa fa-spinner fa-spin"/>
+                        </button>
+                    </div>
+                    <div class="text-muted mt-1" style="font-size:11px">
+                        <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for a new line ·
+                        I answer from live data only, never from guesswork.
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </t>
+
+</templates>

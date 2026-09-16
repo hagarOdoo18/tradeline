@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_order_form_discount_reason" model="ir.ui.view">
+        <field name="name">pos.order.form.discount.reason.gift</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="after">
+                <field name="sales_rep_id"/>
+                <field name="as_gift"/>
+                <field name="discount_reason_id" invisible="discount_reason_id == False"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_pos_order_tree_discount_reason" model="ir.ui.view">
+        <field name="name">pos.order.tree.discount.reason.gift</field>
+        <field name="model">pos.order</field>
+        <field name="inherit_id" ref="point_of_sale.view_pos_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='amount_total']" position="after">
+                <field name="as_gift" optional="hide"/>
+                <field name="sales_rep_id" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

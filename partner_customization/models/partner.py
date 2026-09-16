@@ -1,0 +1,142 @@
+from odoo import fields,models,api, _
+from odoo.exceptions import ValidationError
+from odoo.osv import expression
+
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+class ResPartnerInherit(models.Model):
+    _inherit = 'res.partner'
+
+
+    mobile_type = fields.Selection(selection=[('local','Local'), ('foreigner', 'Foreigner')],default='local', string='Mobile Type')
+    customer = fields.Boolean(
+        string='Customer', 
+        required=False)
+    vendor = fields.Boolean(
+        string='Vendor', 
+        required=False)
+
+    company_type = fields.Selection(string='Company Type',default='person',
+                                    selection=[('person', 'Individual'), ('company', 'Company')],
+                                    )
+    company_size = fields.Selection(
+        string='Company Size',
+        selection=[
+            ('small', '21 small : up to 250'),
+            ('medium', '21 medium: 250-1000'),
+            ('enterprise', '2L Enterprise : 1000+ local'),
+            ('global', '2L Global : 1000+ Foreigner'),
+        ],
+        required=False,
+    )
+    company_device = fields.Integer(
+        string='Devices',
+        required=False)
+
+    def _sync_company_flags(self, vals):
+        if 'company_type' in vals and 'is_company' in self._fields:
+            vals['is_company'] = vals.get('company_type') == 'company'
+        return vals
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        vals_list = [self._sync_company_flags(dict(vals)) for vals in vals_list]
+        return super().create(vals_list)
+
+    def write(self, vals):
+        vals = self._sync_company_flags(dict(vals))
+        return super().write(vals)
+
+    @api.onchange('company_type')
+    def _onchange_company_type(self):
+        if self.company_type != 'company':
+            self.company_size = False
+            self.company_device = False
+        if 'is_company' in self._fields:
+            self.is_company = self.company_type == 'company'
+
+    @api.constrains('company_type', 'vat', 'company_size', 'company_device')
+    def _check_company_required_fields(self):
+        for partner in self:
+            if partner.company_type != 'company':
+                continue
+
+            if not partner.vat:
+                raise ValidationError(_("Tax ID is mandatory for company contacts."))
+            if not partner.company_size:
+                raise ValidationError(_("Employees is mandatory for company contacts."))
+            if not partner.company_device or partner.company_device <= 0:
+                raise ValidationError(_("Devices must be greater than 0 for company contacts."))
+        
+    @api.constrains('mobile')
+    def unique_mobile_id(self):
+        if self.mobile and self.search([('mobile', '=', self.mobile),
+                                        ('id', '!=', self.id)]) and self.env.user.id  not in [2,1]:
+            raise ValidationError('Mobile already exists!')
+
+
+    # _sql_constraints = [
+    #     ('vat_uniq', 'unique(vat)', "Vat and National Id  should be unique")
+    # ]
+
+
+
+
+    # def write(self, values):
+    #     # Add code here
+    #     if 'name' in values or 'mobile' in values  :
+    #         if self.env.user.id not in [2, 1]:
+    #             raise ValidationError('Not Allowed')
+    #
+    #
+    #     return super(ResPartnerInherit, self).write(values)
+
+
+    @api.constrains('vat', 'mobile_type', 'company_type')
+    def vat_constrain(self):
+
+        if self.vat and self.mobile_type =='local' and self.company_type == 'person' and len(self.vat) != 14:
+            raise ValidationError('National Id must be only 14 digits')
+        elif  self.vat and self.mobile_type =='local' and self.company_type == 'company' and len(self.vat) != 9:
+            raise ValidationError('Vat Number must be only 9 digits')
+        elif not self.vat and self.mobile_type =='local' and self.company_type == 'company':
+            raise ValidationError('Please Set Vat Number')
+
+    @api.constrains('mobile')
+    def mobile_constrain(self):
+        if self.mobile:
+
+
+            existing_mob = self.search([('mobile', 'in', [str(self.mobile)])]) - self
+            if len(existing_mob) > 0 and self.env.user.id  not in [2,1] :
+                raise ValidationError('mobile number already exist')
+
+            elif self.mobile_type == 'local' and len(self.mobile)  not in [15,11]:
+                raise ValidationError('The local mobile number must be only 11 digits')
+        else:
+            raise ValidationError('Please Set Mobile Number')
+
+    @api.model
+    def name_search(self, name='', args=None, operator='ilike', limit=100):
+        args = list(args or [])
+        if not name:
+            # When no name is provided, call the parent implementation
+            return super().name_search(name=name, args=args, operator=operator,
+                                       limit=limit)
+        # Add search criteria for name, email, and phone
+        domain = ['|', '|','|','|',
+                  ('name', operator, name),
+                  ('email', operator, name),
+                  ('mobile', operator, name),
+                  ('vat', operator, name),
+                  ('phone', operator, name)]
+        # Combine with existing args
+        if args:
+            domain = ['&'] + args + domain
+        # Use search_fetch to get both IDs and display_name efficiently
+        partners = self.search_fetch(domain, ['display_name'], limit=limit)
+        # Return in the expected format: [(id, display_name), ...]
+        return [(partner.id, partner.display_name) for partner in partners]

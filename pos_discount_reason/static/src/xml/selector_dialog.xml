@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="pos_discount_reason.PosChoiceListDialog">
+        <Dialog bodyClass="'partner-list overflow-y-auto'" contentClass="'h-100'">
+            <t t-set-slot="header">
+                <Input tModel="[state, 'query']"
+                       class="'ms-auto'"
+                       isSmall="ui.isSmall"
+                       placeholder="placeholder"
+                       icon="{type: 'fa', value: 'fa-search'}"
+                       autofocus="true"
+                       debounceMillis="250" />
+            </t>
+
+            <table class="table table-hover">
+                <tbody>
+                    <t t-foreach="filteredItems" t-as="item" t-key="item.id">
+                        <t t-if="ui.isSmall">
+                            <tr class="partner-line partner-info"
+                                t-att-class="{'selected': isSelected(item), 'bg-primary-subtle': isSelected(item)}"
+                                t-att-data-id="item.id"
+                                t-on-click="() => this.selectItem(item)">
+                                <td class="align-middle">
+                                    <b t-esc="item.label" />
+                                </td>
+                                <td class="align-middle text-end">
+                                    <button t-if="isSelected(item)"
+                                            t-on-click.stop="() => this.unselect()"
+                                            class="unselect-tag-mobile d-inline-block d-lg-none btn btn-light border ms-2">
+                                        <i class="fa fa-times me-1"></i>
+                                        <span>UNSELECT</span>
+                                    </button>
+                                </td>
+                            </tr>
+                        </t>
+                        <t t-else="">
+                            <tr class="partner-line partner-info"
+                                t-att-class="{'selected': isSelected(item)}"
+                                t-att-data-id="item.id"
+                                t-on-click="() => this.selectItem(item)">
+                                <td class="align-middle">
+                                    <b t-esc="item.label" />
+                                </td>
+                                <td class="edit-partner-button-cell align-middle pe-0">
+                                    <button t-if="isSelected(item)"
+                                            t-on-click.stop="() => this.unselect()"
+                                            class="unselect-tag d-lg-inline-block d-none btn btn-link btn-lg mt-1 float-end">
+                                        <i class="fa fa-check"/>
+                                    </button>
+                                </td>
+                            </tr>
+                        </t>
+                    </t>
+                </tbody>
+            </table>
+
+            <div t-if="!filteredItems.length" class="text-center text-muted py-4">
+                <t t-esc="emptyMessage"/>
+            </div>
+
+            <t t-set-slot="footer">
+                <div class="d-flex justify-content-start flex-wrap gap-2 w-100">
+                    <button class="btn btn-secondary btn-lg lh-lg o-default-button"
+                            t-on-click="() => this.discard()">
+                        Discard
+                    </button>
+                </div>
+            </t>
+        </Dialog>
+    </t>
+
+</templates>

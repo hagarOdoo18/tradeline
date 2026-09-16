@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data >
+
+         <record id="group_product_serial_admin"  model="res.groups">
+            <field name="name">Product Serial(admin)</field>
+        </record>
+         <record id="group_receipt_menu" model="res.groups">
+        <field name="name">Receipt Menu</field>
+    </record>
+        <record id="group_delivery_menu" model="res.groups">
+        <field name="name">Delivery Menu</field>
+    </record>
+        <record id="group_transfer_menu" model="res.groups">
+        <field name="name">Transfer Menu</field>
+    </record>
+        <record id="group_cost_menu" model="res.groups">
+        <field name="name">Landed Costs Menu</field>
+    </record>
+        <record id="group_inventory_menu" model="res.groups">
+        <field name="name">Physical Inventory Menu</field>
+    </record>
+        <record id="group_scrap_menu" model="res.groups">
+        <field name="name">Scrap Menu</field>
+    </record>
+ <record id="group_moves_analysis_menu" model="res.groups">
+        <field name="name">Moves Analysis Menu</field>
+    </record>
+        <record id="group_product_stock_menu" model="res.groups">
+        <field name="name">Stock Menu</field>
+    </record>
+        <record id="group_locations_menu" model="res.groups">
+        <field name="name">Locations Menu</field>
+    </record>
+        <record id="group_stock_move_line_menu" model="res.groups">
+        <field name="name">Stock Move Line Menu</field>
+    </record>
+     <record id="group_stock_move_menu" model="res.groups">
+        <field name="name">Stock Move Menu</field>
+    </record>
+        <record id="group_menu_valuation" model="res.groups">
+        <field name="name">Valuation Menu</field>
+    </record>
+  <record id="group_menu_overview" model="res.groups">
+        <field name="name">Overview Menu</field>
+    </record>
+<record id="group_menu_procurement_compute" model="res.groups">
+        <field name="name">Procurement Menu</field>
+    </record>
+<record id="group_menu_product_notes" model="res.groups">
+        <field name="name">Product Notes</field>
+    </record>
+
+
+
+
+    </data>
+</odoo>

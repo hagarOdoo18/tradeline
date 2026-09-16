@@ -1,0 +1,129 @@
+<odoo>
+    <data>
+        <record id="view_inherit_crm_lead_form1" model="ir.ui.view">
+            <field name="name">view.inherit.crm.lead.form</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+            <field name="arch" type="xml">
+<!--                <xpath expr="//field[@name='contact_name']" position="replace">-->
+<!--                    <field name="contact_name" invisible="1"/>-->
+<!--                    <field name="contact_id"/>-->
+<!--                </xpath>-->
+<!--                                            <xpath expr="//button[@name='toggle_active']" position="replace">-->
+
+<!--                                    <button name="toggle_active" string="Restore"-->
+<!--                            type="object" attrs="{'invisible': ['|', ('probability', '&gt;', 0), ('active', '=', True)]}"-->
+<!--                    groups="tradeline_crm_customize.group_Restore_button"-->
+<!--                    />-->
+<!--                                </xpath>-->
+
+<!--                <xpath expr="//field[@name='partner_id']" position="replace">-->
+<!--                    <field name="partner_id" required="True" options="{'no_quick_create': True}"/>-->
+<!--                </xpath>-->
+<!--                <xpath expr="//field[@name='partner_id']" position="attributes">-->
+<!--                    <attribute name="required">1</attribute>-->
+<!--                    <attribute name="options">{'no_quick_create': Truef}</attribute>-->
+<!--                </xpath>-->
+<!--                <xpath expr="//field[@name='team_id']" position="after">-->
+<!--                    <field name="create_uid"/>-->
+<!--                    <field name="warehouse_id" options="{'no_create': True, 'no_open': True}"/>-->
+<!--                </xpath>-->
+<!--                <xpath expr="//field[@name='tag_ids']" position="after">-->
+<!--                    <field name="reason"/>-->
+<!--                </xpath>-->
+                <xpath expr="//page[@name='internal_notes']" position="before">
+                    <page string="Order Lines" name="order_lines">
+                        <field
+                                name="order_line"
+                                widget="section_and_note_one2many" readonly="type == 'opportunity'"
+                        >
+                            <list string="Sales Order Lines"
+                                  editable="bottom"
+                                  decoration-info="(not display_type == 'to invoice')">
+                                <field name="display_type" column_invisible="1"/>
+                                <field name="sequence" column_invisible="1"/>
+                                <field name="product_id"  require="display_type == False"
+                                       force_save="1"/>
+                                <field name="item_code" />
+
+                                <field name="name" widget="section_and_note_text" optional="show"/>
+                                <field name="product_uom_qty"
+                                       string="Ordered Qty"/>
+                                <field name="available_qty"/>
+                                <field name="reserved_qty"/>
+                                <field name="product_uom"  require="display_type == False"
+                                       force_save="1"
+
+                                       context="{'company_id': parent.company_id}"
+                                       options='{"no_open": True}'/>
+                                <field name="discount" />
+
+                                <field name="price_unit" force_save="1" />
+                                <field name="tax_id"
+                                       widget="many2many_tags"
+                                       options="{'no_create': True}"
+                                       domain="[('type_tax_use','=','sale'),('company_id','=',parent.company_id)]"/>
+                                <field name="amount_dis" column_invisible="1"/>
+                                <field name="price_subtotal" widget="monetary"/>
+                                <field name="price_total" widget="monetary"/>
+                                <field name="price_tax" column_invisible="1"/>
+
+                            </list>
+                        </field>
+<!--                        <group class="oe_subtotal_footer oe_right" colspan="2" name="sale_total">-->
+<!--                            <field name="amount_untaxed" widget='monetary'/>-->
+<!--                            <field name="amount_tax" widget='monetary'/>-->
+<!--                            <div class="oe_subtotal_footer_separator oe_inline o_td_label">-->
+<!--                                <label for="amount_total"/>-->
+<!--                            </div>-->
+<!--                            <field name="amount_total" nolabel="1" class="oe_subtotal_footer_separator"-->
+<!--                                   widget='monetary'/>-->
+<!--                        </group>-->
+                    </page>
+                </xpath>
+            </field>
+        </record>
+
+
+
+
+<!--        <record id="sale.view_quotation_tree" model="ir.ui.view">-->
+<!--        <field name="name">sale.order.list (quotes)</field>-->
+<!--        <field name="model">sale.order</field>-->
+<!--        <field name="inherit_id" ref="sale.sale_order_tree"/>-->
+<!--        <field name="mode">primary</field>-->
+<!--        <field name="priority">4</field>-->
+<!--        <field name="arch" type="xml">-->
+<!--            <list position="attributes">-->
+<!--                <attribute name="string">Quotations</attribute>-->
+<!--               -->
+<!--            </list>-->
+<!--            <field name="date_order" position="replace">-->
+<!--                <field name="create_date" string="Creation Date" optional="show"/>-->
+<!--            </field>-->
+<!--            <field name="state" position="attributes">-->
+<!--                <attribute name="optional">show</attribute>-->
+<!--            </field>-->
+<!--            <field name="invoice_status" position="attributes">-->
+<!--                <attribute name="optional">hide</attribute>-->
+<!--            </field>-->
+<!--        </field>-->
+<!--    </record>-->
+
+
+         <record id="sale.sale_order_action_view_order_tree" model="ir.actions.act_window.view">
+        <field name="sequence" eval="1"/>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="sale.sale_order_tree"/>
+        <field name="act_window_id" ref="sale.action_orders"/>
+    </record>
+           <record id="sale.sale_order_action_view_quotation_tree" model="ir.actions.act_window.view">
+        <field name="sequence" eval="1"/>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="sale.view_quotation_tree"/>
+        <field name="act_window_id" ref="sale.action_quotations_with_onboarding"/>
+    </record>
+
+
+    </data>
+</odoo>

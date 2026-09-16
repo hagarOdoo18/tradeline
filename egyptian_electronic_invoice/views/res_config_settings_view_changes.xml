@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="apsg_pos_modifications_res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">apsg_pos_modifications.res.config.settings.view.form.inherit</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="5"/>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//block[@id='invoicing_settings']" position="after">
+                <h2>ETA Invoice</h2>
+                <div class="row mt16 o_settings_container" id="daily_auto_validate_documents">
+                    <div class="col-12 col-lg-6 o_setting_box" >
+                        <div class="o_setting_left_pane">
+                            <field name="daily_auto_validate_documents"/>
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="daily_auto_validate_documents"/>
+                            <div class="text-muted">
+                                This action is responsible for Daily bulk validate non sent documents.
+                            </div>
+                            <field name="document_validate_cron_id" readonly="1"
+                                    invisible="daily_auto_validate_documents != True"
+                            />
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box" >
+                        <div class="o_setting_left_pane">
+                            <field name="auto_pull_received_documents"/>
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="auto_pull_received_documents"/>
+                            <div class="text-muted">
+                                Used to auto Get Vendor Received Documents with action automatic action.
+                            </div>
+                            <field name="vendor_received_doc_cron_id" readonly="1"
+                                   invisible="auto_pull_received_documents != True"
+                            />
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box" id="auto_validate_documents">
+                        <div class="o_setting_left_pane">
+                            <field name="auto_validate_documents"/>
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="auto_validate_documents"/>
+                            <div class="text-muted">
+                                Used to auto validate documents with Post action.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box" id="eta_description">
+                        <div class="o_setting_left_pane">
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="eta_description"/>
+                            <field name="eta_description"/>
+                            <div class="text-muted">
+                                Used to define which value will be used on ETA Description on Lines.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box" id="eta_expiration_duration">
+                        <div class="o_setting_left_pane">
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="eta_expiration_duration"/>
+                            <field name="eta_expiration_duration"/>
+                            <div class="text-muted">
+                                Used to configure the duration of expiration which updated from ETA side.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>

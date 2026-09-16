@@ -1,0 +1,408 @@
+<odoo>
+    <data>
+        <record id="crm.crm_case_kanban_view_leads" model="ir.ui.view">
+            <field name="name">crm.lead.kanban.lead</field>
+            <field name="model">crm.lead</field>
+            <field name="priority" eval="1"/>
+            <field name="arch" type="xml">
+                <kanban default_group_by="stage_id" class="o_kanban_small_column o_opportunity_kanban" on_create="quick_create" quick_create_view="crm.quick_create_opportunity_form"
+                    archivable="false">
+                    <field name="stage_id" options='{"group_by_tooltip": {"requirements": "Description", "legend_priority": "Use of stars"}}'/>
+                    <field name="color"/>
+                    <field name="priority"/>
+                    <field name="activity_date_deadline"/>
+                    <field name="user_id"/>
+                    <field name="message_needaction_counter"/>
+                    <field name="partner_id"/>
+                    <field name="activity_summary"/>
+                    <field name="active"/>
+                    <field name="company_currency"/>
+                    <field name="activity_state" />
+                    <field name="activity_ids" />
+                    <field name="confirm_data" />
+                    <field name="create_uid" />
+                    <field name="stage_pipeline" />
+                    <field name="stage_won" />
+                    <field name="stage_lost" />
+                    <field name="stage_canceled" />
+                    <field name="stage_refund" />
+                    <progressbar field="activity_state" colors='{"planned": "success", "today": "warning", "overdue": "danger"}' help="This bar allows to filter the opportunities based on scheduled activities."/>
+                    <templates>
+                        <t t-name="kanban-box">
+                            <div t-attf-class="#{kanban_color(record.color.raw_value)} oe_kanban_global_click">
+                                <div class="o_dropdown_kanban dropdown">
+
+                                    <a class="dropdown-toggle o-no-caret btn" role="button" data-toggle="dropdown" data-display="static" href="#" aria-label="Dropdown menu" title="Dropdown menu">
+                                        <span class="fa fa-ellipsis-v"/>
+                                    </a>
+                                    <div class="dropdown-menu" role="menu">
+                                        <t t-if="widget.editable"><a role="menuitem" type="edit" class="dropdown-item">Edit</a></t>
+                                        <t t-if="widget.deletable"><a role="menuitem" type="delete" class="dropdown-item">Delete</a></t>
+                                        <ul class="oe_kanban_colorpicker" data-field="color"/>
+                                    </div>
+                                </div>
+                                <div class="oe_kanban_content">
+                                    <div>
+                                        <strong class="o_kanban_record_title"><field name="name"/></strong>
+                                    </div>
+                                    <div>
+                                        <field name="tag_ids" widget="many2many_tags" options="{'color_field': 'color'}"/>
+                                    </div>
+<!--                                    <div class="text-muted o_kanban_record_subtitle">-->
+<!--                                        <t t-if="record.planned_revenue.raw_value"><field name="planned_revenue" widget="monetary" options="{'currency_field': 'company_currency'}"/><span t-if="record.partner_id.value">,</span></t> <span t-if="record.partner_id.value"> <t t-esc="record.partner_id.value"/></span>-->
+<!--                                    </div>div-->
+                                    <div>
+                                        Agent : <field name="create_uid" />
+                                    </div>
+                                    <div>
+                                        Store : <field name="user_id" />
+                                    </div>
+                                    <div>
+                                       ConFirm Date :<field name="confirm_data"  />
+                                    </div>
+                                    <div>
+                                       Pipeline Date :<field name="stage_pipeline"  />
+                                    </div>
+                                    <div>
+                                       Won Date :<field name="stage_won"  />
+                                    </div>
+                                    <div>
+                                       Lost Date :<field name="stage_lost"  />
+                                    </div>
+                                    <div>
+                                       Canceled Date :<field name="stage_canceled"  />
+                                    </div>
+                                    <div>
+                                       Refund Date :<field name="stage_refund"  />
+                                    </div>
+
+                                    <div class="o_kanban_record_bottom">
+                                        <div class="oe_kanban_bottom_left">
+
+
+                                            <field name="priority" widget="priority" groups="base.group_user"/>
+<!--                                            <t t-if="record.message_needaction_counter.raw_value">-->
+<!--                                                <span role="alert" class='oe_kanban_mail_new' title='Unread Messages'><i class='fa fa-comments' aria-label="Unread messages" role="img"/><t t-field="record.message_needaction_counter.raw_value"/></span>-->
+<!--                                            </t>-->
+                                            <field name="activity_ids" widget="kanban_activity"/>
+                                        </div>
+                                        <div class="oe_kanban_bottom_right">
+                                            <img t-att-src="kanban_image('res.users', 'image_small', record.user_id.raw_value)" t-att-title="record.user_id.value" t-att-alt="record.user_id.value" width="24" height="24" class="oe_kanban_avatar"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="oe_clear"/>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record>
+
+                <record id="view_crm_case_opportunities_filter_all_pipeline" model="ir.ui.view">
+            <field name="name">crm.lead.search.opportunity</field>
+            <field name="model">crm.lead</field>
+            <field name="priority">15</field>
+            <field name="arch" type="xml">
+                <search string="Search Opportunities">
+                    <field name="name" string="Opportunity" filter_domain="['|','|','|',('partner_id','ilike',self),('partner_name','ilike',self),('email_from','ilike',self),('name', 'ilike', self)]"/>
+                    <field name="tag_ids" string="Tag" filter_domain="[('tag_ids', 'ilike', self)]"/>
+                    <field name="stage_id" domain="[]"/>
+                    <field name="user_id"/>
+                    <field name="team_id"/>
+                    <field name="partner_id" operator="child_of" string="Customer"/>
+                    <field name="city"/>
+                    <field name="country_id"/>
+                    <field name="activity_type_id"/>
+                    <field name="activity_summary"/>
+                    <field name="probability"/>
+                    <field name="date_conversion"/>
+                    <separator/>
+                    <filter string="My Pipeline (Call Center)" name="assigned_to_me"
+                        domain="[('create_uid', '=', uid)]"
+                        help="Opportunities that are assigned to me"/>
+                    <filter string="Unassigned" name="unassigned"
+                        domain="[('user_id','=', False)]" help="No salesperson"/>
+                    <filter string="Open Opportunities" name="open_opportunities"
+                            domain="[('probability', '&lt;', 100), ('type', '=', 'opportunity')]"
+                            help="Open Opportunities"/>
+                    <separator/>
+                    <filter string="Unread Messages" name="message_needaction" domain="[('message_needaction','=',True)]"/>
+                    <separator/>
+                    <filter string="Overdue Opportunities" name="overdue_opp"
+                            domain="[('date_deadline', '&lt;', context_today().strftime('%Y-%m-%d')), ('date_closed', '=', False)]"
+                            help="Opportunities with a date of Expected Closing which is in the past"/>
+                    <filter string="Creation Date" name="creation_date" date="create_date"/>
+                    <filter string="Expected Closing" name="close_this_month" date="date_deadline"/>
+                    <filter string="Closed Date" name="close_date" date="date_closed"/>
+                    <separator/>
+                    <filter string="Won" name="won" domain="['&amp;', ('active', '=', True), ('probability', '=', 100)]"/>
+                    <filter string="Lost" name="lost" domain="['&amp;', ('active', '=', False), ('probability', '=', 0)]"/>
+                    <separator/>
+                    <filter string="Activities Todo" name="activities_my"
+                            domain="[('activity_ids.user_id', '=', uid)]"/>
+                    <separator/>
+                    <filter string="Late Activities" name="activities_overdue"
+                            domain="[('activity_ids.date_deadline', '&lt;', context_today().strftime('%Y-%m-%d'))]"
+                            help="Show all opportunities for which the next action date is before today"/>
+                    <filter string="Today Activities" name="activities_today"
+                            domain="[('activity_ids.date_deadline', '=', context_today().strftime('%Y-%m-%d'))]"/>
+                    <filter string="Future Activities" name="activities_upcoming_all"
+                        domain="[('activity_ids.date_deadline', '&gt;', context_today().strftime('%Y-%m-%d'))
+                        ]"/>
+                    <group expand="0" string="Group By" colspan="16">
+                        <filter string="Salesperson" name="salesperson" context="{'group_by':'user_id'}"/>
+                        <filter string="Sales Team" name="saleschannel" context="{'group_by':'team_id'}"/>
+                        <filter name="stage" string="Stage" context="{'group_by':'stage_id'}"/>
+                        <filter name="city" string="City" context="{'group_by': 'city'}"/>
+                        <filter string="Country" name="country" context="{'group_by':'country_id'}" />
+                        <filter string="Lost Reason" name="lost_reason" context="{'group_by':'lost_reason_id'}"/>
+                        <filter string="Company" name="company" context="{'group_by':'company_id'}" groups="base.group_multi_company"/>
+                        <filter string="Campaign" name="compaign" domain="[]" context="{'group_by':'campaign_id'}"/>
+                        <filter string="Medium" name="medium" domain="[]" context="{'group_by':'medium_id'}"/>
+                        <filter string="Source" name="source" domain="[]" context="{'group_by':'source_id'}"/>
+                        <separator orientation="vertical" />
+                        <filter string="Creation Date" context="{'group_by':'create_date:month'}" name="month"/>
+                        <filter string="Conversion Date" name="date_conversion" context="{'group_by': 'date_conversion'}" groups="crm.group_use_lead"/>
+                        <filter string="Closed Date" name="date_closed" context="{'group_by':'date_closed'}"/>
+                        <filter string="Expected Closing Date" name="date_deadline" context="{'group_by':'date_deadline'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+
+        <record id="crm_case_tree_view_oppor_call_center" model="ir.ui.view">
+            <field name="name">crm.lead.oppor</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_case_tree_view_leads"/>
+            <field name="arch" type="xml">
+                                                <xpath expr="//field[@name='team_id']" position="replace">
+                </xpath>
+                                                <xpath expr="//field[@name='user_id']" position="replace">
+                </xpath>
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="create_uid" />
+                </xpath>
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="mobile" />
+                    <field name="total_amount" />
+                    <field name="stage_id" />
+                    <field name="team_id" />
+                    <field name="user_id" />
+                </xpath>
+                <xpath expr="//field[@name='create_date']" position="after">
+                    <field name="confirm_data" />
+                </xpath>
+
+
+
+
+            </field>
+        </record>
+
+        <record id="crm_case_tree_view_oppor_inh" model="ir.ui.view">
+            <field name="name">crm.lead.inadd</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_case_tree_view_oppor"/>
+            <field name="arch" type="xml">
+                                <xpath expr="//field[@name='stage_id']" position="replace">
+                </xpath>
+                                                <xpath expr="//field[@name='team_id']" position="replace">
+                </xpath>
+                                                <xpath expr="//field[@name='user_id']" position="replace">
+                </xpath>
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="create_uid" />
+                </xpath>
+                <xpath expr="//field[@name='partner_id']" position="after">
+                    <field name="mobile" />
+                    <field name="total_amount" />
+                    <field name="stage_id" />
+                    <field name="team_id" />
+                    <field name="branch_id" />
+                    <field name="sales_rep_id" />
+                </xpath>
+                <xpath expr="//field[@name='create_date']" position="after">
+                    <field name="confirm_data" />
+                </xpath>
+
+
+
+            </field>
+        </record>
+
+        <record model="ir.actions.act_window" id="crm.crm_lead_all_leads">
+            <field name="name">Leads</field>
+            <field name="res_model">crm.lead</field>
+            <field name="view_mode">list,pivot,form</field>
+            <field name="domain">['|', ('type','=','lead'), ('type','=',False)]</field>
+            <field name="search_view_id" ref="crm.view_crm_case_leads_filter"/>
+            <field name="context">{
+                    'default_type':'lead',
+                    'search_default_type': 'lead',
+                    'search_default_to_process':1,
+                }
+            </field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                    Create a Lead
+                </p><p>
+                    Leads are the qualification step before the creation of an opportunity.
+                </p>
+            </field>
+        </record>
+
+        <record id="view_inherit_crm_lead_form_oppor" model="ir.ui.view">
+            <field name="name">view.inherit.crm.lead.oppor.form</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+            <field name="arch" type="xml">
+
+                <xpath expr="//group[@name='opportunity_partner']//field[@name='partner_id']" position="attributes">
+                    <attribute name="readonly">type == 'opportunity'</attribute>
+                </xpath>
+                <xpath expr="//group[@name='opportunity_partner']//field[@name='partner_id']" position="after">
+                    <field name="branch_id" readonly="1" force_save="1"/>
+                   <field name="sales_rep_domain" invisible="1"/>
+                   <field name="sales_rep_id" domain="sales_rep_domain" force_save="1" readonly="1"/>
+                </xpath>
+
+                <xpath expr="//group[@name='opportunity_partner']//field[@name='email_from']" position="attributes">
+                    <attribute name="readonly">type == 'opportunity'</attribute>
+                </xpath>
+               <xpath expr="//group[@name='opportunity_partner']//field[@name='phone']" position="attributes">
+                    <attribute name="readonly">type == 'opportunity'</attribute>
+                </xpath>
+                <xpath expr="//page[@name='lead']" position="attributes">
+                    <attribute name="invisible">1</attribute>
+                </xpath>
+
+                <xpath expr="//field[@name='expected_revenue']" position="attributes">
+                    <attribute name="readonly">type == 'opportunity'</attribute>
+                    <attribute name="force_save">1</attribute>
+                </xpath>
+
+
+<!--                  <xpath expr="//field[@name='user_id']" position="attributes">-->
+<!--                    <attribute name="readonly">type != 'lead'</attribute>-->
+<!--                </xpath>-->
+                  <xpath expr="//field[@name='team_id']" position="attributes">
+                    <attribute name="readonly">True</attribute>
+                </xpath>
+
+                <xpath expr="//button[@name='toggle_active']" position="attributes">
+                        <attribute name="groups">tradeline_crm_customize.group_Restore_button</attribute>
+
+                </xpath>
+                                <xpath expr="//button[last()]" position="after">
+
+<!--                <xpath expr="//button[@name='action_set_won_rainbowman']" position="before">-->
+                    <button name="convert_to_lead" string="Convert To Lead"
+                            type="object" invisible = "probability not in [1,0]"
+                    groups="tradeline_crm_customize.group_convert_to_lead_button" />
+
+                                                        <button name="canceled_sale_order" string="Cancelled Sale Order"
+                            type="object" invisible="probability != 100"
+                    groups="tradeline_crm_customize.group_cancelled_sale_order_button" />
+                </xpath>
+                <xpath expr="//button[@name='action_set_won_rainbowman']" position="attributes">
+                    <attribute name="invisible">type =='lead' or  not active or probability ==100</attribute>
+                    <attribute name="groups">tradeline_crm_customize.group_make_won_button</attribute>
+                </xpath>
+                <xpath expr="//button[@name='%(crm.crm_lead_lost_action)d']" position="attributes">
+                    <attribute name="invisible">type =='lead' or  not active or probability ==100</attribute>
+                    <attribute name="groups">tradeline_crm_customize.group_make_lost_button</attribute>
+                    </xpath>
+<!--                <xpath expr="//button[@name='%(sale_crm.sale_action_quotations_new)d']" position="replace">-->
+<!--                    <button name="create_sale_order" type="object" string="New Quotation" invisible="probability != 100" />-->
+<!--                    <button string="New Quotation" name="%(sale_crm.sale_action_quotations_new)d" type="action" class="oe_highlight"-->
+<!--                        attrs="{'invisible': [('probability', '!=', 100)]}"-->
+<!--                        context="{'search_default_partner_id': partner_id,-->
+<!--                                  'default_partner_id': partner_id,-->
+<!--                                  'default_team_id': team_id,-->
+<!--                                  'default_campaign_id': campaign_id,-->
+<!--                                  'default_medium_id': medium_id,-->
+<!--                                  'default_origin': name,-->
+<!--                                  'default_source_id': source_id,-->
+<!--                                  'default_order_line':order_line}"/>-->
+<!--                </xpath>-->
+                <xpath expr="//field[@name='team_id']" position="before">
+                    <field name="warehouse_id" force_save="1" readonly="1"/>
+                    <field name="company_id"/>
+                </xpath>
+                <xpath expr="//field[@name='phone']" position="after">
+                    <field name="mobile"/>
+                    <field name="form_url" invisible="1" />
+
+                </xpath>
+
+
+                <xpath expr="//notebook" position="inside">
+                    <page string="Date Stage">
+                        <group>
+                                <group string="Date Stage">
+                                    <field name="stage_pipeline"/>
+                                    <field name="stage_won"/>
+                                    <field name="stage_lost"/>
+                                    <field name="stage_canceled"/>
+                                    <field name="stage_refund"/>
+                                </group>
+                            </group>
+                    </page>
+
+                </xpath>
+            </field>
+        </record>
+        <record model="ir.actions.act_window" id="crm_lead_opportunities_tree_view_all_pipeline1">
+            <field name="name">Pipeline</field>
+            <field name="res_model">crm.lead</field>
+            <field name="view_mode">list,form,pivot</field>
+            <field name="domain">[('type','=','opportunity')]</field>
+<!--            <field name="view_ids"-->
+<!--                   eval="[(5, 0, 0),(0, 0, {'view_mode': 'list','view_id': ref('sale_crm.crm_case_tree_view_oppor')}),-->
+<!--                   (0, 0, {'view_mode': 'form', 'view_id': ref('sale_crm.crm_case_form_view_oppor')})]"/>-->
+<!--                    <field name="view_id" ref="crm.crm_case_tree_view_oppor"/>-->
+            <field name="context">{
+                    'default_type': 'opportunity',
+                    'search_default_assigned_to_me': 1
+            }</field>
+<!--            <field name="search_view_id" ref="view_crm_case_opportunities_filter_all_pipeline"/>-->
+        </record>
+
+
+        <record model="ir.actions.act_window" id="crm_lead_opportunities_my">
+            <field name="name">My Pipeline ( Branch )</field>
+            <field name="res_model">crm.lead</field>
+            <field name="view_mode">list,form,pivot</field>
+            <field name="domain">[('user_id', '=', uid)]</field>
+<!--                                   <field name="view_ids"-->
+<!--                   eval="[(5, 0, 0),(0, 0, {'view_mode': 'tree','view_id': ref('crm.crm_case_tree_view_oppor')}),-->
+<!--                   (0, 0, {'view_mode': 'form', 'view_id': ref('sale_crm.crm_case_form_view_oppor')})]"/>-->
+            <field name="context">{
+                    'default_type': 'opportunity',
+                }
+            </field>
+            <field name="search_view_id" ref="crm.view_crm_case_opportunities_filter"/>
+        </record>
+
+
+
+                <menuitem id="crm.menu_crm_opportunities" action="crm_lead_opportunities_tree_view_all_pipeline1" name="All Pipeline" parent="crm.crm_menu_sales" sequence="1" groups="tradeline_crm_customize.group_crm_all_pipeline"/>
+<!--        <record id="action_your_pipeline_my" model="ir.actions.server">-->
+<!--            <field name="name">Crm: My Pipeline</field>-->
+<!--            <field name="model_id" ref="crm.model_crm_team"/>-->
+<!--            <field name="state">code</field>-->
+<!--            <field name="code">action = model.action_your_pipeline_my()</field>-->
+<!--        </record>-->
+        <menuitem
+            id="menu_crm_opportunities_my"
+            action="crm_lead_opportunities_my"
+            name="My Pipeline ( Branch )"
+            parent="crm.crm_menu_sales"
+            sequence="1" groups="tradeline_crm_customize.group_crm_my_pipeline"/>
+        <menuitem id="crm.crm_menu_root" name="CRM" action="tradeline_crm_customize.action_partner_form_csutomer_no_list"/>
+
+
+    </data>
+</odoo>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data >
+
+        <record forcecreate="1" id="crm_lead_seq" model="ir.sequence">
+            <field name="name">Crm Seq</field>
+            <field name="code">crm.lead.seq</field>
+            <field eval="1" name="number_increment"/>
+            <field name="prefix">CRM/Order#</field>
+            <!--<field name="suffix">%(user_id)s</field>-->
+            <field name="padding">5</field>
+        </record>
+
+    </data>
+</odoo>

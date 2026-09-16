@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="module_category_customer_intelligence" model="ir.module.category">
+        <field name="name">Customer Intelligence</field>
+        <field name="description">Commercial decision intelligence and audience analysis</field>
+        <field name="sequence">42</field>
+    </record>
+    <record id="group_intelligence_viewer" model="res.groups">
+        <field name="name">Customer Intelligence Viewer</field>
+        <field name="category_id" ref="tradeline_customer_intelligence.module_category_customer_intelligence"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+    <record id="group_intelligence_admin" model="res.groups">
+        <field name="name">Customer Intelligence Administrator</field>
+        <field name="category_id" ref="tradeline_customer_intelligence.module_category_customer_intelligence"/>
+        <field name="implied_ids" eval="[(4, ref('tradeline_customer_intelligence.group_intelligence_viewer'))]"/>
+    </record>
+</odoo>

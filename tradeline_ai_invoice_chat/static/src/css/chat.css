@@ -1,0 +1,388 @@
+/* ==========================================================================
+   Tradeline AI Assistant — chat styles (LTR + RTL)
+   ========================================================================== */
+
+.o_ai_chat_root {
+    height: 100%;
+    background: #f5f7fb;
+    font-family: 'Segoe UI', 'Noto Sans Arabic', 'Cairo', system-ui, -apple-system, sans-serif;
+}
+
+/* ---- Sidebar ---- */
+.o_ai_chat_sidebar {
+    width: 280px;
+    min-width: 220px;
+    max-width: 320px;
+    background: #1e2a3a;
+    color: #e8eaf0;
+    overflow: hidden;
+}
+
+.o_ai_chat_sidebar_header,
+.o_ai_chat_sidebar_footer {
+    background: #162030;
+}
+
+.o_ai_chat_sidebar_footer {
+    color: #8899aa;
+    line-height: 1.4;
+}
+
+.o_ai_chat_session_item {
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 4px 8px;
+    transition: background 0.15s;
+    color: #c8d0dc;
+}
+
+.o_ai_chat_session_item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.o_ai_chat_session_item.active {
+    background: rgba(99, 160, 255, 0.18);
+    color: #ffffff;
+}
+
+.o_ai_clear_btn {
+    opacity: 0;
+    transition: opacity 0.15s;
+    color: #ff6b6b !important;
+}
+
+.o_ai_chat_session_item:hover .o_ai_clear_btn {
+    opacity: 1;
+}
+
+/* ---- Main area ---- */
+.o_ai_chat_main {
+    background: #f5f7fb;
+    min-width: 0;
+}
+
+.o_ai_chat_header {
+    background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* ---- Avatars ---- */
+.o_ai_avatar_circle {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 15px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+}
+
+.o_ai_avatar_bot {
+    background: linear-gradient(135deg, #4a90d9 0%, #6f5bd6 100%);
+}
+
+.o_ai_avatar_user {
+    background: #94a3b8;
+}
+
+/* ---- Welcome screen ---- */
+.o_ai_chat_welcome {
+    max-width: 900px;
+    margin: 0 auto;
+    padding-top: 1.5rem;
+}
+
+.o_ai_welcome_icon {
+    color: #6f5bd6;
+    opacity: 0.65;
+}
+
+.o_ai_sug_card {
+    background: #ffffff;
+    border: 1px solid #e6eaf2;
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.o_ai_sug_title {
+    font-weight: 700;
+    font-size: 13px;
+    color: #475569;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.o_ai_sug_btn {
+    display: block;
+    background: #f6f8fc;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: #334155;
+    transition: all 0.15s;
+}
+
+.o_ai_sug_btn:hover {
+    background: #eaf1fd;
+    border-color: #c6d9f7;
+    color: #1d4ed8;
+}
+
+/* ---- Message bubbles ---- */
+.o_ai_msg_wrap {
+    max-width: 76%;
+    min-width: 0;
+}
+
+.o_ai_msg_bubble {
+    border-radius: 16px;
+    padding: 12px 16px;
+    word-break: break-word;
+    line-height: 1.6;
+    font-size: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+}
+
+.o_ai_msg_user {
+    background: #4a90d9;
+    color: #ffffff;
+    border-bottom-right-radius: 4px;
+}
+
+.o_ai_msg_assistant {
+    background: #ffffff;
+    color: #263244;
+    border-bottom-left-radius: 4px;
+}
+
+/* Right-to-left replies */
+.o_ai_msg_bubble[dir="rtl"] {
+    text-align: right;
+}
+
+.o_ai_msg_bubble[dir="rtl"] .o_ai_list {
+    padding-right: 1.2rem;
+    padding-left: 0;
+}
+
+.o_ai_msg_meta {
+    font-size: 11px;
+    padding: 3px 6px 0;
+    opacity: 0.75;
+}
+
+.o_ai_copy_btn {
+    color: #94a3b8 !important;
+    text-decoration: none !important;
+}
+
+.o_ai_copy_btn:hover {
+    color: #4a90d9 !important;
+}
+
+.o_ai_line {
+    margin: 1px 0;
+}
+
+.o_ai_gap {
+    height: 8px;
+}
+
+.o_ai_rule {
+    margin: 8px 0;
+    opacity: 0.25;
+}
+
+.o_ai_list {
+    margin: 4px 0 8px;
+    padding-left: 1.2rem;
+}
+
+.o_ai_list li {
+    margin-bottom: 2px;
+}
+
+.o_ai_section_header {
+    color: #1e3a5f;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 10px 0 6px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid #dbe6f5;
+}
+
+.o_ai_msg_user .o_ai_section_header {
+    color: #ffffff;
+    border-bottom-color: rgba(255, 255, 255, 0.4);
+}
+
+/* ---- Rendered markdown tables ---- */
+.o_ai_table_wrap {
+    overflow-x: auto;
+    margin: 8px 0;
+    direction: ltr;
+}
+
+.o_ai_table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: #ffffff;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.o_ai_table th {
+    background: #eef3fb;
+    color: #33415a;
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+    border-bottom: 2px solid #d9e4f5;
+    white-space: nowrap;
+}
+
+.o_ai_table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #eef1f6;
+    color: #334155;
+}
+
+.o_ai_table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.o_ai_table tbody tr:nth-child(even) td {
+    background: #fafbfe;
+}
+
+.o_ai_table td.o_ai_num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ---- Fixed-width report rows and code ---- */
+.o_ai_table_row {
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 12px;
+    padding: 0 4px;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    white-space: pre;
+    display: block !important;
+    overflow-x: auto;
+}
+
+.o_ai_code {
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+
+.o_ai_inline_code {
+    background: rgba(100, 116, 139, 0.12);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12.5px;
+}
+
+/* ---- Typing indicator ---- */
+.o_ai_typing {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 14px 18px;
+    background: #ffffff;
+}
+
+.o_ai_typing span {
+    width: 8px;
+    height: 8px;
+    background: #4a90d9;
+    border-radius: 50%;
+    animation: o_ai_bounce 1.2s infinite;
+}
+
+.o_ai_typing span:nth-child(2) { animation-delay: 0.2s; }
+.o_ai_typing span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes o_ai_bounce {
+    0%, 80%, 100% { transform: scale(0.7); opacity: 0.5; }
+    40%           { transform: scale(1.0); opacity: 1.0; }
+}
+
+/* ---- Quick asks chips ---- */
+.o_ai_quick_bar {
+    background: #ffffff;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.o_ai_chip {
+    background: #eef3fb;
+    border: 1px solid #d9e4f5;
+    color: #1d4ed8;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12.5px;
+    transition: all 0.15s;
+}
+
+.o_ai_chip:hover {
+    background: #dbe8fb;
+}
+
+/* ---- Input bar ---- */
+.o_ai_chat_input_bar {
+    background: #ffffff;
+    box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.o_ai_textarea {
+    resize: none;
+    border-radius: 12px !important;
+    font-size: 14px;
+    max-height: 160px;
+    overflow-y: auto;
+    transition: border-color 0.15s;
+}
+
+.o_ai_textarea:focus {
+    border-color: #4a90d9;
+    box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.15);
+}
+
+/* ---- RTL page layout (Odoo Arabic UI) ---- */
+.o_rtl .o_ai_chat_sidebar {
+    border-left: none;
+}
+
+.o_rtl .o_ai_sug_btn,
+.o_rtl .o_ai_chat_session_item {
+    text-align: right;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+    .o_ai_chat_sidebar {
+        width: 200px;
+        min-width: 160px;
+    }
+    .o_ai_msg_wrap {
+        max-width: 90%;
+    }
+    .o_ai_chat_welcome {
+        padding-top: 0.5rem;
+    }
+}

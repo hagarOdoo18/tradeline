@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <function model="tradeline.executive.report.schedule" name="_configure_delivery_cron"/>
+</odoo>

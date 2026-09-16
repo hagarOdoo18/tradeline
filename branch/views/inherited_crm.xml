@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<odoo>
+    <data>
+       <!-- Inherit Form View to Modify it -->
+        <record id="view_inherit_crm_lead_form_branch" model="ir.ui.view">
+            <field name="name">view.inherit.crm.lead.branch.form</field>
+            <field name="model">crm.lead</field>
+            <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+           <field name="arch" type="xml">
+
+               <xpath expr="//field[@name='website']" position="after">
+
+                   <field name="default_branch_id"/>
+                   <field name="branch_id"/>
+                   <field name="sales_rep_domain" invisible="1"/>
+                   <field name="sales_rep_id" domain="sales_rep_domain"/>
+                   <!-- Add your fields or attributes here -->
+               </xpath>
+                 <xpath expr="//field[@name='user_id']" position="replace">
+
+
+                   <!-- Add your fields or attributes here -->
+               </xpath>
+                 <xpath expr="//field[@name='user_id']" position="replace">
+
+
+                                   <!-- Add your fields or attributes here -->
+                               </xpath>
+
+
+           </field>
+       </record>
+        <record id="view_inherit_crm_team_form_branch" model="ir.ui.view">
+            <field name="name">view.inherit.crm.team.branch.form</field>
+            <field name="model">crm.team</field>
+            <field name="inherit_id" ref="sales_team.crm_team_view_form"/>
+           <field name="arch" type="xml">
+
+               <xpath expr="//field[@name='user_id']" position="after">
+
+                   <field name="branch_id"/>
+                   <!-- Add your fields or attributes here -->
+               </xpath>
+
+
+           </field>
+       </record>
+    </data>
+</odoo>

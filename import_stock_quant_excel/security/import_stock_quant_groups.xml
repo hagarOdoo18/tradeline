@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="group_import_stock_quant" model="res.groups">
+        <field name="name">Import Stock Quant</field>
+    </record>
+</odoo>

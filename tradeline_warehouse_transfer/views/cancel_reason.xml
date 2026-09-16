@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="cancel_reason_view_form" model="ir.ui.view">
+            <field name="name">cancel_reason_view_form</field>
+            <field name="model">cancel.reason.wizard</field>
+            <field name="arch" type="xml">
+                <form string="cancel_reason_form">
+                    <sheet>
+                        <group>
+                            <field name="note"/>
+                        </group>
+                    </sheet>
+                     <footer>
+                        <button name="cancel_request" string="Cancel" type="object" class="btn-primary" />
+                    </footer>
+                </form>
+            </field>
+        </record>
+        <record id="cancel_reason_action" model="ir.actions.act_window">
+            <field name="name">Cancel</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">cancel.reason.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+            <field name="view_id" ref="cancel_reason_view_form"/>
+        </record>
+    </data>
+</odoo>

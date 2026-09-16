@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="group_legacy_current_product_history_user" model="res.groups">
+            <field name="name">Legacy Bucket Full History</field>
+            <field name="category_id" ref="base.module_category_accounting_accounting"/>
+        </record>
+    </data>
+</odoo>

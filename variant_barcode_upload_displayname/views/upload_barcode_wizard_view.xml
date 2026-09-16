@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_upload_barcode_wizard_form" model="ir.ui.view">
+        <field name="name">upload.product.barcode.wizard.form</field>
+        <field name="model">upload.product.barcode.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload Product Barcodes">
+                <group>
+                    <field name="file" filename="filename"/>
+                    <field name="filename" invisible="1"/>
+                </group>
+                <footer>
+                    <button string="Upload" type="object" name="action_upload_barcodes" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+
+        <record id="action_upload_barcode_wizard" model="ir.actions.act_window">
+        <field name="name">Upload Product Barcodes</field>
+        <field name="res_model">upload.product.barcode.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+
+        <menuitem id="menu_product_barcode_upload_excel" name="Upload Products ItemCode from Excel" parent="stock.menu_stock_inventory_control" action="action_upload_barcode_wizard"/>
+
+</odoo>

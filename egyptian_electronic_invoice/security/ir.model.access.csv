@@ -1,0 +1,26 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_account_tax_type_code_user,account.tax.type.code.user,model_account_tax_type_code,account.group_account_user,1,0,0,0
+access_account_tax_type_code_manager,account.tax.type.code.manager,model_account_tax_type_code,account.group_account_manager,1,1,1,1
+access_account_tax_sub_type_code_user,account.tax.sub.type.code.user,model_account_tax_sub_type_code,account.group_account_user,1,0,0,0
+access_account_tax_sub_type_code_manager,account.tax.sub.type.code.manager,model_account_tax_sub_type_code,account.group_account_manager,1,1,1,1
+access_company_activity_code_manager,company.activity.code.manager,model_res_company_activity,base.group_system,1,1,1,1
+access_company_activity_code_user,company.activity.code.user,model_res_company_activity,base.group_system,1,0,0,0
+access_electronic_invoice_result_user,electronic.invoice.result.user,model_electronic_invoice_result,base.group_user,1,1,1,1
+access_electronic_invoice_result_line_user,electronic.invoice.result.line.user,model_electronic_invoice_result_line,base.group_user,1,1,1,1
+
+access_vendor_received_document_manager,vendor.received.document manager,model_vendor_received_document,account.group_account_manager,1,0,0,0
+access_vendor_received_document_readonly,vendor.received.document readonly,model_vendor_received_document,account.group_account_readonly,1,0,0,0
+access_vendor_received_document_uinvoice,vendor.received.document,model_vendor_received_document,account.group_account_invoice,1,0,0,0
+access_vendor_received_document_portal,vendor.received.document.portal,model_vendor_received_document,base.group_portal,1,0,0,0
+access_vendor_received_document_ctr,vendor.received.document.ctrl,model_vendor_received_document,egyptian_electronic_invoice.group_e_invoice_sync,1,1,1,1
+
+access_vendor_received_document_line_manager,vendor.received.document_line manager,model_vendor_received_document_line,account.group_account_manager,1,0,0,0
+access_vendor_received_document_line_readonly,vendor.received.document_line readonly,model_vendor_received_document_line,account.group_account_readonly,1,0,0,0
+access_vendor_received_document_line_uinvoice,vendor.received.document_line,model_vendor_received_document_line,account.group_account_invoice,1,0,0,0
+access_vendor_received_document_line_portal,vendor.received.document_line.portal,model_vendor_received_document_line,base.group_portal,1,0,0,0
+access_vendor_received_document_line_ctr,vendor.received.document_line.ctrl,model_vendor_received_document_line,egyptian_electronic_invoice.group_e_invoice_sync,1,1,1,1
+
+access_link_bill_wizard_ctr,link.bill.wizard.ctrl,model_link_bill_wizard,egyptian_electronic_invoice.group_e_invoice_sync,1,1,1,1
+
+access_eta_uom_user,account.eta.uom.user,model_eta_uom,account.group_account_user,1,0,0,0
+access_eta_uom_manager,account.eta.uom.manager,model_eta_uom,account.group_account_manager,1,1,1,1

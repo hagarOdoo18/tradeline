@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="product_attribute_form_inherit" model="ir.ui.view">
+            <field name="name">product.attribute.product_attribute.form</field>
+            <field name="model">product.attribute</field>
+            <field name="inherit_id" ref="product.product_attribute_view_form"/>
+            <field name="priority" eval="8"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='name']" position="after">
+                    <field name="is_vendor"/>
+                </xpath>
+                <xpath expr="//field[@name='value_ids']//field[@name='name']" position="attributes">
+                    <attribute name="column_invisible">parent.is_vendor</attribute>
+                </xpath>
+                 <xpath expr="//field[@name='value_ids']//field[@name='name']" position="after">
+                    <field name="vendor_id"   column_invisible="not parent.is_vendor"/>
+                </xpath>
+
+            </field>
+        </record>
+    </data>
+</odoo>

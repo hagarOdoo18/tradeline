@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_pricelist_import_wizard,pricelist.import.wizard.all,model_pricelist_import_wizard,base.group_user,1,1,1,1
+access_pricelist_import_wizard_line,pricelist.import.wizard.line.all,model_pricelist_import_wizard_line,base.group_user,1,1,1,1

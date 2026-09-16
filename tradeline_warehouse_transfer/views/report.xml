@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+
+<!--        <report-->
+<!--                id="action_report_transfer_request"-->
+<!--                model="transfer.request"-->
+<!--                string="Transfer Request"-->
+<!--                name="tradeline_warehouse_transfer.report_transfer_request"-->
+<!--                file="tradeline_warehouse_transfer.report_transfer_request"-->
+<!--                report_type="qweb-pdf"/>-->
+         <template id="report_transfer_request_template">
+            <t t-call="tradeline_warehouse_transfer.report_transfer_request" />
+
+
+    </template>
+
+     <record id="action_report_transfer_request" model="ir.actions.report">
+        <field name="name">Transfer Request</field>
+        <field name="model">transfer.request</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">tradeline_warehouse_transfer.report_transfer_request_template</field>
+        <field name="report_file">tradeline_warehouse_transfer.report_transfer_request_template</field>
+        <field name="print_report_name">'Transfer Request - %s ' % ((object.name or 'Transfer Request').replace('/',''))</field>
+        <field name="binding_model_id" ref="model_transfer_request"/>
+        <field name="binding_type">report</field>
+    </record>
+
+
+
+
+
+        <template id="report_transfer_request">
+            <t t-call="web.html_container">
+                <t t-foreach="docs" t-as="doc">
+                    <t t-call="web.external_layout">
+                        <div class="page">
+                             <h2>Transfer Request</h2>
+                            <p>Date: <t t-esc="doc.date"/></p>
+                            <p>Number: <t t-esc="doc.name"/></p>
+                            <p>Sales Rep: <t t-esc="doc.sales_rep.name"/></p>
+                            <p>Source warehouse: <t t-esc="doc.from_warehouse.name"/></p>
+                            <p>Receiving warehouse: <t t-esc="doc.to_warehouse.name"/></p>
+                            <table  class="table table-sm">
+                            <thead>
+                                    <tr>
+                                        <th><strong>Product</strong></th>
+                                        <th><strong>Quantity</strong></th>
+
+                                        <th width="15%" class="text-center" >
+                                           <strong>Lot/Serial Number</strong>
+                                        </th>
+
+                                    </tr>
+                            </thead>
+                            <tbody>
+                                    <t t-foreach="doc.lines" t-as="line">
+
+                                            <tr>
+                                                <td>
+                                                    <span t-field="line.product_id.display_name"/><br/>
+
+                                                </td>
+
+                                                <td>
+
+                                                    <span t-field="line.qty"/>
+
+                                                </td>
+                                                  <td t-if="line.serial_ids" class="text-end">
+                                                    <span t-out="', '.join(map(lambda x: x.name,line.serial_ids))"/>
+                                                </td>
+
+
+
+                                            </tr>
+                                    </t>
+                                  </tbody>
+                            </table>
+
+
+                        </div>
+                    </t>
+                </t>
+            </t>
+        </template>
+
+</odoo>

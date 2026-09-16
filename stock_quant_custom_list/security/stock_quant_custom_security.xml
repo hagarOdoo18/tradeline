@@ -1,0 +1,16 @@
+<odoo>
+    <data>
+
+         <record model="ir.module.category" id="apple_stock_category">
+            <field name="name">Apple Stock Report</field>
+            <field name="sequence">1</field>
+        </record>
+
+        <!-- new group to control access to the custom menu -->
+        <record id="group_stock_quant_custom_user" model="res.groups">
+            <field name="name">Apple Stock Report</field>
+                        <field name="category_id" ref="stock_quant_custom_list.apple_stock_category"/>
+
+        </record>
+    </data>
+</odoo>

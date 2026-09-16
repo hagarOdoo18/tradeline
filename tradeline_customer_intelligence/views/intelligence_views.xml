@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_customer_intelligence" model="ir.actions.client">
+        <field name="name">Tradeline Intelligence</field>
+        <field name="tag">tradeline_customer_intelligence.main</field>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem
+        id="menu_customer_intelligence_root"
+        name="Tradeline Intelligence"
+        sequence="4"
+        groups="base.group_system,tradeline_customer_intelligence.group_intelligence_viewer"
+        web_icon="tradeline_customer_intelligence,static/description/icon.png"
+    />
+    <menuitem
+        id="menu_customer_intelligence_dashboard"
+        name="Decision Engine"
+        parent="tradeline_customer_intelligence.menu_customer_intelligence_root"
+        action="tradeline_customer_intelligence.action_customer_intelligence"
+        sequence="1"
+        groups="base.group_system,tradeline_customer_intelligence.group_intelligence_viewer"
+    />
+</odoo>

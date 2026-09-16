@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_warehouse_inherit_branch" model="ir.ui.view">
+            <field name="name">view.warehouse.inherit.branch</field>
+            <field name="model">stock.warehouse</field>
+            <field name="inherit_id" ref="stock.view_warehouse"/>
+            <field name="arch" type="xml">
+                <field name="code" position="after">
+                    <field name="branch_id"/>
+                    <field name="default_transfer"/>
+                </field>
+            </field>
+        </record>
+
+        <record id="view_picking_type_form_inherit_branch" model="ir.ui.view">
+            <field name="name">view.stock.picking.type.inherit.branch</field>
+            <field name="model">stock.picking.type</field>
+            <field name="inherit_id" ref="stock.view_picking_type_form"/>
+            <field name="arch" type="xml">
+                <field name="warehouse_id" position="after">
+                    <field name="branch_id" invisible="1"/>
+                </field>
+            </field>
+        </record>
+
+         <record id="stock.action_warehouse_form" model="ir.actions.act_window">
+            <field name="name">Warehouses</field>
+            <field name="res_model">stock.warehouse</field>
+            <field name="view_id" ref="stock.view_warehouse_tree"/>
+              <field name="context">{'form':True}</field>
+            <field name="help" type="html">
+
+              <p class="o_view_nocontent_smiling_face">
+                Define a new warehouse
+              </p>
+            </field>
+        </record>
+    </data>
+</odoo>

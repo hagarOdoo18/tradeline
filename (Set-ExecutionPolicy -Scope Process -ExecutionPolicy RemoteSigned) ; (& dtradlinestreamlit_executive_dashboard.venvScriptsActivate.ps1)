@@ -1,0 +1,11 @@
+push
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# On branch production
+# Your branch is up to date with 'origin/production'.
+#
+# Changes to be committed:
+#	modified:   base_tradeline/models/pos_order_downpayment.py
+#	modified:   base_tradeline/static/src/js/pos_downpayment_quotation.js
+#

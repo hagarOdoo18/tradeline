@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_account_invoice_accounting_wizard_form" model="ir.ui.view">
+        <field name="name">account.invoice.accounting.wizard.form</field>
+        <field name="model">account.invoice.accounting.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Accounting Report">
+                <group>
+                    <group>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                </group>
+                <group invisible="not excel_file">
+                    <field name="file_name" invisible="1"/>
+                    <field name="excel_file" widget="binary" filename="file_name"/>
+                </group>
+                <footer>
+                    <button name="print_excel"
+                            string="Generate Accounting Report"
+                            type="object"
+                            class="btn-primary"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_account_invoice_accounting_action" model="ir.actions.act_window">
+        <field name="name">Account Invoice Report</field>
+        <field name="res_model">account.invoice.accounting.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_account_invoice_accounting_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="view_account_invoice_accounting_menu_action"
+              name="Accounting Report Excel"
+              parent="account.menu_finance_receivables"
+              action="view_account_invoice_accounting_action"
+              groups="tradeline_invoice_accounting_excel.group_invoice_accounting_report"
+              sequence="6"/>
+
+</odoo>

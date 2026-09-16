@@ -1,0 +1,576 @@
+﻿/** @odoo-module **/
+
+import { _t } from "@web/core/l10n/translation";
+import { patch } from "@web/core/utils/patch";
+import { makeAwaitable } from "@point_of_sale/app/store/make_awaitable_dialog";
+import { PosStore } from "@point_of_sale/app/store/pos_store";
+import {
+    BaseProductAttribute,
+    ProductConfiguratorPopup,
+} from "@point_of_sale/app/store/product_configurator_popup/product_configurator_popup";
+
+function getMappedValue(mapping, key) {
+    if (!mapping) {
+        return false;
+    }
+    return mapping[key] || mapping[String(key)] || false;
+}
+
+function normalizeId(value) {
+    const id = Number(value);
+    return Number.isInteger(id) && id > 0 ? id : false;
+}
+
+function getStockDecision(availability) {
+    if (!availability || typeof availability !== "object") {
+        return "ok";
+    }
+    if (availability.stock_decision) {
+        return availability.stock_decision;
+    }
+    return availability.is_blocked ? "true_oos" : "ok";
+}
+
+function isInconsistentAvailability(availability) {
+    return (
+        availability?.consistency_status === "inconsistent" ||
+        getStockDecision(availability) === "inconsistent"
+    );
+}
+
+function isTrueOutOfStock(availability) {
+    return getStockDecision(availability) === "true_oos";
+}
+
+function computeNoVariantPriceExtra(attributeLinesValues) {
+    return (attributeLinesValues || [])
+        .filter((attr) => attr[0]?.attribute_id?.create_variant === "no_variant")
+        .reduce((acc, values) => acc + (values[0]?.price_extra || 0), 0);
+}
+
+function buildDefaultValuesFromAvailability(pos, availability) {
+    if (!availability || !Array.isArray(availability.default_attribute_value_ids)) {
+        return {};
+    }
+    const defaults = {};
+    for (const valueIdRaw of availability.default_attribute_value_ids) {
+        const valueId = normalizeId(valueIdRaw);
+        if (!valueId) {
+            continue;
+        }
+        const ptav = pos.data.models["product.template.attribute.value"].get(valueId);
+        const lineId = ptav?.attribute_line_id?.id;
+        if (lineId) {
+            defaults[lineId] = valueId.toString();
+        }
+    }
+    return defaults;
+}
+
+function applyImplicitSingleValueSelections(payload, availability) {
+    if (!payload || !availability) {
+        return payload;
+    }
+
+    const attributeValueIds = Array.isArray(payload.attribute_value_ids)
+        ? payload.attribute_value_ids.map((value) => normalizeId(value)).filter(Boolean)
+        : [];
+    const allowedByLine = availability.allowed_value_ids_by_line || {};
+
+    for (const lineId of Object.keys(allowedByLine)) {
+        const allowedValueIds = getMappedValue(allowedByLine, lineId);
+        if (!Array.isArray(allowedValueIds)) {
+            continue;
+        }
+        const normalizedIds = allowedValueIds.map((value) => normalizeId(value)).filter(Boolean);
+        if (normalizedIds.length === 1 && !attributeValueIds.includes(normalizedIds[0])) {
+            attributeValueIds.push(normalizedIds[0]);
+        }
+    }
+
+    payload.attribute_value_ids = attributeValueIds;
+    return payload;
+}
+
+function applyAutoVendorSelection(payload, availability, enabled = true) {
+    if (!payload || !availability) {
+        return payload;
+    }
+
+    applyImplicitSingleValueSelections(payload, availability);
+
+    if (!enabled) {
+        return payload;
+    }
+
+    const attributeValueIds = Array.isArray(payload.attribute_value_ids)
+        ? payload.attribute_value_ids.map((value) => normalizeId(value)).filter(Boolean)
+        : [];
+
+    const vendorValueByValueId = availability.vendor_value_by_value_id || {};
+    let selectedVendorId = false;
+
+    for (const valueId of attributeValueIds) {
+        const candidate = normalizeId(getMappedValue(vendorValueByValueId, valueId));
+        if (candidate) {
+            selectedVendorId = candidate;
+            break;
+        }
+    }
+
+    if (!selectedVendorId) {
+        selectedVendorId = normalizeId(availability.default_vendor_value_id);
+    }
+
+    if (selectedVendorId && !attributeValueIds.includes(selectedVendorId)) {
+        attributeValueIds.push(selectedVendorId);
+    }
+
+    payload.attribute_value_ids = attributeValueIds;
+    return payload;
+}
+
+function mapToVariantValueIds(valueIds, availability) {
+    if (!Array.isArray(valueIds) || !availability) {
+        return [];
+    }
+
+    const mapped = [];
+    const aliasMap = availability.variant_value_by_value_id || {};
+    for (const valueIdRaw of valueIds) {
+        const valueId = normalizeId(valueIdRaw);
+        if (!valueId) {
+            continue;
+        }
+        const mappedId = normalizeId(getMappedValue(aliasMap, valueId)) || valueId;
+        if (!mapped.includes(mappedId)) {
+            mapped.push(mappedId);
+        }
+    }
+    return mapped;
+}
+
+function sanitizeAttributeValueIdsForProduct(product, valueIds) {
+    if (!product || !Array.isArray(valueIds)) {
+        return [];
+    }
+
+    const allowedIds = new Set(
+        (product.attribute_line_ids || []).flatMap((line) =>
+            (line.product_template_value_ids || []).map((value) => Number(value.id))
+        )
+    );
+
+    return valueIds
+        .map((valueId) => normalizeId(valueId))
+        .filter((valueId) => valueId && allowedIds.has(Number(valueId)));
+}
+
+function enrichPayloadForVariantMatching(pos, payload, availability) {
+    if (!payload || !Array.isArray(payload.attribute_value_ids)) {
+        return payload;
+    }
+
+    const variantMatchIds = mapToVariantValueIds(payload.attribute_value_ids, availability);
+    payload.variant_match_value_ids = variantMatchIds;
+
+    for (const candidateId of variantMatchIds) {
+        if (!payload.attribute_value_ids.includes(candidateId)) {
+            payload.attribute_value_ids.push(candidateId);
+        }
+    }
+
+    return payload;
+}
+
+ProductConfiguratorPopup.props = {
+    ...ProductConfiguratorPopup.props,
+    availability: { type: Object, optional: true },
+    disableAutoVendor: { type: Boolean, optional: true },
+};
+
+patch(PosStore.prototype, {
+    async openConfigurator(product, opts = {}) {
+        const ptavModel = this.data?.models?.["product.template.attribute.value"];
+        if (ptavModel && !ptavModel.__posSerialSafeGetPatched) {
+            const originalGet = ptavModel.get.bind(ptavModel);
+            ptavModel.get = (id) =>
+                originalGet(id) || {
+                    id: Number(id),
+                    is_custom: false,
+                    attribute_id: { create_variant: "always" },
+                };
+            ptavModel.__posSerialSafeGetPatched = true;
+        }
+
+        let availability = {};
+        const shouldAutoPickVendor = !opts.code;
+
+        if (product?.raw?.product_tmpl_id && this.config?.id) {
+            try {
+                availability = await this.data.call(
+                    "product.template",
+                    "get_pos_configurator_availability",
+                    [product.raw.product_tmpl_id, this.config.id, opts.qty || opts.quantity || 1]
+                );
+                if (!availability || typeof availability !== "object") {
+                    availability = {};
+                }
+            } catch (error) {
+                console.error("Failed to fetch POS configurator availability.", error);
+                availability = {};
+            }
+        }
+
+        const attrById = this.models["product.attribute"].getAllBy("id");
+        let attributeLines = product.attribute_line_ids.filter((attr) => attr.attribute_id?.id in attrById);
+        if (opts.code) {
+            attributeLines = attributeLines.filter(
+                (attr) => attr.attribute_id.create_variant === "no_variant"
+            );
+        }
+        const attributeLinesValues = attributeLines.map((attr) => attr.product_template_value_ids);
+
+        const shouldAutoAddDefault =
+            !availability.is_tracked_product &&
+            Boolean(availability.auto_add_default) &&
+            !isInconsistentAvailability(availability) &&
+            !isTrueOutOfStock(availability);
+        if (shouldAutoAddDefault) {
+            const defaultValueIds =
+                availability.default_variant_attribute_value_ids?.length > 0
+                    ? availability.default_variant_attribute_value_ids
+                    : availability.default_attribute_value_ids || [];
+
+            if (Array.isArray(defaultValueIds) && defaultValueIds.length) {
+                const payload = {
+                    attribute_value_ids: defaultValueIds,
+                    attribute_custom_values: [],
+                    price_extra: computeNoVariantPriceExtra(attributeLinesValues),
+                    quantity: opts.qty || opts.quantity || 1,
+                };
+                const preparedPayload = applyAutoVendorSelection(
+                    payload,
+                    availability,
+                    shouldAutoPickVendor
+                );
+                preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+                    product,
+                    preparedPayload.attribute_value_ids
+                );
+                enrichPayloadForVariantMatching(this, preparedPayload, availability);
+                return preparedPayload;
+            }
+        }
+
+        if (
+            attributeLinesValues.some(
+                (values) => values.length === 0 || values.length > 1 || Boolean(values[0]?.is_custom)
+            )
+        ) {
+            let defaultValues = buildDefaultValuesFromAvailability(this, availability);
+            if (!Object.keys(defaultValues).length) {
+                const match = product.barcode && product.barcode.includes(this.searchProductWord);
+                if (this.searchProductWord && match) {
+                    defaultValues = Object.fromEntries(
+                        product.product_template_variant_value_ids.map((value) => [
+                            value.attribute_line_id.id,
+                            value.id.toString(),
+                        ])
+                    );
+                }
+            }
+
+            const payload = await makeAwaitable(this.dialog, ProductConfiguratorPopup, {
+                product: product,
+                hideAlwaysVariants: opts.hideAlwaysVariants,
+                defaultValues: defaultValues,
+                availability: availability,
+                disableAutoVendor: !shouldAutoPickVendor,
+            });
+            if (!payload) {
+                return payload;
+            }
+
+            const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+            preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+                product,
+                preparedPayload.attribute_value_ids
+            );
+            enrichPayloadForVariantMatching(this, preparedPayload, availability);
+            return preparedPayload;
+        }
+
+        const payload = {
+            attribute_value_ids: attributeLinesValues
+                .map((values) => values[0]?.id)
+                .map((valueId) => normalizeId(valueId))
+                .filter(Boolean),
+            attribute_custom_values: [],
+            price_extra: computeNoVariantPriceExtra(attributeLinesValues),
+            quantity: opts.qty || opts.quantity || 1,
+        };
+
+        const preparedPayload = applyAutoVendorSelection(payload, availability, shouldAutoPickVendor);
+        preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+            product,
+            preparedPayload.attribute_value_ids
+        );
+        enrichPayloadForVariantMatching(this, preparedPayload, availability);
+        return preparedPayload;
+    },
+});
+
+patch(BaseProductAttribute.prototype, {
+    setup() {
+        super.setup(...arguments);
+        if (!this.values?.length || this.attributeLine.attribute_id.display_type === "multi") {
+            return;
+        }
+
+        const selectedValueId = parseInt(this.state.attribute_value_ids, 10);
+        const firstSellableValue = this.values.find((value) => !value.excluded);
+        const selectedValue = this.values.find((value) => value.id === selectedValueId);
+        const shouldReplaceSelected = !selectedValue || selectedValue.excluded;
+        if (shouldReplaceSelected && firstSellableValue) {
+            this.state.attribute_value_ids = firstSellableValue.id.toString();
+        }
+    },
+});
+
+patch(ProductConfiguratorPopup.prototype, {
+    setup() {
+        super.setup(...arguments);
+        this.availability = this.props.availability || {};
+        this.disableAutoVendor = Boolean(this.props.disableAutoVendor);
+        this.isTrackedProduct = Boolean(this.availability.is_tracked_product);
+        this.variantLineIds = new Set(
+            (this.availability.variant_line_ids || []).map((lineId) => Number(lineId))
+        );
+        this.variantAttributeIds = new Set(
+            (this.availability.variant_attribute_ids || []).map((attributeId) => Number(attributeId))
+        );
+    },
+
+    get validAttributeLineIds() {
+        const lines = super.validAttributeLineIds;
+        if (!this.availability) {
+            return lines;
+        }
+
+        const hiddenLineIds = new Set((this.availability.hide_line_ids || []).map((id) => Number(id)));
+        const allowedValueIdsByLine = this.availability.allowed_value_ids_by_line || {};
+
+        const processedLines = lines
+            .filter((line) => !hiddenLineIds.has(line.id))
+            .map((line) => {
+                const allowedValueIds = getMappedValue(allowedValueIdsByLine, line.id);
+                const isVariantLine =
+                    !this.variantLineIds.size || this.variantLineIds.has(Number(line.id));
+                if (!isVariantLine) {
+                    return line;
+                }
+                if (!Array.isArray(allowedValueIds)) {
+                    return line;
+                }
+
+                const allowedSet = new Set(allowedValueIds.map((id) => Number(id)));
+                const values = this.isTrackedProduct
+                    ? line.product_template_value_ids.map((value) => ({
+                          ...value,
+                          excluded: value.excluded || !allowedSet.has(value.id),
+                      }))
+                    : line.product_template_value_ids.filter((value) => allowedSet.has(value.id));
+                return {
+                    ...line,
+                    product_template_value_ids: values,
+                };
+            });
+
+        return this.isTrackedProduct
+            ? processedLines
+            : processedLines.filter((line) => line.product_template_value_ids.length > 0);
+    },
+
+    get isStockBlocked() {
+        if (!this.availability) {
+            return false;
+        }
+
+        if (isTrueOutOfStock(this.availability)) {
+            return true;
+        }
+        if (isInconsistentAvailability(this.availability)) {
+            return false;
+        }
+
+        if (this.availability.is_blocked) {
+            return true;
+        }
+
+        const hiddenLineIds = new Set((this.availability.hide_line_ids || []).map((id) => Number(id)));
+        const hasFilteredLines =
+            Object.keys(this.availability.allowed_value_ids_by_line || {}).some(
+                (lineId) =>
+                    !hiddenLineIds.has(Number(lineId)) &&
+                    (!this.variantLineIds.size || this.variantLineIds.has(Number(lineId)))
+            );
+
+        if (hasFilteredLines && this.validAttributeLineIds.length === 0) {
+            return true;
+        }
+
+        const selectedDisplayValueIds = super.getVariantAttributeValueIds();
+        for (const valueId of selectedDisplayValueIds) {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            const lineId = ptav?.attribute_line_id?.id;
+            if (!lineId) {
+                continue;
+            }
+            if (hiddenLineIds.has(Number(lineId))) {
+                continue;
+            }
+            if (this.variantLineIds.size && !this.variantLineIds.has(Number(lineId))) {
+                continue;
+            }
+            const allowedValueIds = getMappedValue(this.availability.allowed_value_ids_by_line, lineId);
+            if (!Array.isArray(allowedValueIds) || !allowedValueIds.length) {
+                continue;
+            }
+            const allowedSet = new Set(allowedValueIds.map((id) => Number(id)));
+            if (!allowedSet.has(Number(valueId))) {
+                return true;
+            }
+        }
+
+        return false;
+    },
+
+    get isStockWarning() {
+        if (!this.availability || this.isStockBlocked) {
+            return false;
+        }
+        return isInconsistentAvailability(this.availability) || Boolean(this.availability.warning_message);
+    },
+
+    get stockBlockedMessage() {
+        return (
+            this.availability?.message || _t("This product is out of stock in this POS location.")
+        );
+    },
+
+    get stockWarningMessage() {
+        return (
+            this.availability?.warning_message ||
+            _t("Stock checks are temporarily incomplete. Please verify before payment.")
+        );
+    },
+
+    computePayload() {
+        const payload = super.computePayload(...arguments);
+        payload.attribute_value_ids = this.getDisplayVariantAttributeValueIds();
+        const preparedPayload = applyAutoVendorSelection(
+            payload,
+            this.availability,
+            !this.disableAutoVendor
+        );
+        preparedPayload.attribute_value_ids = sanitizeAttributeValueIdsForProduct(
+            this.props.product,
+            preparedPayload.attribute_value_ids
+        );
+        return preparedPayload;
+    },
+
+    computeProductProduct() {
+        super.computeProductProduct(...arguments);
+
+        const hasVariants = this.props.product.attribute_line_ids.some(
+            (line) => line.attribute_id.create_variant !== "no_variant"
+        );
+        if (!hasVariants) {
+            return;
+        }
+
+        // Reuse the same payload preparation used for the final add-to-cart flow so
+        // hidden vendor attributes participate in variant matching as well.
+        const preparedPayload = this.computePayload(...arguments);
+        const mappedValueIds = mapToVariantValueIds(
+            preparedPayload?.attribute_value_ids,
+            this.availability
+        );
+        if (!mappedValueIds.length) {
+            return;
+        }
+
+        const mappedProduct = this.pos.models["product.product"]
+            .filter((product) => product.raw?.product_template_variant_value_ids?.length > 0)
+            .find((product) => {
+                const productValueIds = product.raw.product_template_variant_value_ids || [];
+                if (productValueIds.length !== mappedValueIds.length) {
+                    return false;
+                }
+                return productValueIds.every((valueId) => mappedValueIds.includes(valueId));
+            });
+
+        if (mappedProduct) {
+            this.state.product = mappedProduct;
+        }
+    },
+
+    getDisplayVariantAttributeValueIds() {
+        const valueIds = super.getVariantAttributeValueIds(...arguments);
+        return valueIds.filter((valueId) => {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            if (!ptav) {
+                return false;
+            }
+
+            const attributeId = ptav.attribute_id?.id || ptav.attribute_line_id?.attribute_id?.id;
+            if (this.variantAttributeIds.size && attributeId) {
+                return this.variantAttributeIds.has(attributeId);
+            }
+
+            const lineId = ptav.attribute_line_id?.id;
+            if (this.variantLineIds.size && lineId) {
+                return this.variantLineIds.has(lineId);
+            }
+
+            return true;
+        });
+    },
+
+    getVariantAttributeValueIds() {
+        // Archived-combination checks must include the same hidden vendor value
+        // used during add-to-cart and product resolution.
+        const preparedPayload = this.computePayload(...arguments);
+        const mappedValueIds = mapToVariantValueIds(
+            preparedPayload?.attribute_value_ids,
+            this.availability
+        );
+        return mappedValueIds.filter((valueId) => {
+            const ptav = this.pos.data.models["product.template.attribute.value"].get(valueId);
+            if (!ptav) {
+                return true;
+            }
+
+            const attributeId = ptav.attribute_id?.id || ptav.attribute_line_id?.attribute_id?.id;
+            if (this.variantAttributeIds.size && attributeId) {
+                return this.variantAttributeIds.has(attributeId);
+            }
+
+            const lineId = ptav.attribute_line_id?.id;
+            if (this.variantLineIds.size && lineId) {
+                return this.variantLineIds.has(lineId);
+            }
+
+            return true;
+        });
+    },
+
+    confirm() {
+        if (this.isStockBlocked) {
+            return;
+        }
+        return super.confirm(...arguments);
+    },
+});

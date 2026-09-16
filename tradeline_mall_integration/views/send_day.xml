@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+
+        <record id="send_day_list_view" model="ir.ui.view">
+            <field name="name">send.day.list</field>
+            <field name="model">send.day</field>
+            <field name="arch" type="xml">
+                 <list string="More Setting" create="1" editable="bottom"  edit='1' delete="1" import="0">
+                    <field name="date"/>
+                    <field name="file"/>
+                    <button name="send_day" string="Send" type="object" />
+                </list>
+            </field>
+        </record>
+
+        <record id="integration_send_day_actions" model="ir.actions.act_window">
+            <field name="name">More.Setting</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">send.day</field>
+            <field name="view_mode">list</field>
+            <field name="view_id" ref="tradeline_mall_integration.send_day_list_view"/>
+
+        </record>
+
+
+    </data>
+</odoo>

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!--Testing Details-->
+<!--        <record id="uom.product_uom_unit" model="uom.uom">-->
+<!--            <field name="eta_uom_id" ref="egyptian_electronic_invoice.default_product_uom_unit"/>-->
+<!--        </record>-->
+        <record id="base.main_company" model="res.company">
+            <field name="type_code_id" ref="egyptian_electronic_invoice.default_tax_type"/>
+            <field name="sub_type_code_id" ref="egyptian_electronic_invoice.default_tax_sub_type"/>
+            <field name="activity_code_id" ref="egyptian_electronic_invoice.default_company_activity"/>
+            <field name="client_id">937c7f11-4c35-4aa6-910c-47ae72c748a3</field>
+            <field name="client_secret">50cadb4f-773d-4208-9506-7cfbffac8952</field>
+            <!--Activity code: 4690-->
+        </record>
+        <record id="base.main_partner" model="res.partner">
+            <field name="vat">506507882</field>
+            <field name="street">11</field>
+            <field name="street2">165</field>
+            <field name="city">Cairo</field>
+            <field name="state_id" ref="base.state_eg_c"/>
+            <field name="classification">B</field>
+        </record>
+        <record id="customer_1" model="res.partner">
+            <field name="name">أحمد سلامه</field>
+            <field name="company_id" eval="None"/>
+            <field name="is_company" eval="False"/>
+            <field name="function">Ahmed Magdy Salama</field>
+            <field name="street">شارع وادى الملوك - السيوف</field>
+            <field name="street2">65</field>
+            <field name="city">الأسكندريه</field>
+            <field name="state_id" ref="base.state_eg_alx"/>
+            <field name="country_id" ref="base.eg"/>
+            <field name="zip">6566</field>
+            <field name="phone">01067403898</field>
+            <field name="email">ahmed.salama1679@gmail.com</field>
+            <field name="vat">313717919</field>
+            <field name="classification">B</field>
+            <field name="customer_rank">1</field>
+            <field name="website">https://www.linkedin.com/in/ahmed-salama-a982b182</field>
+            <field name="image_1920" type="base64" file="egyptian_electronic_invoice/static/description/eta_gov.jpg"/>
+        </record>
+
+
+    </data>
+</odoo>

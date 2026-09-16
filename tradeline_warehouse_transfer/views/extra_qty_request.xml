@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="extra_qty_wizard_view_form" model="ir.ui.view">
+            <field name="name">extra_qty_wizard_view_form</field>
+            <field name="model">extra.qty.wizard</field>
+            <field name="arch" type="xml">
+                <form string="cancel_reason_form">
+                    <sheet>
+                        <group>
+                            <field name="note" readonly="1"/>
+                        </group>
+                    </sheet>
+                     <footer>
+                        <button name="approve_request" string="Approve" type="object" class="btn-primary" />
+                         <button string="Cancel" class="btn-default" special="cancel" />
+                    </footer>
+                </form>
+            </field>
+        </record>
+        <record id="extra_qty_wizard_action" model="ir.actions.act_window">
+            <field name="name">Extra QtY</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">extra.qty.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+            <field name="view_id" ref="extra_qty_wizard_view_form"/>
+        </record>
+    </data>
+</odoo>

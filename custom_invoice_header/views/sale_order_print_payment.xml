@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+        <template id="custom_sale_order_payment_print" inherit_id="sale.report_saleorder_document">
+
+            <xpath expr="//table[hasclass('o_main_table')]/thead/tr/th[@name='th_description']" position="after">
+                <th name="th_serial" t-if="doc.inv_type == 'sro'" class="text-start text-nowrap">
+                    Serial Number
+                </th>
+            </xpath>
+
+            <xpath expr="//table[hasclass('o_main_table')]/tbody//td[@name='td_name']" position="after">
+                <td name="td_serial" t-if="doc.inv_type == 'sro'" class="text-start text-nowrap">
+                    <t t-set="delivered_serials" t-value="line.move_ids.move_line_ids.filtered(lambda move_line: move_line.state == 'done' and move_line.lot_id and move_line.location_dest_id.usage == 'customer').mapped('lot_id.name')"/>
+                    <span t-if="delivered_serials" t-esc="', '.join(delivered_serials)"/>
+                    <span t-elif="line.lot_id" t-field="line.lot_id.name"/>
+                </td>
+            </xpath>
+
+            <xpath expr="//div[@name='so_total_summary']" position="after">
+                <div>
+                    <t t-set="report_payments" t-value="doc.payment_ids.filtered(lambda payment: payment.payment_type == 'inbound' and payment.state in ('in_process', 'paid', 'posted'))"/>
+                    <t t-if="report_payments">
+                        <h3 style="margin-top:20px;">Payments</h3>
+                        <table class="table table-sm o_main_table">
+                            <thead>
+                                <tr>
+                                    <th>Journal</th>
+                                    <th>Payment Method</th>
+                                    <th>Date</th>
+                                    <th class="text-end">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="report_payments" t-as="pay">
+                                    <td><span t-field="pay.journal_id"/></td>
+                                    <td><span t-field="pay.payment_method_line_id"/></td>
+                                    <td><span t-field="pay.date"/></td>
+                                    <td class="text-end">
+                                        <span t-field="pay.amount" t-options="{'widget': 'monetary', 'display_currency': pay.currency_id}"/>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="border-top">
+                                    <th colspan="3" class="text-end">Total Paid</th>
+                                    <th class="text-end">
+                                        <span t-out="sum(report_payments.mapped('amount'))"
+                                              t-options="{'widget': 'monetary', 'display_currency': doc.currency_id}"/>
+                                    </th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </t>
+
+                </div>
+
+                <div style="width:100%; display:flex; justify-content:flex-end;">
+
+
+                  <div class="text-right" t-if="doc.get_product_notes()" name="Product Notes" style="font-size:8px; text-align:right;">
+                            <span t-out="doc.get_product_notes()" dir="rtl"/>
+              </div>
+            </div>
+
+            </xpath>
+        </template>
+</odoo>

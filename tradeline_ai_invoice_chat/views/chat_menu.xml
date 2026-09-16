@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Top-level menu -->
+    <menuitem
+        id="menu_ai_invoice_chat_root"
+        name="AI Assistant"
+        sequence="99"
+        web_icon="tradeline_ai_invoice_chat,static/src/img/chat_icon.svg"
+        groups="base.group_user"
+    />
+
+    <!-- Sub-menu: open full chat client -->
+    <menuitem
+        id="menu_ai_invoice_chat_open"
+        name="Ask the Assistant"
+        parent="menu_ai_invoice_chat_root"
+        action="action_ai_invoice_chat"
+        sequence="10"
+    />
+
+    <!-- Sub-menu: admin session list -->
+    <menuitem
+        id="menu_ai_invoice_chat_sessions"
+        name="All Sessions"
+        parent="menu_ai_invoice_chat_root"
+        action="action_ai_chat_sessions_list"
+        sequence="20"
+        groups="base.group_system"
+    />
+
+</odoo>

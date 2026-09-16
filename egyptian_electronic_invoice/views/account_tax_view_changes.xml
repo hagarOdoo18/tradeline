@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Taxes -->
+        <record id="e_invoice_view_tax_form_inherit" model="ir.ui.view">
+            <field name="name">e_invoice.account.tax.form.inherit</field>
+            <field name="model">account.tax</field>
+            <field name="inherit_id" ref="account.view_tax_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='type_tax_use']" position="after">
+                    <field name="type_code_id"/>
+                    <field name="sub_type_code_id"
+                           required="type_code_id != False"
+                    />
+                </xpath>
+            </field>
+        </record>
+        <!--Tax Types-->
+        <record id="account_tax_type_code_tree_view" model="ir.ui.view">
+            <field name="name">account.tax.type.code.tree.view</field>
+            <field name="model">account.tax.type.code</field>
+            <field name="arch" type="xml">
+                <list string="Tax Type Code">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="code"/>
+                </list>
+            </field>
+        </record>
+        <record id="account_tax_type_code_search_view" model="ir.ui.view">
+            <field name="name">account.tax.type.code.search.view</field>
+            <field name="model">account.tax.type.code</field>
+            <field name="arch" type="xml">
+                <search string="Tax Type Code">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="code"/>
+                    <group>
+                        <filter name="taxable" string="Taxable" context="{'group_by': 'taxable'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+        <record id="action_account_tax_type_code" model="ir.actions.act_window">
+            <field name="name">Account Tax Type</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">account.tax.type.code</field>
+            <field name="view_mode">tree,form</field>
+            <field name="help" type="html">
+                <p class="oe_view_nocontent_create">
+                    Add new Tax Type Code
+                </p>
+            </field>
+        </record>
+        <menuitem id="menu_account_tax_type_code" parent="account.account_invoicing_menu"
+                  action="action_account_tax_type_code" sequence="2"/>
+        <record id="account_tax_sub_type_code_tree_view" model="ir.ui.view">
+            <field name="name">account.tax.sub.type.code.tree.view</field>
+            <field name="model">account.tax.sub.type.code</field>
+            <field name="arch" type="xml">
+                <list string="Tax Sub Type Code">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="type_id"/>
+                </list>
+            </field>
+        </record>
+        <record id="account_tax_sub_type_code_search_view" model="ir.ui.view">
+            <field name="name">account.tax.sub.type.code.search.view</field>
+            <field name="model">account.tax.sub.type.code</field>
+            <field name="arch" type="xml">
+                <search string="Tax Sub Type Code">
+                    <field name="name"/>
+                    <field name="ar_name"/>
+                    <field name="code"/>
+                    <group>
+                        <filter name="type_id" string="Type" context="{'group_by': 'type_id'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+        <record id="action_account_tax_sub_type_code" model="ir.actions.act_window">
+            <field name="name">Account Tax Sub Type</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">account.tax.sub.type.code</field>
+            <field name="view_mode">list,form</field>
+            <field name="context">{'search_default_type_id':1}</field>
+            <field name="help" type="html">
+                <p class="oe_view_nocontent_create">
+                    Add new Tax Sub Type Code
+                </p>
+            </field>
+        </record>
+        <menuitem id="menu_account_tax_sub_type_code" parent="account.account_invoicing_menu"
+                  action="action_account_tax_sub_type_code" sequence="2"/>
+
+
+    </data>
+</odoo>

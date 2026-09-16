@@ -1,0 +1,17 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_shopify_configuration_user,access.shopify.configuration.user,model_shopify_configuration,base.group_user,1,1,1,1
+access_sync_product_user,access.sync.product.user,model_sync_product,base.group_user,1,1,1,1
+access_sale_order_sync_user,access.sale.order.sync.user,model_sale_order_sync,base.group_user,1,1,1,1
+access_sync_customer_user,access.sync.customer.user,model_sync_customer,base.group_user,1,1,1,1
+access_sync_inventory_user,access.sync.inventory.user,model_sync_inventory,base.group_user,1,1,1,1
+access_shopify_payment_user,access.shopify.payment.user,model_shopify_payment,base.group_user,1,1,1,1
+access_log_message_user,access.log.message.user,model_log_message,base.group_user,1,1,1,1
+access_shopify_collection_user,access.shopify.collection.user,model_shopify_collection,base.group_user,1,1,1,1
+access_shopify_sync_user,access.shopify.sync.user,model_shopify_sync,base.group_user,1,1,1,1
+access_job_cron_user,access.job.cron.user,model_job_cron,base.group_user,1,1,1,1
+access_shopify_location_user,access.shopify.location.user,model_shopify_location,base.group_user,1,1,1,1
+access_sync_location_user,access.sync.location.user,model_sync_location,base.group_user,1,1,1,1
+access_sync_pricing_user,access.sync.pricing.user,model_sync_pricing,base.group_user,1,1,1,1
+access_shopify_min_qty_user,access.shopify.min.qty.user,model_shopify_min_qty,base.group_user,1,0,0,0
+access_shopify_min_qty_manager,access.shopify.min.qty.manager,model_shopify_min_qty,stock.group_stock_manager,1,1,1,1
+access_shopify_order_event_manager,access.shopify.order.event.manager,model_shopify_order_event,stock.group_stock_manager,1,1,0,0

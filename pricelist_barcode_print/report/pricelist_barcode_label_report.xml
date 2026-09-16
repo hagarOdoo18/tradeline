@@ -1,0 +1,89 @@
+<odoo>
+<data>
+<!--  Zero-margin A4 paper format for tight label layout  -->
+<record id="custom_paperformat" model="report.paperformat">
+<field name="name">European A4 low margin</field>
+<field name="default" eval="True"/>
+<field name="format">A4</field>
+<field name="page_height">0</field>
+<field name="page_width">0</field>
+<field name="orientation">Portrait</field>
+<field name="margin_top">0</field>
+<field name="margin_bottom">0</field>
+<field name="margin_left">0</field>
+<field name="margin_right">0</field>
+<field name="header_line" eval="False"/>
+<field name="header_spacing">0</field>
+<field name="dpi">96</field>
+</record>
+<!--  Report action  -->
+<record id="action_report_pricelist_barcode_label" model="ir.actions.report">
+<field name="name">Pricelist Barcode Labels</field>
+<field name="model">pricelist.barcode.print.wizard</field>
+<field name="report_type">qweb-pdf</field>
+<field name="report_name">pricelist_barcode_print.pricelist_barcode_label_template</field>
+<field name="report_file">pricelist_barcode_print.pricelist_barcode_label_template</field>
+<field name="paperformat_id" ref="custom_paperformat"/>
+<!--<field name="binding_model_id" ref="base.model_res_partner" eval="False"/>-->
+</record>
+<!-- 
+        QWeb template.
+
+        `print_lines` is injected by ReportPricelistBarcodeLabel._get_report_values().
+        Each entry:
+            line['product']         – product.product browse record
+            line['price']           – float
+            line['label_qty']       – int
+            line['currency_symbol'] – str
+
+        We use t-esc (not t-field) for dict/computed values so the renderer
+        never tries to locate a field descriptor on a plain Python object.
+        t-field is used ONLY on the barcode widget where we need the image renderer.
+     -->
+<template id="pricelist_barcode_label_template">
+<t t-call="web.basic_layout">
+<div class="page">
+<t t-foreach="print_lines" t-as="line">
+<t t-foreach="range(line['label_qty'])" t-as="idx">
+<div style=" width: 7cm; height: 2.5cm; display: inline-block; padding-bottom: 13px; padding-top: 5px; margin-top: 26px; margin-left: 35px; margin-right: 10px; border: 1px solid #000; font-family: Arial, sans-serif; overflow: hidden; vertical-align: top; ">
+<table style="width:100%; height:100%; border-collapse:collapse;">
+<!--  Row 1: Price + barcode number  -->
+<tr>
+<td style="font-size:8px; text-align:right; width:50%; padding:0 4px;">
+<strong>
+<t t-esc="'%.2f' % line['price']"/>
+<t t-if="line['currency_symbol']">
+<t t-esc="line['currency_symbol']"/>
+</t>
+</strong>
+</td>
+<td style="font-size:8px; text-align:left; width:50%; padding:0 4px;">
+<t t-esc="line['product'].barcode or ''"/>
+</td>
+</tr>
+<!--  Row 2: Product name  -->
+<tr>
+<td colspan="2" style="text-align:center; font-size:7px; padding:1px 2px;">
+<strong t-esc="line['product'].display_name"/>
+</td>
+</tr>
+<!--  Row 3: Barcode image  -->
+<tr>
+<td colspan="2" style="text-align:center;">
+<t t-if="line['product'].barcode">
+<div t-field="line['product'].barcode" t-options="{ 'widget': 'barcode', 'img_style': 'width:100%; height:1.2cm;' }"/>
+</t>
+<t t-else="">
+<span style="font-size:7px; color:#999;">No Barcode</span>
+</t>
+</td>
+</tr>
+</table>
+</div>
+</t>
+</t>
+</div>
+</t>
+</template>
+</data>
+</odoo>

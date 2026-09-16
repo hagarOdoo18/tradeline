@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--    form view for sync customer-->
+    <record id="sync_customer_view_form" model="ir.ui.view">
+        <field name="name">sync.customer.view.form</field>
+        <field name="model">sync.customer</field>
+        <field name="arch" type="xml">
+            <form string="Sync Customers">
+                <group>
+                    <field name="import_customers"/>
+                </group>
+                <group>
+                    <field name="shopify_instance_id"/>
+                </group>
+                <footer>
+                    <button name="sync_customers" string="Sync Customers"
+                            class="btn-primary" type="object"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+    <!--    action for sync customer -->
+    <record id="sync_customer_action" model="ir.actions.act_window">
+        <field name="name">Sync Customers</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">sync.customer</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="sync_customer_view_form"/>
+        <field name="target">new</field>
+    </record>
+    <!--    menu for sync customer-->
+    <menuitem
+            id="sync_customer_menu"
+            action="sync_customer_action"
+            name="Sync Customers"
+            parent="shopify_odoo_connector.res_partner_menu_root"
+            sequence="2"/>
+</odoo>

@@ -1,0 +1,36 @@
+<odoo>
+  <data>
+
+    <record model="ir.ui.view" id="stock_Abm_report_wizard">
+        <field name="name">Stock Abm Report Wizard</field>
+        <field name="model">stock.abm.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Apple Stock Excel">
+              <sheet>
+                  <group>
+                      <field name="warehouse_id" />
+                      <field name="date_from" />
+                      <field name="date_to" />
+                  </group>
+              </sheet>
+              <footer>
+                  <button name="generate_xlsx_report" string="Abm Report" type="object" class="oe_highlight"/>
+              </footer>
+            </form>
+        </field>
+    </record>
+
+     <record id="stock_Abm_report_wizard_view_action" model="ir.actions.act_window">
+            <field name="name">Abm Report Wizard</field>
+            <field name="type">ir.actions.act_window</field>
+            <field name="res_model">stock.abm.report.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="view_type">form</field>
+            <field name="view_id" ref="stock_Abm_report_wizard"/>
+            <field name="target">new</field>
+    </record>
+
+    <!-- This Menu Item must have a parent and an action -->
+    <menuitem id="menu_stock_report_Abm_wizard_view_action" name="Abm stock Excel" parent="stock.menu_warehouse_report" action="stock_Abm_report_wizard_view_action" sequence="11" groups="group_report_stock_Abm_excel"/>
+  </data>
+</odoo>

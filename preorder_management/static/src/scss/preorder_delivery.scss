@@ -1,0 +1,56 @@
+.preorder-delivery-button {
+    background-color: #2563eb !important;
+    color: #fff !important;
+}
+
+.preorder-delivery-dialog .modal-body {
+    min-height: 0;
+}
+
+.preorder-delivery-layout {
+    min-height: 0;
+}
+
+.preorder-delivery-list {
+    width: 58%;
+    min-width: 34rem;
+}
+
+.preorder-delivery-list tbody tr {
+    cursor: pointer;
+}
+
+.preorder-delivery-detail {
+    min-width: 0;
+}
+
+.preorder-notes {
+    white-space: pre-wrap;
+}
+
+.preorder-device-card {
+    border-color: #dbe3ef;
+}
+
+.preorder-success-icon {
+    font-size: 5rem;
+}
+
+@media (max-width: 991px) {
+    .preorder-delivery-layout {
+        flex-direction: column;
+        overflow: auto;
+    }
+
+    .preorder-delivery-list {
+        width: 100%;
+        min-width: 0;
+        min-height: 45%;
+        border-right: 0 !important;
+        border-bottom: 1px solid var(--border-color, #dee2e6);
+    }
+
+    .preorder-delivery-detail {
+        overflow: visible !important;
+    }
+}

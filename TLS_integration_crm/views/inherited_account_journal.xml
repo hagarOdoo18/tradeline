@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="account_journal_payment_type_view_tree" model="ir.ui.view">
+            <field name="name">account.journal.inherit.payment_type.list</field>
+            <field name="model">account.journal</field>
+            <field name="inherit_id" ref="account.view_account_journal_tree" />
+            <field name="arch" type="xml">
+                <field name="company_id" position="after">
+                    <field name="payment_type"/>
+                </field>
+            </field>
+        </record>
+
+
+
+
+
+        <!-- journal entry Inherit Form View to Modify it -->
+        <record id="view_journal_form_inherit_payment_type" model="ir.ui.view">
+            <field name="name">view.journal.form.inherit.payment_type</field>
+            <field name="model">account.journal</field>
+            <field name="inherit_id" ref="account.view_account_journal_form" />
+            <field name="arch" type="xml">
+                <field name="type" position="after">
+                    <field name="payment_type" />
+                </field>
+
+            </field>
+        </record>
+
+
+
+
+    </data>
+</odoo>

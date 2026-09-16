@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_update_product_qty_wizard,access.update.product.qty.wizard,model_update_product_qty_wizard,tradeline_update_product_qty.group_update_product_qty,1,1,1,1

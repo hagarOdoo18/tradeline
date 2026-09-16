@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── Extend stock.picking Form View ──────────────────────────────────── -->
+    <record id="view_stock_picking_validation_form" model="ir.ui.view">
+        <field name="name">stock.picking.validation.form</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Add Validate / Reset buttons in the header -->
+            <xpath expr="//header/button[last()]" position="after">
+                <button name="action_manual_validate"
+                        string="تحقق الآن"
+                        type="object"
+                        class="btn-primary"
+                        invisible="validation_status not in ('pending', 'failed') or state in ('done', 'cancel')"
+                        confirm="هل تريد تشغيل التحقق يدوياً الآن؟"/>
+                <button name="action_reset_validation"
+                        string="إعادة التحقق"
+                        type="object"
+                        invisible="validation_status not in ('validated', 'failed') or state in ('done', 'cancel')"/>
+            </xpath>
+
+            <!-- Add validation status badge next to the picking state bar -->
+            <xpath expr="//field[@name='state']" position="after">
+                <field name="validation_status"
+                       widget="badge"
+                       decoration-success="validation_status == 'validated'"
+                       decoration-danger="validation_status == 'failed'"
+                       decoration-warning="validation_status == 'pending'"
+                       string="حالة التحقق"/>
+            </xpath>
+
+            <!-- Add Validation Info group inside the form -->
+            <xpath expr="//page[@name='additional_info']" position="inside">
+                <group string="معلومات التحقق التلقائي" name="auto_validation_group">
+                    <field name="validation_status"
+                           widget="badge"
+                           decoration-success="validation_status == 'validated'"
+                           decoration-danger="validation_status == 'failed'"
+                           decoration-warning="validation_status == 'pending'"/>
+                    <field name="validated_at" readonly="1"/>
+                    <field name="validation_error"
+                           readonly="1"
+                           invisible="not validation_error"
+                           widget="text"
+                           style="color: red;"/>
+                </group>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ── Extend stock.picking List View ──────────────────────────────────── -->
+    <record id="view_stock_picking_validation_list" model="ir.ui.view">
+        <field name="name">stock.picking.validation.list</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.vpicktree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='state']" position="after">
+                <field name="validation_status"
+                       widget="badge"
+                       decoration-success="validation_status == 'validated'"
+                       decoration-danger="validation_status == 'failed'"
+                       decoration-warning="validation_status == 'pending'"
+                       optional="show"
+                       string="حالة التحقق"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Extend Search View – filter by validation status ────────────────── -->
+    <record id="view_stock_picking_validation_search" model="ir.ui.view">
+        <field name="name">stock.picking.validation.search</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_internal_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[last()]" position="after">
+                <separator/>
+                <filter name="validation_pending"
+                        string="التحقق: قيد الانتظار"
+                        domain="[('validation_status','=','pending')]"/>
+                <filter name="validation_validated"
+                        string="التحقق: تم"
+                        domain="[('validation_status','=','validated')]"/>
+                <filter name="validation_failed"
+                        string="التحقق: فشل"
+                        domain="[('validation_status','=','failed')]"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

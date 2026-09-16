@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Invoice -->
+        <record id="e_invoice_view_pos_form_inherit" model="ir.ui.view">
+            <field name="name">e_invoice.pos.order.form.inherit</field>
+            <field name="model">pos.order</field>
+            <field name="inherit_id" ref="point_of_sale.view_pos_pos_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//button[@name='refund']" position="before">
+                    <field name="e_invoice_sent" invisible="1"/>
+                    <field name="hide_sent_button" invisible="1"/>
+                    <field name="e_invoice_valid" invisible="1"/>
+                    <field name="e_invoice_invalid" invisible="1"/>
+                    <field name="e_invoice_submitted" invisible="1"/>
+                    <field name="e_invoice_sent" invisible="1"/>
+                    <button type="object" class="btn btn-warning"
+                            icon="fa-paper-plane" string="Send E-Invoice"   invisible="hide_sent_button == True or state == 'new'"
+                            name="action_send_electronic_invoice" />
+                </xpath>
+                <xpath expr="//field[@name='failed_pickings']" position="before">
+                    <widget name="web_ribbon" title="E-Inv Valid" bg_color="bg-success" style="margin-top:40px;"
+                            invisible="e_invoice_valid != True "
+                           />
+                    <widget name="web_ribbon" title="E-Inv Invalid" bg_color="bg-danger" style="margin-top:40px;"
+                            invisible="e_invoice_valid != True " />
+                    <widget name="web_ribbon" title="E-Inv Submitted" bg_color="bg-primary" style="margin-top:40px;"
+                            invisible="e_invoice_valid != True " />
+                </xpath>
+                <xpath expr="//notebook" position="inside">
+                    <page string="E-Invoice Details"  invisible="state == 'new' "
+                        >
+                        <header invisible="e_invoice_valid == True "  >
+                            <button type="object" name="action_generate_json" string="Generate Json"
+                                    icon="fa-cogs" class="btn btn-dark"/>
+                        </header>
+                        <group>
+                            <group>
+                                <field name="show_results"/>
+                            </group>
+                            <group>
+                                <field name="uuid" readonly="1" force_save="1"/>
+                                <field name="previous_uuid" readonly="1" force_save="1"/>
+                                <field force_save="1" name="old_uuid" readonly="1"/>
+                                <field name="ref_old_uuid"/>
+                                <field name="electronic_invoice_date" readonly="1" force_save="1"/>
+                                <field name="electronic_invoice_uuid" readonly="1" force_save="1"/>
+                                <field name="long_id" readonly="1" force_save="1"/>
+                                <field name="electronic_invoice_url" widget="url"  force_save="1" readonly="1"/>
+                                <label for="electronic_invoice_status"/>
+                                <div class="o_row">
+                                    <field name="electronic_invoice_status" readonly="1" force_save="1"/>
+                                    <button type="object" class="btn btn-info" context="{'show_result':1}"
+                                            icon="fa-refresh" string="Update Status"
+                                            name="action_update_electronic_invoice_status"
+                                            invisible="electronic_invoice_uuid == False "
+                                          />
+                                </div>
+                            </group>
+                            <label for="e_invoice_canonical"
+                                   style="font-weight:bold"/>
+                            <field name="e_invoice_canonical" readonly="1"
+                                  />
+                            <label for="e_invoice_json"
+                                   style="font-weight:bold;"/>
+                            <field name="e_invoice_json" readonly="1"
+                                   />
+                             <label for="result"
+                                   style="font-weight:bold;"/>
+                            <field name="result" readonly="1" force_save="1"
+                                   />
+                        </group>
+                    </page>
+                </xpath>
+            </field>
+        </record>
+
+    </data>
+</odoo>

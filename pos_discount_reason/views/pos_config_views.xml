@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_pos_config_form_auto_invoice" model="ir.ui.view">
+        <field name="name">pos.config.form.auto.invoice</field>
+        <field name="model">pos.config</field>
+        <field name="inherit_id" ref="point_of_sale.pos_config_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//setting[@id='other_devices']" position="after">
+                <setting string="Auto Invoice" help="Automatically create invoices for all POS orders">
+                    <field name="auto_invoice"/>
+                </setting>
+                <setting string="Auto Print Invoice" help="Automatically print invoices after creation">
+                    <field name="auto_print_invoice"/>
+                </setting>
+            </xpath>
+        </field>
+    </record>
+</odoo>

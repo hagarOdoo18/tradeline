@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ── Wizard Form View ─────────────────────────────────────────────── -->
+    <record id="modify_serial_wizard_form_view" model="ir.ui.view">
+        <field name="name">modify.serial.wizard.form</field>
+        <field name="model">modify.serial.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Modify Serial / Lot Product">
+
+                <!-- Upload step -->
+                <group invisible="state != 'upload'">
+                    <group string="Upload Excel File">
+                        <field name="file" widget="binary" filename="file_name"
+                               required="state == 'upload'"/>
+                        <field name="file_name" invisible="1"/>
+                    </group>
+                    <group string="Expected Excel Format">
+                        <div colspan="2" style="padding:8px;background:#f8f9fa;border-radius:4px;font-size:13px;">
+                            <p style="margin:0 0 4px 0;"><b>The Excel file must contain three columns (with a header row):</b></p>
+                            <ul style="margin:0;padding-left:18px;">
+                                <li><b>Column A – Item Code:</b> Internal reference of the current product on the serial/lot</li>
+                                <li><b>Column B – Lot/Serial Number:</b> The serial or lot number to reassign</li>
+                                <li><b>Column C – new_item_code:</b> Internal reference of the target product</li>
+                            </ul>
+                        </div>
+                    </group>
+                </group>
+
+                <!-- Result step -->
+                <group invisible="state != 'done'">
+                    <field name="result_html" nolabel="1" colspan="2"/>
+                </group>
+
+                <field name="state" invisible="1"/>
+
+                <footer>
+                    <button name="action_process"
+                            string="Process"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'upload'"/>
+                    <button string="Close"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+
+            </form>
+        </field>
+    </record>
+
+    <!-- ── Window Action ────────────────────────────────────────────────── -->
+    <record id="action_modify_serial_wizard" model="ir.actions.act_window">
+        <field name="name">Modify Serial / Lot Product</field>
+        <field name="type">ir.actions.act_window</field>
+        <field name="res_model">modify.serial.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ── Menu Item ────────────────────────────────────────────────────── -->
+    <menuitem id="menu_modify_serial_product"
+              name="Modify Serial / Lot Product"
+              parent="stock.menu_stock_inventory_control"
+              action="action_modify_serial_wizard"
+              sequence="25"/>
+
+</odoo>

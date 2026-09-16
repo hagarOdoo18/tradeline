@@ -1,0 +1,9 @@
+<odoo>
+    <menuitem id="menu_invoice_tax_report_root" name="Invoice Tax Report"
+              parent="account.menu_finance_reports"/>
+
+    <menuitem id="menu_invoice_tax_report_wizard"
+              parent="menu_invoice_tax_report_root"
+              name="Generate Report"
+              action="action_account_invoice_report_tax_wizard"/>
+</odoo>

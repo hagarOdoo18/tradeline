@@ -1,0 +1,234 @@
+<odoo>
+  <data>
+    <!-- explicit list view definition -->
+
+
+
+    <record id="product_family_inherit" model="ir.ui.view">
+            <field name="name">product family</field>
+            <field name="model">product.template</field>
+            <field name="inherit_id" ref="product.product_template_only_form_view" />
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='barcode']" position="after" >
+                  <field name="family_id"/>
+                  <field name="sub_categ_id"/>
+
+
+                </xpath>
+
+                  <xpath expr="//div[@name='standard_price_uom']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+                  <xpath expr="//label[@for='standard_price']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+            </field>
+    </record>
+
+
+    <record id="product_list_barcode_view" model="ir.ui.view">
+        <field name="name">product barcode</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_tree_view" />
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="replace" >
+                <list>
+                  <field name="categ_id"/>
+                  <field name="sub_categ_id"/>
+                  <field name="family_id"/>
+                  <field name="name"/>
+                  <field name="list_price"/>
+                  <field name="standard_price"/>
+                  <field name="qty_available"/>
+                  <field name="virtual_available"/>
+                </list>
+            </xpath>
+        </field>
+    </record>
+      <record id="product_product_list_barcode_view" model="ir.ui.view">
+        <field name="name">product barcode</field>
+        <field name="model">product.product</field>
+        <field name="inherit_id" ref="product.product_product_tree_view" />
+        <field name="arch" type="xml">
+
+            <xpath expr="//list" position="replace" >
+                <list>
+                  <field name="categ_id"/>
+                  <field name="sub_categ_id"/>
+                  <field name="family_id"/>
+                  <field name="default_code"/>
+                  <field name="barcode"/>
+                  <field name="name"/>
+                  <field name="display_name"/>
+                  <field name="product_template_variant_value_ids"  widget="many2many_tags" groups="product.group_product_variant" readonly="1"/>
+                  <field name="lst_price"/>
+                  <field name="standard_price"/>
+                  <field name="qty_available"/>
+                  <field name="virtual_available"/>
+                  <field name="vendor_id"/>
+                </list>
+            </xpath>
+        </field>
+    </record>
+
+      <record id="product_vendor_view" model="ir.ui.view">
+            <field name="name">product Vendor</field>
+            <field name="model">product.product</field>
+            <field name="inherit_id" ref="product.product_normal_form_view" />
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='barcode']" position="after" >
+                  <field name="vendor_id" force_save="1" readonly="1"/>
+                    <field name="product_point"/>
+                  <field name="product_incentive"/>
+                  <field name="product_notes" groups='inventory_customization.group_menu_product_notes'/>
+                </xpath>
+                  <xpath expr="//field[@name='standard_price']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+            </field>
+        </record>
+      <record id="product_cost_view" model="ir.ui.view">
+            <field name="name">product cost</field>
+            <field name="model">product.product</field>
+                       <field name="inherit_id" ref="product.product_template_form_view"/>
+
+            <field name="arch" type="xml">
+
+                  <xpath expr="//div[@name='standard_price_uom']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+                  <xpath expr="//label[@for='standard_price']" position="attributes">
+                    <attribute name="groups">inventory_customization.group_product_serial_admin</attribute>
+                </xpath>
+            </field>
+        </record>
+
+       <record id="server_action_product_vendor_update" model="ir.actions.server">
+        <field name="name">Update Vendor</field>
+        <field name="model_id" ref="product.model_product_template_attribute_line"/>
+        <field name="binding_model_id" ref="product.model_product_template_attribute_line"/>
+        <field name="state">code</field>
+       <field name="binding_view_types">form,list</field>
+
+        <field name="code">
+            if records:
+                action = records.action_update_vendor()
+        </field>
+    </record>
+       <record id="stock.in_picking" model="ir.ui.menu">
+            <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_receipt_menu')])]"/>
+        </record>
+      <record id="stock.out_picking" model="ir.ui.menu">
+            <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_delivery_menu')])]"/>
+        </record>
+    <record id="stock.int_picking" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_transfer_menu')])]"/>
+            </record>
+      <record id="stock_landed_costs.menu_stock_landed_cost" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_cost_menu')])]"/>
+            </record>
+    <record id="stock.menu_action_inventory_tree" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_inventory_menu')])]"/>
+            </record>
+      <record id="stock.menu_stock_scrap" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_scrap_menu')])]"/>
+            </record>
+      <record id="stock.stock_move_menu" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_moves_analysis_menu')])]"/>
+            </record>
+      <record id="stock.menu_product_stock" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_product_stock_menu')])]"/>
+            </record>
+      <record id="stock.menu_valuation" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_locations_menu')])]"/>
+            </record>
+ <record id="stock.stock_move_line_menu" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_stock_move_line_menu')])]"/>
+            </record>
+      <record id="stock.stock_move_line_menu" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_stock_move_line_menu')])]"/>
+            </record>
+ <record id="stock.stock_move_menu" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_stock_move_menu')])]"/>
+            </record>
+ <record id="stock_account.menu_valuation" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_menu_valuation')])]"/>
+            </record>
+<record id="stock.stock_picking_type_menu" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_menu_overview')])]"/>
+            </record>
+<record id="stock.menu_procurement_compute" model="ir.ui.menu">
+                <field name="groups_id" eval="[(6, 0, [ ref('inventory_customization.group_menu_procurement_compute')])]"/>
+            </record>
+
+
+       <template id="product.report_productlabel">
+            <t t-call="web.html_container">
+                <t t-if="columns and rows">
+                    <t t-if="columns == 2 and rows == 7">
+                        <t t-set="padding_page" t-value="'padding: 14mm 3mm'"/>
+                        <t t-set="report_to_call" t-value="'2x7'"/>
+                    </t>
+                    <t t-if="columns == 4 and rows == 7">
+                        <t t-set="padding_page" t-value="'padding: 14mm 3mm'"/>
+                        <t t-set="report_to_call" t-value="'4x7'"/>
+                    </t>
+                    <t t-if="columns == 4 and rows == 12">
+                        <t t-set="padding_page" t-value="'padding: 20mm 8mm'"/>
+                        <t t-set="report_to_call" t-value="'4x12'"/>
+                    </t>
+                    <t t-foreach="range(page_numbers)" t-as="page">
+                        <div class="o_label_sheet" t-att-style="padding_page">
+                            <table class="my-0 table table-sm table-borderless">
+                                <t t-foreach="range(rows)" t-as="row">
+                                    <tr>
+                                        <t t-foreach="range(columns)" t-as="column">
+                                            <t t-if="not current_quantity and quantity and not (current_data and current_data[1])">
+                                                <t t-set="current_data" t-value="quantity.popitem()"/>
+                                                <t t-set="product" t-value="current_data[0]"/>
+                                                <t t-set="barcode_and_qty" t-value="current_data[1].pop()"/>
+                                                <t t-set="barcode" t-value="barcode_and_qty[0]"/>
+                                                <t t-set="current_quantity" t-value="barcode_and_qty[1]"/>
+                                            </t>
+                                            <t t-if="current_quantity">
+                                                <t t-set="make_invisible" t-value="False"/>
+                                                <t t-set="current_quantity" t-value="current_quantity - 1"/>
+                                            </t>
+                                            <t t-elif="current_data and current_data[1]">
+                                                <t t-set="barcode_and_qty" t-value="current_data[1].pop()"/>
+                                                <t t-set="barcode" t-value="barcode_and_qty[0]"/>
+                                                <t t-set="current_quantity" t-value="barcode_and_qty[1] - 1"/>
+                                            </t>
+                                            <t t-else="">
+                                                <t t-set="make_invisible" t-value="True"/>
+                                            </t>
+<!--                                            <t t-set="table_style" t-value="'border: 1px solid %s;' % (product.env.user.company_id.primary_color or 'black')"/>-->
+<!--                                            &lt;!&ndash; IMPORTANT: explictly call templates in place of {{template}} otherwise studio won't load report correctly &ndash;&gt;-->
+<!--                                            <t t-if="report_to_call == '2x7'">-->
+<!--                                                <t t-call="product.report_simple_label2x7"/>-->
+<!--                                            </t>-->
+<!--                                            <t t-elif="report_to_call == '4x7'">-->
+<!--                                                <t t-call="product.report_simple_label4x7"/>-->
+<!--                                            </t>-->
+<!--                                            <t t-elif="report_to_call == '4x12'">-->
+<!--                                                <t t-if="price_included">-->
+<!--                                                    <t t-call="product.report_simple_label4x12"/>-->
+<!--                                                </t>-->
+<!--                                                <t t-else="">-->
+<!--                                                    <t t-call="product.report_simple_label4x12_no_price"/>-->
+<!--                                                </t>-->
+<!--                                            </t>-->
+                                        </t>
+                                    </tr>
+                                </t>
+                            </table>
+                        </div>
+                    </t>
+                </t>
+            </t>
+        </template>
+
+
+
+  </data>
+</odoo>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+         <record model="ir.ui.view" id="sub_category_list">
+      <field name="name">sub category list view</field>
+      <field name="model">sub.category</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="name"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="sub_category_form">
+      <field name="name">sub category form view</field>
+      <field name="model">sub.category</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <group>
+              <field name="name"/>
+            </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <!-- actions opening views on models -->
+    <record model="ir.actions.act_window" id="sub_category_act">
+      <field name="name">Sub Category</field>
+      <field name="res_model">sub.category</field>
+      <field name="view_mode">list,form</field>
+    </record>
+
+
+
+
+    </data>
+</odoo>

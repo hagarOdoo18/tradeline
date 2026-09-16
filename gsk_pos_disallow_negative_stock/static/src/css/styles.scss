@@ -1,0 +1,21 @@
+.popup.stock{
+  max-width:750px !important;
+
+  main{
+    padding: 0 1.5rem 1rem !important;
+    margin: 0 !important;
+    .warning{
+      text-align: left;
+      .location{
+        color:#B56C39;
+      }
+
+    }
+    .table {
+      width: 100%;
+      td:first-of-type,th:first-of-type{
+        text-align: left;
+      }
+    }
+  }
+}

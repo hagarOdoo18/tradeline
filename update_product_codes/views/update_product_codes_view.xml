@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_update_product_codes_wizard_form" model="ir.ui.view">
+        <field name="name">update.product.codes.wizard.form</field>
+        <field name="model">update.product.codes.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Update Product Codes">
+                <group>
+                    <field name="file" filename="filename" widget="binary" />
+                    <field name="filename" readonly="1"/>
+                </group>
+                <footer>
+                    <button string="Update" type="object" name="action_update_codes" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_update_product_codes" model="ir.actions.act_window">
+        <field name="name">Update Product Codes</field>
+        <field name="res_model">update.product.codes.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_update_product_codes_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_update_product_codes_root" name="Update Product Codes" parent="stock.menu_stock_inventory_control" action="action_update_product_codes"/>
+</odoo>

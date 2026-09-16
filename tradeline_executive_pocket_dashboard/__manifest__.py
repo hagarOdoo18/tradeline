@@ -1,0 +1,45 @@
+# -*- coding: utf-8 -*-
+{
+    "name": "Tradeline Executive Pocket Dashboard",
+    "summary": "Standalone executive dashboard with granular drilldowns and live FX watch",
+    "version": "18.0.1.4.5",
+    "category": "Reporting",
+    "author": "Tradeline",
+    "license": "LGPL-3",
+    "depends": [
+        "web",
+        "account",
+        "sale_management",
+        "stock",
+        "crm",
+        "mail",
+        "branch_account_report",
+        "accounting_customization",
+    ],
+    "data": [
+        "security/security.xml",
+        "security/ir.model.access.csv",
+        "data/ir_cron_data.xml",
+        "data/ir_cron_update.xml",
+        "report/executive_daily_report.xml",
+        "views/executive_dashboard_views.xml",
+        "views/executive_report_automation_views.xml",
+        "views/executive_fx_rate_views.xml",
+    ],
+    "assets": {
+        "web.chartjs_lib": [
+            "/web/static/lib/Chart/Chart.js",
+            "/web/static/lib/chartjs-adapter-luxon/chartjs-adapter-luxon.js",
+        ],
+        "web.assets_backend": [
+            "tradeline_executive_pocket_dashboard/static/src/js/executive_dashboard_action.js",
+            "tradeline_executive_pocket_dashboard/static/src/xml/executive_dashboard_templates.xml",
+            "tradeline_executive_pocket_dashboard/static/src/scss/executive_dashboard.scss",
+            "tradeline_executive_pocket_dashboard/static/src/scss/executive_report_automation.scss",
+        ],
+    },
+    "installable": True,
+    "application": True,
+    "auto_install": False,
+}
+

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_legacy_purchase_order_list" model="ir.ui.view">
+        <field name="name">legacy.purchase.order.list</field>
+        <field name="model">legacy.purchase.order</field>
+        <field name="arch" type="xml">
+            <list string="Legacy Purchase Orders" create="false" edit="false" delete="false" export_xlsx="1">
+                <field name="date_order"/>
+                <field name="name"/>
+                <field name="vendor_reference" optional="show"/>
+                <field name="source_partner_name" string="Vendor" optional="show"/>
+                <field name="source_partner_code" string="Vendor Code" optional="show"/>
+                <field name="source_partner_type" string="Vendor Type" optional="show"/>
+                <field name="source_partner_tax_id" string="Vendor Tax ID" optional="show"/>
+                <field name="state" optional="show"/>
+                <field name="source_origin" optional="show"/>
+                <field name="amount_untaxed" sum="Untaxed" optional="show"/>
+                <field name="amount_tax" sum="Tax" optional="show"/>
+                <field name="amount_total" sum="Total"/>
+                <field name="line_count" optional="show"/>
+                <field name="source_db" optional="hide"/>
+                <field name="source_po_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_legacy_purchase_order_search" model="ir.ui.view">
+        <field name="name">legacy.purchase.order.search</field>
+        <field name="model">legacy.purchase.order</field>
+        <field name="arch" type="xml">
+            <search string="Legacy Purchase Orders">
+                <field name="name" string="PO Reference"/>
+                <field name="vendor_reference" string="Vendor Reference"/>
+                <field name="source_partner_name" string="Vendor"/>
+                <field name="source_partner_code" string="Vendor Code"/>
+                <field name="source_partner_type" string="Vendor Type"/>
+                <field name="source_partner_tax_id" string="Vendor Tax ID"/>
+                <field name="source_origin" string="Origin"/>
+                <field name="date_order"/>
+                <field name="state"/>
+                <field name="source_db"/>
+                <filter name="tradeline_time_ranges_legacy_po_date" string="Order Date" date="date_order"/>
+                <group expand="0" string="Group By">
+                    <filter name="legacy_po_group_month" string="Order Month" context="{'group_by': 'date_order:month'}"/>
+                    <filter name="legacy_po_group_vendor" string="Vendor" context="{'group_by': 'source_partner_name'}"/>
+                    <filter name="legacy_po_group_vendor_type" string="Vendor Type" context="{'group_by': 'source_partner_type'}"/>
+                    <filter name="legacy_po_group_state" string="State" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_legacy_purchase_order_form" model="ir.ui.view">
+        <field name="name">legacy.purchase.order.form</field>
+        <field name="model">legacy.purchase.order</field>
+        <field name="arch" type="xml">
+            <form string="Legacy Purchase Order" create="false" edit="false" delete="false">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="date_order"/>
+                            <field name="state"/>
+                            <field name="vendor_reference"/>
+                            <field name="source_origin"/>
+                        </group>
+                        <group>
+                            <field name="source_partner_name"/>
+                            <field name="source_partner_code"/>
+                            <field name="source_partner_type"/>
+                            <field name="source_partner_tax_id"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group>
+                            <field name="source_db"/>
+                            <field name="source_po_id"/>
+                            <field name="company_id"/>
+                            <field name="source_currency_name"/>
+                        </group>
+                        <group>
+                            <field name="amount_untaxed"/>
+                            <field name="amount_tax"/>
+                            <field name="amount_total"/>
+                            <field name="line_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Lines">
+                            <field name="line_ids" readonly="1">
+                                <list create="false" edit="false" delete="false">
+                                    <field name="sequence" optional="hide"/>
+                                    <field name="item_code" optional="show"/>
+                                    <field name="product_name"/>
+                                    <field name="description" optional="show"/>
+                                    <field name="uom_name" optional="show"/>
+                                    <field name="qty_ordered" sum="Ordered Qty"/>
+                                    <field name="qty_received" sum="Received Qty" optional="show"/>
+                                    <field name="qty_billed" sum="Billed Qty" optional="show"/>
+                                    <field name="price_unit"/>
+                                    <field name="price_subtotal" sum="Subtotal"/>
+                                    <field name="date_planned" optional="show"/>
+                                    <field name="tax_text" optional="show"/>
+                                    <field name="source_line_id" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes">
+                            <group>
+                                <field name="notes"/>
+                                <field name="legacy_payload"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_legacy_purchase_order" model="ir.actions.act_window">
+        <field name="name">Legacy Purchase Orders</field>
+        <field name="res_model">legacy.purchase.order</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_legacy_purchase_order_list"/>
+        <field name="search_view_id" ref="view_legacy_purchase_order_search"/>
+        <field name="context">{'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+    </record>
+
+    <menuitem id="menu_legacy_purchase_order"
+              name="Legacy Purchase Orders"
+              parent="menu_legacy_reporting_root"
+              action="action_legacy_purchase_order"
+              sequence="75"
+              groups="account.group_account_readonly"/>
+</odoo>

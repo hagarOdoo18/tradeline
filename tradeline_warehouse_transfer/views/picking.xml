@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="stock_picking_form_inh_cancel_option" model="ir.ui.view">
+            <field name="name">stock.picking.form.inh</field>
+            <field name="model">stock.picking</field>
+            <field name="inherit_id" ref="stock.view_picking_form"/>
+            <field name="arch" type="xml">
+
+<!--                <xpath expr="//button[@name='action_confirm']" position="attributes">-->
+<!--                    &lt;!&ndash; Add your fields or attributes here &ndash;&gt;-->
+<!--                    <attribute name="groups">tradeline_warehouse_transfer.group_transfer_manger</attribute>-->
+<!--                </xpath>-->
+                <xpath expr="//field[@name='origin']" position="after">
+                    <!-- Add your fields or attributes here -->
+                    <field name="cancel_options"/>
+                    <field name="request_id" readonly="1"/>
+                </xpath>
+            </field>
+        </record>
+<!--&lt;!&ndash;        <record id="stock_backorder_confirmation_inh" model="ir.ui.view">&ndash;&gt;-->
+<!--            <field name="name">stock.backorder.confirmation.inh</field>-->
+<!--            <field name="model">stock.backorder.confirmation</field>-->
+<!--            <field name="inherit_id" ref="stock.view_backorder_confirmation"/>-->
+<!--            <field name="arch" type="xml">-->
+
+<!--                <xpath expr="//button[@name='process_cancel_backorder']" position="after">-->
+<!--                    &lt;!&ndash; Add your fields or attributes here &ndash;&gt;-->
+<!--                    <button name="reverse_transfer" string="Reverse Transfer" type="object" class="btn-primary" attrs="{'invisible': [('show_transfers', '=', True)]}" data-hotkey="w"/>-->
+
+<!--                </xpath>-->
+
+<!--            </field>-->
+<!--        </record>-->
+
+
+    </data>
+</odoo>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <function model="tradeline.accounting.groupby.expand.sync" name="run"/>
+    </data>
+</odoo>
