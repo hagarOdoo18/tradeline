@@ -439,6 +439,11 @@ class ShopifyOrderApi(http.Controller):
         # record carries the "confirm" option (draft=True -> not confirmed).
         # skip_shopify_write: the order came FROM Shopify, so the sale.order
         # writes/confirmation must not push it back.
+        # Remember where the log stood, so a failure is explained only by
+        # order-import lines written during THIS import - never by the
+        # inventory cron's lines that share the same table.
+        log_model = self._model('log.message')
+        last_log = log_model.search([], order='id desc', limit=1)
         sync_model = self._model('sale.order.sync', company).with_context(
             skip_shopify_write=True)
         sync_wizard = sync_model.create({
@@ -457,14 +462,17 @@ class ShopifyOrderApi(http.Controller):
         ], limit=1).order_id
         if not order:
             # the importer logs and swallows its failures: surface the
-            # latest log line it wrote as the reason
-            reason = self._model('log.message').search(
-                [('shopify_instance_id', '=', instance.id)],
-                order='id desc', limit=1).name
+            # order log line it wrote during this import as the reason
+            reason = log_model.search([
+                ('id', '>', last_log.id or 0),
+                ('shopify_instance_id', '=', instance.id),
+                ('model', '=', 'sale.order'),
+            ], order='id desc', limit=1).name
             raise _OrderRejected(
                 'not_imported',
                 'The order was not imported: %s' % (
-                    reason or 'see the Shopify log'), 422)
+                    reason or 'the importer skipped it without logging a '
+                              'reason (see the Shopify log)'), 422)
 
         if not order.order_line:
             # The import keeps a header without lines; an API caller is
