@@ -4,7 +4,7 @@ from odoo import fields, models, api
 class Crmteam(models.Model):
     _inherit = 'crm.team'
 
-    branch_id = fields.Many2one('res.branch', string="Branch",required=True)
+    branch_id = fields.Many2one('res.branch', string="Branch",required=False)
 
 class CrmLead(models.Model):
     _inherit = 'crm.lead'
