@@ -15,3 +15,4 @@ access_sync_pricing_user,access.sync.pricing.user,model_sync_pricing,base.group_
 access_shopify_min_qty_user,access.shopify.min.qty.user,model_shopify_min_qty,base.group_user,1,0,0,0
 access_shopify_min_qty_manager,access.shopify.min.qty.manager,model_shopify_min_qty,stock.group_stock_manager,1,1,1,1
 access_shopify_order_event_manager,access.shopify.order.event.manager,model_shopify_order_event,stock.group_stock_manager,1,1,0,0
+access_shopify_api_token_system,access.shopify.api.token.system,model_shopify_api_token,base.group_system,1,1,0,1
