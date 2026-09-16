@@ -8,6 +8,7 @@
             <form string="Sync Pricing">
                 <group>
                     <group>
+
                         <field name="shopify_instance_id"/>
                         <field name="currency_id"/>
                     </group>
