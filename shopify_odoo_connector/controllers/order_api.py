@@ -22,7 +22,6 @@ from odoo import SUPERUSER_ID
 from odoo import fields, http
 from odoo.http import request
 
-from ..models.shopify_api_token import TOKEN_LIFETIME
 
 _logger = logging.getLogger(__name__)
 
@@ -253,14 +252,19 @@ class ShopifyOrderApi(http.Controller):
                 return self._error('invalid_credentials',
                                    'Wrong store name or client secret.', 401)
 
-            token, record = self._model('shopify.api.token')._issue(instance)
-            _logger.info('Shopify order API: token issued for %s',
+            token, record, created = self._model(
+                'shopify.api.token')._issue(instance)
+            _logger.info('Shopify order API: %s token for %s',
+                         'issued new' if created else 'returned live',
                          instance.name)
+            expires_in = int(
+                (record.expires_at - fields.Datetime.now()).total_seconds())
             return self._respond({
                 'success': True,
                 'access_token': token,
                 'token_type': 'Bearer',
-                'expires_in': int(TOKEN_LIFETIME.total_seconds()),
+                'expires_in': max(expires_in, 0),
+                'reused': not created,
                 'expires_at': record.expires_at.isoformat() + 'Z',
                 'instance': instance.name,
                 'store_name': instance.shop_name,
