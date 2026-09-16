@@ -423,6 +423,16 @@ class TestPreorderFlow(TransactionCase):
         self.assertEqual(payload["sales_rep_id"], self.sales_rep.id)
         self.assertEqual(payload["sales_rep_name"], self.sales_rep.display_name)
 
+    def test_delivery_payment_inverse_is_declared_on_preorder(self):
+        delivery_payments = self.env["sale.preorder"]._fields["delivery_payment_ids"]
+
+        self.assertEqual(delivery_payments.comodel_name, "account.payment")
+        self.assertEqual(delivery_payments.inverse_name, "preorder_delivery_id")
+        self.assertNotIn(
+            "delivery_payment_ids",
+            self.env["sale.preorder.payment.confirmation"]._fields,
+        )
+
     def test_pos_validation_accepts_a_post_validation_action_when_picking_is_done(self):
         picking = Mock(state="done")
         result = {"type": "ir.actions.client", "tag": "do_multi_print"}

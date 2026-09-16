@@ -32,10 +32,6 @@ class SalePreorderPaymentConfirmation(models.Model):
         copy=False,
         index=True,
     )
-    delivery_payment_ids = fields.One2many(
-        "account.payment", "preorder_delivery_id", string="Delivery Payments", readonly=True
-    )
-
     _sql_constraints = [
         (
             "source_payment_unique",
@@ -51,4 +47,3 @@ class SalePreorderPaymentConfirmation(models.Model):
                 raise ValidationError(_("A payment confirmation must have a positive amount."))
             if confirmation.currency_id != confirmation.preorder_id.currency_id:
                 raise ValidationError(_("The confirmation currency must match the pre-order currency."))
-
