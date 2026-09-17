@@ -841,7 +841,7 @@ class SalePreorder(models.Model):
             ("delivery", "Record at delivery"),
         ],
         string="Payment Recording",
-        default="preorder",
+        default="delivery",
         required=True,
         readonly=True,
         copy=False,
@@ -1685,6 +1685,51 @@ class SalePreorder(models.Model):
             "tag": "reload",
         }
 
+    @api.model
+    def action_migrate_all_open_preorders(self):
+        """Migrate every open legacy pre-order without losing successful batches.
+
+        Each record is isolated in a database savepoint.  A locked or otherwise
+        invalid payment is reported and left untouched while other pre-orders
+        complete and are committed with the request.  This makes the operation
+        safe to repeat until the exception list is empty.
+        """
+        _check_preorder_manager(self.env)
+        records = self.search(
+            [
+                ("state", "not in", ("completed", "cancelled")),
+                ("payment_recording_mode", "=", "preorder"),
+            ],
+            order="id",
+        )
+        migrated = 0
+        failures = []
+        for preorder in records:
+            try:
+                with self.env.cr.savepoint():
+                    result = preorder.migrate_payments_to_delivery()
+                    migrated += len(result)
+            except Exception as error:
+                failures.append("%s: %s" % (preorder.display_name, error))
+        message = _(
+            "Payment migration finished: %(migrated)s pre-order(s) migrated, %(failed)s exception(s)."
+        ) % {"migrated": migrated, "failed": len(failures)}
+        if failures:
+            message += "\n" + "\n".join(failures[:20])
+            if len(failures) > 20:
+                message += _("\n…and %(count)s more.") % {"count": len(failures) - 20}
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Pre-order Payment Migration"),
+                "message": message,
+                "type": "warning" if failures else "success",
+                "sticky": bool(failures),
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
+        }
+
     def _get_available_payment_lines(self, payments=None):
         self.ensure_one()
         payments = payments if payments is not None else self._get_source_inbound_payments()
@@ -1891,6 +1936,18 @@ class SalePreorder(models.Model):
             self.payment_due_amount, precision_rounding=self.currency_id.rounding
         ):
             raise UserError(_("This pre-order is already fully paid."))
+        if self.payment_recording_mode == "delivery":
+            return {
+                "name": _("Confirm Pre-order Payment"),
+                "type": "ir.actions.act_window",
+                "res_model": "sale.preorder.payment.capture",
+                "view_mode": "form",
+                "target": "new",
+                "context": {
+                    "default_preorder_id": self.id,
+                    "default_amount": self.payment_due_amount,
+                },
+            }
         return {
             "name": _("Register Pre-order Payment"),
             "type": "ir.actions.act_window",

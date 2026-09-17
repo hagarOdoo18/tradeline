@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Tradeline Pre-order Management",
-    "version": "18.0.8.6.11",
+    "version": "18.0.8.6.12",
     "category": "Sales",
     "summary": "Branch allocations and payment reuse for product pre-orders",
     "author": "Tradeline",
@@ -22,6 +22,7 @@
         "data/preorder_sequence.xml",
         "report/preorder_confirmation_report.xml",
         "views/preorder_views.xml",
+        "views/preorder_payment_capture_views.xml",
         "views/sale_order_views.xml",
         "views/pos_config_views.xml",
     ],

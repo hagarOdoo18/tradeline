@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_preorder_payment_capture_view_form" model="ir.ui.view">
+        <field name="name">sale.preorder.payment.capture.form</field>
+        <field name="model">sale.preorder.payment.capture</field>
+        <field name="arch" type="xml">
+            <form string="Confirm Pre-order Payment">
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        This confirms the customer's payment without posting an accounting payment.
+                        The branch records the accounting payment when the pre-order is delivered in POS.
+                    </div>
+                    <group>
+                        <field name="preorder_id"/>
+                        <field name="company_id" invisible="1"/>
+                        <field name="currency_id" invisible="1"/>
+                        <field name="amount"/>
+                        <field name="journal_id"/>
+                        <field name="payment_date"/>
+                        <field name="reference" placeholder="Bank reference, gateway ID, or receipt number"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" string="Confirm Payment" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

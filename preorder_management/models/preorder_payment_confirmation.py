@@ -13,7 +13,8 @@ class SalePreorderPaymentConfirmation(models.Model):
         "sale.preorder", required=True, ondelete="cascade", index=True
     )
     source_payment_id = fields.Many2one(
-        "account.payment", required=True, readonly=True, ondelete="restrict", index=True
+        "account.payment", readonly=True, ondelete="restrict", index=True,
+        help="Posted accounting payment for a migrated legacy pre-order. New delivery-mode pre-orders leave this empty until POS delivery.",
     )
     reversal_payment_id = fields.Many2one(
         "account.payment", readonly=True, ondelete="restrict", index=True
