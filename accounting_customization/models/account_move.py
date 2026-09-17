@@ -704,17 +704,15 @@ class AccountMove(models.Model):
 
 
     def action_post(self):
+        """Post invoices without blocking on the external ETA service.
 
-        res = super(AccountMove, self).action_post()
-        for rec in self:
-            if rec.move_type in ('out_invoice', 'out_refund'):
-                # if rec.partner_id.company_type == 'company':
-                try:
-                    rec.action_send_electronic_invoice()
-                except:
-                    pass
-
-        return res
+        Electronic invoices are submitted by the dedicated one-minute cron in
+        ``egyptian_electronic_invoice``.  Calling the ETA API here kept the
+        database transaction open while token, signing, and submission HTTP
+        requests completed (or timed out), making every Sales and POS invoice
+        appear frozen for up to several minutes.
+        """
+        return super(AccountMove, self).action_post()
 
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'

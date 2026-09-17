@@ -10,6 +10,8 @@ from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 from datetime import date
 
+_logger = logging.getLogger(__name__)
+
 grey = "\x1b[38;21m"
 yellow = "\x1b[33;21m"
 red = "\x1b[31;21m"
@@ -1052,12 +1054,17 @@ class AccountMoveInherit(models.Model):
 				invoice.static_signature = False
 
 	def cron_send_invoices(self):
-		for rec in self.search([('move_type', 'in', ('out_invoice', 'out_refund')), ('e_invoice_status', '=', 'Draft')],
-							   limit=50):
+		"""Submit posted invoices outside the interactive posting transaction."""
+		for rec in self.search([
+			('state', '=', 'posted'),
+			('move_type', 'in', ('out_invoice', 'out_refund')),
+			('e_invoice_status', '=', 'Draft'),
+		], limit=50):
 			try:
 				rec.action_send_electronic_invoice()
-			except:
-				rec.e_invoice_status="Error"
+			except Exception:
+				_logger.exception("ETA submission failed for invoice %s", rec.display_name)
+				rec.e_invoice_status = "Error"
 
 	def _reset_e_invoice_Fields(self):
 		for invoice in self:

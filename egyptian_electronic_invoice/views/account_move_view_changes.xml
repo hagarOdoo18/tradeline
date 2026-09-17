@@ -233,10 +233,10 @@
 <data >
     <record id="ir_cron_document_posted_sync" model="ir.cron">
         <field name="name">E-Invoice: Automatic sync posted documents Cron</field>
-        <field name="active">0</field>
+        <field name="active">1</field>
         <field name="interval_number">1</field>
         <field name="interval_type">minutes</field>
-        <field name="nextcall" eval="(DateTime.now().replace(hour=0, minute=0, second=0) + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
+        <field name="nextcall" eval="(DateTime.now() + timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')"/>
         <field name="model_id" ref="account.model_account_move"/>
         <field name="code">
             model.cron_send_invoices()

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Tradeline Pre-order Management",
-    "version": "18.0.8.6.8",
+    "version": "18.0.8.6.9",
     "category": "Sales",
     "summary": "Branch allocations and payment reuse for product pre-orders",
     "author": "Tradeline",
