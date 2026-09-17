@@ -27,7 +27,7 @@
     'website': 'https://www.linkedin.com/in/ahmed-salama-a982b182/',
     'license': 'AGPL-3',
     'description': """Egyptian Electronic Invoice Submitting module V18.0""",
-    'version': '10.1.2',
+    'version': '10.1.3',
     'depends': ['account', 'product', 'uom'],
     'data': [
         'data/data_files.xml',

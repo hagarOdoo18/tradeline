@@ -38,6 +38,22 @@ class AccountJournalInherit(models.Model):
 
 class AccountMoveInherit(models.Model):
 	_inherit = 'account.move'
+
+	eta_submission_pending = fields.Boolean(
+		string="ETA Submission Pending",
+		default=False,
+		copy=False,
+		index=True,
+	)
+
+	def action_post(self):
+		"""Queue newly posted sales documents for asynchronous ETA submission."""
+		result = super().action_post()
+		self.filtered(
+			lambda move: move.move_type in ('out_invoice', 'out_refund')
+			and not move.e_invoice_sent
+		).write({'eta_submission_pending': True})
+		return result
 	
 	# Compute Methods
 	@api.onchange('invoice_date', 'e_invoice_sent')
@@ -1058,13 +1074,18 @@ class AccountMoveInherit(models.Model):
 		for rec in self.search([
 			('state', '=', 'posted'),
 			('move_type', 'in', ('out_invoice', 'out_refund')),
+			('eta_submission_pending', '=', True),
 			('e_invoice_status', '=', 'Draft'),
 		], limit=50):
 			try:
 				rec.action_send_electronic_invoice()
+				rec.eta_submission_pending = False
 			except Exception:
 				_logger.exception("ETA submission failed for invoice %s", rec.display_name)
-				rec.e_invoice_status = "Error"
+				rec.write({
+					'e_invoice_status': "Error",
+					'eta_submission_pending': False,
+				})
 
 	def _reset_e_invoice_Fields(self):
 		for invoice in self:
