@@ -1193,9 +1193,10 @@ class SalePreorder(models.Model):
 
     @api.depends(
         "source_order_id.currency_id",
-        "customer_id.property_product_pricelist.currency_id",
+        "customer_id",
         "company_id.currency_id",
     )
+    @api.depends_context("company")
     def _compute_currency(self):
         for record in self:
             pricelist = record.customer_id.property_product_pricelist
