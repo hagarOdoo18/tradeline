@@ -1532,21 +1532,30 @@ class SalePreorder(models.Model):
         # Search explicitly instead of relying on the cached One2many value. A
         # payment is linked while the pre-order form is already in cache, so the
         # inverse relation can otherwise still look empty during action_post().
-        payments = self.env["account.payment"].search(
-            [
-                ("preorder_payment_id", "=", self.id),
-                ("payment_type", "=", "inbound"),
-                ("state", "in", ("in_process", "paid", "posted")),
-                ("move_id.state", "=", "posted"),
-            ]
-        )
-        if self.source_order_id:
-            payments |= self.source_order_id.payment_ids.filtered(
-                lambda payment: payment.payment_type == "inbound"
+        def payment_filter(payment):
+            return (
+                payment.payment_type == "inbound"
                 and payment.state in ("in_process", "paid", "posted")
                 and payment.move_id
                 and payment.move_id.state == "posted"
             )
+        if self._origin.id:
+            payments = self.env["account.payment"].search(
+                [
+                    ("preorder_payment_id", "=", self._origin.id),
+                    ("payment_type", "=", "inbound"),
+                    ("state", "in", ("in_process", "paid", "posted")),
+                    ("move_id.state", "=", "posted"),
+                ]
+            )
+        else:
+            # Onchange records use a NewId. Passing it to a search domain is
+            # ignored by Odoo and can accidentally broaden the query to every
+            # payment in the database. Only inspect the in-memory relation until
+            # the pre-order has a real database id.
+            payments = self.direct_payment_ids.filtered(payment_filter)
+        if self.source_order_id:
+            payments |= self.source_order_id.payment_ids.filtered(payment_filter)
         if include_returned:
             return payments
         returned_originals = self.env["account.payment"].search(

@@ -76,8 +76,9 @@ class SaleOrder(models.Model):
         next_url = ("https://%s/admin/api/%s/orders.json"
                     "?status=cancelled&limit=250") % (store_name, version)
         while next_url:
-            response = requests.request('GET', next_url, verify=False,
-                                        headers=headers, data=[])
+            response = requests.request(
+                'GET', next_url, headers=headers, data=[], timeout=30)
+            response.raise_for_status()
             response_json = response.json()
             for each in response_json.get('orders', []):
                 if not each.get('cancelled_at'):

@@ -19,7 +19,9 @@
 #    If not, see <http://www.gnu.org/licenses/>.
 #
 ###############################################################################
-from odoo import models
+from psycopg2 import errors as pgerrors
+
+from odoo import SQL, models
 
 
 class AccountMove(models.Model):
@@ -58,43 +60,83 @@ class AccountMove(models.Model):
 
         return starting_sequence
 
-    def _set_next_sequence(self):
-        """Overriding, to get the next sequence number"""
+    def _get_journal_sequence_step(self):
+        """Return the configured increment while always making progress."""
         self.ensure_one()
-        last_sequence = self._get_last_sequence()
-        new = not last_sequence
-        if new:
-            last_sequence = self._get_last_sequence(relaxed=True) or \
-                            self._get_starting_sequence()
+        if (
+            self.move_type == 'out_invoice'
+            and self.journal_id.sequence_id
+            and self.journal_id.sequence_id.number_increment > 0
+        ):
+            return self.journal_id.sequence_id.number_increment
+        if (
+            self.move_type == 'out_refund'
+            and self.journal_id.re_sequence_id
+            and self.journal_id.re_sequence_id.number_increment > 0
+        ):
+            return self.journal_id.re_sequence_id.number_increment
+        return max(self.journal_id.default_step_size, 1)
 
-        format, format_values = self._get_sequence_format_param(last_sequence)
-        if new:
-            format_values['seq'] = 0
-        if self.journal_id.sequence_id.number_increment > 0 and self.move_type =='out_invoice':
-            interpolated_prefix, interpolated_suffix = \
-                self.journal_id.sequence_id._get_prefix_suffix()
-            format_values['seq'] = format_values['seq'] + self.journal_id.\
-                sequence_id.number_increment
-            format_values['prefix1'] = interpolated_prefix + "/"
-            if self.journal_id.sequence_id.suffix:
-                format_values[
-                    'suffix'] = "/" + interpolated_suffix
-            else:
-                format_values['suffix'] = ""
-        elif self.move_type =='out_refund':
-            interpolated_prefix, interpolated_suffix = \
-                self.journal_id.re_sequence_id._get_prefix_suffix()
-            format_values['seq'] = format_values['seq'] + self.journal_id. \
-                re_sequence_id.number_increment
-            format_values['prefix1'] = interpolated_prefix + "/"
-            if self.journal_id.re_sequence_id.suffix:
-                format_values[
-                    'suffix'] = "/" + interpolated_suffix
-            else:
-                format_values['suffix'] = ""
-        else:
-            format_values['seq'] = format_values['seq'] + \
-                                  self.journal_id.default_step_size
-            format_values['year'] = self.date.year
-        self[self._sequence_field] = format.format(**format_values)
-        self._compute_split_sequence()
+    def _get_next_sequence_format(self):
+        """Keep the configured journal format and let Odoo lock allocation."""
+        format_string, format_values = super()._get_next_sequence_format()
+        sequence = False
+        if self.move_type == 'out_invoice':
+            sequence = self.journal_id.sequence_id
+        elif self.move_type == 'out_refund':
+            sequence = self.journal_id.re_sequence_id
+
+        if sequence:
+            interpolated_prefix, interpolated_suffix = sequence._get_prefix_suffix()
+            format_values['prefix1'] = (interpolated_prefix or '') + '/'
+            format_values['suffix'] = (
+                '/' + interpolated_suffix if sequence.suffix else ''
+            )
+        elif format_values.get('year_length'):
+            format_values['year'] = self._truncate_year_to_length(
+                self.date.year, format_values['year_length'])
+        return format_string, format_values
+
+    def _locked_increment(self, format_string, format_values):
+        """Allocate the configured step under Odoo 18's unique-index lock.
+
+        The previous implementation assigned a number only in the ORM cache.
+        Concurrent POS invoices could therefore choose the same number and one
+        transaction failed on ``account_move_unique_name``. This retains the
+        custom increment while using the same database locking/retry strategy
+        as Odoo's sequence mixin.
+        """
+        self.ensure_one()
+        step = self._get_journal_sequence_step()
+        cache = self._get_sequence_cache()
+        seq = format_values.pop('seq')
+        cache_key = (
+            format_string.format(**format_values, seq=0),
+            self._sequence_index and self[self._sequence_index],
+            step,
+        )
+        if cache_key in cache:
+            cache[cache_key] += step
+            return format_string.format(**format_values, seq=cache[cache_key])
+
+        self.flush_recordset()
+        with self.env.cr.savepoint(flush=False) as savepoint:
+            while True:
+                seq += step
+                sequence = format_string.format(**format_values, seq=seq)
+                try:
+                    self.env.cr.execute(
+                        SQL(
+                            "UPDATE %(table)s SET %(field)s = %(sequence)s "
+                            "WHERE id = %(id)s",
+                            table=SQL.identifier(self._table),
+                            field=SQL.identifier(self._sequence_field),
+                            sequence=sequence,
+                            id=self.id,
+                        ),
+                        log_exceptions=False,
+                    )
+                    cache[cache_key] = seq
+                    return sequence
+                except (pgerrors.ExclusionViolation, pgerrors.UniqueViolation):
+                    savepoint.rollback()

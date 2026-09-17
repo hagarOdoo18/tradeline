@@ -117,8 +117,9 @@ class SyncCustomer(models.TransientModel):
                 customer_url = ('https://%s/admin/api/%s/customers.json'
                                 % (store_name, version))
                 headers = shopify_instance._get_shopify_headers()
-                response = requests.request('GET', customer_url,verify=False,
-                                            headers=headers, data=[])
+                response = requests.request(
+                    'GET', customer_url, headers=headers, data=[], timeout=30)
+                response.raise_for_status()
                 if 'customers' in response.json():
                     shopify_customers = response.json()['customers']
                     self.env['job.cron'].sudo().create([{
