@@ -2,7 +2,7 @@
 {
     'name': 'POS Discount Reason',
     'license': 'LGPL-3',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
     'category': 'Point of Sale',
     'summary': 'Complete POS enhancements with discount reason, sales rep, and auto invoice',
     'description': '''

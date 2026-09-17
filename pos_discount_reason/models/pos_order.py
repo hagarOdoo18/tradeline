@@ -23,7 +23,6 @@ class PosOrder(models.Model):
     sales_rep_id = fields.Many2one(
         'sales.rep',
         string='Sales Representative',
-        required=True,
         help='Employee who made this sale'
     )
 
