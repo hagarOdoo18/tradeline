@@ -21,7 +21,8 @@
 ###############################################################################
 from psycopg2 import errors as pgerrors
 
-from odoo import SQL, models
+from odoo import models
+from odoo.tools import SQL
 
 
 class AccountMove(models.Model):
