@@ -821,7 +821,7 @@ class SalePreorder(models.Model):
         string="Total Quantity", compute="_compute_device_summary", store=True
     )
     is_reserved = fields.Boolean(
-        string="Reserved", compute="_compute_is_reserved", store=True
+        string="Reserved", compute="_compute_reservation_status", store=True
     )
     allocation_ids = fields.Many2many(
         "sale.preorder.allocation",
@@ -834,37 +834,6 @@ class SalePreorder(models.Model):
     invoice_ids = fields.One2many("account.move", "preorder_id", string="Delivery Invoices")
     direct_payment_ids = fields.One2many(
         "account.payment", "preorder_payment_id", string="Direct Pre-order Payments"
-    )
-    payment_recording_mode = fields.Selection(
-        [
-            ("preorder", "Record at pre-order"),
-            ("delivery", "Record at delivery"),
-        ],
-        string="Payment Recording",
-        default="preorder",
-        required=True,
-        readonly=True,
-        copy=False,
-        tracking=True,
-        help=(
-            "Legacy pre-orders keep their original payment workflow. Migrated pre-orders "
-            "reverse the original payment before delivery and record the replacement payment "
-            "on the delivery date."
-        ),
-    )
-    payment_confirmation_ids = fields.One2many(
-        "sale.preorder.payment.confirmation",
-        "preorder_id",
-        string="Payment Confirmations",
-        readonly=True,
-        copy=False,
-    )
-    delivery_payment_ids = fields.One2many(
-        "account.payment",
-        "preorder_delivery_id",
-        string="Delivery Payments",
-        readonly=True,
-        copy=False,
     )
     invoice_count = fields.Integer(compute="_compute_document_counts")
     payment_count = fields.Integer(compute="_compute_payment_summary")
@@ -926,7 +895,7 @@ class SalePreorder(models.Model):
             ("used", "Used"),
             ("returned", "Returned"),
         ],
-        compute="_compute_payment_status",
+        compute="_compute_payment_summary",
         store=True,
         index=True,
     )
@@ -1176,26 +1145,24 @@ class SalePreorder(models.Model):
             [[(field_name, operator, value)] for field_name in searchable_fields]
         )
 
-    # Stored and non-stored fields use distinct compute methods: sharing one
-    # method between them makes Odoo warn at every registry load
-    # ("inconsistent 'store' / 'compute_sudo' for computed fields").
     @api.depends("line_ids", "line_ids.allocation_id")
     def _compute_reservation_status(self):
         for record in self:
             record.allocation_ids = record.line_ids.mapped("allocation_id")
-
-    @api.depends("line_ids", "line_ids.allocation_id")
-    def _compute_is_reserved(self):
-        for record in self:
             record.is_reserved = bool(record.line_ids) and all(
                 line.allocation_id for line in record.line_ids
             )
 
+    # property_product_pricelist is a company-dependent computed field that is
+    # not searchable, so it cannot sit in the middle of a dependency path
+    # ("customer_id.property_product_pricelist.currency_id" raises at registry
+    # load). Depend on the customer and the company context instead.
     @api.depends(
         "source_order_id.currency_id",
-        "customer_id.property_product_pricelist.currency_id",
+        "customer_id",
         "company_id.currency_id",
     )
+    @api.depends_context("company")
     def _compute_currency(self):
         for record in self:
             pricelist = record.customer_id.property_product_pricelist
@@ -1287,177 +1254,97 @@ class SalePreorder(models.Model):
         for record in self:
             record.invoice_count = len(record.invoice_ids.filtered(lambda move: move.state != "cancel"))
 
-    def _get_payment_summary_values(self):
-        """Compute every payment summary value of one pre-order.
+    @api.depends(
+        "deposit_amount",
+        "direct_payment_ids",
+        "direct_payment_ids.amount",
+        "direct_payment_ids.state",
+        "direct_payment_ids.journal_id",
+        "direct_payment_ids.payment_method_line_id",
+        "direct_payment_ids.move_id.state",
+        "direct_payment_ids.move_id.line_ids.amount_residual",
+        "direct_payment_ids.move_id.line_ids.amount_residual_currency",
+        "source_order_id.payment_ids",
+        "source_order_id.payment_ids.amount",
+        "source_order_id.payment_ids.state",
+        "source_order_id.payment_ids.journal_id",
+        "source_order_id.payment_ids.payment_method_line_id",
+        "source_order_id.payment_ids.move_id.state",
+        "source_order_id.payment_ids.move_id.line_ids.amount_residual",
+        "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
+        "source_order_id.payment_ids.reversed_original_payment_id",
+    )
+    def _compute_payment_summary(self):
+        for record in self:
+            all_inbound = record._get_source_inbound_payments(include_returned=True)
+            usable = record._get_source_inbound_payments()
+            returned = all_inbound - usable
+            available_lines = record._get_available_payment_lines(usable)
 
-        Shared by the non-stored `_compute_payment_summary` and the stored
-        `_compute_payment_status`."""
-        self.ensure_one()
-        record = self
-        vals = {}
-        all_inbound = record._get_source_inbound_payments(include_returned=True)
-        usable = record._get_source_inbound_payments()
-        returned = all_inbound - usable
-        available_lines = record._get_available_payment_lines(usable)
-        confirmations = record._get_delivery_payment_confirmations()
-
-        vals["payment_ids"] = all_inbound
-        vals["payment_count"] = len(all_inbound)
-        if record.payment_recording_mode == "delivery":
-            confirmed_amount = record._get_delivery_payment_confirmed_amount()
-            vals["prepaid_amount"] = confirmed_amount
-            usable_paid_amount = confirmed_amount
-            vals["available_prepayment_amount"] = confirmed_amount
-        else:
-            vals["prepaid_amount"] = sum(
+            record.payment_ids = all_inbound
+            record.payment_count = len(all_inbound)
+            record.prepaid_amount = sum(
                 record._convert_payment_amount(payment) for payment in all_inbound
             )
             usable_paid_amount = sum(
                 record._convert_payment_amount(payment) for payment in usable
             )
-            vals["available_prepayment_amount"] = sum(
+            record.available_prepayment_amount = sum(
                 record._payment_line_residual_in_order_currency(line) for line in available_lines
             )
-        vals["payment_due_amount"] = max(record.deposit_amount - usable_paid_amount, 0.0)
-        if record.payment_recording_mode == "delivery":
-            vals["payment_method_names"] = ", ".join(
-                dict.fromkeys(
-                    confirmation.payment_channel
-                    for confirmation in confirmations
-                    if confirmation.payment_channel
-                )
-            )
-        else:
-            vals["payment_method_names"] = ", ".join(
+            record.payment_due_amount = max(record.deposit_amount - usable_paid_amount, 0.0)
+            record.payment_method_names = ", ".join(
                 dict.fromkeys(
                     payment.journal_id.display_name
                     for payment in all_inbound
                     if payment.journal_id
                 )
             )
-        payment_breakdown = {}
-        if record.payment_recording_mode == "delivery":
-            for confirmation in confirmations.sorted(lambda item: (item.source_date, item.id)):
-                label = confirmation.payment_channel or confirmation.journal_id.display_name
-                payment_breakdown[label] = payment_breakdown.get(label, 0.0) + confirmation.amount
-        else:
+            payment_breakdown = {}
             for payment in usable.sorted(lambda item: (item.date, item.id)):
                 label = payment.journal_id.display_name
                 payment_breakdown[label] = payment_breakdown.get(label, 0.0) + record._convert_payment_amount(payment)
-        breakdown_lines = [
-            "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
-            for label, amount in payment_breakdown.items()
-        ]
-        vals["payment_method_breakdown"] = "\n".join(breakdown_lines)
-        vals["payment_method_breakdown_html"] = Markup("").join(
-            Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
-                escape(label),
-                escape(format(amount, ",.2f")),
-                escape(record.currency_id.name),
+            breakdown_lines = [
+                "%s: %s %s" % (label, format(amount, ",.2f"), record.currency_id.name)
+                for label, amount in payment_breakdown.items()
+            ]
+            record.payment_method_breakdown = "\n".join(breakdown_lines)
+            record.payment_method_breakdown_html = Markup("").join(
+                Markup('<div class="text-nowrap"><span>{}</span><br/><strong>{} {}</strong></div>').format(
+                    escape(label),
+                    escape(format(amount, ",.2f")),
+                    escape(record.currency_id.name),
+                )
+                for label, amount in payment_breakdown.items()
             )
-            for label, amount in payment_breakdown.items()
-        )
-        payment_cells = [
-            "%s — %s %s"
-            % (label, format(amount, ",.2f"), record.currency_id.name)
-            for label, amount in payment_breakdown.items()
-        ]
-        for index in range(4):
-            vals["payment_method_%s" % (index + 1)] = (
-                payment_cells[index] if index < len(payment_cells) else False
+            payment_cells = [
+                "%s — %s %s"
+                % (label, format(amount, ",.2f"), record.currency_id.name)
+                for label, amount in payment_breakdown.items()
+            ]
+            for index in range(4):
+                setattr(
+                    record,
+                    "payment_method_%s" % (index + 1),
+                    payment_cells[index] if index < len(payment_cells) else False,
+                )
+            record.additional_payment_methods = (
+                " | ".join(payment_cells[4:]) if len(payment_cells) > 4 else False
             )
-        vals["additional_payment_methods"] = (
-            " | ".join(payment_cells[4:]) if len(payment_cells) > 4 else False
-        )
-        if record.payment_recording_mode == "delivery" and confirmations:
-            vals["payment_status"] = "available" if not record.invoice_ids else "used"
-        elif not all_inbound:
-            vals["payment_status"] = "none"
-        elif returned and not usable:
-            vals["payment_status"] = "returned"
-        elif available_lines and float_compare(
-            vals["available_prepayment_amount"],
-            vals["prepaid_amount"],
-            precision_rounding=record.currency_id.rounding,
-        ) < 0:
-            vals["payment_status"] = "part_used"
-        elif available_lines:
-            vals["payment_status"] = "available"
-        else:
-            vals["payment_status"] = "used"
-        return vals
-
-    @api.depends(
-        "deposit_amount",
-        "direct_payment_ids",
-        "direct_payment_ids.amount",
-        "direct_payment_ids.state",
-        "direct_payment_ids.journal_id",
-        "direct_payment_ids.payment_method_line_id",
-        "direct_payment_ids.move_id.state",
-        "direct_payment_ids.move_id.line_ids.amount_residual",
-        "direct_payment_ids.move_id.line_ids.amount_residual_currency",
-        "source_order_id.payment_ids",
-        "source_order_id.payment_ids.amount",
-        "source_order_id.payment_ids.state",
-        "source_order_id.payment_ids.journal_id",
-        "source_order_id.payment_ids.payment_method_line_id",
-        "source_order_id.payment_ids.move_id.state",
-        "source_order_id.payment_ids.move_id.line_ids.amount_residual",
-        "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
-        "source_order_id.payment_ids.reversed_original_payment_id",
-        "payment_recording_mode",
-        "payment_confirmation_ids",
-        "payment_confirmation_ids.amount",
-        "payment_confirmation_ids.state",
-    )
-    def _compute_payment_summary(self):
-        for record in self:
-            vals = record._get_payment_summary_values()
-            for field_name in (
-                "payment_ids",
-                "payment_count",
-                "prepaid_amount",
-                "available_prepayment_amount",
-                "payment_due_amount",
-                "payment_method_names",
-                "payment_method_breakdown",
-                "payment_method_breakdown_html",
-                "additional_payment_methods",
-                "payment_method_1",
-                "payment_method_2",
-                "payment_method_3",
-                "payment_method_4",
-            ):
-                record[field_name] = vals[field_name]
-
-    @api.depends(
-        "deposit_amount",
-        "direct_payment_ids",
-        "direct_payment_ids.amount",
-        "direct_payment_ids.state",
-        "direct_payment_ids.journal_id",
-        "direct_payment_ids.payment_method_line_id",
-        "direct_payment_ids.move_id.state",
-        "direct_payment_ids.move_id.line_ids.amount_residual",
-        "direct_payment_ids.move_id.line_ids.amount_residual_currency",
-        "source_order_id.payment_ids",
-        "source_order_id.payment_ids.amount",
-        "source_order_id.payment_ids.state",
-        "source_order_id.payment_ids.journal_id",
-        "source_order_id.payment_ids.payment_method_line_id",
-        "source_order_id.payment_ids.move_id.state",
-        "source_order_id.payment_ids.move_id.line_ids.amount_residual",
-        "source_order_id.payment_ids.move_id.line_ids.amount_residual_currency",
-        "source_order_id.payment_ids.reversed_original_payment_id",
-        "payment_recording_mode",
-        "payment_confirmation_ids",
-        "payment_confirmation_ids.amount",
-        "payment_confirmation_ids.state",
-    )
-    def _compute_payment_status(self):
-        for record in self:
-            record.payment_status = record._get_payment_summary_values()["payment_status"]
+            if not all_inbound:
+                record.payment_status = "none"
+            elif returned and not usable:
+                record.payment_status = "returned"
+            elif available_lines and float_compare(
+                record.available_prepayment_amount,
+                record.prepaid_amount,
+                precision_rounding=record.currency_id.rounding,
+            ) < 0:
+                record.payment_status = "part_used"
+            elif available_lines:
+                record.payment_status = "available"
+            else:
+                record.payment_status = "used"
 
     @api.depends(
         "invoice_ids.payment_state",
@@ -1557,123 +1444,6 @@ class SalePreorder(models.Model):
             ]
         ).mapped("reversed_original_payment_id")
         return payments - returned_originals
-
-    def _get_delivery_payment_confirmed_amount(self):
-        """Return the amount preserved by the migration, independent of reversals."""
-        self.ensure_one()
-        return sum(
-            confirmation.amount
-            for confirmation in self.payment_confirmation_ids
-            if confirmation.state in ("confirmed", "consumed")
-        )
-
-    def _get_delivery_payment_confirmations(self):
-        self.ensure_one()
-        return self.payment_confirmation_ids.filtered(
-            lambda confirmation: confirmation.state in ("confirmed", "consumed")
-        )
-
-    def migrate_payments_to_delivery(self):
-        """Reverse open pre-order payments and preserve them for delivery accounting.
-
-        This is intentionally explicit and idempotent. Original posted payments are never
-        deleted or edited; each gets one linked outbound reversal and one immutable audit row.
-        """
-        Confirmation = self.env["sale.preorder.payment.confirmation"].sudo()
-        Payment = self.env["account.payment"].sudo()
-        migrated = self.env["sale.preorder"]
-        failures = []
-        for preorder in self.sudo().filtered(
-            lambda item: item.state not in ("completed", "cancelled")
-            and item.payment_recording_mode != "delivery"
-        ):
-            payments = preorder._get_source_inbound_payments(include_returned=True)
-            if not payments:
-                # Without a posted payment there is nothing to reverse. Keep the
-                # record on the legacy path until a payment-confirmation workflow
-                # is enabled for it.
-                continue
-            try:
-                for payment in payments.sorted(lambda item: (item.date or fields.Date.today(), item.id)):
-                    confirmation = Confirmation.search(
-                        [("preorder_id", "=", preorder.id), ("source_payment_id", "=", payment.id)],
-                        limit=1,
-                    )
-                    if not confirmation:
-                        confirmation = Confirmation.create(
-                            {
-                                "preorder_id": preorder.id,
-                                "source_payment_id": payment.id,
-                                "amount": abs(payment.amount),
-                                "currency_id": payment.currency_id.id,
-                                "journal_id": payment.journal_id.id,
-                                "source_date": payment.date,
-                                "source_reference": payment.name or getattr(payment, "ref", False) or preorder.name,
-                                "payment_channel": payment.journal_id.display_name,
-                            }
-                        )
-                    if not confirmation.reversal_payment_id:
-                        reversal = Payment.search(
-                            [("reversed_original_payment_id", "=", payment.id)], limit=1
-                        )
-                        if not reversal:
-                            if payment.state not in ("in_process", "paid", "posted") or payment.move_id.state != "posted":
-                                raise UserError(_("Payment %s is not posted and cannot be reversed.") % payment.display_name)
-                            method_line = payment.journal_id.outbound_payment_method_line_ids[:1]
-                            if not method_line:
-                                raise UserError(
-                                    _("Journal %s has no outbound payment method configured.")
-                                    % payment.journal_id.display_name
-                                )
-                            reversal = Payment.create(
-                                {
-                                    "payment_type": "outbound",
-                                    "partner_type": "customer",
-                                    "partner_id": payment.partner_id.id,
-                                    "amount": abs(payment.amount),
-                                    "currency_id": payment.currency_id.id,
-                                    "journal_id": payment.journal_id.id,
-                                    "branch_id": preorder.branch_id.id,
-                                    "reversed_original_payment_id": payment.id,
-                                    "payment_method_line_id": method_line.id,
-                                    "memo": _("Pre-order payment reversal before delivery: %s") % preorder.name,
-                                }
-                            )
-                            reversal.action_post()
-                        confirmation.write({"reversal_payment_id": reversal.id})
-                preorder.with_context(allow_preorder_workflow_write=True).write(
-                    {"payment_recording_mode": "delivery"}
-                )
-                preorder.message_post(
-                    body=_(
-                        "Pre-order payment migration completed. Original payment(s) were preserved "
-                        "and reversed before delivery; the branch must record payment on delivery."
-                    )
-                )
-                migrated |= preorder
-            except Exception as error:
-                failures.append("%s: %s" % (preorder.display_name, error))
-        if failures:
-            raise UserError(
-                _(
-                    "Payment migration stopped for %(count)s pre-order(s). No incomplete record "
-                    "was switched to delivery accounting:\n%(details)s"
-                )
-                % {"count": len(failures), "details": "\n".join(failures)}
-            )
-        return migrated
-
-    def action_migrate_payments_to_delivery(self):
-        """Explicit manager action; never run silently during a module upgrade."""
-        _check_preorder_manager(self.env)
-        records = self.filtered(lambda item: item.state not in ("completed", "cancelled"))
-        if not records:
-            raise UserError(_("Only open pre-orders can be migrated."))
-        records.migrate_payments_to_delivery()
-        return {
-            "type": "ir.actions.client",
-            "tag": "reload",
-        }
 
     def _get_available_payment_lines(self, payments=None):
         self.ensure_one()
@@ -1905,14 +1675,10 @@ class SalePreorder(models.Model):
             record.invalidate_recordset(
                 ["direct_payment_ids", "prepaid_amount", "payment_due_amount", "payment_status"]
             )
-            if record.payment_recording_mode == "delivery":
-                usable_payments = self.env["account.payment"]
-                paid_amount = record._get_delivery_payment_confirmed_amount()
-            else:
-                usable_payments = record._get_source_inbound_payments()
-                paid_amount = sum(
-                    record._convert_payment_amount(payment) for payment in usable_payments
-                )
+            usable_payments = record._get_source_inbound_payments()
+            paid_amount = sum(
+                record._convert_payment_amount(payment) for payment in usable_payments
+            )
             comparison = float_compare(
                 paid_amount,
                 record.deposit_amount,
@@ -2214,15 +1980,7 @@ class SalePreorder(models.Model):
             raise UserError(_("Allocate the pre-order before creating its delivery order."))
         if self.campaign_id.state != "delivery":
             raise UserError(_("The campaign must be in Delivery before orders are created."))
-        # Migrated pre-orders deliberately reverse their original payment and
-        # preserve the amount in the immutable confirmation rows.  They are
-        # paid again at delivery from POS, so requiring an open receivable line
-        # here incorrectly blocks the delivery-order creation step.  Keep the
-        # original-payment guard for legacy records that still reuse it.
-        if (
-            self.payment_recording_mode != "delivery"
-            and not self._get_available_payment_lines()
-        ):
+        if not self._get_available_payment_lines():
             raise UserError(_("The original payment is no longer available for this delivery."))
 
         delivery_order = self.env["sale.order"].create(self._prepare_delivery_order_values())
@@ -2283,94 +2041,6 @@ class SalePreorder(models.Model):
                 invoice.js_assign_outstanding_line(line.id)
                 payment_lines = self._get_available_payment_lines(payments)
 
-    def _check_original_payments_redatable(self, target_date):
-        """Validate and lock payments before the guarded date change.
-
-        ``account.move.button_draft()`` always calls ``remove_move_reconcile``.
-        The installed branch addon correctly protects that operation from POS
-        users, even when the payment has no reconciliation to remove.  The
-        pre-order workflow may bypass that access check, but it must never
-        silently undo a real reconciliation or an accounting lock.
-        """
-        self.ensure_one()
-        target_date = fields.Date.to_date(target_date)
-        if not target_date:
-            raise UserError(_("The delivery invoice accounting date is required."))
-
-        payments = self._get_source_inbound_payments()
-        if not payments:
-            raise UserError(_("The original pre-order payment was returned or is unavailable."))
-
-        self.env.cr.execute(
-            "SELECT id FROM account_payment WHERE id IN %s FOR UPDATE",
-            [tuple(payments.ids)],
-        )
-        payments.invalidate_recordset(["date", "state", "move_id"])
-        for payment in payments.filtered(lambda item: item.date != target_date):
-            move = payment.move_id
-            if not move or move.state != "posted":
-                raise UserError(
-                    _("Payment %s does not have a posted journal entry.")
-                    % payment.display_name
-                )
-
-            reconciled_lines = move.line_ids.filtered(
-                lambda line: line.matched_debit_ids or line.matched_credit_ids
-            )
-            if reconciled_lines:
-                raise UserError(
-                    _(
-                        "Payment %(payment)s is already reconciled with another accounting "
-                        "entry. Accounting must unreconcile it before its date can be moved "
-                        "to %(target_date)s. No delivery was processed."
-                    )
-                    % {
-                        "payment": payment.display_name,
-                        "target_date": target_date,
-                    }
-                )
-
-            # Run Odoo's immutable-entry checks before the POS creates or
-            # validates any stock document.  sudo bypasses only access rights;
-            # _check_draftable still rejects hashed and protected entries.
-            try:
-                move.sudo()._check_draftable()
-            except Exception as error:
-                raise UserError(
-                    _(
-                        "Payment %(payment)s cannot be moved to %(target_date)s. "
-                        "Accounting must resolve the journal restriction before delivery.\n\n"
-                        "Odoo detail: %(detail)s"
-                    )
-                    % {
-                        "payment": payment.display_name,
-                        "target_date": target_date,
-                        "detail": error,
-                    }
-                ) from error
-
-            for date_to_check in {payment.date, target_date}:
-                violations = payment.company_id._get_lock_date_violations(
-                    date_to_check,
-                    fiscalyear=True,
-                    sale=False,
-                    purchase=False,
-                    tax=False,
-                    hard=True,
-                )
-                if violations:
-                    raise UserError(
-                        _(
-                            "Payment %(payment)s cannot be moved because %(date)s is inside "
-                            "a locked accounting period. No delivery was processed."
-                        )
-                        % {
-                            "payment": payment.display_name,
-                            "date": date_to_check,
-                        }
-                    )
-        return payments
-
     def _redate_original_payments_to_invoice(self, invoices):
         """Move the posted pre-order payments to the delivery invoice accounting date."""
         self.ensure_one()
@@ -2388,21 +2058,19 @@ class SalePreorder(models.Model):
                 )
             )
         target_date = invoice_dates.pop()
-        payments = self._check_original_payments_redatable(target_date)
         changed = []
         for payment in payments:
             if payment.date == target_date:
                 continue
+            if not payment.move_id or payment.move_id.state != "posted":
+                raise UserError(
+                    _("Payment %s does not have a posted journal entry.") % payment.display_name
+                )
             old_date = payment.date
             try:
-                # This is the only elevated accounting operation in the
-                # workflow.  It lets POS cashiers perform the same controlled
-                # re-date as Sales without granting them general unreconcile,
-                # journal-entry editing, or payment-posting permissions.
-                guarded_payment = payment.sudo()
-                guarded_payment.action_draft()
-                guarded_payment.write({"date": target_date})
-                guarded_payment.action_post()
+                payment.action_draft()
+                payment.write({"date": target_date})
+                payment.action_post()
             except Exception as error:
                 raise UserError(
                     _(
@@ -2467,16 +2135,6 @@ class SalePreorder(models.Model):
         invoices = self.invoice_ids.filtered(
             lambda move: move.move_type == "out_invoice" and move.state != "cancel"
         )
-        expected_invoice_dates = set(invoices.mapped("date"))
-        expected_invoice_dates.discard(False)
-        if len(expected_invoice_dates) > 1:
-            raise UserError(_("All delivery invoices must use the same accounting date."))
-        expected_invoice_date = (
-            expected_invoice_dates.pop()
-            if expected_invoice_dates
-            else fields.Date.context_today(self)
-        )
-        self._check_original_payments_redatable(expected_invoice_date)
         if order.invoice_status == "to invoice" or not invoices:
             invoices |= order._create_invoices()
         drafts = invoices.filtered(lambda move: move.state == "draft")
