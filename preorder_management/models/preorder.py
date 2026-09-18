@@ -1501,16 +1501,45 @@ class SalePreorder(models.Model):
             lambda payment: (payment.date, payment.id)
         )
 
+    def get_report_payment_entries(self):
+        """Return the customer-facing payment rows for the pre-order receipt.
+
+        Delivery-mode pre-orders deliberately have no ``account.payment`` yet;
+        their confirmed amount and channel are kept in the immutable audit
+        confirmation.  The printed confirmation must still show that channel
+        as the Payment Method so the customer can present it at delivery.
+        Legacy/pre-migration pre-orders continue to print their posted inbound
+        payments.
+        """
+        self.ensure_one()
+        if self.payment_recording_mode == "delivery":
+            return [
+                {
+                    "payment_method": confirmation.payment_channel
+                    or confirmation.journal_id.display_name,
+                    "date": confirmation.source_date,
+                    "amount": confirmation.amount,
+                }
+                for confirmation in self._get_delivery_payment_confirmations().sorted(
+                    lambda item: (item.source_date, item.id)
+                )
+            ]
+        return [
+            {
+                "payment_method": payment.journal_id.display_name,
+                "date": payment.date,
+                "amount": self._convert_payment_amount(payment),
+            }
+            for payment in self.get_report_payments()
+        ]
+
     def get_report_payment_amount(self, payment):
         self.ensure_one()
         return self._convert_payment_amount(payment)
 
     def get_report_payment_total(self):
         self.ensure_one()
-        return sum(
-            self._convert_payment_amount(payment)
-            for payment in self.get_report_payments()
-        )
+        return sum(entry["amount"] for entry in self.get_report_payment_entries())
 
     def get_report_tax_names(self):
         self.ensure_one()
