@@ -14,6 +14,7 @@ from odoo.tools.misc import file_path
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+REPORT_SENDER_EMAIL = "tradeline.odoo18@tradelinestores.com"
 _logger = logging.getLogger(__name__)
 
 
@@ -264,6 +265,7 @@ class ExecutiveReportSchedule(models.Model):
                 attachments = histories.mapped(lambda history: history._render_and_attach_pdf())
                 mail = self.env["mail.mail"].sudo().create({
                     "subject": "%s - Daily + MTD Executive Reports - %s" % (self.company_id.name, report_date),
+                    "email_from": REPORT_SENDER_EMAIL,
                     "email_to": ",".join(self._email_list()),
                     "body_html": (
                         "<p>Please find attached the <strong>%s Daily Executive Brief</strong> and "
