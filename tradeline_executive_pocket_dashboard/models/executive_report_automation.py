@@ -310,7 +310,16 @@ class ExecutiveReportSchedule(models.Model):
                     datetime.combine(local_now.date(), time(schedule.send_hour))
                 )
                 if local_write > local_target:
-                    continue
+                    last_run = fields.Datetime.to_datetime(schedule.last_run_at)
+                    if last_run and last_run.tzinfo is None:
+                        last_run = pytz.utc.localize(last_run)
+                    last_run_today = bool(
+                        last_run
+                        and last_run.astimezone(pytz.timezone(schedule.timezone)).date()
+                        == local_now.date()
+                    )
+                    if not last_run_today:
+                        continue
             try:
                 with self.env.cr.savepoint():
                     schedule._send_for_date(report_date)
