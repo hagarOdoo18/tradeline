@@ -20,6 +20,7 @@
 #    USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 ################################################################################
+import functools
 import json
 import logging
 import time
@@ -30,6 +31,14 @@ from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
+
+# Number of products sent in ONE GraphQL request. Each aliased
+# productVariantsBulkUpdate costs ~10 points, so 25 stays far below the
+# 1000-point single-query limit while cutting HTTP round-trips ~25x.
+PRODUCTS_PER_REQUEST = 25
+# Retries for HTTP 429 / 5xx and GraphQL THROTTLED responses.
+MAX_RETRIES = 3
+REQUEST_TIMEOUT = 60
 
 # GraphQL mutation used to update the price of one or more variants of a
 # single product in a single call. REST variant endpoints are deprecated from
@@ -49,6 +58,21 @@ mutation productVariantsBulkUpdate($productId: ID!,
   }
 }
 """
+
+
+@functools.lru_cache(maxsize=None)
+def _bulk_price_mutation(count):
+    """Return one mutation document holding `count` aliased
+    productVariantsBulkUpdate calls (p0, p1, ...), so a whole chunk of
+    products is priced in a single HTTP request. Cached per size."""
+    params = ', '.join(
+        '$p%d: ID!, $v%d: [ProductVariantsBulkInput!]!' % (i, i)
+        for i in range(count))
+    body = '\n'.join(
+        '  p%d: productVariantsBulkUpdate(productId: $p%d, variants: $v%d) '
+        '{ userErrors { field message } }' % (i, i, i)
+        for i in range(count))
+    return 'mutation bulkPrices(%s) {\n%s\n}' % (params, body)
 
 
 class SyncPricing(models.TransientModel):
@@ -117,24 +141,6 @@ class SyncPricing(models.TransientModel):
         currency = variant.currency_id or self.env.company.currency_id
         return float(currency.round(variant.lst_price or 0.0))
 
-    def _shopify_graphql(self, query, variables):
-        """Post a GraphQL query to Shopify and return the decoded response."""
-        instance = self.shopify_instance_id
-        url = 'https://%s/admin/api/%s/graphql.json' % (
-            instance.shop_name, instance.version)
-        response = requests.post(
-            url,
-            headers=instance._get_shopify_headers(),
-            data=json.dumps({'query': query, 'variables': variables}),
-            timeout=60,
-        )
-        if response.status_code != 200:
-            raise ValidationError(_(
-                'Shopify returned HTTP %(code)s for the price update: '
-                '%(body)s',
-                code=response.status_code, body=response.text))
-        return response.json()
-
     def _log(self, message):
         """Write a log.message record for the current instance."""
         self.env['log.message'].sudo().create([{
@@ -158,61 +164,142 @@ class SyncPricing(models.TransientModel):
     # push
     # ------------------------------------------------------------------
 
-    def _push_template_prices(self, template):
-        """Push the prices of every synced variant of one template."""
-        variants = template.product_variant_ids.filtered(
-            lambda v: v.shopify_variant)
-        if not variants:
-            _logger.info(
-                'Shopify pricing: product "%s" has no variant linked to a '
-                'Shopify variant - skipped.', template.display_name)
+    def _push_template_prices(self, templates, session, url):
+        """Push the prices of every synced variant of `templates` in ONE
+        GraphQL request (one aliased mutation per product).
+
+        Faster than one call per product because:
+          * a single HTTP round-trip covers the whole chunk;
+          * `session` keeps the TLS connection alive between chunks and
+            carries the auth headers, so the token is not re-checked per call;
+          * the response only asks for userErrors (no variant payload);
+          * all log rows of the chunk are written with one create().
+        """
+        entries = []  # (template, [variant payload])
+        for template in templates:
+            # keyed by variant id: a duplicated id makes Shopify reject the
+            # whole mutation
+            payload = {}
+            for variant in template.product_variant_ids:
+                if variant.shopify_variant:
+                    gid = ('gid://shopify/ProductVariant/%s'
+                           % variant.shopify_variant)
+                    payload[gid] = {
+                        'id': gid,
+                        'price': '%.2f' % self._get_variant_price(variant),
+                    }
+            if not payload:
+                _logger.info(
+                    'Shopify pricing: product "%s" has no variant linked to '
+                    'a Shopify variant - skipped.', template.display_name)
+                continue
+            entries.append((template, list(payload.values())))
+        if not entries:
             return
 
-        payload_variants = [{
-            'id': 'gid://shopify/ProductVariant/%s' % variant.shopify_variant,
-            'price': '%.2f' % self._get_variant_price(variant),
-        } for variant in variants]
-
-        result = self._shopify_graphql(PRODUCT_VARIANTS_BULK_UPDATE, {
-            'productId': 'gid://shopify/Product/%s' % template.shopify_product,
-            'variants': payload_variants,
+        variables = {}
+        for index, (template, variants) in enumerate(entries):
+            variables['p%d' % index] = ('gid://shopify/Product/%s'
+                                        % template.shopify_product)
+            variables['v%d' % index] = variants
+        body = json.dumps({
+            'query': _bulk_price_mutation(len(entries)),
+            'variables': variables,
         })
 
-        # Top level GraphQL errors (bad query, bad id, missing scope, ...)
-        if result.get('errors'):
-            self._log('Price push failed for product %s (%s): %s' % (
-                template.display_name, template.shopify_product,
-                json.dumps(result['errors'])))
-            return
+        result = {}
+        for attempt in range(MAX_RETRIES + 1):
+            response = session.post(url, data=body, timeout=REQUEST_TIMEOUT)
+            if ((response.status_code == 429 or response.status_code >= 500)
+                    and attempt < MAX_RETRIES):
+                time.sleep(float(response.headers.get('Retry-After')
+                                 or 2 ** attempt))
+                continue
+            if response.status_code != 200:
+                raise ValidationError(_(
+                    'Shopify returned HTTP %(code)s for the price update: '
+                    '%(body)s',
+                    code=response.status_code,
+                    body=(response.text or '')[:500]))
+            result = response.json()
+            throttled = any(
+                (error.get('extensions') or {}).get('code') == 'THROTTLED'
+                for error in result.get('errors') or [])
+            if throttled and attempt < MAX_RETRIES:
+                cost = (result.get('extensions') or {}).get('cost') or {}
+                status = cost.get('throttleStatus') or {}
+                missing = ((cost.get('requestedQueryCost') or 0)
+                           - (status.get('currentlyAvailable') or 0))
+                time.sleep(max(1.0, missing / float(
+                    status.get('restoreRate') or 50)))
+                continue
+            break
 
-        data = (result.get('data') or {}).get(
-            'productVariantsBulkUpdate') or {}
-        user_errors = data.get('userErrors') or []
-        if user_errors:
-            self._log('Price push rejected for product %s (%s): %s' % (
-                template.display_name, template.shopify_product,
-                json.dumps(user_errors)))
-            return
+        # Top level errors: those with a path belong to one alias (p<i>),
+        # those without one sink the whole request.
+        alias_errors, global_errors = {}, []
+        for error in result.get('errors') or []:
+            path = error.get('path') or []
+            if path and str(path[0]).startswith('p'):
+                alias_errors.setdefault(path[0], []).append(error)
+            else:
+                global_errors.append(error)
+        data = result.get('data') or {}
 
-        self._log('Price push done for product %s (%s): %s variant(s) - %s' % (
-            template.display_name, template.shopify_product,
-            len(payload_variants),
-            ', '.join('%s=%s' % (v['id'].split('/')[-1], v['price'])
-                      for v in payload_variants)))
+        logs = []
+        instance_id = self.shopify_instance_id.id
+        for index, (template, variants) in enumerate(entries):
+            alias = 'p%d' % index
+            errors = global_errors + alias_errors.get(alias, [])
+            user_errors = (data.get(alias) or {}).get('userErrors') or []
+            if errors:
+                message = 'Price push failed for product %s (%s): %s' % (
+                    template.display_name, template.shopify_product,
+                    json.dumps(errors))
+            elif user_errors:
+                message = 'Price push rejected for product %s (%s): %s' % (
+                    template.display_name, template.shopify_product,
+                    json.dumps(user_errors))
+            else:
+                message = ('Price push done for product %s (%s): '
+                           '%s variant(s) - %s' % (
+                               template.display_name,
+                               template.shopify_product, len(variants),
+                               ', '.join('%s=%s' % (v['id'].split('/')[-1],
+                                                    v['price'])
+                                         for v in variants)))
+            logs.append({
+                'name': message,
+                'shopify_instance_id': instance_id,
+                'model': 'product.product',
+            })
+        self.env['log.message'].sudo().create(logs)
         self._throttle(result)
 
     def _sync_to_shopify(self, templates):
-        """Push prices for the given templates, one GraphQL call each."""
-        for template in templates:
-            try:
-                self._push_template_prices(template)
-            except Exception as error:
-                _logger.exception(
-                    'Shopify pricing: failed for product %s', template.id)
-                self._log('Price push failed for product %s (%s): %s' % (
-                    template.display_name, template.shopify_product,
-                    str(error)))
-            else:
+        """Push prices for the given templates, PRODUCTS_PER_REQUEST
+        products per GraphQL call over one keep-alive session."""
+        instance = self.shopify_instance_id
+        url = 'https://%s/admin/api/%s/graphql.json' % (
+            instance.shop_name, instance.version)
+        # prefetch variants + prices for the whole batch in a few queries
+        templates.mapped('product_variant_ids').mapped('lst_price')
+        with requests.Session() as session:
+            session.headers.update(instance._get_shopify_headers())
+            for index in range(0, len(templates), PRODUCTS_PER_REQUEST):
+                chunk = templates[index:index + PRODUCTS_PER_REQUEST]
+                try:
+                    self._push_template_prices(chunk, session, url)
+                except Exception as error:
+                    _logger.exception(
+                        'Shopify pricing: failed for products %s', chunk.ids)
+                    self.env['log.message'].sudo().create([{
+                        'name': 'Price push failed for product %s (%s): %s'
+                                % (template.display_name,
+                                   template.shopify_product, str(error)),
+                        'shopify_instance_id': instance.id,
+                        'model': 'product.product',
+                    } for template in chunk])
                 self._cr.commit()
 
     # ------------------------------------------------------------------
