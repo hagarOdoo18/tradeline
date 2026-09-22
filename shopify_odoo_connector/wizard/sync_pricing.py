@@ -207,41 +207,60 @@ class SyncPricing(models.TransientModel):
             break
         return result
 
-    def _template_price_variants(self, template):
-        """Return {product.product: Shopify variant id} - ONE id per Odoo
-        variant of `template`.
+    @staticmethod
+    def _row_shopify_product(row, template):
+        """Shopify PRODUCT id a variant-level shopify.sync row belongs to.
 
-        A template often carries more shopify.sync rows than it has variants
-        (re-imports, alias links, rows written by the export, rows from a
-        product that was re-created on Shopify). Sending all of them puts ids
-        of other/deleted variants in the mutation and Shopify rejects the
-        whole product. So per Odoo variant only one id is kept:
-          1. `product.product.shopify_variant` when one of its rows has it
-             (written by the import / relink from live Shopify data);
-          2. otherwise the newest row (highest id).
-        Rows without an Odoo variant (would push 0.00) or whose variant
-        belongs to another template are ignored."""
+        The row's own Product Id (`shopify_product`) is used. Older rows
+        stored the variant id there too (Product Id == Variant Id); those
+        fall back to the template's Shopify product. A row whose Variant Id
+        is the product id itself is junk and yields None."""
+        product_id = str(row.shopify_product or '')
+        variant_id = str(row.shopify_variant_id or '')
+        if not product_id or product_id == variant_id:
+            product_id = str(template.shopify_product or '')
+        if not product_id or variant_id == product_id:
+            return None
+        return product_id
+
+    def _template_price_groups(self, template):
+        """Return {Shopify product id: {product.product: variant id}} for
+        `template` - one entry per Product Id found on its shopify.sync rows,
+        so a template linked to several Shopify products prices all of them.
+
+        Inside one Shopify product, ONE variant id per Odoo variant: extra
+        rows (re-imports, duplicates) would put foreign/deleted ids in the
+        mutation and Shopify rejects the whole product. The id kept is
+        `product.product.shopify_variant` when one of the rows has it,
+        otherwise the newest row. Rows without an Odoo variant (would push
+        0.00) or whose variant belongs to another template are ignored."""
         instance = self.shopify_instance_id
         rows = template.shopify_sync_ids.filtered(
             lambda s: s.shopify_variant_id and s.product_prod_id
             and s.product_prod_id.product_tmpl_id == template
             and (not s.instance_id or s.instance_id == instance))
-        by_variant = {}
-        for row in rows.sorted('id', reverse=True):  # newest first
-            by_variant.setdefault(row.product_prod_id, []).append(
-                str(row.shopify_variant_id))
-        chosen = {}
-        for variant, ids in by_variant.items():
-            preferred = str(variant.shopify_variant or '')
-            chosen[variant] = preferred if preferred in ids else ids[0]
-            if len(set(ids)) > 1:
-                _logger.info(
-                    'Shopify pricing: variant "%s" has %d Shopify ids %s - '
-                    'using %s.', variant.display_name, len(set(ids)),
-                    sorted(set(ids)), chosen[variant])
-        return chosen
+        candidates = {}  # pid -> {variant: [ids, newest first]}
+        for row in rows.sorted('id', reverse=True):
+            product_id = self._row_shopify_product(row, template)
+            if not product_id:
+                continue
+            candidates.setdefault(product_id, {}).setdefault(
+                row.product_prod_id, []).append(str(row.shopify_variant_id))
+        groups = {}
+        for product_id, by_variant in candidates.items():
+            chosen = groups.setdefault(product_id, {})
+            for variant, ids in by_variant.items():
+                preferred = str(variant.shopify_variant or '')
+                chosen[variant] = preferred if preferred in ids else ids[0]
+                if len(set(ids)) > 1:
+                    _logger.info(
+                        'Shopify pricing: variant "%s" has %d ids on Shopify '
+                        'product %s %s - using %s.', variant.display_name,
+                        len(set(ids)), product_id, sorted(set(ids)),
+                        chosen[variant])
+        return groups
 
-    def _relink_shopify_variants(self, template, session, url):
+    def _relink_shopify_variants(self, template, product_id, session, url):
         """Re-read the product's variants from Shopify and re-point the
         Odoo links by SKU. Returns an error string, or None when relinked.
 
@@ -252,7 +271,7 @@ class SyncPricing(models.TransientModel):
         result = self._post_graphql(session, url, json.dumps({
             'query': PRODUCT_VARIANTS_QUERY,
             'variables': {
-                'id': 'gid://shopify/Product/%s' % template.shopify_product},
+                'id': 'gid://shopify/Product/%s' % product_id},
         }))
         if result.get('errors'):
             return 'could not read its variants: %s' % json.dumps(
@@ -260,7 +279,7 @@ class SyncPricing(models.TransientModel):
         product = (result.get('data') or {}).get('product')
         if not product:
             return ('Shopify product %s no longer exists - re-import or '
-                    're-export this product' % template.shopify_product)
+                    're-export this product' % product_id)
         live = [(node['id'].split('/')[-1], (node.get('sku') or '').strip())
                 for node in (product.get('variants') or {}).get('nodes') or []]
         by_sku = {sku: vid for vid, sku in live if sku}
@@ -283,11 +302,14 @@ class SyncPricing(models.TransientModel):
         instance = self.shopify_instance_id
         live_ids = {vid for vid, _sku in live}
         sync_obj = self.env['shopify.sync'].sudo()
+        # only the rows of THIS Shopify product; links to the template's
+        # other Shopify products are left alone
         rows = sync_obj.search([
             '|', ('product_id', '=', template.id),
             ('product_prod_id', 'in', odoo_variants.ids),
             ('shopify_variant_id', '!=', False),
-        ]).filtered(lambda s: not s.instance_id or s.instance_id == instance)
+        ]).filtered(lambda s: (not s.instance_id or s.instance_id == instance)
+                    and self._row_shopify_product(s, template) == product_id)
         linked = set()
         extra = sync_obj.browse()
         for row in rows.sorted('id', reverse=True):  # keep the newest row
@@ -295,7 +317,9 @@ class SyncPricing(models.TransientModel):
             if new_id and row.product_prod_id.id not in linked:
                 if row.shopify_variant_id != new_id:
                     row.write({'shopify_variant_id': new_id,
-                               'shopify_product': new_id})
+                               'shopify_product': product_id})
+                elif row.shopify_product != product_id:
+                    row.write({'shopify_product': product_id})
                 linked.add(row.product_prod_id.id)
             elif new_id or row.shopify_variant_id not in live_ids:
                 # a 2nd+ link of the same Odoo variant, or a stale id with
@@ -308,28 +332,39 @@ class SyncPricing(models.TransientModel):
             extra.unlink()
         sync_obj.create([{
             'instance_id': instance.id,
-            'shopify_product': new_id,
+            'shopify_product': product_id,
             'shopify_variant_id': new_id,
             'product_prod_id': variant_id,
             'product_id': template.id,
         } for variant_id, new_id in matched.items() if variant_id not in linked])
-        for variant in odoo_variants.filtered(lambda v: v.id in matched):
+        # the variant's own Shopify id follows its MAIN listing only
+        main = str(template.shopify_product or '') == product_id
+        for variant in odoo_variants.filtered(
+                lambda v: main and v.id in matched):
             if variant.shopify_variant != matched[variant.id]:
                 variant.with_context(shopify_no_export=True).write(
                     {'shopify_variant': matched[variant.id]})
         template.invalidate_recordset(['shopify_sync_ids'])
         _logger.info('Shopify pricing: relinked %d variant(s) of "%s" to '
                      'Shopify product %s.', len(matched),
-                     template.display_name, template.shopify_product)
+                     template.display_name, product_id)
         return None
 
     # ------------------------------------------------------------------
     # push
     # ------------------------------------------------------------------
 
-    def _push_template_prices(self, templates, session, url, relink=True):
+    def _push_template_prices(self, templates, session, url, relink=True,
+                              only=None):
         """Push the prices of every synced variant of `templates` in ONE
-        GraphQL request (one aliased mutation per product).
+        GraphQL request.
+
+        One aliased mutation per (template, Shopify Product Id): the Product
+        Id is read from each shopify.sync row of the template, so a template
+        linked to several Shopify products gets every one of them priced,
+        each with only its own variants. `only` - a set of
+        (template id, Shopify product id) - limits the push to those pairs
+        (used for the retry after a relink).
 
         Faster than one call per product because:
           * a single HTTP round-trip covers the whole chunk;
@@ -338,31 +373,33 @@ class SyncPricing(models.TransientModel):
           * the response only asks for userErrors (no variant payload);
           * all log rows of the chunk are written with one create().
         """
-        entries = []  # (template, [variant payload])
+        entries = []  # (template, Shopify product id, [variant payload])
         for template in templates:
-            # one id per Odoo variant, and keyed by that id: an extra or
-            # duplicated id makes Shopify reject the whole mutation
-            payload = {}
-            for variant, variant_id in self._template_price_variants(
-                    template).items():
-                gid = 'gid://shopify/ProductVariant/%s' % variant_id
-                payload[gid] = {
-                    'id': gid,
-                    'price': '%.2f' % self._get_variant_price(variant),
-                }
-            if not payload:
+            groups = self._template_price_groups(template)
+            if not groups:
                 _logger.info(
                     'Shopify pricing: product "%s" has no variant linked to '
                     'a Shopify variant - skipped.', template.display_name)
                 continue
-            entries.append((template, list(payload.values())))
+            for product_id, variant_ids in groups.items():
+                if only is not None and (template.id, product_id) not in only:
+                    continue
+                # keyed by variant id: a duplicated id makes Shopify reject
+                # the whole mutation
+                payload = {}
+                for variant, variant_id in variant_ids.items():
+                    gid = 'gid://shopify/ProductVariant/%s' % variant_id
+                    payload[gid] = {
+                        'id': gid,
+                        'price': '%.2f' % self._get_variant_price(variant),
+                    }
+                entries.append((template, product_id, list(payload.values())))
         if not entries:
             return
 
         variables = {}
-        for index, (template, variants) in enumerate(entries):
-            variables['p%d' % index] = ('gid://shopify/Product/%s'
-                                        % template.shopify_product)
+        for index, (template, product_id, variants) in enumerate(entries):
+            variables['p%d' % index] = 'gid://shopify/Product/%s' % product_id
             variables['v%d' % index] = variants
         body = json.dumps({
             'query': _bulk_price_mutation(len(entries)),
@@ -383,9 +420,9 @@ class SyncPricing(models.TransientModel):
         data = result.get('data') or {}
 
         logs = []
-        stale = []  # templates whose stored variant ids Shopify rejected
+        stale = []  # (template, product id, userErrors) with rejected ids
         instance_id = self.shopify_instance_id.id
-        for index, (template, variants) in enumerate(entries):
+        for index, (template, product_id, variants) in enumerate(entries):
             alias = 'p%d' % index
             errors = global_errors + alias_errors.get(alias, [])
             user_errors = (data.get(alias) or {}).get('userErrors') or []
@@ -394,21 +431,20 @@ class SyncPricing(models.TransientModel):
                     for error in user_errors)):
                 # the whole product mutation was rejected: nothing was
                 # priced, so repair the links and push it again below
-                stale.append((template, user_errors))
+                stale.append((template, product_id, user_errors))
                 continue
             if errors:
                 message = 'Price push failed for product %s (%s): %s' % (
-                    template.display_name, template.shopify_product,
-                    json.dumps(errors))
+                    template.display_name, product_id, json.dumps(errors))
             elif user_errors:
                 message = 'Price push rejected for product %s (%s): %s' % (
-                    template.display_name, template.shopify_product,
+                    template.display_name, product_id,
                     json.dumps(user_errors))
             else:
                 message = ('Price push done for product %s (%s): '
                            '%s variant(s) - %s' % (
-                               template.display_name,
-                               template.shopify_product, len(variants),
+                               template.display_name, product_id,
+                               len(variants),
                                ', '.join('%s=%s' % (v['id'].split('/')[-1],
                                                     v['price'])
                                          for v in variants)))
@@ -419,26 +455,29 @@ class SyncPricing(models.TransientModel):
             })
         self._throttle(result)
 
-        relinked = self.env['product.template']
-        for template, user_errors in stale:
-            problem = self._relink_shopify_variants(template, session, url)
+        retry = set()
+        for template, product_id, user_errors in stale:
+            problem = self._relink_shopify_variants(
+                template, product_id, session, url)
             if problem:
                 logs.append({
                     'name': 'Price push rejected for product %s (%s): %s - '
                             'stored variant ids are stale and %s' % (
-                                template.display_name,
-                                template.shopify_product,
+                                template.display_name, product_id,
                                 json.dumps(user_errors), problem),
                     'shopify_instance_id': instance_id,
                     'model': 'product.product',
                 })
             else:
-                relinked |= template
+                retry.add((template.id, product_id))
         self.env['log.message'].sudo().create(logs)
-        if relinked:
-            # one more push with the repaired ids; relink=False so a product
-            # that still fails is logged instead of looping
-            self._push_template_prices(relinked, session, url, relink=False)
+        if retry:
+            # one more push of the repaired (template, product) pairs only;
+            # relink=False so one that still fails is logged, not looped
+            templates = self.env['product.template'].browse(
+                {template_id for template_id, _pid in retry})
+            self._push_template_prices(templates, session, url,
+                                       relink=False, only=retry)
 
     def _sync_to_shopify(self, templates):
         """Push prices for the given templates, PRODUCTS_PER_REQUEST

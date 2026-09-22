@@ -329,11 +329,9 @@ class SyncProduct(models.TransientModel):
                     seen_variant_links.add(link)
                     sync_vals_list.append({
                         'instance_id': shopify_instance.id,
-                        # variant rows carry the VARIANT id in both columns
-                        # (the stale-link cleanup below relies on it). The
-                        # product id used to be stored here, which made every
-                        # later price push fail with "Product variant does
-                        # not exist".
+                        # Product Id = the Shopify PRODUCT this variant
+                        # belongs to (the price push groups by it), Variant
+                        # Id = the Shopify variant itself.
                         'shopify_product': shopify_var['product_id'],
                         'shopify_variant_id': shopify_var['id'],
                         'product_prod_id': odoo_variant.id,
@@ -375,9 +373,9 @@ class SyncProduct(models.TransientModel):
         # new listing.
         #
         # `shopify_product` alone is queried: it is the indexed column and
-        # holds the product id on template rows and the variant id on
-        # variant rows, so one indexed IN removes both - no scan of the
-        # unindexed `shopify_variant_id`.
+        # holds the Shopify product id on both template and variant rows,
+        # so one indexed IN removes both - no scan of the unindexed
+        # `shopify_variant_id`.
         if sync_vals_list:
             resync_ids = list({
                 str(vals['shopify_product']) for vals in sync_vals_list
