@@ -207,13 +207,39 @@ class SyncPricing(models.TransientModel):
             break
         return result
 
-    def _template_price_syncs(self, template):
-        """Variant-level shopify.sync rows of `template` for this instance
-        that point to an Odoo variant (a row without one would push 0.00)."""
+    def _template_price_variants(self, template):
+        """Return {product.product: Shopify variant id} - ONE id per Odoo
+        variant of `template`.
+
+        A template often carries more shopify.sync rows than it has variants
+        (re-imports, alias links, rows written by the export, rows from a
+        product that was re-created on Shopify). Sending all of them puts ids
+        of other/deleted variants in the mutation and Shopify rejects the
+        whole product. So per Odoo variant only one id is kept:
+          1. `product.product.shopify_variant` when one of its rows has it
+             (written by the import / relink from live Shopify data);
+          2. otherwise the newest row (highest id).
+        Rows without an Odoo variant (would push 0.00) or whose variant
+        belongs to another template are ignored."""
         instance = self.shopify_instance_id
-        return template.shopify_sync_ids.filtered(
+        rows = template.shopify_sync_ids.filtered(
             lambda s: s.shopify_variant_id and s.product_prod_id
+            and s.product_prod_id.product_tmpl_id == template
             and (not s.instance_id or s.instance_id == instance))
+        by_variant = {}
+        for row in rows.sorted('id', reverse=True):  # newest first
+            by_variant.setdefault(row.product_prod_id, []).append(
+                str(row.shopify_variant_id))
+        chosen = {}
+        for variant, ids in by_variant.items():
+            preferred = str(variant.shopify_variant or '')
+            chosen[variant] = preferred if preferred in ids else ids[0]
+            if len(set(ids)) > 1:
+                _logger.info(
+                    'Shopify pricing: variant "%s" has %d Shopify ids %s - '
+                    'using %s.', variant.display_name, len(set(ids)),
+                    sorted(set(ids)), chosen[variant])
+        return chosen
 
     def _relink_shopify_variants(self, template, session, url):
         """Re-read the product's variants from Shopify and re-point the
@@ -263,16 +289,23 @@ class SyncPricing(models.TransientModel):
             ('shopify_variant_id', '!=', False),
         ]).filtered(lambda s: not s.instance_id or s.instance_id == instance)
         linked = set()
-        for row in rows:
+        extra = sync_obj.browse()
+        for row in rows.sorted('id', reverse=True):  # keep the newest row
             new_id = matched.get(row.product_prod_id.id)
-            if new_id:
+            if new_id and row.product_prod_id.id not in linked:
                 if row.shopify_variant_id != new_id:
                     row.write({'shopify_variant_id': new_id,
                                'shopify_product': new_id})
                 linked.add(row.product_prod_id.id)
-            elif row.shopify_variant_id not in live_ids:
-                # stale link with no Odoo counterpart: stop sending it
-                row.write({'shopify_variant_id': False})
+            elif new_id or row.shopify_variant_id not in live_ids:
+                # a 2nd+ link of the same Odoo variant, or a stale id with
+                # no Odoo counterpart: drop it so one variant = one id
+                extra |= row
+        if extra:
+            _logger.info('Shopify pricing: removed %d duplicate/stale '
+                         'variant link(s) of "%s".', len(extra),
+                         template.display_name)
+            extra.unlink()
         sync_obj.create([{
             'instance_id': instance.id,
             'shopify_product': new_id,
@@ -307,16 +340,15 @@ class SyncPricing(models.TransientModel):
         """
         entries = []  # (template, [variant payload])
         for template in templates:
-            # keyed by variant id: a duplicated id makes Shopify reject the
-            # whole mutation
+            # one id per Odoo variant, and keyed by that id: an extra or
+            # duplicated id makes Shopify reject the whole mutation
             payload = {}
-            for sync in self._template_price_syncs(template):
-                gid = ('gid://shopify/ProductVariant/%s'
-                       % sync.shopify_variant_id)
+            for variant, variant_id in self._template_price_variants(
+                    template).items():
+                gid = 'gid://shopify/ProductVariant/%s' % variant_id
                 payload[gid] = {
                     'id': gid,
-                    'price': '%.2f' % self._get_variant_price(
-                        sync.product_prod_id),
+                    'price': '%.2f' % self._get_variant_price(variant),
                 }
             if not payload:
                 _logger.info(
@@ -337,33 +369,7 @@ class SyncPricing(models.TransientModel):
             'variables': variables,
         })
 
-        result = {}
-        for attempt in range(MAX_RETRIES + 1):
-            response = session.post(url, data=body, timeout=REQUEST_TIMEOUT)
-            if ((response.status_code == 429 or response.status_code >= 500)
-                    and attempt < MAX_RETRIES):
-                time.sleep(float(response.headers.get('Retry-After')
-                                 or 2 ** attempt))
-                continue
-            if response.status_code != 200:
-                raise ValidationError(_(
-                    'Shopify returned HTTP %(code)s for the price update: '
-                    '%(body)s',
-                    code=response.status_code,
-                    body=(response.text or '')[:500]))
-            result = response.json()
-            throttled = any(
-                (error.get('extensions') or {}).get('code') == 'THROTTLED'
-                for error in result.get('errors') or [])
-            if throttled and attempt < MAX_RETRIES:
-                cost = (result.get('extensions') or {}).get('cost') or {}
-                status = cost.get('throttleStatus') or {}
-                missing = ((cost.get('requestedQueryCost') or 0)
-                           - (status.get('currentlyAvailable') or 0))
-                time.sleep(max(1.0, missing / float(
-                    status.get('restoreRate') or 50)))
-                continue
-            break
+        result = self._post_graphql(session, url, body)
 
         # Top level errors: those with a path belong to one alias (p<i>),
         # those without one sink the whole request.
