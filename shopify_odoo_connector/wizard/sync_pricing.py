@@ -180,10 +180,10 @@ class SyncPricing(models.TransientModel):
             # keyed by variant id: a duplicated id makes Shopify reject the
             # whole mutation
             payload = {}
-            for variant in template.product_variant_ids:
+            for variant in template.shopify_sync_ids:
                 if variant.shopify_variant:
                     gid = ('gid://shopify/ProductVariant/%s'
-                           % variant.shopify_variant)
+                           % variant.shopify_variant_id)
                     payload[gid] = {
                         'id': gid,
                         'price': '%.2f' % self._get_variant_price(variant),
