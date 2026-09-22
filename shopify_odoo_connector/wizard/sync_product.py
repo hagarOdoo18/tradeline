@@ -329,8 +329,13 @@ class SyncProduct(models.TransientModel):
                     seen_variant_links.add(link)
                     sync_vals_list.append({
                         'instance_id': shopify_instance.id,
+                        # variant rows carry the VARIANT id in both columns
+                        # (the stale-link cleanup below relies on it). The
+                        # product id used to be stored here, which made every
+                        # later price push fail with "Product variant does
+                        # not exist".
                         'shopify_product': shopify_var['product_id'],
-                        'shopify_variant_id': shopify_var['product_id'],
+                        'shopify_variant_id': shopify_var['id'],
                         'product_prod_id': odoo_variant.id,
                         # the alias's OWN template, so that template is the
                         # one that counts as synced
