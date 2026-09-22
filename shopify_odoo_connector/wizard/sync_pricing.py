@@ -186,7 +186,7 @@ class SyncPricing(models.TransientModel):
                            % variant.shopify_variant_id)
                     payload[gid] = {
                         'id': gid,
-                        'price': '%.2f' % self._get_variant_price(variant),
+                        'price': '%.2f' % self._get_variant_price(variant.product_id),
                     }
             if not payload:
                 _logger.info(
