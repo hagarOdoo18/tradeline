@@ -181,7 +181,7 @@ class SyncPricing(models.TransientModel):
             # whole mutation
             payload = {}
             for variant in template.shopify_sync_ids:
-                if variant.shopify_variant:
+                if variant.shopify_variant_id:
                     gid = ('gid://shopify/ProductVariant/%s'
                            % variant.shopify_variant_id)
                     payload[gid] = {
