@@ -60,7 +60,10 @@ class StockScrapWizard(models.TransientModel):
             raise UserError(_("You may only Scrap one picking at a time."))
 
         res = super().default_get(fields_list)
-        picking = self.env['stock.picking'].browse(self.env.context.get('active_id'))
+        picking_id = self.env.context.get('default_picking_id') or self.env.context.get('active_id')
+        picking = self.env['stock.picking'].browse(picking_id)
+        res['picking_id'] = picking.id
+        res['vendor'] = bool(self.env.context.get('default_vendor'))
 
         scrap_lines = self.prepare_scrap_line(picking)
         res['scrap_lines'] = self.set_scrap_lines(scrap_lines)
@@ -91,8 +94,12 @@ class StockScrapWizard(models.TransientModel):
         return res
 
     def create_scrap(self):
+        self.ensure_one()
+        picking = self.picking_id
+        is_vendor = self.vendor
         for line in self.scrap_lines:
             scrap = self.env['stock.scrap'].create({
+                'picking_id': picking.id,
                 'product_id': line.product_id.id,
                 'product_uom_id': line.product_id.uom_id.id,
                 'lot_id': line.lot_id.id,
@@ -100,6 +107,8 @@ class StockScrapWizard(models.TransientModel):
                 'location_id': self.location_id.id,
                 'scrap_location_id': self.scrap_location_id.id,
                 'origin': self.picking_id.name,
+                'vendor_scrap': is_vendor,
+                'state': 'approve' if (is_vendor or picking.approve_scrap) else 'draft',
             })
             # Odoo 18: product type 'product' was removed;
             # storable products are now type='consu' with is_storable=True.
