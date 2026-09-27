@@ -64,7 +64,12 @@ class ImportStockQuantWizard(models.TransientModel):
                     ('product_id','=',product.id),
                     ('company_id','in',[self.company_id.id, False])
                 ], limit=1)
-                vals['lot_id'] = lot.id if lot else   vals.update({'is_valid':False,'error_msg':'Serial Not Found'})
+                if lot:
+                    vals['lot_id'] = lot.id
+                else:
+                    vals.update({'is_valid': False, 'error_msg': 'Serial Not Found'})
+            elif product.tracking != 'none':
+                vals.update({'is_valid': False, 'error_msg': 'Lot/serial number required'})
 
             self.env['import.stock.quant.line'].create(vals)
 
@@ -83,7 +88,7 @@ class ImportStockQuantWizard(models.TransientModel):
                 lot = self.env['stock.lot'].create({
                     'name': rec.serial,
                     'product_id': rec.product_id.id,
-                    'company_id': rec.env.company.id,
+                    'company_id': self.company_id.id,
                 })
                 rec.lot_id = lot.id
                 rec.is_valid = True
@@ -100,31 +105,57 @@ class ImportStockQuantWizard(models.TransientModel):
         self.line_ids.filtered(lambda l: not l.is_valid).unlink()
 
     def action_apply(self):
+        self.ensure_one()
         if self.line_ids.filtered(lambda l: not l.is_valid):
             raise UserError(_('Fix errors before applying'))
 
         Quant = self.env['stock.quant'].with_company(self.company_id)
         for line in self.line_ids:
+            if not line.product_id or not line.location_id or line.location_id.usage != 'internal':
+                raise UserError(_('Row %(row)s has an invalid product or internal location.', row=line.row_no))
+            if line.location_id.company_id and line.location_id.company_id != self.company_id:
+                raise UserError(_('Row %(row)s belongs to another company.', row=line.row_no))
+            if line.product_id.tracking != 'none' and not line.lot_id:
+                raise UserError(_('Row %(row)s requires a lot or serial number.', row=line.row_no))
+            if line.lot_id and (line.lot_id.product_id != line.product_id or
+                                (line.lot_id.company_id and line.lot_id.company_id != self.company_id)):
+                raise UserError(_('Row %(row)s has an invalid lot or serial number.', row=line.row_no))
+            if line.product_id.tracking == 'serial' and abs(line.quantity) != 1:
+                raise UserError(_('Row %(row)s must change exactly one serialized unit.', row=line.row_no))
+            company_product = line.product_id.with_company(self.company_id)
+            if (company_product.categ_id.property_cost_method == 'average' and
+                    company_product.standard_price < 0):
+                raise UserError(_(
+                    'Row %(row)s has a negative AVCO Product Cost. Reconcile its valuation before importing stock.',
+                    row=line.row_no,
+                ))
             quant = Quant.search([
                 ('product_id','=',line.product_id.id),
                 ('location_id','=',line.location_id.id),
                 ('lot_id','=',line.lot_id.id if line.lot_id else False),
-            ], limit=1)
+                ('company_id','=',self.company_id.id),
+            ])
+            if len(quant) > 1:
+                raise UserError(_('Row %(row)s matches multiple stock lines. Adjust them individually.', row=line.row_no))
 
             if quant:
                 if quant.quantity + line.quantity < 0:
                     raise UserError(_('Negative stock not allowed'))
-                quant.quantity += line.quantity
+                quant.inventory_quantity = quant.quantity + line.quantity
             else:
                 if line.quantity < 0:
                     raise UserError(_('No stock to subtract'))
-                Quant.create({
+                quant = Quant.with_context(inventory_mode=True).create({
                     'product_id': line.product_id.id,
                     'location_id': line.location_id.id,
-                    'quantity': line.quantity,
                     'lot_id': line.lot_id.id if line.lot_id else False,
                     'company_id': self.company_id.id,
+                    'inventory_quantity': line.quantity,
                 })
+            # Counted quantities create the stock move and valuation layer.
+            result = quant.action_apply_inventory()
+            if result:
+                raise UserError(_('Row %(row)s needs inventory adjustment review.', row=line.row_no))
 
         self.state = 'done'
 
@@ -150,7 +181,7 @@ class ImportStockQuantLine(models.TransientModel):
             lot = self.env['stock.lot'].create({
                 'name': self.serial,
                 'product_id': self.product_id.id,
-                'company_id': self.env.company.id,
+                'company_id': self.wizard_id.company_id.id,
             })
             self.lot_id = lot.id
             self.is_valid = True

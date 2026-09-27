@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models
-from odoo.tools import float_is_zero
+from odoo.tools import float_compare
 
 
 class ProductProduct(models.Model):
@@ -32,10 +32,14 @@ class ProductProduct(models.Model):
             (self.id, company.id),
         )
         valuation_qty, valuation_value = self.env.cr.fetchone()
-        if float_is_zero(valuation_qty, precision_rounding=product.uom_id.rounding):
+        # A positive value divided by a negative valuation quantity would
+        # poison Product Cost and every subsequent AVCO transaction.
+        if float_compare(valuation_qty, 0.0, precision_rounding=product.uom_id.rounding) <= 0:
             return None
 
         unit_cost = valuation_value / valuation_qty
+        if float_compare(unit_cost, 0.0, precision_rounding=company.currency_id.rounding) <= 0:
+            return None
         self.env.cr.execute(
             """
                 UPDATE product_product

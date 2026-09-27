@@ -188,6 +188,11 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
         cost_message = ''
         if synced_unit_cost is not None:
             cost_message = _(' Current Product Cost was aligned to %(cost).3f.', cost=synced_unit_cost)
+        elif source.product_id.with_company(source.company_id).categ_id.property_cost_method == 'average':
+            cost_message = _(
+                ' Product Cost was not changed because the product valuation does not yield a positive cost. '
+                'Review the product-wide valuation quantity and value before posting another correction.'
+            )
 
         return {
             'type': 'ir.actions.client',
@@ -199,7 +204,7 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
                     serial=source.lot_id.display_name,
                     cost_message=cost_message,
                 ),
-                'type': 'success',
+                'type': 'warning' if synced_unit_cost is None and source.product_id.with_company(source.company_id).categ_id.property_cost_method == 'average' else 'success',
                 'sticky': True,
                 'next': {'type': 'ir.actions.act_window_close'},
             },
