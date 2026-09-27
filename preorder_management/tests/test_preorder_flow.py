@@ -232,7 +232,7 @@ class TestPreorderFlow(TransactionCase):
         self.assertIn(b">Payment Method<", report_html)
         self.assertIn(self.payment_journal.display_name.encode(), report_html)
         self.assertIn(b"Total Confirmed", report_html)
-        self.assertIn(b"The accounting payment is recorded at delivery", report_html)
+        self.assertNotIn(b"The accounting payment is recorded at delivery", report_html)
         self.assertIn(b"AUDIT-PRINT-TEST", report_html)
 
         if self.second_payment_journal != self.payment_journal:

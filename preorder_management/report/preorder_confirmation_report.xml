@@ -116,9 +116,6 @@
                 <t t-set="payment_entries" t-value="o.get_report_payment_entries()"/>
                 <div t-if="payment_entries">
                     <h3>Payment Information</h3>
-                    <p t-if="o.payment_recording_mode == 'delivery'" class="mb-2">
-                        Payment method noted at pre-order. The accounting payment is recorded at delivery.
-                    </p>
                     <table class="table table-sm o_main_table">
                         <thead>
                             <tr>
