@@ -1411,6 +1411,8 @@ class SalePreorder(models.Model):
         "payment_confirmation_ids",
         "payment_confirmation_ids.amount",
         "payment_confirmation_ids.state",
+        "payment_confirmation_ids.journal_id",
+        "payment_confirmation_ids.payment_channel",
     )
     def _compute_payment_summary(self):
         for record in self:
@@ -1519,6 +1521,7 @@ class SalePreorder(models.Model):
                     or confirmation.journal_id.display_name,
                     "date": confirmation.source_date,
                     "amount": confirmation.amount,
+                    "reference": confirmation.source_reference,
                 }
                 for confirmation in self._get_delivery_payment_confirmations().sorted(
                     lambda item: (item.source_date, item.id)
@@ -1529,6 +1532,7 @@ class SalePreorder(models.Model):
                 "payment_method": payment.journal_id.display_name,
                 "date": payment.date,
                 "amount": self._convert_payment_amount(payment),
+                "reference": payment.memo,
             }
             for payment in self.get_report_payments()
         ]

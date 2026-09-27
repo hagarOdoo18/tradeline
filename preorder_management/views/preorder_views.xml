@@ -275,15 +275,19 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Migration Audit" invisible="payment_recording_mode != 'delivery'">
+                        <page string="Payment Confirmations" invisible="payment_recording_mode != 'delivery'">
                             <field name="payment_confirmation_ids" readonly="1">
                                 <list create="0" delete="0">
                                     <field name="source_date"/>
                                     <field name="source_payment_id"/>
                                     <field name="reversal_payment_id"/>
                                     <field name="payment_channel"/>
+                                    <field name="source_reference" optional="show"/>
                                     <field name="amount" sum="Confirmed"/>
                                     <field name="state" widget="badge"/>
+                                    <button name="action_correct_payment_method" type="object"
+                                            string="Correct Method" icon="fa-pencil"
+                                            invisible="source_payment_id or state != 'confirmed'"/>
                                 </list>
                             </field>
                         </page>

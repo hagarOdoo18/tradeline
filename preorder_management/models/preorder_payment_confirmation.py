@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from odoo import api, fields, models, _
-from odoo.exceptions import ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 
 class SalePreorderPaymentConfirmation(models.Model):
@@ -40,6 +40,39 @@ class SalePreorderPaymentConfirmation(models.Model):
             "Each original payment can be migrated only once.",
         ),
     ]
+
+    def _check_payment_method_correction_access(self):
+        self.ensure_one()
+        preorder = self.preorder_id
+        if not (
+            self.env.user == preorder.create_uid
+            or self.env.user.has_group("preorder_management.group_preorder_manager")
+        ):
+            raise AccessError(_("Only the pre-order creator or a Pre-order Manager can correct its payment method."))
+        if (
+            preorder.payment_recording_mode != "delivery"
+            or self.source_payment_id
+            or self.state != "confirmed"
+            or preorder.state not in ("confirmed", "pending", "allocated")
+            or preorder.final_sale_order_id
+            or preorder.fulfillment_pos_order_id
+        ):
+            raise UserError(_("This payment method can no longer be corrected before delivery."))
+
+    def action_correct_payment_method(self):
+        self._check_payment_method_correction_access()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Correct Pre-order Payment Method"),
+            "res_model": "sale.preorder.payment.method.correction",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_confirmation_id": self.id,
+                "default_journal_id": self.journal_id.id,
+                "default_reference": self.source_reference,
+            },
+        }
 
     @api.constrains("amount", "currency_id", "preorder_id")
     def _check_identity(self):
