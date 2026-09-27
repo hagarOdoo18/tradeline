@@ -33,7 +33,8 @@ class StockValuationLayerReport(models.Model):
     last_po_cost      = fields.Float(  string='Last PO Cost',      readonly=True, aggregator=False, digits='Product Price')
     unit_cost      = fields.Float(  string='Unit Cost',      readonly=True, aggregator=False, digits='Product Price')
     available_qty     = fields.Float(  string='Available Qty',     readonly=True, aggregator=False, digits='Product Unit of Measure')
-    quantity_gap      = fields.Float(  string='Qty Gap (On Hand - Valuation)', readonly=True, aggregator=False, digits='Product Unit of Measure')
+    transit_qty       = fields.Float(  string='Transit Qty',       readonly=True, aggregator=False, digits='Product Unit of Measure')
+    quantity_gap      = fields.Float(  string='Qty Gap (Internal + Transit - Valuation)', readonly=True, aggregator=False, digits='Product Unit of Measure')
 
     @api.depends('product_id')
     def _compute_product_search_text(self):
@@ -182,12 +183,27 @@ class StockValuationLayerReport(models.Model):
                       AND sl.usage = 'internal'
                       AND sq.company_id = svl.company_id
                 ), 0.0)::double precision                                                   AS available_qty,
+                COALESCE((
+                    SELECT SUM(sq.quantity)
+                    FROM stock_quant sq
+                    JOIN stock_location sl ON sl.id = sq.location_id
+                    WHERE sq.product_id = svl.product_id
+                      AND sl.usage = 'transit'
+                      AND sq.company_id = svl.company_id
+                ), 0.0)::double precision                                                   AS transit_qty,
                 (COALESCE((
                     SELECT SUM(sq.quantity)
                     FROM stock_quant sq
                     JOIN stock_location sl ON sl.id = sq.location_id
                     WHERE sq.product_id = svl.product_id
                       AND sl.usage = 'internal'
+                      AND sq.company_id = svl.company_id
+                ), 0.0) + COALESCE((
+                    SELECT SUM(sq.quantity)
+                    FROM stock_quant sq
+                    JOIN stock_location sl ON sl.id = sq.location_id
+                    WHERE sq.product_id = svl.product_id
+                      AND sl.usage = 'transit'
                       AND sq.company_id = svl.company_id
                 ), 0.0) - COALESCE(SUM(svl.quantity), 0.0))::double precision               AS quantity_gap
                             FROM stock_valuation_layer svl
