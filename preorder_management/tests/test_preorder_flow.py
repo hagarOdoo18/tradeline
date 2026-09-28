@@ -194,6 +194,72 @@ class TestPreorderFlow(TransactionCase):
         preorder.allocation_id.invalidate_recordset(["reserved_qty"])
         self.assertEqual(preorder.allocation_id.reserved_qty, reserved_before)
 
+    def test_delivery_audit_confirmation_is_printed_as_payment_method(self):
+        preorder = self.env["sale.preorder"].sudo().create(
+            {
+                "campaign_id": self.campaign.id,
+                "customer_id": self.customer.id,
+                "branch_id": self.branch.id,
+                "sales_rep_id": self.sales_rep.id,
+                "product_id": self.product.id,
+                "requested_qty": 1.0,
+            }
+        )
+        preorder.action_confirm_preorder()
+        confirmation = self.env["sale.preorder.payment.confirmation"].sudo().create(
+            {
+                "preorder_id": preorder.id,
+                "amount": preorder.deposit_amount,
+                "currency_id": preorder.currency_id.id,
+                "journal_id": self.payment_journal.id,
+                "payment_channel": self.payment_journal.display_name,
+                "source_date": fields.Date.today(),
+                "source_reference": "AUDIT-PRINT-TEST",
+            }
+        )
+        self.assertTrue(confirmation)
+        entries = preorder.get_report_payment_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["payment_method"], self.payment_journal.display_name)
+        self.assertEqual(preorder.get_report_payment_total(), preorder.deposit_amount)
+
+        report_action = self.env.ref(
+            "preorder_management.action_report_preorder_confirmation"
+        )
+        report_html, _ = report_action._render_qweb_html(
+            report_action.report_name, preorder.ids
+        )
+        self.assertIn(b">Payment Method<", report_html)
+        self.assertIn(self.payment_journal.display_name.encode(), report_html)
+        self.assertIn(b"Total Confirmed", report_html)
+        self.assertNotIn(b"The accounting payment is recorded at delivery", report_html)
+        self.assertIn(b"AUDIT-PRINT-TEST", report_html)
+
+        if self.second_payment_journal != self.payment_journal:
+            action = confirmation.action_correct_payment_method()
+            self.assertEqual(
+                action["context"]["default_journal_id"], self.payment_journal.id
+            )
+            correction = self.env["sale.preorder.payment.method.correction"].create({
+                "confirmation_id": confirmation.id,
+                "journal_id": self.second_payment_journal.id,
+                "reference": "CORRECTED-REFERENCE",
+            })
+            correction.action_apply()
+            confirmation.invalidate_recordset()
+            self.assertEqual(confirmation.journal_id, self.second_payment_journal)
+            self.assertEqual(confirmation.source_reference, "CORRECTED-REFERENCE")
+            self.assertFalse(preorder.direct_payment_ids)
+            report_html, _ = report_action._render_qweb_html(
+                report_action.report_name, preorder.ids
+            )
+            self.assertIn(self.second_payment_journal.display_name.encode(), report_html)
+            self.assertIn(b"CORRECTED-REFERENCE", report_html)
+
+        confirmation.sudo().write({"state": "consumed"})
+        with self.assertRaisesRegex(UserError, "can no longer be corrected"):
+            confirmation.action_correct_payment_method()
+
     def test_guarded_payment_redate_works_without_general_unreconcile_access(self):
         preorder = self.env["sale.preorder"].sudo().create(
             {
@@ -743,9 +809,8 @@ class TestPreorderFlow(TransactionCase):
         self.assertIn(b"Reserved Device", report_html)
         self.assertIn(b"Total Paid", report_html)
         self.assertIn(b"Bring the original ID and reservation receipt.", report_html)
-        self.assertIn(b">Payment<", report_html)
+        self.assertIn(b">Payment Method<", report_html)
         self.assertNotIn(b">Journal<", report_html)
-        self.assertNotIn(b">Payment Method<", report_html)
         allocation.invalidate_recordset(["reserved_qty", "available_qty"])
         self.assertEqual(allocation.reserved_qty, 1.0)
         self.assertEqual(allocation.available_qty, 4.0)

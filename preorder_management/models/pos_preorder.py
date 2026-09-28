@@ -732,6 +732,24 @@ class PosOrderPreorderDelivery(models.Model):
         # Older open POS tabs may still submit this client-only display label.
         # It is not a pos.order column, so discard it before create validates vals.
         order_fields.pop("preorder_name", None)
+
+        # Odoo normally derives the order company from the session. Some older
+        # POS payloads omit that derived value when a pre-order is loaded, which
+        # makes the required pos.order.company_id fail during validation. Resolve
+        # it from the submitted session/config before falling back to env.company.
+        if not order_fields.get("company_id"):
+            session_id = self._extract_preorder_id(
+                order_fields.get("session_id") or payload.get("session_id")
+            )
+            config_id = self._extract_preorder_id(
+                order_fields.get("config_id") or payload.get("config_id")
+            )
+            session = self.env["pos.session"].sudo().browse(session_id).exists()
+            config = self.env["pos.config"].sudo().browse(config_id).exists()
+            company = session.company_id or config.company_id or self.env.company
+            if company:
+                order_fields["company_id"] = company.id
+
         preorder_id = self._extract_preorder_id(payload.get("preorder_id"))
         if not preorder_id:
             return order_fields
@@ -740,8 +758,35 @@ class PosOrderPreorderDelivery(models.Model):
         if not preorder:
             raise UserError(_("The selected pre-order no longer exists."))
         line_ids = self._extract_preorder_line_ids(payload.get("preorder_line_ids"))
-        if set(line_ids) != set(preorder.line_ids.ids):
-            raise UserError(_("The POS cart does not contain the complete pre-order."))
+        reserved_ids = set(preorder.line_ids.ids)
+        if set(line_ids) != reserved_ids:
+            # A stale POS tab can lose the client-only M2M metadata while the
+            # actual reserved products remain in the cart. Reconstruct the link
+            # only when payload quantities prove every reserved line is present;
+            # a genuinely incomplete cart is still rejected below at validation.
+            quantities = defaultdict(float)
+            for command in payload.get("lines", []):
+                values = command[2] if isinstance(command, (list, tuple)) and len(command) == 3 else command
+                if not isinstance(values, dict):
+                    continue
+                product_id = self._extract_preorder_id(values.get("product_id"))
+                if product_id:
+                    try:
+                        quantities[product_id] += float(values.get("qty") or 0)
+                    except (TypeError, ValueError):
+                        pass
+            complete = all(
+                float_compare(
+                    quantities[line.product_id.id],
+                    line.requested_qty,
+                    precision_rounding=line.product_id.uom_id.rounding,
+                ) >= 0
+                for line in preorder.line_ids
+            )
+            if complete:
+                line_ids = list(reserved_ids)
+            else:
+                raise UserError(_("The POS cart does not contain the complete pre-order."))
         order_fields["preorder_id"] = preorder.id
         order_fields["preorder_line_ids"] = [Command.set(line_ids)]
         return order_fields

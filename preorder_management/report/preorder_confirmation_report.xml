@@ -113,30 +113,35 @@
                     </div>
                 </div>
 
-                <t t-set="payments" t-value="o.get_report_payments()"/>
-                <div t-if="payments">
-                    <h3>Payments</h3>
+                <t t-set="payment_entries" t-value="o.get_report_payment_entries()"/>
+                <div t-if="payment_entries">
+                    <h3>Payment Information</h3>
                     <table class="table table-sm o_main_table">
                         <thead>
                             <tr>
-                                <th>Payment</th>
+                                <th>Payment Method</th>
                                 <th>Date</th>
+                                <th>Reference</th>
                                 <th class="text-end">Amount</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr t-foreach="payments" t-as="payment">
-                                <td><span t-field="payment.journal_id"/></td>
-                                <td><span t-field="payment.date"/></td>
+                            <tr t-foreach="payment_entries" t-as="payment">
+                                <td><span t-out="payment['payment_method']"/></td>
+                                <td><span t-out="payment['date']"/></td>
+                                <td><span t-out="payment['reference'] or ''"/></td>
                                 <td class="text-end">
-                                    <span t-out="o.get_report_payment_amount(payment)"
+                                    <span t-out="payment['amount']"
                                           t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
                                 </td>
                             </tr>
                         </tbody>
                         <tfoot>
                             <tr class="border-top">
-                                <th colspan="2" class="text-end">Total Paid</th>
+                                <th colspan="3" class="text-end">
+                                    <t t-if="o.payment_recording_mode == 'delivery'">Total Confirmed</t>
+                                    <t t-else="">Total Paid</t>
+                                </th>
                                 <th class="text-end">
                                     <span t-out="o.get_report_payment_total()"
                                           t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>

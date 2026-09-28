@@ -2,6 +2,8 @@
 
 from . import preorder
 from . import preorder_payment_confirmation
+from . import preorder_payment_capture
+from . import preorder_payment_method_correction
 from . import account_payment
 from . import sale_order
 from . import pos_preorder

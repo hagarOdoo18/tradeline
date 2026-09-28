@@ -841,7 +841,7 @@ class SalePreorder(models.Model):
             ("delivery", "Record at delivery"),
         ],
         string="Payment Recording",
-        default="preorder",
+        default="delivery",
         required=True,
         readonly=True,
         copy=False,
@@ -1411,6 +1411,8 @@ class SalePreorder(models.Model):
         "payment_confirmation_ids",
         "payment_confirmation_ids.amount",
         "payment_confirmation_ids.state",
+        "payment_confirmation_ids.journal_id",
+        "payment_confirmation_ids.payment_channel",
     )
     def _compute_payment_summary(self):
         for record in self:
@@ -1501,16 +1503,47 @@ class SalePreorder(models.Model):
             lambda payment: (payment.date, payment.id)
         )
 
+    def get_report_payment_entries(self):
+        """Return the customer-facing payment rows for the pre-order receipt.
+
+        Delivery-mode pre-orders deliberately have no ``account.payment`` yet;
+        their confirmed amount and channel are kept in the immutable audit
+        confirmation.  The printed confirmation must still show that channel
+        as the Payment Method so the customer can present it at delivery.
+        Legacy/pre-migration pre-orders continue to print their posted inbound
+        payments.
+        """
+        self.ensure_one()
+        if self.payment_recording_mode == "delivery":
+            return [
+                {
+                    "payment_method": confirmation.payment_channel
+                    or confirmation.journal_id.display_name,
+                    "date": confirmation.source_date,
+                    "amount": confirmation.amount,
+                    "reference": confirmation.source_reference,
+                }
+                for confirmation in self._get_delivery_payment_confirmations().sorted(
+                    lambda item: (item.source_date, item.id)
+                )
+            ]
+        return [
+            {
+                "payment_method": payment.journal_id.display_name,
+                "date": payment.date,
+                "amount": self._convert_payment_amount(payment),
+                "reference": payment.memo,
+            }
+            for payment in self.get_report_payments()
+        ]
+
     def get_report_payment_amount(self, payment):
         self.ensure_one()
         return self._convert_payment_amount(payment)
 
     def get_report_payment_total(self):
         self.ensure_one()
-        return sum(
-            self._convert_payment_amount(payment)
-            for payment in self.get_report_payments()
-        )
+        return sum(entry["amount"] for entry in self.get_report_payment_entries())
 
     def get_report_tax_names(self):
         self.ensure_one()
@@ -1532,21 +1565,30 @@ class SalePreorder(models.Model):
         # Search explicitly instead of relying on the cached One2many value. A
         # payment is linked while the pre-order form is already in cache, so the
         # inverse relation can otherwise still look empty during action_post().
-        payments = self.env["account.payment"].search(
-            [
-                ("preorder_payment_id", "=", self.id),
-                ("payment_type", "=", "inbound"),
-                ("state", "in", ("in_process", "paid", "posted")),
-                ("move_id.state", "=", "posted"),
-            ]
-        )
-        if self.source_order_id:
-            payments |= self.source_order_id.payment_ids.filtered(
-                lambda payment: payment.payment_type == "inbound"
+        def payment_filter(payment):
+            return (
+                payment.payment_type == "inbound"
                 and payment.state in ("in_process", "paid", "posted")
                 and payment.move_id
                 and payment.move_id.state == "posted"
             )
+        if self._origin.id:
+            payments = self.env["account.payment"].search(
+                [
+                    ("preorder_payment_id", "=", self._origin.id),
+                    ("payment_type", "=", "inbound"),
+                    ("state", "in", ("in_process", "paid", "posted")),
+                    ("move_id.state", "=", "posted"),
+                ]
+            )
+        else:
+            # Onchange records use a NewId. Passing it to a search domain is
+            # ignored by Odoo and can accidentally broaden the query to every
+            # payment in the database. Only inspect the in-memory relation until
+            # the pre-order has a real database id.
+            payments = self.direct_payment_ids.filtered(payment_filter)
+        if self.source_order_id:
+            payments |= self.source_order_id.payment_ids.filtered(payment_filter)
         if include_returned:
             return payments
         returned_originals = self.env["account.payment"].search(
@@ -1674,6 +1716,51 @@ class SalePreorder(models.Model):
         return {
             "type": "ir.actions.client",
             "tag": "reload",
+        }
+
+    @api.model
+    def action_migrate_all_open_preorders(self):
+        """Migrate every open legacy pre-order without losing successful batches.
+
+        Each record is isolated in a database savepoint.  A locked or otherwise
+        invalid payment is reported and left untouched while other pre-orders
+        complete and are committed with the request.  This makes the operation
+        safe to repeat until the exception list is empty.
+        """
+        _check_preorder_manager(self.env)
+        records = self.search(
+            [
+                ("state", "not in", ("completed", "cancelled")),
+                ("payment_recording_mode", "=", "preorder"),
+            ],
+            order="id",
+        )
+        migrated = 0
+        failures = []
+        for preorder in records:
+            try:
+                with self.env.cr.savepoint():
+                    result = preorder.migrate_payments_to_delivery()
+                    migrated += len(result)
+            except Exception as error:
+                failures.append("%s: %s" % (preorder.display_name, error))
+        message = _(
+            "Payment migration finished: %(migrated)s pre-order(s) migrated, %(failed)s exception(s)."
+        ) % {"migrated": migrated, "failed": len(failures)}
+        if failures:
+            message += "\n" + "\n".join(failures[:20])
+            if len(failures) > 20:
+                message += _("\n…and %(count)s more.") % {"count": len(failures) - 20}
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Pre-order Payment Migration"),
+                "message": message,
+                "type": "warning" if failures else "success",
+                "sticky": bool(failures),
+                "next": {"type": "ir.actions.client", "tag": "reload"},
+            },
         }
 
     def _get_available_payment_lines(self, payments=None):
@@ -1882,6 +1969,18 @@ class SalePreorder(models.Model):
             self.payment_due_amount, precision_rounding=self.currency_id.rounding
         ):
             raise UserError(_("This pre-order is already fully paid."))
+        if self.payment_recording_mode == "delivery":
+            return {
+                "name": _("Confirm Pre-order Payment"),
+                "type": "ir.actions.act_window",
+                "res_model": "sale.preorder.payment.capture",
+                "view_mode": "form",
+                "target": "new",
+                "context": {
+                    "default_preorder_id": self.id,
+                    "default_amount": self.payment_due_amount,
+                },
+            }
         return {
             "name": _("Register Pre-order Payment"),
             "type": "ir.actions.act_window",

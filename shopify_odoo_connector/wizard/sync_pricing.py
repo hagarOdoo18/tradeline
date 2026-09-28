@@ -20,6 +20,7 @@
 #    USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 ################################################################################
+import functools
 import json
 import logging
 import time
@@ -30,6 +31,14 @@ from odoo import api, fields, models, _
 from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
+
+# Number of products sent in ONE GraphQL request. Each aliased
+# productVariantsBulkUpdate costs ~10 points, so 25 stays far below the
+# 1000-point single-query limit while cutting HTTP round-trips ~25x.
+PRODUCTS_PER_REQUEST = 25
+# Retries for HTTP 429 / 5xx and GraphQL THROTTLED responses.
+MAX_RETRIES = 3
+REQUEST_TIMEOUT = 60
 
 # GraphQL mutation used to update the price of one or more variants of a
 # single product in a single call. REST variant endpoints are deprecated from
@@ -49,6 +58,36 @@ mutation productVariantsBulkUpdate($productId: ID!,
   }
 }
 """
+
+
+# Current variants of one product, used to repair stale variant links when
+# Shopify answers "Product variant does not exist".
+PRODUCT_VARIANTS_QUERY = """
+query productVariants($id: ID!) {
+  product(id: $id) {
+    id
+    variants(first: 100) {
+      nodes { id sku }
+    }
+  }
+}
+"""
+VARIANT_MISSING = 'Product variant does not exist'
+
+
+@functools.lru_cache(maxsize=None)
+def _bulk_price_mutation(count):
+    """Return one mutation document holding `count` aliased
+    productVariantsBulkUpdate calls (p0, p1, ...), so a whole chunk of
+    products is priced in a single HTTP request. Cached per size."""
+    params = ', '.join(
+        '$p%d: ID!, $v%d: [ProductVariantsBulkInput!]!' % (i, i)
+        for i in range(count))
+    body = '\n'.join(
+        '  p%d: productVariantsBulkUpdate(productId: $p%d, variants: $v%d) '
+        '{ userErrors { field message } }' % (i, i, i)
+        for i in range(count))
+    return 'mutation bulkPrices(%s) {\n%s\n}' % (params, body)
 
 
 class SyncPricing(models.TransientModel):
@@ -117,24 +156,6 @@ class SyncPricing(models.TransientModel):
         currency = variant.currency_id or self.env.company.currency_id
         return float(currency.round(variant.lst_price or 0.0))
 
-    def _shopify_graphql(self, query, variables):
-        """Post a GraphQL query to Shopify and return the decoded response."""
-        instance = self.shopify_instance_id
-        url = 'https://%s/admin/api/%s/graphql.json' % (
-            instance.shop_name, instance.version)
-        response = requests.post(
-            url,
-            headers=instance._get_shopify_headers(),
-            data=json.dumps({'query': query, 'variables': variables}),
-            timeout=60,
-        )
-        if response.status_code != 200:
-            raise ValidationError(_(
-                'Shopify returned HTTP %(code)s for the price update: '
-                '%(body)s',
-                code=response.status_code, body=response.text))
-        return response.json()
-
     def _log(self, message):
         """Write a log.message record for the current instance."""
         self.env['log.message'].sudo().create([{
@@ -154,65 +175,334 @@ class SyncPricing(models.TransientModel):
         if available is not None and available < 100:
             time.sleep(min(5.0, (100 - available) / float(restore_rate)))
 
+    @staticmethod
+    def _post_graphql(session, url, body):
+        """POST a GraphQL body, retrying on 429/5xx and THROTTLED."""
+        result = {}
+        for attempt in range(MAX_RETRIES + 1):
+            response = session.post(url, data=body, timeout=REQUEST_TIMEOUT)
+            if ((response.status_code == 429 or response.status_code >= 500)
+                    and attempt < MAX_RETRIES):
+                time.sleep(float(response.headers.get('Retry-After')
+                                 or 2 ** attempt))
+                continue
+            if response.status_code != 200:
+                raise ValidationError(_(
+                    'Shopify returned HTTP %(code)s for the price update: '
+                    '%(body)s',
+                    code=response.status_code,
+                    body=(response.text or '')[:500]))
+            result = response.json()
+            throttled = any(
+                (error.get('extensions') or {}).get('code') == 'THROTTLED'
+                for error in result.get('errors') or [])
+            if throttled and attempt < MAX_RETRIES:
+                cost = (result.get('extensions') or {}).get('cost') or {}
+                status = cost.get('throttleStatus') or {}
+                missing = ((cost.get('requestedQueryCost') or 0)
+                           - (status.get('currentlyAvailable') or 0))
+                time.sleep(max(1.0, missing / float(
+                    status.get('restoreRate') or 50)))
+                continue
+            break
+        return result
+
+    @staticmethod
+    def _row_shopify_product(row, template):
+        """Shopify PRODUCT id a variant-level shopify.sync row belongs to.
+
+        The row's own Product Id (`shopify_product`) is used. Older rows
+        stored the variant id there too (Product Id == Variant Id); those
+        fall back to the template's Shopify product. A row whose Variant Id
+        is the product id itself is junk and yields None."""
+        product_id = str(row.shopify_product or '')
+        variant_id = str(row.shopify_variant_id or '')
+        if not product_id or product_id == variant_id:
+            product_id = str(template.shopify_product or '')
+        if not product_id or variant_id == product_id:
+            return None
+        return product_id
+
+    def _template_price_groups(self, template):
+        """Return {Shopify product id: {product.product: variant id}} for
+        `template` - one entry per Product Id found on its shopify.sync rows,
+        so a template linked to several Shopify products prices all of them.
+
+        Inside one Shopify product, ONE variant id per Odoo variant: extra
+        rows (re-imports, duplicates) would put foreign/deleted ids in the
+        mutation and Shopify rejects the whole product. The id kept is
+        `product.product.shopify_variant` when one of the rows has it,
+        otherwise the newest row. Rows without an Odoo variant (would push
+        0.00) or whose variant belongs to another template are ignored."""
+        instance = self.shopify_instance_id
+        rows = template.shopify_sync_ids.filtered(
+            lambda s: s.shopify_variant_id and s.product_prod_id
+            and s.product_prod_id.product_tmpl_id == template
+            and (not s.instance_id or s.instance_id == instance))
+        candidates = {}  # pid -> {variant: [ids, newest first]}
+        for row in rows.sorted('id', reverse=True):
+            product_id = self._row_shopify_product(row, template)
+            if not product_id:
+                continue
+            candidates.setdefault(product_id, {}).setdefault(
+                row.product_prod_id, []).append(str(row.shopify_variant_id))
+        groups = {}
+        for product_id, by_variant in candidates.items():
+            chosen = groups.setdefault(product_id, {})
+            for variant, ids in by_variant.items():
+                preferred = str(variant.shopify_variant or '')
+                chosen[variant] = preferred if preferred in ids else ids[0]
+                if len(set(ids)) > 1:
+                    _logger.info(
+                        'Shopify pricing: variant "%s" has %d ids on Shopify '
+                        'product %s %s - using %s.', variant.display_name,
+                        len(set(ids)), product_id, sorted(set(ids)),
+                        chosen[variant])
+        return groups
+
+    def _relink_shopify_variants(self, template, product_id, session, url):
+        """Re-read the product's variants from Shopify and re-point the
+        Odoo links by SKU. Returns an error string, or None when relinked.
+
+        Called only for products Shopify rejected with "Product variant does
+        not exist": their stored variant ids are stale (product re-created on
+        Shopify, variants re-generated, or a bad import) so this costs one
+        extra query per broken product, once - the fixed links stick."""
+        result = self._post_graphql(session, url, json.dumps({
+            'query': PRODUCT_VARIANTS_QUERY,
+            'variables': {
+                'id': 'gid://shopify/Product/%s' % product_id},
+        }))
+        if result.get('errors'):
+            return 'could not read its variants: %s' % json.dumps(
+                result['errors'])
+        product = (result.get('data') or {}).get('product')
+        if not product:
+            return ('Shopify product %s no longer exists - re-import or '
+                    're-export this product' % product_id)
+        live = [(node['id'].split('/')[-1], (node.get('sku') or '').strip())
+                for node in (product.get('variants') or {}).get('nodes') or []]
+        by_sku = {sku: vid for vid, sku in live if sku}
+
+        odoo_variants = template.product_variant_ids
+        matched = {}  # product.product id -> live Shopify variant id
+        for variant in odoo_variants:
+            for key in (variant.shopify_variant_sku, variant.default_code):
+                key = (key or '').strip()
+                if key and key in by_sku:
+                    matched[variant.id] = by_sku[key]
+                    break
+        if not matched and len(live) == 1 and len(odoo_variants) == 1:
+            matched[odoo_variants.id] = live[0][0]
+        if not matched:
+            return ('none of its Odoo variants matches a Shopify variant by '
+                    'SKU (Shopify SKUs: %s)'
+                    % (', '.join(sku for _vid, sku in live) or 'none'))
+
+        instance = self.shopify_instance_id
+        live_ids = {vid for vid, _sku in live}
+        sync_obj = self.env['shopify.sync'].sudo()
+        # only the rows of THIS Shopify product; links to the template's
+        # other Shopify products are left alone
+        rows = sync_obj.search([
+            '|', ('product_id', '=', template.id),
+            ('product_prod_id', 'in', odoo_variants.ids),
+            ('shopify_variant_id', '!=', False),
+        ]).filtered(lambda s: (not s.instance_id or s.instance_id == instance)
+                    and self._row_shopify_product(s, template) == product_id)
+        linked = set()
+        extra = sync_obj.browse()
+        for row in rows.sorted('id', reverse=True):  # keep the newest row
+            new_id = matched.get(row.product_prod_id.id)
+            if new_id and row.product_prod_id.id not in linked:
+                if row.shopify_variant_id != new_id:
+                    row.write({'shopify_variant_id': new_id,
+                               'shopify_product': product_id})
+                elif row.shopify_product != product_id:
+                    row.write({'shopify_product': product_id})
+                linked.add(row.product_prod_id.id)
+            elif new_id or row.shopify_variant_id not in live_ids:
+                # a 2nd+ link of the same Odoo variant, or a stale id with
+                # no Odoo counterpart: drop it so one variant = one id
+                extra |= row
+        if extra:
+            _logger.info('Shopify pricing: removed %d duplicate/stale '
+                         'variant link(s) of "%s".', len(extra),
+                         template.display_name)
+            extra.unlink()
+        sync_obj.create([{
+            'instance_id': instance.id,
+            'shopify_product': product_id,
+            'shopify_variant_id': new_id,
+            'product_prod_id': variant_id,
+            'product_id': template.id,
+        } for variant_id, new_id in matched.items() if variant_id not in linked])
+        # the variant's own Shopify id follows its MAIN listing only
+        main = str(template.shopify_product or '') == product_id
+        for variant in odoo_variants.filtered(
+                lambda v: main and v.id in matched):
+            if variant.shopify_variant != matched[variant.id]:
+                variant.with_context(shopify_no_export=True).write(
+                    {'shopify_variant': matched[variant.id]})
+        template.invalidate_recordset(['shopify_sync_ids'])
+        _logger.info('Shopify pricing: relinked %d variant(s) of "%s" to '
+                     'Shopify product %s.', len(matched),
+                     template.display_name, product_id)
+        return None
+
     # ------------------------------------------------------------------
     # push
     # ------------------------------------------------------------------
 
-    def _push_template_prices(self, template):
-        """Push the prices of every synced variant of one template."""
-        variants = template.product_variant_ids.filtered(
-            lambda v: v.shopify_variant)
-        if not variants:
-            _logger.info(
-                'Shopify pricing: product "%s" has no variant linked to a '
-                'Shopify variant - skipped.', template.display_name)
+    def _push_template_prices(self, templates, session, url, relink=True,
+                              only=None):
+        """Push the prices of every synced variant of `templates` in ONE
+        GraphQL request.
+
+        One aliased mutation per (template, Shopify Product Id): the Product
+        Id is read from each shopify.sync row of the template, so a template
+        linked to several Shopify products gets every one of them priced,
+        each with only its own variants. `only` - a set of
+        (template id, Shopify product id) - limits the push to those pairs
+        (used for the retry after a relink).
+
+        Faster than one call per product because:
+          * a single HTTP round-trip covers the whole chunk;
+          * `session` keeps the TLS connection alive between chunks and
+            carries the auth headers, so the token is not re-checked per call;
+          * the response only asks for userErrors (no variant payload);
+          * all log rows of the chunk are written with one create().
+        """
+        entries = []  # (template, Shopify product id, [variant payload])
+        for template in templates:
+            groups = self._template_price_groups(template)
+            if not groups:
+                _logger.info(
+                    'Shopify pricing: product "%s" has no variant linked to '
+                    'a Shopify variant - skipped.', template.display_name)
+                continue
+            for product_id, variant_ids in groups.items():
+                if only is not None and (template.id, product_id) not in only:
+                    continue
+                # keyed by variant id: a duplicated id makes Shopify reject
+                # the whole mutation
+                payload = {}
+                for variant, variant_id in variant_ids.items():
+                    gid = 'gid://shopify/ProductVariant/%s' % variant_id
+                    payload[gid] = {
+                        'id': gid,
+                        'price': '%.2f' % self._get_variant_price(variant),
+                    }
+                entries.append((template, product_id, list(payload.values())))
+        if not entries:
             return
 
-        payload_variants = [{
-            'id': 'gid://shopify/ProductVariant/%s' % variant.shopify_variant,
-            'price': '%.2f' % self._get_variant_price(variant),
-        } for variant in variants]
-
-        result = self._shopify_graphql(PRODUCT_VARIANTS_BULK_UPDATE, {
-            'productId': 'gid://shopify/Product/%s' % template.shopify_product,
-            'variants': payload_variants,
+        variables = {}
+        for index, (template, product_id, variants) in enumerate(entries):
+            variables['p%d' % index] = 'gid://shopify/Product/%s' % product_id
+            variables['v%d' % index] = variants
+        body = json.dumps({
+            'query': _bulk_price_mutation(len(entries)),
+            'variables': variables,
         })
 
-        # Top level GraphQL errors (bad query, bad id, missing scope, ...)
-        if result.get('errors'):
-            self._log('Price push failed for product %s (%s): %s' % (
-                template.display_name, template.shopify_product,
-                json.dumps(result['errors'])))
-            return
+        result = self._post_graphql(session, url, body)
 
-        data = (result.get('data') or {}).get(
-            'productVariantsBulkUpdate') or {}
-        user_errors = data.get('userErrors') or []
-        if user_errors:
-            self._log('Price push rejected for product %s (%s): %s' % (
-                template.display_name, template.shopify_product,
-                json.dumps(user_errors)))
-            return
+        # Top level errors: those with a path belong to one alias (p<i>),
+        # those without one sink the whole request.
+        alias_errors, global_errors = {}, []
+        for error in result.get('errors') or []:
+            path = error.get('path') or []
+            if path and str(path[0]).startswith('p'):
+                alias_errors.setdefault(path[0], []).append(error)
+            else:
+                global_errors.append(error)
+        data = result.get('data') or {}
 
-        self._log('Price push done for product %s (%s): %s variant(s) - %s' % (
-            template.display_name, template.shopify_product,
-            len(payload_variants),
-            ', '.join('%s=%s' % (v['id'].split('/')[-1], v['price'])
-                      for v in payload_variants)))
+        logs = []
+        stale = []  # (template, product id, userErrors) with rejected ids
+        instance_id = self.shopify_instance_id.id
+        for index, (template, product_id, variants) in enumerate(entries):
+            alias = 'p%d' % index
+            errors = global_errors + alias_errors.get(alias, [])
+            user_errors = (data.get(alias) or {}).get('userErrors') or []
+            if (relink and not errors and user_errors and any(
+                    error.get('message') == VARIANT_MISSING
+                    for error in user_errors)):
+                # the whole product mutation was rejected: nothing was
+                # priced, so repair the links and push it again below
+                stale.append((template, product_id, user_errors))
+                continue
+            if errors:
+                message = 'Price push failed for product %s (%s): %s' % (
+                    template.display_name, product_id, json.dumps(errors))
+            elif user_errors:
+                message = 'Price push rejected for product %s (%s): %s' % (
+                    template.display_name, product_id,
+                    json.dumps(user_errors))
+            else:
+                message = ('Price push done for product %s (%s): '
+                           '%s variant(s) - %s' % (
+                               template.display_name, product_id,
+                               len(variants),
+                               ', '.join('%s=%s' % (v['id'].split('/')[-1],
+                                                    v['price'])
+                                         for v in variants)))
+            logs.append({
+                'name': message,
+                'shopify_instance_id': instance_id,
+                'model': 'product.product',
+            })
         self._throttle(result)
 
-    def _sync_to_shopify(self, templates):
-        """Push prices for the given templates, one GraphQL call each."""
-        for template in templates:
-            try:
-                self._push_template_prices(template)
-            except Exception as error:
-                _logger.exception(
-                    'Shopify pricing: failed for product %s', template.id)
-                self._log('Price push failed for product %s (%s): %s' % (
-                    template.display_name, template.shopify_product,
-                    str(error)))
+        retry = set()
+        for template, product_id, user_errors in stale:
+            problem = self._relink_shopify_variants(
+                template, product_id, session, url)
+            if problem:
+                logs.append({
+                    'name': 'Price push rejected for product %s (%s): %s - '
+                            'stored variant ids are stale and %s' % (
+                                template.display_name, product_id,
+                                json.dumps(user_errors), problem),
+                    'shopify_instance_id': instance_id,
+                    'model': 'product.product',
+                })
             else:
+                retry.add((template.id, product_id))
+        self.env['log.message'].sudo().create(logs)
+        if retry:
+            # one more push of the repaired (template, product) pairs only;
+            # relink=False so one that still fails is logged, not looped
+            templates = self.env['product.template'].browse(
+                {template_id for template_id, _pid in retry})
+            self._push_template_prices(templates, session, url,
+                                       relink=False, only=retry)
+
+    def _sync_to_shopify(self, templates):
+        """Push prices for the given templates, PRODUCTS_PER_REQUEST
+        products per GraphQL call over one keep-alive session."""
+        instance = self.shopify_instance_id
+        url = 'https://%s/admin/api/%s/graphql.json' % (
+            instance.shop_name, instance.version)
+        # prefetch variants + prices for the whole batch in a few queries
+        templates.mapped('product_variant_ids').mapped('lst_price')
+        with requests.Session() as session:
+            session.headers.update(instance._get_shopify_headers())
+            for index in range(0, len(templates), PRODUCTS_PER_REQUEST):
+                chunk = templates[index:index + PRODUCTS_PER_REQUEST]
+                try:
+                    self._push_template_prices(chunk, session, url)
+                except Exception as error:
+                    _logger.exception(
+                        'Shopify pricing: failed for products %s', chunk.ids)
+                    self.env['log.message'].sudo().create([{
+                        'name': 'Price push failed for product %s (%s): %s'
+                                % (template.display_name,
+                                   template.shopify_product, str(error)),
+                        'shopify_instance_id': instance.id,
+                        'model': 'product.product',
+                    } for template in chunk])
                 self._cr.commit()
 
     # ------------------------------------------------------------------

@@ -21,7 +21,7 @@
 ###############################################################################
 {
     'name': 'Sequence For Journal',
-    'version': '18.0.1.0.0',
+    'version': '18.0.1.0.1',
     'category': 'Accounting',
     'summary': """Customise sequence number of journals""",
     'description': """Users can customise the sequence number of journals,

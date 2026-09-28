@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sale_preorder_payment_method_correction_view_form" model="ir.ui.view">
+        <field name="name">sale.preorder.payment.method.correction.form</field>
+        <field name="model">sale.preorder.payment.method.correction</field>
+        <field name="arch" type="xml">
+            <form string="Correct Pre-order Payment Method">
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        This changes the pre-order payment confirmation and future prints.
+                        The accounting payment is recorded at delivery.
+                    </div>
+                    <group>
+                        <field name="confirmation_id"/>
+                        <field name="company_id" invisible="1"/>
+                        <field name="journal_id"/>
+                        <field name="reference" placeholder="Bank reference, gateway ID, or receipt number"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_apply" string="Save Correction" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -154,8 +154,9 @@ class SyncProduct(models.TransientModel):
             next_url = 'https://%s/admin/api/%s/products.json?limit=50' % (
                 store_name, version)
             while next_url:
-                response = requests.request('GET', next_url,verify=False,
-                                            headers=headers, data=[])
+                response = requests.request(
+                    'GET', next_url, headers=headers, data=[], timeout=30)
+                response.raise_for_status()
                 response_json = response.json()
                 if 'products' in response_json and response_json['products']:
                     self.env['job.cron'].sudo().create([{
@@ -328,7 +329,10 @@ class SyncProduct(models.TransientModel):
                     seen_variant_links.add(link)
                     sync_vals_list.append({
                         'instance_id': shopify_instance.id,
-                        'shopify_product': shopify_var['id'],
+                        # Product Id = the Shopify PRODUCT this variant
+                        # belongs to (the price push groups by it), Variant
+                        # Id = the Shopify variant itself.
+                        'shopify_product': shopify_var['product_id'],
                         'shopify_variant_id': shopify_var['id'],
                         'product_prod_id': odoo_variant.id,
                         # the alias's OWN template, so that template is the
@@ -369,9 +373,9 @@ class SyncProduct(models.TransientModel):
         # new listing.
         #
         # `shopify_product` alone is queried: it is the indexed column and
-        # holds the product id on template rows and the variant id on
-        # variant rows, so one indexed IN removes both - no scan of the
-        # unindexed `shopify_variant_id`.
+        # holds the Shopify product id on both template and variant rows,
+        # so one indexed IN removes both - no scan of the unindexed
+        # `shopify_variant_id`.
         if sync_vals_list:
             resync_ids = list({
                 str(vals['shopify_product']) for vals in sync_vals_list

@@ -7,6 +7,8 @@
             <field name="arch" type="xml">
                 <form string="Scrap">
                     <sheet>
+                        <field name="picking_id" invisible="1"/>
+                        <field name="vendor" invisible="1"/>
                         <group>
                             <field name="scrap_lines" nolabel="1">
                                 <list editable="top" create="0">
