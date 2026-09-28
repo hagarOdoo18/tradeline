@@ -559,7 +559,9 @@ class SaleOrderSync(models.TransientModel):
                         if line['discount_allocations']:
                             discount = line['discount_allocations'][0]['amount']
                         product_id = self.env['product.product'].sudo().search(
-                            [('barcode', '=', line['sku']),
+                            ['|',
+                                ('barcode', '=', line['sku']),
+                                ('shopify_variant_sku', '=', line['sku']),
                              ('shopify_sync_ids.instance_id', '=',
                               shopify_instance.id),
                              ('company_id', 'in', [shopify_instance.company_id.id,
@@ -584,35 +586,25 @@ class SaleOrderSync(models.TransientModel):
                                     ], limit=1)
                         else:
                             product_id = product_id[:1]
-                        if not product_id:
-                            product = line['product_id']
-                            product_response = self.env[
-                                'sync.product'].create_product_by_id(
-                                shopify_instance, store_name, version, product)
-                            if 'errors' in product_response:
-                                self.env['log.message'].sudo().create([{
-                                    'name': ' Creation of product  order : ' + each[
-                                        'name'] + ' with product id:  ' + str(
-                                        line['id']) + ' and name:  ' + line[
-                                                'title'] + '  is not processed. '
-                                                           'Product does not '
-                                                           'exists in Shopify.',
-                                    'shopify_instance_id': instance.id,
-                                    'model': 'sale.order',
-                                }])
-                                continue
-                            # re-fetch the newly created product
-                            if line['variant_id']:
+                        if not product_id and line.get('sku'):
+                            # Match only -- never create the product. Same
+                            # rule as import_products_from_shopify: the SKU is
+                            # looked up on barcode / shopify_variant_sku
+                            # (no sync-link required) and the
+                            # shopify_variant_sku owner wins.
+                            candidates = self.env[
+                                'product.product'].sudo().search([
+                                    '|',
+                                    ('barcode', '=', line['sku']),
+                                    ('shopify_variant_sku', '=', line['sku']),
+                                    ('company_id', 'in', [
+                                        shopify_instance.company_id.id,
+                                        False]),
+                                ])
+                            if candidates:
                                 product_id = self.env[
-                                    'product.product'].sudo().search([
-                                        ('shopify_variant', '=',
-                                         line['variant_id']),
-                                    ], limit=1)
-                            else:
-                                product_id = self.env[
-                                    'product.product'].sudo().search([
-                                        ('barcode', '=', line['sku']),
-                                    ], limit=1)
+                                    'sync.product']._primary_variant_for_sku(
+                                    candidates, line['sku'])
                         # final guard -- skip line if product is still not resolved
                         if not product_id:
                             self.env['log.message'].sudo().create([{
