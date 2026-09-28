@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_stock_count_cost_log_list" model="ir.ui.view">
+        <field name="name">stock.count.cost.log.list</field>
+        <field name="model">stock.count.cost.log</field>
+        <field name="arch" type="xml">
+            <list string="Controlled Stock Adjustments" create="false" edit="false" delete="false">
+                <field name="performed_at"/>
+                <field name="user_id"/>
+                <field name="company_id"/>
+                <field name="product_id"/>
+                <field name="location_id"/>
+                <field name="lot_id"/>
+                <field name="previous_quantity"/>
+                <field name="counted_quantity"/>
+                <field name="quantity_difference"/>
+                <field name="target_unit_cost"/>
+                <field name="final_product_cost"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_stock_count_cost_log_form" model="ir.ui.view">
+        <field name="name">stock.count.cost.log.form</field>
+        <field name="model">stock.count.cost.log</field>
+        <field name="arch" type="xml">
+            <form string="Controlled Stock Adjustment" create="false" edit="false" delete="false">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_valuation_layers" type="object" class="oe_stat_button"
+                                icon="fa-book" string="Valuation Entries"/>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="performed_at"/>
+                            <field name="user_id"/>
+                            <field name="company_id"/>
+                            <field name="product_id"/>
+                            <field name="location_id"/>
+                            <field name="lot_id"/>
+                        </group>
+                        <group>
+                            <field name="previous_quantity"/>
+                            <field name="counted_quantity"/>
+                            <field name="quantity_difference"/>
+                            <field name="cost_changed"/>
+                            <field name="target_unit_cost" invisible="not cost_changed"/>
+                        </group>
+                    </group>
+                    <group string="Company valuation before and after">
+                        <group>
+                            <field name="previous_product_quantity"/>
+                            <field name="previous_product_value"/>
+                            <field name="previous_product_cost"/>
+                        </group>
+                        <group>
+                            <field name="final_product_quantity"/>
+                            <field name="final_product_value"/>
+                            <field name="final_product_cost"/>
+                        </group>
+                    </group>
+                    <group string="Reason">
+                        <field name="reason" nolabel="1"/>
+                        <field name="cost_source" invisible="not cost_changed"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_stock_count_cost_log" model="ir.actions.act_window">
+        <field name="name">Controlled Stock Adjustments</field>
+        <field name="res_model">stock.count.cost.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_stock_count_cost_log" name="Controlled Stock Adjustments"
+              parent="stock.menu_stock_inventory_control" action="action_stock_count_cost_log"
+              groups="stock_valuation_layer_extend.group_count_cost_adjustment" sequence="56"/>
+</odoo>

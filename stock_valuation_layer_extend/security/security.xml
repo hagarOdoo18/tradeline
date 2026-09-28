@@ -5,4 +5,15 @@
         <field name="category_id" ref="base.module_category_inventory"/>
         <field name="implied_ids" eval="[(4, ref('stock.group_stock_manager')), (4, ref('account.group_account_manager'))]"/>
     </record>
+    <record id="group_count_cost_adjustment" model="res.groups">
+        <field name="name">Count Stock and Set Cost</field>
+        <field name="category_id" ref="base.module_category_inventory"/>
+        <field name="implied_ids" eval="[(4, ref('stock.group_stock_user'))]"/>
+    </record>
+    <record id="rule_stock_count_cost_log_company" model="ir.rule">
+        <field name="name">Controlled Stock Adjustments: active companies</field>
+        <field name="model_id" ref="model_stock_count_cost_log"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
 </odoo>
