@@ -5,12 +5,14 @@
         <field name="model">import.stock.quant.wizard</field>
         <field name="arch" type="xml">
             <form>
+                <field name="state" widget="statusbar"/>
+                <field name="filename" invisible="1"/>
                 <group>
                     <field name="company_id"/>
                     <field name="file" filename="filename"/>
                 </group>
                 <footer>
-                    <button name="action_preview" type="object" string="Preview" class="btn-primary"/>
+                    <button name="action_preview" type="object" string="Preview" class="btn-primary" invisible="state == 'done'"/>
                     <button name="action_remove_invalid_lines" type="object" string="Remove Invalid Lines" invisible="state != 'preview'"
                            />
                     <button name="action_apply" type="object" string="Apply" invisible="state != 'preview'"
@@ -25,6 +27,8 @@
                         <field name="item_code"/>
                         <field name="location_name"/>
                         <field name="quantity"/>
+                        <field name="previous_quantity"/>
+                        <field name="projected_quantity"/>
                         <field name="serial"/>
                         <field name="is_valid"/>
                         <field name="error_msg"/>

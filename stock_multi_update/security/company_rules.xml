@@ -1,0 +1,14 @@
+<odoo>
+    <record id="rule_stock_multi_update_company" model="ir.rule">
+        <field name="name">Stock Updates: active companies</field>
+        <field name="model_id" ref="model_stock_multi_update"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_stock_multi_update_line_company" model="ir.rule">
+        <field name="name">Stock Update Lines: active companies</field>
+        <field name="model_id" ref="model_stock_multi_update_line"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('update_id.company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

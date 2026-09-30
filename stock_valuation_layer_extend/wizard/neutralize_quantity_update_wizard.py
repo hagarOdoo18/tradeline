@@ -99,8 +99,11 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
             ('company_id', '=', source.company_id.id),
             ('product_id', '=', source.product_id.id),
             ('lot_id', '=', source.lot_id.id),
-            ('location_id.usage', '=', 'internal'),
+            ('location_id.usage', 'in', ['internal', 'transit']),
+            ('owner_id', '=', False),
         ])
+        if any(not float_is_zero(q.quantity, precision_rounding=source.product_id.uom_id.rounding) for q in internal_quants):
+            raise UserError(_('This serial has non-zero internal or transit stock rows. Reconcile them before neutralizing valuation.'))
         return {
             'current_physical_qty': sum(internal_quants.mapped('quantity')),
             'current_valuation_qty': sum(valuation_layers.mapped('quantity')),
@@ -154,6 +157,9 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
         if not source:
             raise UserError(_('The selected valuation layer no longer exists.'))
 
+        if source.company_id != self.env.company:
+            raise UserError(_('Switch to the correction company first.'))
+        source.product_id._lock_inventory_adjustment(source.company_id)
         totals = self._get_serial_totals(source)
         self._validate_source(source, totals)
 
@@ -188,6 +194,11 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
         cost_message = ''
         if synced_unit_cost is not None:
             cost_message = _(' Current Product Cost was aligned to %(cost).3f.', cost=synced_unit_cost)
+        elif source.product_id.with_company(source.company_id).categ_id.property_cost_method == 'average':
+            cost_message = _(
+                ' Product Cost was not changed because the product valuation does not yield a positive cost. '
+                'Review the product-wide valuation quantity and value before posting another correction.'
+            )
 
         return {
             'type': 'ir.actions.client',
@@ -199,7 +210,7 @@ class StockValuationLayerNeutralizeWizard(models.TransientModel):
                     serial=source.lot_id.display_name,
                     cost_message=cost_message,
                 ),
-                'type': 'success',
+                'type': 'warning' if synced_unit_cost is None and source.product_id.with_company(source.company_id).categ_id.property_cost_method == 'average' else 'success',
                 'sticky': True,
                 'next': {'type': 'ir.actions.act_window_close'},
             },

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_stock_count_cost_wizard_form" model="ir.ui.view">
+        <field name="name">stock.count.cost.wizard.form</field>
+        <field name="model">stock.count.cost.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Count &amp; Cost Adjustment">
+                <sheet>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,preview,done"/>
+                    <field name="tracking" invisible="1"/>
+                    <div class="alert alert-info" role="alert" invisible="state != 'draft'">
+                        Select one product and one internal location. Enter the quantity actually counted,
+                        not the difference. Select the serial for tracked products. When adding stock,
+                        enter a positive unit cost and explain its source. Preview before posting.
+                    </div>
+                    <group>
+                        <group string="What was counted">
+                            <field name="company_id"/>
+                            <field name="product_id" domain="[('is_storable', '=', True)]" readonly="state != 'draft'"/>
+                            <field name="location_id" domain="[('usage', '=', 'internal'), ('company_id', 'in', [False, company_id])]" readonly="state != 'draft'"/>
+                            <field name="lot_id" domain="[('product_id', '=', product_id), ('company_id', 'in', [False, company_id])]"
+                                   invisible="tracking == 'none'" required="tracking != 'none'" readonly="state != 'draft'"/>
+                            <field name="counted_quantity" readonly="state != 'draft'"/>
+                        </group>
+                        <group string="Cost and explanation">
+                            <field name="change_cost" readonly="state != 'draft'"/>
+                            <field name="target_unit_cost" invisible="not change_cost" required="change_cost" readonly="state != 'draft'"/>
+                            <field name="cost_source" invisible="not change_cost" required="change_cost" readonly="state != 'draft'"
+                                   placeholder="PO, supplier bill, or approved opening-stock estimate"/>
+                            <field name="reason" placeholder="Physical count and PO, invoice, or approved cost source"
+                                   readonly="state != 'draft'"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-warning" role="alert" invisible="state != 'draft'">
+                        For a serial or valued lot, the cost applies to that lot. For an untracked product,
+                        the cost changes the product average across the active company. Use an internal transfer
+                        when a serial is already at another location.
+                    </div>
+                    <group string="Preview: balances before posting" invisible="state == 'draft'">
+                        <group>
+                            <field name="previous_quantity" string="Current quantity at location"/>
+                            <field name="quantity_difference" string="Quantity change to post"/>
+                            <field name="previous_unit_cost" string="Valuation average cost"/>
+                            <field name="previous_stored_cost" string="Stored cost used for stock moves"/>
+                        </group>
+                        <group>
+                            <field name="previous_product_quantity" string="Company valuation quantity"/>
+                            <field name="previous_product_value" string="Company valuation value"/>
+                        </group>
+                    </group>
+                    <group string="Expected company balances after posting" invisible="state == 'draft'">
+                        <field name="projected_product_quantity"/>
+                        <field name="projected_product_value"/>
+                        <field name="projected_product_cost"/>
+                    </group>
+                    <group string="Posted result" invisible="state != 'done'">
+                        <field name="final_product_quantity"/>
+                        <field name="final_product_value"/>
+                        <field name="final_product_cost"/>
+                        <field name="log_id"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_preview" type="object" string="Preview" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_edit" type="object" string="Edit" class="btn-secondary" invisible="state != 'preview'"/>
+                    <button name="action_apply" type="object" string="Apply Quantity &amp; Cost" class="btn-primary"
+                            confirm="Post this stock count and any requested cost revaluation?"
+                            invisible="state != 'preview'"/>
+                    <button name="action_open_log" type="object" string="Open Audit Record" class="btn-primary" invisible="state != 'done'"/>
+                    <button string="Close" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_stock_count_cost_wizard" model="ir.actions.act_window">
+        <field name="name">Count &amp; Cost Adjustment</field>
+        <field name="res_model">stock.count.cost.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_stock_count_cost_wizard_form"/>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_stock_count_cost_wizard" name="Count &amp; Cost Adjustment"
+              parent="stock.menu_stock_inventory_control" action="action_stock_count_cost_wizard"
+              groups="stock_valuation_layer_extend.group_count_cost_adjustment" sequence="55"/>
+</odoo>

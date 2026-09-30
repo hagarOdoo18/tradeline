@@ -1,12 +1,13 @@
 {
     'name': 'Stock Multi Product Update',
-    'version': '18.0.2.0.0',
+    'version': '18.0.2.0.1',
     'summary': 'Add or subtract quantity with serial/lot for multiple products — saved records',
     'category': 'Inventory/Inventory',
     'author': 'Tradeline',
-    'depends': ['stock'],
+    'depends': ['stock', 'stock_valuation_layer_extend'],
     'data': [
         'security/ir.model.access.csv',
+        'security/company_rules.xml',
         'views/stock_multi_update_views.xml',
         'views/stock_multi_update_menu.xml',
         'wizard/stock_multi_update_import_views.xml',

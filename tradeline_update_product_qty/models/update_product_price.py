@@ -18,7 +18,7 @@ class UpdateProductPrice (models.TransientModel) :
 
 
 
-    company_id = fields.Many2one('res.company', 'Company', default=lambda self: self.env.user.company_id.id)
+    company_id = fields.Many2one('res.company', 'Company', default=lambda self: self.env.company.id)
 
     stock_ids = fields.Many2many(
         comodel_name='stock.location',
@@ -36,40 +36,19 @@ class UpdateProductPrice (models.TransientModel) :
 
 
     def create_adjust(self):
-        for stock  in self.stock_ids:
+        self.ensure_one()
+        if self.qty < 0:
+            raise ValidationError(_('Counted quantity cannot be negative.'))
+        for product in self.product_ids.sorted('id'):
+            product._lock_inventory_adjustment(self.company_id)
+        for stock in self.stock_ids:
+            if stock.usage != 'internal' or (stock.company_id and stock.company_id != self.company_id):
+                raise ValidationError(_('Select an internal location for the chosen company.'))
             for product in self.product_ids:
-                inventory_quant = self.env['stock.quant'].search([
-                    ('location_id', '=', stock.id),
-                    ('product_id', '=', product.id),
-                ])
-                if not inventory_quant:
-                    adjust = self.env['stock.quant'].with_context(inventory_mode=True).create({
-                        'location_id': stock.id,
-                        'branch_id': stock.branch_id.id,
-                        'product_id': product.id,
-                        'company_id' :  self.company_id.id,
-                        'quantity': self.qty,
-                    })
-                    self.env.company= self.company_id.id
-                    adjust.action_set_inventory_quantity()
-                    adjust.action_apply_inventory()
-                else:
-                    inventory_quant.quantity = self.qty
-                    inventory_quant.action_apply_inventory()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                if product.tracking != 'none':
+                    raise ValidationError(_(
+                        'Use a lot/serial inventory adjustment for %(product)s.',
+                        product=product.display_name,
+                    ))
+                product._apply_counted_inventory(
+                    self.company_id, stock, self.qty, reason=_('Update Product Quantity: physical count'))

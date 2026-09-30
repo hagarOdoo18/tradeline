@@ -100,7 +100,8 @@ class StockValuationQuantityCorrectionCandidate(models.Model):
                     WHERE sq.company_id = source.company_id
                       AND sq.product_id = source.product_id
                       AND sq.lot_id = source.lot_id
-                      AND location.usage = 'internal'
+                      AND location.usage IN ('internal', 'transit')
+                      AND sq.owner_id IS NULL
                 ) physical ON TRUE
                 JOIN res_company company ON company.id = source.company_id
                 JOIN product_product product ON product.id = source.product_id

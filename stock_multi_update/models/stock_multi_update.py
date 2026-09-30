@@ -25,10 +25,11 @@ class StockMultiUpdate(models.Model):
         'stock.location',
         string='Location',
         required=True,
-        domain=[('usage', 'in', ['internal', 'transit'])],
+        domain=[('usage', '=', 'internal')],
         default=lambda self: self.env.ref('stock.stock_location_stock', raise_if_not_found=False),
         tracking=True,
     )
+    company_id = fields.Many2one('res.company', required=True, default=lambda self: self.env.company, readonly=True)
     notes = fields.Text(string='Notes')
     state = fields.Selection([
         ('draft', 'Draft'),
@@ -64,14 +65,20 @@ class StockMultiUpdate(models.Model):
 
     def action_apply(self):
         self.ensure_one()
+        self.env.cr.execute('SELECT id FROM stock_multi_update WHERE id = %s FOR UPDATE', (self.id,))
+        self.invalidate_recordset()
         if self.state != 'draft':
             raise UserError(_('Only draft records can be applied.'))
+        if self.company_id != self.env.company:
+            raise UserError(_('Switch to this stock update’s company before applying.'))
         if not self.line_ids:
             raise UserError(_('Please add at least one product line.'))
 
         for line in self.line_ids:
             line._validate()
 
+        for product in self.line_ids.product_id.sorted('id'):
+            product._lock_inventory_adjustment(self.env.company)
         for line in self.line_ids:
             line._apply_update()
 
@@ -195,17 +202,21 @@ class StockMultiUpdateLine(models.Model):
         help='Actual quantity on hand after the update was applied.',
     )
 
-    @api.depends('product_id', 'lot_id', 'location_id', 'qty', 'operation')
+    @api.depends('product_id', 'lot_id', 'lot_name', 'location_id', 'qty', 'operation', 'update_id.company_id')
     def _compute_qty_preview(self):
         for line in self:
             domain = [
                 ('product_id', '=', line.product_id.id),
                 ('location_id', '=', line.location_id.id),
             ]
-            if line.lot_id:
-                domain.append(('lot_id', '=', line.lot_id.id))
-            quant = self.env['stock.quant'].search(domain, limit=1)
-            current = quant.quantity if quant else 0.0
+            company = line.update_id.company_id or self.env.company
+            lot = line.lot_id
+            if not lot and line.lot_name and line.product_id:
+                lot = self.env['stock.lot'].search([('name', '=', line.lot_name),
+                    ('product_id', '=', line.product_id.id), ('company_id', 'in', [False, company.id])], limit=1)
+            domain.extend([('lot_id', '=', lot.id or False), ('company_id', '=', company.id)])
+            quants = self.env['stock.quant'].search(domain)
+            current = sum(quants.mapped('quantity'))
             line.qty_on_hand = current
             delta = line.qty if line.operation == 'add' else -line.qty
             line.qty_after_preview = current + delta
@@ -260,46 +271,29 @@ class StockMultiUpdateLine(models.Model):
             if self.lot_id:
                 lot_id = self.lot_id.id
             elif self.lot_name:
-                lot = self.env['stock.lot'].create({
-                    'name': self.lot_name,
-                    'product_id': self.product_id.id,
-                    'company_id': self.env.company.id,
-                })
+                lot = self.env['stock.lot'].search([('name', '=', self.lot_name),
+                    ('product_id', '=', self.product_id.id),
+                    ('company_id', 'in', [False, self.env.company.id])], limit=1)
+                if not lot:
+                    lot = self.env['stock.lot'].create({
+                        'name': self.lot_name,
+                        'product_id': self.product_id.id,
+                        'company_id': self.env.company.id,
+                    })
                 lot_id = lot.id
 
+        product = self.product_id
+        company = self.env.company
+        product._lock_inventory_adjustment(company)
         quant = self.env['stock.quant'].search([
-            ('product_id', '=', self.product_id.id),
-            ('location_id', '=', self.location_id.id),
-            ('lot_id', '=', lot_id),
-        ], limit=1)
-
+            ('product_id', '=', product.id), ('location_id', '=', self.location_id.id),
+            ('company_id', '=', company.id), ('lot_id', '=', lot_id)])
+        if len(quant) > 1:
+            raise UserError(_('Duplicate stock rows require review.'))
+        current = quant.quantity if quant else 0
         delta = self.qty if self.operation == 'add' else -self.qty
-
-        # ── Snapshot qty BEFORE ──────────────────────────────────────────────
-        qty_before_snapshot = quant.quantity if quant else 0.0
-
-        if quant:
-            new_qty = qty_before_snapshot + delta
-            quant.sudo().write({'inventory_quantity': new_qty})
-            quant.sudo().action_apply_inventory()
-        else:
-            if delta < 0:
-                raise UserError(
-                    _('No existing stock found for "%s" to subtract from.') % self.product_id.display_name
-                )
-            quant = self.env['stock.quant'].sudo().create({
-                'product_id': self.product_id.id,
-                'location_id': self.location_id.id,
-                'lot_id': lot_id,
-                'inventory_quantity': delta,
-            })
-            quant.sudo().action_apply_inventory()
-
-        # ── Snapshot qty AFTER (re-read from quant) ──────────────────────────
-        quant.invalidate_recordset()
-        qty_after_snapshot = quant.quantity
-
-        self.write({
-            'qty_before': qty_before_snapshot,
-            'qty_after': qty_after_snapshot,
-        })
+        before, after = product._apply_counted_inventory(
+            company, self.location_id, current + delta,
+            lot=self.env['stock.lot'].browse(lot_id),
+            reason=_('Multi Stock Update %(ref)s: %(notes)s', ref=self.update_id.name, notes=self.update_id.notes or ''))
+        self.write({'qty_before': before, 'qty_after': after})

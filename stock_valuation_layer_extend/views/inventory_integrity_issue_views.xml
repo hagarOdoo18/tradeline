@@ -1,0 +1,24 @@
+<odoo>
+    <record id="view_inventory_integrity_issue_list" model="ir.ui.view">
+        <field name="name">stock.inventory.integrity.issue.list</field>
+        <field name="model">stock.inventory.integrity.issue</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" delete="0">
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="product_id"/><field name="lot_id"/><field name="issue"/>
+                <field name="physical_quantity"/><field name="valuation_quantity"/><field name="quantity_gap"/>
+                <field name="currency_id" column_invisible="True"/><field name="valuation_value"/>
+                <field name="stored_cost"/><field name="valuation_cost"/>
+                <button name="action_adjust" type="object" string="Review Adjustment"/>
+            </list>
+        </field>
+    </record>
+    <record id="action_inventory_integrity_issue" model="ir.actions.act_window">
+        <field name="name">Inventory Issues</field>
+        <field name="res_model">stock.inventory.integrity.issue</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html"><p>Issues are calculated from live stock and valuation, including transit. A quantity mismatch requires investigation before a count can be posted. Refresh after a correction.</p></field>
+    </record>
+    <menuitem id="menu_inventory_integrity_issue" name="Inventory Issues" parent="stock.menu_stock_inventory_control"
+        action="action_inventory_integrity_issue" groups="stock_valuation_layer_extend.group_count_cost_adjustment" sequence="54"/>
+</odoo>

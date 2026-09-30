@@ -1,5 +1,6 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools import float_compare
 import base64
 from io import BytesIO
 import openpyxl
@@ -14,7 +15,17 @@ class ImportStockQuantWizard(models.TransientModel):
     state = fields.Selection([('draft','Draft'),('preview','Preview'),('done','Done')], default='draft')
     line_ids = fields.One2many('import.stock.quant.line','wizard_id')
 
+    def write(self, vals):
+        if {'file', 'company_id'}.intersection(vals):
+            if any(w.state == 'done' for w in self):
+                raise UserError(_('Applied imports cannot be reused.'))
+            vals = dict(vals, state='draft')
+        return super().write(vals)
+
     def action_preview(self):
+        self.ensure_one()
+        if self.state == 'done':
+            raise UserError(_('An applied import cannot be reused.'))
         self.line_ids.unlink()
         data = base64.b64decode(self.file)
         wb = openpyxl.load_workbook(BytesIO(data), data_only=True)
@@ -64,8 +75,18 @@ class ImportStockQuantWizard(models.TransientModel):
                     ('product_id','=',product.id),
                     ('company_id','in',[self.company_id.id, False])
                 ], limit=1)
-                vals['lot_id'] = lot.id if lot else   vals.update({'is_valid':False,'error_msg':'Serial Not Found'})
+                if lot:
+                    vals['lot_id'] = lot.id
+                elif vals['is_valid']:
+                    vals.update({'is_valid': False, 'error_msg': 'Serial Not Found'})
+            elif product.tracking != 'none':
+                vals.update({'is_valid': False, 'error_msg': 'Lot/serial number required'})
 
+            quants = self.env['stock.quant'].search([('product_id', '=', product.id),
+                ('location_id', '=', location.id), ('company_id', '=', self.company_id.id),
+                ('lot_id', '=', vals.get('lot_id', False))])
+            vals['previous_quantity'] = sum(quants.mapped('quantity'))
+            vals['projected_quantity'] = vals['previous_quantity'] + qty
             self.env['import.stock.quant.line'].create(vals)
 
         self.state = 'preview'
@@ -78,12 +99,15 @@ class ImportStockQuantWizard(models.TransientModel):
             "target": "new",
         }
     def create_lots(self):
+        self.ensure_one()
+        if self.state != 'preview':
+            raise UserError(_('Preview the import first.'))
         for rec in self.line_ids:
-            if rec.serial and not rec.lot_id:
+            if rec.serial and not rec.lot_id and rec.product_id and rec.location_id and rec.error_msg == 'Serial Not Found':
                 lot = self.env['stock.lot'].create({
                     'name': rec.serial,
                     'product_id': rec.product_id.id,
-                    'company_id': rec.env.company.id,
+                    'company_id': self.company_id.id,
                 })
                 rec.lot_id = lot.id
                 rec.is_valid = True
@@ -100,31 +124,38 @@ class ImportStockQuantWizard(models.TransientModel):
         self.line_ids.filtered(lambda l: not l.is_valid).unlink()
 
     def action_apply(self):
+        self.ensure_one()
         if self.line_ids.filtered(lambda l: not l.is_valid):
             raise UserError(_('Fix errors before applying'))
 
-        Quant = self.env['stock.quant'].with_company(self.company_id)
+        if self.state != 'preview' or not self.line_ids:
+            raise UserError(_('Preview a non-empty import before applying it.'))
+        self.env.cr.execute('SELECT id FROM import_stock_quant_wizard WHERE id = %s FOR UPDATE', (self.id,))
+        self.invalidate_recordset()
+        if self.state != 'preview':
+            raise UserError(_('This import has already been applied.'))
+        products = self.line_ids.product_id.sorted('id')
+        for product in products:
+            product._lock_inventory_adjustment(self.company_id)
+        seen = set()
         for line in self.line_ids:
-            quant = Quant.search([
-                ('product_id','=',line.product_id.id),
-                ('location_id','=',line.location_id.id),
-                ('lot_id','=',line.lot_id.id if line.lot_id else False),
-            ], limit=1)
-
-            if quant:
-                if quant.quantity + line.quantity < 0:
-                    raise UserError(_('Negative stock not allowed'))
-                quant.quantity += line.quantity
-            else:
-                if line.quantity < 0:
-                    raise UserError(_('No stock to subtract'))
-                Quant.create({
-                    'product_id': line.product_id.id,
-                    'location_id': line.location_id.id,
-                    'quantity': line.quantity,
-                    'lot_id': line.lot_id.id if line.lot_id else False,
-                    'company_id': self.company_id.id,
-                })
+            key = (line.product_id.id, line.location_id.id, line.lot_id.id)
+            if key in seen:
+                raise UserError(_('Duplicate product/location/serial rows must be combined before importing.'))
+            seen.add(key)
+            if not line.product_id or not line.location_id:
+                raise UserError(_('Every row requires a product and location.'))
+            quant = self.env['stock.quant'].search([
+                ('product_id', '=', line.product_id.id), ('location_id', '=', line.location_id.id),
+                ('company_id', '=', self.company_id.id), ('lot_id', '=', line.lot_id.id or False)])
+            if len(quant) > 1:
+                raise UserError(_('Duplicate stock rows require review.'))
+            current = quant.quantity if quant else 0
+            if float_compare(current, line.previous_quantity, precision_rounding=line.product_id.uom_id.rounding):
+                raise UserError(_('Stock changed since Preview at row %(row)s. Preview the file again.', row=line.row_no))
+            line.product_id._apply_counted_inventory(
+                self.company_id, line.location_id, current + line.quantity, lot=line.lot_id,
+                reason=_('Excel stock adjustment: %(file)s, row %(row)s', file=self.filename or '', row=line.row_no))
 
         self.state = 'done'
 
@@ -137,7 +168,9 @@ class ImportStockQuantLine(models.TransientModel):
     row_no = fields.Integer()
     location_name = fields.Char()
     item_code = fields.Char()
-    quantity = fields.Float()
+    quantity = fields.Float(string='Quantity to Add / Subtract')
+    previous_quantity = fields.Float(string='Quantity Before', readonly=True)
+    projected_quantity = fields.Float(string='Expected Quantity', readonly=True)
     serial = fields.Char()
     product_id = fields.Many2one('product.product')
     location_id = fields.Many2one('stock.location')
@@ -146,11 +179,14 @@ class ImportStockQuantLine(models.TransientModel):
     error_msg = fields.Text()
 
     def create_lot(self):
-        if self.serial and not self.lot_id:
+        self.ensure_one()
+        if self.wizard_id.state != 'preview':
+            raise UserError(_('Preview the import first.'))
+        if self.serial and not self.lot_id and self.product_id and self.location_id and self.error_msg == 'Serial Not Found':
             lot = self.env['stock.lot'].create({
                 'name': self.serial,
                 'product_id': self.product_id.id,
-                'company_id': self.env.company.id,
+                'company_id': self.wizard_id.company_id.id,
             })
             self.lot_id = lot.id
             self.is_valid = True
