@@ -20,6 +20,7 @@ from datetime import datetime
 
 from odoo import SUPERUSER_ID
 from odoo import fields, http
+from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 from odoo.tools import html2plaintext
 
@@ -30,6 +31,15 @@ _logger = logging.getLogger(__name__)
 API_VERSION = '1.0'
 
 AUTH_PATH = '/api/shopify/v1/auth'
+STATUS_PATH = '/api/shopify/v1/orders/status'
+
+# Status values accepted by POST /api/shopify/v1/orders/status, mapped to the
+# action they trigger. Only cancellation is supported for now.
+SUPPORTED_STATUSES = {
+    'cancelled': 'cancelled',
+    'canceled': 'cancelled',
+    'cancel': 'cancelled',
+}
 
 # Default behaviour once the order is accepted. Each one can be turned off
 # per request through the optional "odoo_options" object in the payload.
@@ -63,6 +73,8 @@ class ShopifyOrderApi(http.Controller):
         POST /api/shopify/v1/orders/confirmed
             Create (or return the already created) Odoo sale order for one
             Shopify order, and confirm it.
+        POST /api/shopify/v1/orders/status
+            Change the status of an already imported order (cancel).
     """
 
 
@@ -347,6 +359,84 @@ class ShopifyOrderApi(http.Controller):
                 'server_error',
                 'The order could not be processed: %s' % error, 500)
 
+
+    @http.route(STATUS_PATH, type='http', auth='none', methods=['POST'],
+                csrf=False, save_session=False)
+    def update_order_status(self, **kwargs):
+        """Change the status of an Odoo sale order imported from Shopify.
+
+        Body (JSON)::
+
+            {"id": 5678901234567, "status": "cancelled",
+             "cancel_reason": "customer"}
+
+        ``id`` is the Shopify order id (``order_id`` is accepted too). The
+        body may also be the native Shopify order (``orders/cancelled``
+        webhook), optionally wrapped in ``order``: with no ``status`` key a
+        non-empty ``cancelled_at`` means "cancelled".
+
+            200 - status applied, or the order already had it;
+            400 / 401 / 403 / 404 / 409 / 422 / 500 - see the ``error`` code.
+        """
+        instance = None
+        shopify_order_id = None
+        try:
+            raw = request.httprequest.get_data(as_text=True)
+            try:
+                body = json.loads(raw or '{}')
+            except ValueError:
+                return self._error('invalid_json',
+                                   'Request body is not valid JSON.', 400)
+            if not isinstance(body, dict):
+                return self._error('invalid_json',
+                                   'Request body must be a JSON object.', 400)
+
+            data = body.get('order') if isinstance(
+                body.get('order'), dict) else body
+
+            instance, error = self._authenticate(data)
+            if error:
+                return error
+
+            shopify_order_id = data.get('id') or data.get('order_id')
+            if not shopify_order_id:
+                return self._error(
+                    'missing_order_id',
+                    'The payload has no Shopify order "id".', 400)
+            shopify_order_id = str(shopify_order_id)
+
+            status = self._requested_status(data)
+            if status is None:
+                return self._error(
+                    'missing_status',
+                    'Send "status" (supported: %s).' % ', '.join(
+                        sorted(set(SUPPORTED_STATUSES.values()))), 400,
+                    shopify_order_id=shopify_order_id)
+            if not status:
+                return self._error(
+                    'unsupported_status',
+                    'Status %r is not supported (supported: %s).' % (
+                        data.get('status'), ', '.join(
+                            sorted(set(SUPPORTED_STATUSES.values())))),
+                    400, shopify_order_id=shopify_order_id)
+
+            http_status, payload = self._process_status(
+                data, instance, shopify_order_id, status)
+            return self._respond(payload, status=http_status)
+
+        except Exception as error:  # noqa: BLE001 - the endpoint must answer
+            _logger.exception('Shopify order status API failed')
+            try:
+                request.env.cr.rollback()
+            except Exception:  # pragma: no cover
+                pass
+            self._log(instance,
+                      'Order status API failed for order %s: <pre>%s</pre>'
+                      % (shopify_order_id, pprint.pformat(str(error))))
+            return self._error(
+                'server_error',
+                'The status could not be updated: %s' % error, 500)
+
     # ------------------------------------------------------------------
     # internals
     # ------------------------------------------------------------------
@@ -532,6 +622,150 @@ class ShopifyOrderApi(http.Controller):
         if warnings:
             response['warnings'] = warnings
         return 201, response
+
+    # ------------------------------------------------------------------
+    # order status
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _requested_status(data):
+        """Normalised status of the request.
+
+            str: a SUPPORTED_STATUSES value;
+            False: a status was sent but is not supported;
+            None: no status at all.
+        """
+        raw = data.get('status')
+        if raw not in (None, ''):
+            if not isinstance(raw, str):
+                return False
+            return SUPPORTED_STATUSES.get(raw.strip().lower(), False)
+        if data.get('cancelled_at'):
+            return 'cancelled'
+        return None
+
+    def _process_status(self, data, instance, shopify_order_id, status):
+        """Apply ``status`` to the order. Never raises.
+
+        Runs inside a savepoint: a rejected or failed change is rolled back,
+        the log line explaining why is still written.
+
+            tuple: ``(http_status, payload)``.
+        """
+        order = self._model('shopify.sync').search([
+            ('instance_id', '=', instance.id),
+            ('shopify_order_ref', '=', shopify_order_id),
+            ('order_id', '!=', False),
+        ], limit=1).order_id
+        if not order:
+            return 404, self._error_body(
+                'order_not_found',
+                'No Odoo sale order was imported for this Shopify order.',
+                shopify_order_id=shopify_order_id)
+
+        try:
+            with request.env.cr.savepoint():
+                if status == 'cancelled':
+                    return self._cancel_order(
+                        order, data, instance, shopify_order_id)
+                # SUPPORTED_STATUSES and this dispatch must stay in sync
+                raise _OrderRejected(
+                    'unsupported_status',
+                    'Status %r is not supported.' % status, 400)
+        except _OrderRejected as rejected:
+            request.env.invalidate_all()
+            self._log(instance, 'Shopify order %s: status "%s" not applied '
+                                'to %s: %s' % (shopify_order_id, status,
+                                               order.name, rejected.message))
+            return rejected.status, self._error_body(
+                rejected.code, rejected.message,
+                shopify_order_id=shopify_order_id,
+                sale_order_id=order.id, sale_order=order.name,
+                **rejected.extra)
+        except Exception as error:  # noqa: BLE001
+            request.env.invalidate_all()
+            _logger.exception('Shopify order status API: order %s failed',
+                              shopify_order_id)
+            self._log(instance,
+                      'Order status API failed for order %s: <pre>%s</pre>'
+                      % (shopify_order_id, pprint.pformat(str(error))))
+            return 500, self._error_body(
+                'server_error',
+                'The status could not be updated: %s' % error,
+                shopify_order_id=shopify_order_id)
+
+    def _cancel_order(self, order, data, instance, shopify_order_id):
+        """Cancel ``order`` and its open deliveries. Runs in a savepoint;
+        raises `_OrderRejected` to roll back.
+
+        Refused (409) once goods left the warehouse or a customer invoice is
+        posted: cancelling the sale order would leave the validated picking
+        / posted invoice in place, so that case is handled by hand in Odoo
+        (return, credit note).
+        """
+        # skip_shopify_write: the cancellation comes FROM Shopify, do not
+        # push the order back. disable_cancel_warning: no wizard, cancel.
+        order = order.with_company(order.company_id).with_context(
+            skip_shopify_write=True, disable_cancel_warning=True)
+        result = {
+            'success': True,
+            'shopify_order_id': shopify_order_id,
+            'sale_order_id': order.id,
+            'sale_order': order.name,
+            'status': 'cancelled',
+            'previous_state': order.state,
+        }
+        if order.state == 'cancel':
+            result.update(state='cancel', already_cancelled=True,
+                          cancelled_picking_ids=[])
+            return 200, result
+
+        done = order.picking_ids.filtered(lambda p: p.state == 'done')
+        if done:
+            raise _OrderRejected(
+                'order_delivered',
+                'The order has validated deliveries (%s); it cannot be '
+                'cancelled from the API - handle it in Odoo with a return.'
+                % ', '.join(done.mapped('name')), 409,
+                picking_ids=done.ids)
+        posted = order.invoice_ids.filtered(lambda m: m.state == 'posted')
+        if posted:
+            raise _OrderRejected(
+                'order_invoiced',
+                'The order has posted invoices (%s); it cannot be cancelled '
+                'from the API - handle it in Odoo with a credit note.'
+                % ', '.join(posted.mapped('name')), 409,
+                invoice_ids=posted.ids)
+
+        open_pickings = order.picking_ids.filtered(
+            lambda p: p.state not in ('done', 'cancel'))
+        try:
+            order.action_cancel()
+        except (UserError, ValidationError) as error:
+            raise _OrderRejected('cancel_failed', str(error), 422)
+        if order.state != 'cancel':
+            raise _OrderRejected(
+                'cancel_failed',
+                'Odoo did not cancel the order (state is still "%s").'
+                % order.state, 422)
+
+        reason = data.get('cancel_reason')
+        note = 'Cancelled from Shopify through the order status API%s.' % (
+            ' (reason: %s)' % reason if reason else '')
+        try:
+            order.message_post(body=note)
+        except Exception:  # pragma: no cover - the chatter is best effort
+            _logger.exception('Could not post the cancel note on %s',
+                              order.name)
+        self._log(instance, 'Shopify order %s: %s cancelled via the order '
+                            'status API.' % (shopify_order_id, order.name))
+
+        result.update(
+            state=order.state,
+            already_cancelled=False,
+            cancelled_picking_ids=open_pickings.filtered(
+                lambda p: p.state == 'cancel').ids,
+        )
+        return 200, result
 
     @staticmethod
     def _error_body(code, message, **extra):

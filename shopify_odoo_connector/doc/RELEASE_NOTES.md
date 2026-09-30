@@ -28,3 +28,10 @@
 - Confirmed-order API: the Order API Key field and its Generate button are
   replaced by `POST /api/shopify/v1/auth` (Store Name + Client Secret -> Bearer
   token valid 24 hours, stored hashed in `shopify.api.token`)
+
+#### 30.09.2026
+#### Version 18.0.1.1.12
+#### ADD
+- Order status API: `POST /api/shopify/v1/orders/status` cancels an imported
+  order (and its open deliveries) from Shopify; refused with 409 once a
+  delivery is validated or an invoice is posted
