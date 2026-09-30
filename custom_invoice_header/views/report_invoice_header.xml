@@ -113,7 +113,7 @@
 
     </template>
     <template id="custom_invoice_header" inherit_id="account.report_invoice_document">
-         <xpath expr="//div[@class='row']" position="replace">
+         <xpath expr="//div[hasclass('row')]" position="replace">
          </xpath>
         <xpath expr="//div[@name='comment']" position="inside">
 

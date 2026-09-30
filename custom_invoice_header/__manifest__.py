@@ -1,7 +1,7 @@
 {
     'name': 'Custom Invoice Header',
     'license': 'LGPL-3',
-    'version': '18.0.1.2.0',
+    'version': '18.0.1.2.1',
     'author': 'tradeline',
     'category': 'Accounting',
     'summary': 'Customize invoice report header',
