@@ -2,19 +2,33 @@
 
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
-import { Component, onWillStart, useState } from "@odoo/owl";
+import { Component, onMounted, onPatched, onWillUnmount, useRef, useState } from "@odoo/owl";
 
 export class ExecutivePocketDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
         this.notification = useService("notification");
+        this.root = useRef("dashboard");
+        this._generation = 0;
+        this._drillRequest = 0;
+        this._queue = [];
+        this._destroyed = false;
+        this._observed = new WeakSet();
+        this._sectionNames = ["overview", "inventory_summary", "sales_by_branch", "sales_by_salesperson",
+            "sales_by_category", "sales_by_customer", "sales_by_product", "inventory_by_category",
+            "inventory_by_product", "trend", "payment_journals", "fx"];
 
         const today = new Date();
         const start = new Date(today.getFullYear(), today.getMonth(), 1);
 
         this.state = useState({
             loading: true,
+            sectionStatus: Object.fromEntries(this._sectionNames.map(name => [name, "idle"])),
+            sectionErrors: {},
+            drillLoading: false,
+            drillError: "",
+            exporting: false,
             refreshingFx: false,
             topN: 10,
             drilldownOpen: false,
@@ -41,7 +55,14 @@ export class ExecutivePocketDashboard extends Component {
             automation: { open: false, loading: false, schedules: [], history: [] },
         });
 
-        onWillStart(async () => { await this._loadBundle(); });
+        onMounted(() => { this._loadBundle(); });
+        onPatched(() => this._observeSections());
+        onWillUnmount(() => {
+            this._destroyed = true;
+            this._generation++;
+            this._observer?.disconnect();
+            document.body.classList.remove("tl-print-mode-daily", "tl-print-mode-period");
+        });
     }
 
     // ─── Top-section data getters ─────────────────────────────────────────────
@@ -360,65 +381,146 @@ export class ExecutivePocketDashboard extends Component {
 
     // ─── Data loading ─────────────────────────────────────────────────────────
     async _loadBundle() {
+        const generation = ++this._generation;
+        this._drillRequest++;
+        this._observer?.disconnect();
+        this._observer = null;
+        this._observed = new WeakSet();
+        this._queue = [];
+        this._pumping = false;
+        this.state.sectionStatus = Object.fromEntries(this._sectionNames.map(name => [name, "idle"]));
+        this.state.sectionErrors = {};
+        this.state.drillError = "";
+        this.state.drillLoading = false;
+        this.state.bundle = null;
         this.state.loading = true;
         this.state.error = "";
         try {
             const bundle = await this.orm.call(
                 "tradeline.executive.dashboard.service",
-                "get_dashboard_bundle",
-                [this.state.filters, this.state.lens, null, this.state.topN]
+                "get_dashboard_shell",
+                [this._filterSnapshot()]
             );
+            if (this._destroyed || generation !== this._generation) return;
             this.state.bundle = bundle;
             if (!this.state.filters.company_ids.length && bundle?.meta?.scope?.company_ids?.length) {
                 this.state.filters.company_ids = [...bundle.meta.scope.company_ids];
             }
             this._syncCompanyDraft();
             this._syncSelectionFromBundle();
-            let reloadTop = false;
-            if (this._ensureValidProductCategory()) reloadTop = true;
-            if (this._ensureValidInventoryCategory()) reloadTop = true;
-            if (reloadTop) {
-                await this._loadTopSections();
-            }
-            await this._reloadDrilldown();
+            this._enqueueSection("overview");
         } catch (error) {
-            this.state.error = this._extractRpcError(error);
+            if (generation === this._generation && !this._destroyed) this.state.error = this._extractRpcError(error);
         } finally {
-            this.state.loading = false;
+            if (generation === this._generation && !this._destroyed) this.state.loading = false;
         }
     }
 
-    async _loadTopSections() {
-        try {
-            const topSections = await this.orm.call(
-                "tradeline.executive.dashboard.service",
-                "get_top_sections",
-                [this.state.filters, this.state.topN]
-            );
-            if (this.state.bundle) this.state.bundle.top_sections = topSections;
-            let reloadTop = false;
-            if (this._ensureValidProductCategory()) reloadTop = true;
-            if (this._ensureValidInventoryCategory()) reloadTop = true;
-            if (reloadTop) {
-                await this._loadTopSections();
-            }
-        } catch {
-            this.notification.add("Failed to refresh top sections", { type: "warning" });
+    _filterSnapshot() {
+        return JSON.parse(JSON.stringify(this.state.filters));
+    }
+
+    _observeSections() {
+        if (!this.root.el || !this.state.bundle || this._destroyed) return;
+        if (!this._observer && typeof IntersectionObserver !== "undefined") {
+            this._observer = new IntersectionObserver(entries => {
+                for (const entry of entries) {
+                    if (entry.isIntersecting) this._enqueueSection(entry.target.dataset.lazySection);
+                }
+            }, { rootMargin: "250px 0px" });
         }
+        for (const element of this.root.el.querySelectorAll("[data-lazy-section]")) {
+            if (this._observed.has(element)) continue;
+            this._observed.add(element);
+            if (this._observer) this._observer.observe(element);
+            else this._enqueueSection(element.dataset.lazySection);
+        }
+    }
+
+    _enqueueSection(name) {
+        if (!this._sectionNames.includes(name) || this.state.sectionStatus[name] !== "idle" || this._destroyed) return;
+        this.state.sectionStatus[name] = "queued";
+        this._queue.push(name);
+        this._pumpSections();
+    }
+
+    async _pumpSections() {
+        if (this._pumping) return;
+        this._pumping = true;
+        const generation = this._generation;
+        // One section at a time keeps scroll loading from flooding Odoo workers.
+        while (this._queue.length && generation === this._generation && !this._destroyed) {
+            const name = this._queue.shift();
+            this.state.sectionStatus[name] = "loading";
+            try {
+                const data = await this.orm.call("tradeline.executive.dashboard.service", "get_dashboard_section",
+                    [name, this._filterSnapshot(), this.state.topN]);
+                if (generation !== this._generation || this._destroyed) return;
+                this._mergeSection(data);
+                this.state.sectionStatus[name] = "ready";
+                if (name === "overview") {
+                    this._syncSelectionFromBundle();
+                    this._enqueueSection("fx");
+                    if (this.state.drilldownOpen) this._reloadDrilldown();
+                }
+            } catch (error) {
+                if (generation !== this._generation || this._destroyed) return;
+                this.state.sectionStatus[name] = "error";
+                this.state.sectionErrors[name] = this._extractRpcError(error);
+            }
+        }
+        if (generation === this._generation) this._pumping = false;
+    }
+
+    _mergeSection(data) {
+        const bundle = this.state.bundle;
+        if (data.meta) bundle.meta = { ...bundle.meta, ...data.meta };
+        if (data.top_sections) bundle.top_sections = { ...bundle.top_sections, ...data.top_sections };
+        if (data.sections) {
+            for (const [key, value] of Object.entries(data.sections)) {
+                if (Object.keys(value).length) bundle.sections[key] = value;
+            }
+        }
+        if (data.cards) {
+            const cards = new Map((bundle.cards || []).map(card => [card.key, card]));
+            for (const card of data.cards) cards.set(card.key, card);
+            bundle.cards = [...cards.values()];
+        }
+        if (data.drill_catalog) bundle.drill_catalog = data.drill_catalog;
+        if (data.fx_watch && Object.keys(data.fx_watch).length) bundle.fx_watch = data.fx_watch;
+        if (data.alert_groups) {
+            bundle.alert_groups = { ...bundle.alert_groups, ...data.alert_groups };
+            bundle.alerts = Object.values(bundle.alert_groups).flat();
+        }
+    }
+
+    onRetrySection(name) {
+        this.state.sectionStatus[name] = "idle";
+        delete this.state.sectionErrors[name];
+        this._enqueueSection(name);
     }
 
     async _reloadDrilldown() {
+        const generation = this._generation;
+        const request = ++this._drillRequest;
+        this.state.drillLoading = true;
+        this.state.drillError = "";
         try {
             const drilldown = await this.orm.call(
                 "tradeline.executive.dashboard.service",
                 "get_drilldown",
-                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this.state.filters, this.drillLimit, this.drillOffset]
+                [this.state.selectedDomain, this.state.selectedMetric, this.state.selectedGroupBy, this._filterSnapshot(), this.drillLimit, this.drillOffset]
             );
+            if (generation !== this._generation || request !== this._drillRequest || this._destroyed) return;
             if (this.state.bundle) this.state.bundle.drilldown = drilldown;
             this.state.pagination.limit = Number(drilldown?.limit || this.drillLimit);
             this.state.pagination.offset = Number(drilldown?.offset || 0);
-        } catch {
-            this.notification.add("Failed to load drilldown data", { type: "warning" });
+        } catch (error) {
+            if (generation === this._generation && request === this._drillRequest && !this._destroyed) {
+                this.state.drillError = this._extractRpcError(error);
+            }
+        } finally {
+            if (generation === this._generation && request === this._drillRequest && !this._destroyed) this.state.drillLoading = false;
         }
     }
 
@@ -450,15 +552,15 @@ export class ExecutivePocketDashboard extends Component {
     // ─── Event handlers ───────────────────────────────────────────────────────
     async onTopNChange(ev) {
         this.state.topN = Number(ev.target.value || 10);
-        await this._loadTopSections();
+        await this._loadBundle();
     }
     async onProductCategoryChange(ev) {
         this.state.filters.product_category = ev.target.value || "all";
-        await this._loadTopSections();
+        await this._loadBundle();
     }
     async onInventoryCategoryChange(ev) {
         this.state.filters.inventory_category = ev.target.value || "all";
-        await this._loadTopSections();
+        await this._loadBundle();
     }
     async onInventoryRowClick(row) {
         this.state.selectedDomain = "inventory";
@@ -646,15 +748,34 @@ export class ExecutivePocketDashboard extends Component {
         } catch { this.notification.add("FX refresh failed", { type: "warning" }); await this._loadBundle(); }
         finally { this.state.refreshingFx = false; }
     }
-    onExportDailyReport() {
-        document.body.classList.add('tl-print-mode-daily');
-        document.body.classList.remove('tl-print-mode-period');
-        window.print();
+    async onExportDailyReport() {
+        await this._printReport("daily");
     }
-    onExportPeriodReport() {
-        document.body.classList.add('tl-print-mode-period');
-        document.body.classList.remove('tl-print-mode-daily');
-        window.print();
+    async onExportPeriodReport() {
+        await this._printReport("period");
+    }
+    async _printReport(mode) {
+        if (this.state.exporting || !this.state.bundle) return;
+        this.state.exporting = true;
+        const generation = this._generation;
+        try {
+            const bundle = await this.orm.call("tradeline.executive.dashboard.service", "get_dashboard_bundle",
+                [this._filterSnapshot(), this.state.lens, null, this.state.topN]);
+            if (generation !== this._generation || this._destroyed) return;
+            this._mergeSection(bundle);
+            this.state.bundle.daily_top_sections = bundle.daily_top_sections;
+            // Wait for Owl to paint the complete print layout before opening the dialog.
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            if (generation !== this._generation || this._destroyed) return;
+            document.body.classList.remove("tl-print-mode-daily", "tl-print-mode-period");
+            document.body.classList.add(`tl-print-mode-${mode}`);
+            window.print();
+        } catch (error) {
+            if (!this._destroyed) this.notification.add(this._extractRpcError(error), { type: "danger" });
+        } finally {
+            document.body.classList.remove("tl-print-mode-daily", "tl-print-mode-period");
+            if (!this._destroyed) this.state.exporting = false;
+        }
     }
     async onOpenReportAutomation() {
         this.state.automation.open = true;
@@ -773,7 +894,12 @@ export class ExecutivePocketDashboard extends Component {
         this.state.pagination.offset = 0;
         await this._loadBundle();
     }
-    onToggleDrilldown() { this.state.drilldownOpen = !this.state.drilldownOpen; }
+    async onToggleDrilldown() {
+        this.state.drilldownOpen = !this.state.drilldownOpen;
+        if (this.state.drilldownOpen && !this.state.bundle?.drilldown?.columns?.length && !this.state.drillLoading) {
+            await this._reloadDrilldown();
+        }
+    }
     async onDomainChange(ev) { 
         this.state.selectedDomain = ev.target.value; 
         this.state.pagination.offset = 0; 

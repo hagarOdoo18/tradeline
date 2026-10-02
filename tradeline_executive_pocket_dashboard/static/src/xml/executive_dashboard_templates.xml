@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
 <t t-name="tradeline_executive_pocket_dashboard.MainDashboard">
-<div class="tl-exec-pocket">
+<div class="tl-exec-pocket" t-ref="dashboard">
 
   <!-- ══════════ STICKY HEADER ══════════ -->
   <div class="tl-exec-header">
@@ -66,11 +66,11 @@
         </select>
       </label>
 
-      <button class="tl-btn-export" t-on-click="onExportDailyReport">
-        <span class="tl-btn-icon">📄</span> Export Daily Report
+      <button class="tl-btn-export" t-att-disabled="state.exporting || state.loading || !!state.error" t-on-click="onExportDailyReport">
+        <span class="tl-btn-icon">📄</span> <t t-if="state.exporting">Preparing report…</t><t t-else="">Export Daily Report</t>
       </button>
-      <button class="tl-btn-export" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
-        <span class="tl-btn-icon">📊</span> Export Period Report
+      <button class="tl-btn-export" t-att-disabled="state.exporting || state.loading || !!state.error" t-on-click="onExportPeriodReport" style="background: linear-gradient(135deg, #0d9488, #0f766e); box-shadow: 0 2px 8px rgba(13,148,136,0.35); margin-left: 6px;">
+        <span class="tl-btn-icon">📊</span> <t t-if="state.exporting">Preparing report…</t><t t-else="">Export Period Report</t>
       </button>
       <button class="tl-btn-automation" t-on-click="onOpenReportAutomation">Daily Email Reports</button>
     </div>
@@ -84,7 +84,7 @@
         </t>
       </t>
       <t t-else=""><span class="tl-chip tl-chip-all">All accessible companies</span></t>
-      <span t-att-class="'tl-margin-badge ' + marginStatusClass"><t t-esc="marginStatusLabel"/></span>
+      <span t-if="state.sectionStatus.overview === 'ready'" t-att-class="'tl-margin-badge ' + marginStatusClass"><t t-esc="marginStatusLabel"/></span>
       <span t-if="mostafaMarginEnabled" class="tl-mostafa-badge">Mostafa Margin active · XPRS only</span>
     </div>
   </div>
@@ -137,15 +137,16 @@
   </t>
 
   <t t-if="state.loading">
-    <div class="tl-loading-state">
-      <div class="tl-spinner"></div>
-      <span>Loading executive data…</span>
+    <div class="tl-kpi-grid" aria-busy="true" aria-label="Loading executive figures">
+      <div t-foreach="[1,2,3,4,5,6,7,8]" t-as="placeholder" t-key="placeholder" class="tl-kpi-card tl-skeleton-kpi">
+        <div class="tl-skeleton-line tl-skeleton-short"/><div class="tl-skeleton-line tl-skeleton-value"/><div class="tl-skeleton-line"/>
+      </div>
     </div>
   </t>
   <t t-elif="state.error">
     <div class="tl-error-state">
       <span class="tl-error-icon">⚠</span>
-      <span><t t-esc="state.error"/></span>
+      <span><t t-esc="state.error"/></span><button class="tl-btn-sm" t-on-click="_loadBundle">Retry</button>
     </div>
   </t>
   <t t-else="">
@@ -163,7 +164,11 @@
     </t>
 
     <!-- ══════════ KPI CARDS ══════════ -->
-    <div class="tl-kpi-grid">
+    <div data-lazy-section="overview">
+      <t t-if="state.sectionStatus.overview !== 'ready'">
+        <t t-set="sectionName" t-value="'overview'"/>
+        <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+      </t><t t-else="">    <div class="tl-kpi-grid">
       <div class="tl-kpi-card tl-kpi-hero" t-on-click="() => this.onCardClick('today_sales')" style="cursor: pointer;">
         <div class="tl-kpi-icon">💰</div>
         <div class="tl-kpi-body">
@@ -239,6 +244,12 @@
     </div>
 
 
+      </t>
+    </div>
+    <div data-lazy-section="inventory_summary" t-if="state.sectionStatus.inventory_summary !== 'ready'" class="tl-inventory-summary-placeholder">
+      <t t-set="sectionName" t-value="'inventory_summary'"/>
+      <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+    </div>
     <!-- ══════════ SECTION: SALES PERFORMANCE ══════════ -->
     <div class="tl-section">
       <div class="tl-section-header tl-hdr-sales">
@@ -250,7 +261,11 @@
       </div>
 
       <!-- Branch -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="sales_by_branch"><t t-if="state.sectionStatus['sales_by_branch'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Branch</h3></div>
+          <t t-set="sectionName" t-value="'sales_by_branch'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Branch</h3>
           <span class="tl-badge tl-badge-blue">Untaxed Revenue</span>
@@ -307,10 +322,14 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
 
       <!-- Salesperson -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="sales_by_salesperson"><t t-if="state.sectionStatus['sales_by_salesperson'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Salesperson</h3></div>
+          <t t-set="sectionName" t-value="'sales_by_salesperson'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Salesperson</h3>
           <span class="tl-badge tl-badge-teal">Untaxed Revenue</span>
@@ -367,10 +386,14 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
 
       <!-- Category: Donut + Table -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="sales_by_category"><t t-if="state.sectionStatus['sales_by_category'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Category</h3></div>
+          <t t-set="sectionName" t-value="'sales_by_category'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Category</h3>
           <span class="tl-badge tl-badge-purple">Category Mix</span>
@@ -428,10 +451,14 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
 
       <!-- Customer -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="sales_by_customer"><t t-if="state.sectionStatus['sales_by_customer'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> Customers</h3></div>
+          <t t-set="sectionName" t-value="'sales_by_customer'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> Customers</h3>
           <span class="tl-badge tl-badge-blue">by Untaxed Revenue</span>
@@ -488,10 +515,14 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
 
       <!-- Product Variant -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="sales_by_product"><t t-if="state.sectionStatus['sales_by_product'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Product Variant</h3></div>
+          <t t-set="sectionName" t-value="'sales_by_product'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
           <div style="display: flex; gap: 8px; align-items: center;">
@@ -556,7 +587,7 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
     </div>
 
     <!-- ══════════ SECTION: INVENTORY ══════════ -->
@@ -569,7 +600,11 @@
         </div>
       </div>
 
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="inventory_by_category"><t t-if="state.sectionStatus['inventory_by_category'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Category</h3></div>
+          <t t-set="sectionName" t-value="'inventory_by_category'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Category</h3>
           <span class="tl-badge tl-badge-amber">Allocated Cost EGP</span>
@@ -609,10 +644,14 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
 
       <!-- Product Variant (Inventory Exposure) -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="inventory_by_product"><t t-if="state.sectionStatus['inventory_by_product'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> by Product Variant</h3></div>
+          <t t-set="sectionName" t-value="'inventory_by_product'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> by Product Variant</h3>
           <div style="display: flex; gap: 8px; align-items: center;">
@@ -660,7 +699,7 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
     </div>
 
     <!-- ══════════ SECTION: DAILY TREND ══════════ -->
@@ -674,7 +713,11 @@
       </div>
 
       <!-- Line Chart -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="trend"><t t-if="state.sectionStatus['trend'] !== 'ready'">
+          <div class="tl-card-head"><h3>Untaxed Revenue Over Period</h3></div>
+          <t t-set="sectionName" t-value="'trend'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Untaxed Revenue Over Period</h3>
           <span class="tl-badge tl-badge-green">Daily Trend</span>
@@ -735,10 +778,14 @@
           </div>
         </t>
         <t t-else=""><div class="tl-empty-mini">No trend data for selected period.</div></t>
-      </div>
+      </t></div>
 
       <!-- 7-Day Snapshot -->
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="trend"><t t-if="state.sectionStatus['trend'] !== 'ready'">
+          <div class="tl-card-head"><h3>7-Day Daily Snapshot</h3></div>
+          <t t-set="sectionName" t-value="'trend'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>7-Day Daily Snapshot</h3>
           <div class="tl-snapshot-quick">
@@ -762,7 +809,7 @@
             </div>
           </t>
         </div>
-      </div>
+      </t></div>
     </div>
 
     <!-- ══════════ ADVANCED DRILLDOWN (collapsible) ══════════ -->
@@ -775,7 +822,11 @@
         </div>
       </div>
 
-      <div class="tl-card">
+      <div class="tl-card" data-lazy-section="payment_journals"><t t-if="state.sectionStatus['payment_journals'] !== 'ready'">
+          <div class="tl-card-head"><h3>Top <t t-esc="state.topN"/> Payment Journals</h3></div>
+          <t t-set="sectionName" t-value="'payment_journals'"/>
+          <t t-call="tradeline_executive_pocket_dashboard.SectionPlaceholder"/>
+        </t><t t-else="">
         <div class="tl-card-head">
           <h3>Top <t t-esc="state.topN"/> Payment Journals</h3>
           <span class="tl-badge tl-badge-green">Payment Excel Report Source</span>
@@ -817,7 +868,7 @@
             </table>
           </div>
         </div>
-      </div>
+      </t></div>
     </div>
 
     <div class="tl-section tl-advanced-section">
@@ -890,7 +941,9 @@
             </div>
           </div>
 
-          <t t-if="!hasRows">
+          <t t-if="state.drillLoading"><div class="tl-section-placeholder" aria-busy="true"><div class="tl-skeleton-line"/><div class="tl-skeleton-line"/><span>Loading drilldown…</span></div></t>
+          <t t-elif="state.drillError"><div class="tl-section-error" role="alert"><span t-esc="state.drillError"/><button class="tl-btn-sm" t-on-click="_reloadDrilldown">Retry</button></div></t>
+          <t t-else="">          <t t-if="!hasRows">
             <div class="tl-empty-mini">No rows. Try adjusting domain, group, or date range.</div>
           </t>
           <div class="tl-table-wrap">
@@ -916,7 +969,7 @@
                 </t>
               </tbody>
             </table>
-          </div>
+          </div>          </t>
         </div>
       </t>
     </div>
@@ -1152,5 +1205,21 @@
 
   </t>
 </div>
+</t>
+
+<t t-name="tradeline_executive_pocket_dashboard.SectionPlaceholder">
+  <t t-if="state.sectionStatus[sectionName] === 'error'">
+    <div class="tl-section-error" role="alert">
+      <span t-esc="state.sectionErrors[sectionName]"/>
+      <button class="tl-btn-sm" t-on-click="() => this.onRetrySection(sectionName)">Retry section</button>
+    </div>
+  </t>
+  <t t-else="">
+    <div class="tl-section-placeholder" aria-busy="true" role="status">
+      <div class="tl-skeleton-line tl-skeleton-short"/>
+      <div class="tl-skeleton-chart"><div t-foreach="[1,2,3,4,5]" t-as="bar" t-key="bar" class="tl-skeleton-line" t-att-style="'width:' + (95 - bar * 10) + '%'"/></div>
+      <span class="tl-loading-caption">Loading this section…</span>
+    </div>
+  </t>
 </t>
 </templates>

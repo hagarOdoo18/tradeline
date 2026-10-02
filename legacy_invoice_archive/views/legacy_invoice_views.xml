@@ -4,7 +4,7 @@
         <field name="name">legacy.invoice.list</field>
         <field name="model">legacy.invoice</field>
         <field name="arch" type="xml">
-            <list string="Legacy Invoices" create="false" edit="false" delete="false" export_xlsx="1">
+            <list limit="40" string="Legacy Invoices" create="false" edit="false" delete="false" export_xlsx="1">
                 <field name="invoice_date"/>
                 <field name="number"/>
                 <field name="source_name" optional="show"/>

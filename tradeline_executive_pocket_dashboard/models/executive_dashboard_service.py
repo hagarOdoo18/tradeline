@@ -1274,34 +1274,96 @@ class ExecutiveDashboardService(models.AbstractModel):
         }
 
     @api.model
-    def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None, limit=10):
+    def get_dashboard_shell(self, filters=None):
+        """Return navigation metadata without scanning accounting or stock data."""
+        self._ensure_exec_admin()
+        scope = self._resolve_filter_scope(filters)
+        return {
+            "meta": {"scope": {key: str(value) if isinstance(value, date) else value
+                               for key, value in scope.items()}},
+            "filter_options": self._get_filter_options(scope),
+            "drill_catalog": self._export_drill_catalog(False),
+            "top_sections": {}, "sections": {}, "cards": [], "alerts": [],
+        }
+
+    @api.model
+    def get_dashboard_section(self, section, filters=None, limit=10):
+        """Each scroll section runs only the queries it actually displays."""
+        self._ensure_exec_admin()
+        if section == "overview":
+            return self.get_dashboard_bundle(filters, limit=limit, progressive=True)
+        scope = self._resolve_filter_scope(filters)
+        limit = max(1, min(int(limit or 10), 100))
+        sales_sections = {
+            "sales_by_branch": (self._top_sales_by_branch, "branch"),
+            "sales_by_salesperson": (self._top_sales_by_salesperson, "salesperson"),
+            "sales_by_category": (self._top_sales_by_category, "category"),
+            "sales_by_customer": (self._top_sales_by_customer, "customer"),
+            "sales_by_product": (self._top_sales_by_product, "product"),
+        }
+        if section in sales_sections:
+            margin_status = self._real_margin_availability(scope)
+            query, group_by = sales_sections[section]
+            rows = query(scope, limit, margin_status)
+            self._apply_mostafa_margin(rows, scope, group_by, margin_status)
+            return {"top_sections": {section: rows}}
+        if section == "inventory_summary":
+            inventory = self._inventory_summary(scope)
+            return {"sections": {"inventory": inventory},
+                    "alert_groups": {"inventory": [alert for alert in self._build_alerts({}, {}, inventory, {})
+                                                    if alert["label"] != "No critical red flags"]}, "cards": [
+                {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
+                {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
+            ]}
+        queries = {
+            "payment_journals": self._top_payment_journals,
+            "inventory_by_category": self._top_inventory_by_category,
+            "inventory_by_product": self._top_inventory_by_product,
+        }
+        if section in queries:
+            return {"top_sections": {section: queries[section](scope, limit)}}
+        if section == "trend":
+            return {"top_sections": {"sales_over_month": self._sales_over_month(scope)},
+                    "sections": {"daily_snapshot": self._daily_sales_snapshot(scope)}}
+        if section == "fx":
+            fx_watch = self.get_fx_watch(allow_external=False)
+            return {"fx_watch": fx_watch,
+                    "alert_groups": {"fx": [alert for alert in self._build_alerts({}, {}, {}, fx_watch)
+                                             if alert["label"] != "No critical red flags"]}}
+        raise ValueError("Unknown executive dashboard section")
+
+    @api.model
+    def get_dashboard_bundle(self, filters=None, lens="overview", drill_path=None, limit=10, progressive=False):
         self._ensure_exec_admin()
         scope = self._resolve_filter_scope(filters)
         margin_status = self._real_margin_availability(scope)
         finance = self._finance_summary(scope, margin_status=margin_status)
         mostafa_meta = finance.get("mostafa_margin_meta") or {"enabled": False}
         sales = self._sales_summary(scope, margin_status=margin_status)
-        inventory = self._inventory_summary(scope)
-        daily_snapshot = self._daily_sales_snapshot(scope)
+        inventory = {} if progressive else self._inventory_summary(scope)
+        daily_snapshot = {} if progressive else self._daily_sales_snapshot(scope)
         top_limit = max(1, min(int(limit or 10), 100))
-        top_sections = self._build_top_sections(scope, top_limit, margin_status)
+        top_sections = (self._build_top_summary(scope, margin_status) if progressive
+                        else self._build_top_sections(scope, top_limit, margin_status))
         
         # Build top sections for the single Daily Report Day
         report_date = scope.get("report_date") or scope["end_date"]
         daily_scope = dict(scope, start_date=report_date, end_date=report_date)
-        daily_top_sections = self._build_top_sections(daily_scope, top_limit, margin_status)
+        daily_top_sections = {} if progressive else self._build_top_sections(daily_scope, top_limit, margin_status)
 
-        fx_watch = self.get_fx_watch()
-        alerts = self._build_alerts(finance, sales, inventory, fx_watch)
-        coverage = self._data_coverage(scope)
-        filter_options = self._get_filter_options(scope)
+        fx_watch = {} if progressive else self.get_fx_watch()
+        alerts = [] if progressive else self._build_alerts(finance, sales, inventory, fx_watch)
+        coverage = {} if progressive else self._data_coverage(scope)
+        filter_options = {} if progressive else self._get_filter_options(scope)
 
         cards = [
             {"key": "net_revenue", "label": "Untaxed Revenue", "value": finance["net_revenue"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "collections_total", "label": "Collections", "value": finance["collections_total"], "unit": "EGP", "tone": "neutral", "subtext": "in selected period"},
             {"key": "overdue_receivables", "label": "Open Unpaid Invoice Value", "value": finance["overdue_receivables"], "unit": "EGP", "tone": "warning", "subtext": "invoice analysis untaxed amount for selected-period invoices still unpaid by report day"},
-            {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
-            {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
+            *([] if progressive else [
+                {"key": "inventory_value", "label": "Inventory Value", "value": inventory["selected_scope_value"], "unit": "EGP", "tone": "neutral", "subtext": "as of report day"},
+                {"key": "on_hand_qty", "label": "On Hand Qty", "value": inventory["selected_on_hand_qty"], "unit": "", "tone": "neutral", "subtext": "as of report day"},
+            ]),
             {"key": "invoice_count", "label": "Invoices (Incl. Credit Notes)", "value": sales["invoice_count"], "unit": "", "tone": "neutral", "subtext": "posted invoices/receipts/credit notes in selected period"},
         ]
         if margin_status.get("available"):
@@ -1340,7 +1402,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         default_domain, default_group = self._resolve_domain_and_group(default_domain, "")
         default_metric = self._resolve_metric(default_domain, "")
         try:
-            drilldown = self.get_drilldown(
+            drilldown = {} if progressive else self.get_drilldown(
                 default_domain,
                 metric=default_metric,
                 group_by=default_group,
@@ -1378,6 +1440,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             },
             "cards": cards,
             "alerts": alerts,
+            "alert_groups": {"finance": [alert for alert in self._build_alerts(finance, sales, {}, {})
+                                         if alert["label"] != "No critical red flags"]} if progressive else {},
             "coverage": coverage,
             "filter_options": filter_options,
             "drill_catalog": self._export_drill_catalog(bool(margin_status.get("available"))),
@@ -2384,31 +2448,30 @@ class ExecutiveDashboardService(models.AbstractModel):
             """, params)
         return float((self._dictfetchone() or {}).get("total") or 0.0)
 
+    def _build_top_summary(self, scope, margin_status):
+        """Above-the-fold figures, with no ranking, inventory or chart queries."""
+        report_date = scope.get("report_date") or scope["end_date"]
+        today_scope = dict(scope, start_date=report_date, end_date=report_date)
+        yesterday = report_date - timedelta(days=1)
+        acc = self._acc_sales_mtd(dict(scope, start_date=report_date.replace(day=1), end_date=report_date))
+        attachment = self._attachment_rate(scope)
+        today_attachment = attachment if scope["start_date"] == scope["end_date"] == report_date else self._attachment_rate(today_scope)
+        return {
+            "attachment": attachment, "attachment_rate": attachment["rate"],
+            "total_invoices": today_attachment["total_invoices"],
+            "acc_sales": acc["acc_sales"], "acc_sales_prev_day": acc["acc_sales_prev_day"],
+            "acc_sales_last_month_mtd": acc.get("acc_sales_last_month_mtd", 0.0),
+            "today_sales": self._single_day_sales(today_scope, report_date),
+            "yesterday_sales": self._single_day_sales(dict(scope, start_date=yesterday, end_date=yesterday), yesterday),
+            "margin_available": bool(margin_status.get("available")),
+            "company_names": self.env["res.company"].sudo().browse(scope.get("company_ids") or []).mapped("name"),
+            "mostafa_margin_enabled": self._mostafa_margin_enabled(scope, margin_status),
+        }
+
     def _build_top_sections(self, scope, limit, margin_status=None):
         margin_status = margin_status or self._real_margin_availability(scope)
-        report_date = scope.get("report_date") or scope["end_date"]
-        
-        # Scopes for daily report metrics
-        today_scope = dict(scope, start_date=report_date, end_date=report_date)
-        yesterday_date = report_date - timedelta(days=1)
-        yesterday_scope = dict(scope, start_date=yesterday_date, end_date=yesterday_date)
-        
-        mtd_start = report_date.replace(day=1)
-        mtd_scope = dict(scope, start_date=mtd_start, end_date=report_date)
-        
-        snapshot_start = max(scope["start_date"], report_date - timedelta(days=6))
-        snapshot_scope = dict(scope, start_date=snapshot_start, end_date=report_date)
-        
-        # Queries for report date
-        today_sales_val = self._single_day_sales(today_scope, report_date)
-        yesterday_sales_val = self._single_day_sales(yesterday_scope, yesterday_date)
-        acc = self._acc_sales_mtd(mtd_scope)
-        attachment = self._attachment_rate(scope)
-        today_attachment = self._attachment_rate(today_scope)
-        
-        company_ids = scope.get("company_ids") or []
-        company_names = [c.name for c in self.env["res.company"].sudo().browse(company_ids) if c.name]
-        top_sections = {
+        top_sections = self._build_top_summary(scope, margin_status)
+        top_sections.update({
             "sales_by_branch": self._top_sales_by_branch(scope, limit, margin_status),
             "sales_by_salesperson": self._top_sales_by_salesperson(scope, limit, margin_status),
             "sales_by_category": self._top_sales_by_category(scope, limit, margin_status),
@@ -2418,18 +2481,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             "inventory_by_category": self._top_inventory_by_category(scope, limit),
             "inventory_by_product": self._top_inventory_by_product(scope, limit),
             "sales_over_month": self._sales_over_month(scope),
-            "attachment": attachment,
-            "attachment_rate": attachment["rate"],
-            "total_invoices": today_attachment["total_invoices"],
-            "acc_sales": acc["acc_sales"],
-            "acc_sales_prev_day": acc["acc_sales_prev_day"],
-            "acc_sales_last_month_mtd": acc.get("acc_sales_last_month_mtd", 0.0),
-            "today_sales": today_sales_val,
-            "yesterday_sales": yesterday_sales_val,
-            "margin_available": bool(margin_status.get("available")),
-            "company_names": company_names,
             "limit": limit,
-        }
+        })
         mostafa_enabled = self._mostafa_margin_enabled(scope, margin_status)
         if mostafa_enabled:
             grouped_sections = {
@@ -3466,7 +3519,7 @@ class ExecutiveDashboardService(models.AbstractModel):
         return {"acc_sales": acc_sales, "acc_sales_prev_day": acc_prev, "acc_sales_last_month_mtd": acc_last_month}
 
     @api.model
-    def get_fx_watch(self):
+    def get_fx_watch(self, allow_external=False):
         self._ensure_exec_admin()
         pairs = list(self.FX_TARGETS.keys())
         records = []
@@ -3514,7 +3567,8 @@ class ExecutiveDashboardService(models.AbstractModel):
             else:
                 sparkline = list(reversed([h.rate for h in history]))
             period_changes = self._compute_period_changes(model, rec.pair, rec.rate or 0.0, now)
-            period_changes = self._fill_missing_period_changes(period_changes, rec.pair, rec.rate or 0.0, now)
+            if allow_external:
+                period_changes = self._fill_missing_period_changes(period_changes, rec.pair, rec.rate or 0.0, now)
             one_day_change = period_changes.get("1D")
             if one_day_change is None:
                 one_day_change = rec.change_pct or 0.0

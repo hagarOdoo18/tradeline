@@ -44,8 +44,6 @@ class LegacyReportPackGenerateWizard(models.TransientModel):
 
     def get_preview_payload(self):
         self.ensure_one()
-        invoices = self.report_pack_id._get_invoices(self)
-        headers, rows = self.report_pack_id._build_report_rows(invoices)
         row_limit = 2000
         try:
             row_limit = int(
@@ -56,13 +54,31 @@ class LegacyReportPackGenerateWizard(models.TransientModel):
             )
         except Exception:
             row_limit = 2000
-        total_rows = len(rows)
+        row_limit = max(1, min(row_limit, 10000))
+        report_pack = self.report_pack_id
+        invoice_model = self.env["legacy.invoice"]
+        invoice_domain = report_pack._get_invoice_domain(self)
+        invoice_count = invoice_model.search_count(invoice_domain)
+        if report_pack._is_invoice_style_code():
+            invoices = invoice_model.search(invoice_domain, order="invoice_date asc, id asc", limit=row_limit)
+            headers, rows = report_pack._build_report_rows(invoices)
+            total_rows = invoice_count
+        else:
+            # Filter through the invoice relation instead of materializing every
+            # invoice ID. Limit child rows before reading their fields.
+            row_model_name = ("legacy.invoice.payment.link" if report_pack.code == "payment_receipt"
+                              else "legacy.invoice.serial.ref")
+            row_model = self.env[row_model_name]
+            row_domain = [("invoice_id." + field, operator, value) for field, operator, value in invoice_domain]
+            records = row_model.search(row_domain, limit=row_limit)
+            total_rows = row_model.search_count(row_domain)
+            rows_kw = {"payment_links" if report_pack.code == "payment_receipt" else "serial_refs": records}
+            headers, rows = report_pack._build_report_rows(invoice_model.browse(), **rows_kw)
         truncated = total_rows > row_limit
-        preview_rows = rows[:row_limit] if truncated else rows
         return {
-            "invoice_count": len(invoices),
+            "invoice_count": invoice_count,
             "headers": headers,
-            "rows": preview_rows,
+            "rows": rows,
             "total_rows": total_rows,
             "truncated": truncated,
             "row_limit": row_limit,

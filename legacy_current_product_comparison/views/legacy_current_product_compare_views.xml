@@ -219,9 +219,10 @@
     <record id="action_legacy_current_product_compare_month" model="ir.actions.act_window">
         <field name="name">Legacy to Current Comparison</field>
         <field name="res_model">legacy.current.product.compare.month</field>
-        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_month_search"/>
-        <field name="context">{'search_default_compare_matched_only': 1, 'search_default_compare_confidence_1': 1, 'search_default_compare_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_compare_matched_only': 1, 'search_default_compare_confidence_1': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_month"
@@ -235,8 +236,9 @@
         <field name="name">Legacy Match Exceptions</field>
         <field name="res_model">legacy.current.product.compare.month</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_month_search"/>
-        <field name="context">{'search_default_compare_review_unmatched': 1, 'search_default_compare_group_state': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_compare_review_unmatched': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_month_exceptions"
@@ -457,17 +459,19 @@
     <record id="action_legacy_current_product_compare_baseline" model="ir.actions.act_window">
         <field name="name">Legacy to Current Baseline Comparison</field>
         <field name="res_model">legacy.current.product.compare.baseline</field>
-        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
-        <field name="context">{'search_default_baseline_ready_scope': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_baseline_ready_scope': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <record id="action_legacy_current_product_compare_baseline_mom" model="ir.actions.act_window">
         <field name="name">Legacy Bucket MoM Comparison</field>
         <field name="res_model">legacy.current.product.compare.baseline</field>
-        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_baseline_search"/>
-        <field name="context">{'search_default_baseline_mode_previous': 1, 'search_default_baseline_latest_current': 1, 'search_default_baseline_group_current_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'search_default_baseline_mode_previous': 1, 'search_default_baseline_latest_current': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
 
     <menuitem id="menu_legacy_current_product_compare_baseline"
@@ -630,6 +634,7 @@
         <field name="name">Legacy Bucket Baseline Comparison</field>
         <field name="res_model">legacy.current.product.compare.bucket.baseline</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_compare_bucket_baseline_search"/>
         <field name="context">{'search_default_bucket_mode_custom': 1, 'search_default_bucket_latest_current': 1, 'search_default_bucket_latest_legacy': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
     </record>
@@ -753,8 +758,9 @@
         <field name="name">Legacy Bucket Full History</field>
         <field name="res_model">legacy.current.product.history</field>
         <field name="view_mode">list,pivot,graph</field>
+        <field name="limit">40</field>
         <field name="search_view_id" ref="view_legacy_current_product_history_search"/>
-        <field name="context">{'search_default_history_group_month': 1, 'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
+        <field name="context">{'tradeline_groupby_expanded': 1, 'tradeline_time_ranges_native': 1, 'tradeline_time_ranges_ui_v2': 1}</field>
         <field name="groups_id" eval="[(4, ref('legacy_current_product_comparison.group_legacy_current_product_history_user')), (4, ref('legacy_invoice_archive.group_legacy_invoice_archive_manager'))]"/>
     </record>
 

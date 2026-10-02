@@ -1234,8 +1234,7 @@ class LegacyReportPackDefinition(models.Model):
         if not self.enabled:
             raise UserError("This legacy report pack is disabled.")
 
-        invoices = self._get_invoices(wizard)
-        if not invoices:
+        if not self.env["legacy.invoice"].search_count(self._get_invoice_domain(wizard), limit=1):
             raise UserError("No legacy invoices matched the selected filters.")
 
         native_report = False
@@ -1243,7 +1242,7 @@ class LegacyReportPackDefinition(models.Model):
             native_report = self.env.ref(self.report_xml_id, raise_if_not_found=False)
         if native_report and native_report._name == "ir.actions.report":
             if native_report.model == "legacy.invoice":
-                return native_report.report_action(invoices)
+                return native_report.report_action(self._get_invoices(wizard))
             if native_report.model == "legacy.report.pack.generate.wizard":
                 return native_report.report_action(wizard)
 
@@ -1256,7 +1255,7 @@ class LegacyReportPackDefinition(models.Model):
             invoice_report = self.env.ref(invoice_report_xml_id, raise_if_not_found=False)
             if not invoice_report:
                 raise UserError("Legacy invoice report action is missing.")
-            return invoice_report.report_action(invoices)
+            return invoice_report.report_action(self._get_invoices(wizard))
 
         preview_xml_id = (
             "legacy_invoice_archive.action_report_legacy_report_pack_preview_html"
@@ -1268,7 +1267,7 @@ class LegacyReportPackDefinition(models.Model):
             raise UserError("Legacy report preview action is missing.")
         return preview_report.report_action(wizard)
 
-    def _build_report_rows(self, invoices):
+    def _build_report_rows(self, invoices, payment_links=None, serial_refs=None):
         self.ensure_one()
         code = self.code or ""
 
@@ -1330,7 +1329,8 @@ class LegacyReportPackDefinition(models.Model):
                 "amount",
             ]
             rows = []
-            payment_links = self.env["legacy.invoice.payment.link"].search([("invoice_id", "in", invoices.ids)])
+            if payment_links is None:
+                payment_links = self.env["legacy.invoice.payment.link"].search([("invoice_id", "in", invoices.ids)])
             for payment in payment_links:
                 inv = payment.invoice_id
                 rows.append(
@@ -1361,7 +1361,8 @@ class LegacyReportPackDefinition(models.Model):
             "match_status",
         ]
         rows = []
-        serial_refs = self.env["legacy.invoice.serial.ref"].search([("invoice_id", "in", invoices.ids)])
+        if serial_refs is None:
+            serial_refs = self.env["legacy.invoice.serial.ref"].search([("invoice_id", "in", invoices.ids)])
         for serial in serial_refs:
             inv = serial.invoice_id
             rows.append(
