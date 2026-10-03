@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import math
 
-from odoo import _, fields, models
+from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 from odoo.tools import float_compare
 
@@ -18,10 +18,14 @@ class InventoryCountCostWizard(models.TransientModel):
     tracking = fields.Selection(related='product_id.tracking', readonly=True)
     counted_quantity = fields.Float(string='Counted Quantity', required=True, digits='Product Unit of Measure',
                                     help='Enter the physical quantity now present at this location, not the change.')
+    recorded_location_quantity = fields.Float(string='Recorded Quantity at Location',
+        compute='_compute_recorded_location_quantity', digits='Product Unit of Measure',
+        help='Odoo stock for this exact product, location and serial. Confirm it against an actual physical count.')
     change_cost = fields.Boolean(string='Set Unit Cost',
                                  help='For a valued serial/lot, this is its target unit cost. For an untracked product, '
                                       'this changes the company-wide product cost.')
-    target_unit_cost = fields.Float(string='Target Unit Cost', digits='Product Price')
+    target_unit_cost = fields.Float(string='Target Cost per Unit', digits='Product Price',
+        help='Cost of ONE unit, not total inventory value. For untracked products this revalues all company stock.')
     cost_source = fields.Char(string='Cost Source / Reference',
                               help='A PO, invoice, approved opening-stock estimate, or other source for the entered cost.')
     reason = fields.Text(required=True, help='Explain the count and cost source, such as a physical count and PO reference.')
@@ -39,6 +43,26 @@ class InventoryCountCostWizard(models.TransientModel):
     final_product_cost = fields.Float(readonly=True, digits='Product Price')
     log_id = fields.Many2one('stock.count.cost.log', readonly=True)
     currency_id = fields.Many2one('res.currency', related='company_id.currency_id', readonly=True)
+
+    @api.depends('product_id', 'location_id', 'lot_id', 'company_id')
+    def _compute_recorded_location_quantity(self):
+        for wizard in self:
+            wizard.recorded_location_quantity = 0
+            if wizard.product_id and wizard.location_id:
+                quants = self.env['stock.quant'].search([
+                    ('company_id', '=', wizard.company_id.id),
+                    ('product_id', '=', wizard.product_id.id),
+                    ('location_id', '=', wizard.location_id.id),
+                    ('lot_id', '=', wizard.lot_id.id or False),
+                    ('owner_id', '=', False)])
+                wizard.recorded_location_quantity = sum(quants.mapped('quantity'))
+
+    @api.onchange('product_id', 'location_id', 'lot_id')
+    def _onchange_count_selection(self):
+        if self.state == 'draft':
+            if self.lot_id and self.lot_id.product_id != self.product_id:
+                self.lot_id = False
+            self.counted_quantity = max(0, self.recorded_location_quantity)
 
     def write(self, vals):
         inputs = {'product_id', 'location_id', 'lot_id', 'counted_quantity', 'change_cost', 'target_unit_cost', 'cost_source', 'reason', 'company_id'}

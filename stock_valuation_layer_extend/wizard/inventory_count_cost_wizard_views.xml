@@ -21,6 +21,7 @@
                             <field name="lot_id" domain="[('product_id', '=', product_id), ('company_id', 'in', [False, company_id])]"
                                    invisible="tracking == 'none'" required="tracking != 'none'" readonly="state != 'draft'"/>
                             <field name="counted_quantity" readonly="state != 'draft'"/>
+                            <field name="recorded_location_quantity"/>
                         </group>
                         <group string="Cost and explanation">
                             <field name="change_cost" readonly="state != 'draft'"/>
@@ -32,6 +33,11 @@
                         </group>
                     </group>
                     <div class="alert alert-warning" role="alert" invisible="state != 'draft'">
+                        Counted Quantity is the final count at the selected location; never enter the quantity gap.
+                        The suggested count comes from Odoo and must be confirmed physically.
+                        Existing physical / valuation quantity mismatches require a manager reconciliation;
+                        this form cannot remove that historical gap. Target Cost per Unit is the cost of ONE unit,
+                        not the total value of the counted stock.
                         For a serial or valued lot, the cost applies to that lot. For an untracked product,
                         the cost changes the product average across the active company. Use an internal transfer
                         when a serial is already at another location.

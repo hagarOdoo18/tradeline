@@ -12,6 +12,8 @@ class InventoryIntegrityIssue(models.Model):
     company_id = fields.Many2one('res.company', readonly=True)
     currency_id = fields.Many2one('res.currency', readonly=True)
     product_id = fields.Many2one('product.product', readonly=True)
+    product_category_id = fields.Many2one('product.category', string='Category', readonly=True)
+    product_family_id = fields.Many2one('product.family', string='Family', readonly=True)
     lot_id = fields.Many2one('stock.lot', readonly=True)
     physical_quantity = fields.Float(readonly=True, digits='Product Unit of Measure')
     valuation_quantity = fields.Float(readonly=True, digits='Product Unit of Measure')
@@ -89,11 +91,14 @@ class InventoryIntegrityIssue(models.Model):
                 JOIN res_company company ON company.id=b.company_id
                 JOIN res_currency currency ON currency.id=company.currency_id
             )
-            SELECT CASE WHEN lot_id IS NULL THEN -((company_id::bigint<<32)+product_id)
-                        ELSE (company_id::bigint<<32)+lot_id END AS id,
-                   company_id,currency_id,product_id,lot_id,physical_qty AS physical_quantity,
+            SELECT CASE WHEN lot_id IS NULL THEN -((flagged.company_id::bigint<<32)+flagged.product_id)
+                        ELSE (flagged.company_id::bigint<<32)+lot_id END AS id,
+                   flagged.company_id,flagged.currency_id,flagged.product_id,flagged.lot_id,
+                   pt.categ_id AS product_category_id, pt.family_id AS product_family_id,
+                   physical_qty AS physical_quantity,
                    valued_qty AS valuation_quantity,physical_qty-valued_qty AS quantity_gap,
                    value AS valuation_value,cost AS stored_cost,
                    CASE WHEN valued_qty>0 THEN value/valued_qty ELSE 0 END AS valuation_cost,issue
-            FROM flagged WHERE issue<>''
+            FROM flagged JOIN product_product pp ON pp.id=flagged.product_id
+            JOIN product_template pt ON pt.id=pp.product_tmpl_id WHERE issue<>''
         """)
