@@ -29,7 +29,7 @@ class InventoryIntegrityIssue(models.Model):
             raise UserError(_('Switch to this issue’s company first.'))
         if not self.env.user.has_group('stock_valuation_layer_extend.group_stock_valuation_quantity_correction'):
             raise UserError(_('A valuation reconciliation manager is required.'))
-        if self.product_id.tracking != 'none' and not self.lot_id:
+        if self.product_id.lot_valuated and self.product_id.tracking != 'none' and not self.lot_id:
             raise UserError(_('Select the individual lot/serial issue instead of the product total.'))
         return {'type': 'ir.actions.act_window', 'name': _('Reconcile Valuation to Verified Stock'),
                 'res_model': 'stock.valuation.reconciliation.wizard', 'view_mode': 'form', 'target': 'new',

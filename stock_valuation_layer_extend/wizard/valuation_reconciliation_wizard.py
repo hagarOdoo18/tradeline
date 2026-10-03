@@ -50,12 +50,12 @@ class ValuationReconciliationWizard(models.TransientModel):
             raise UserError(_('Select a storable product in this company.'))
         if p.cost_method != 'average' or p.valuation != 'real_time':
             raise UserError(_('This repair supports automated average-cost valuation only.'))
-        if p.tracking != 'none':
-            if not p.lot_valuated or not self.lot_id or self.lot_id.product_id != p or (self.lot_id.company_id and self.lot_id.company_id != self.company_id):
+        if p.tracking != 'none' and p.lot_valuated:
+            if not self.lot_id or self.lot_id.product_id != p or (self.lot_id.company_id and self.lot_id.company_id != self.company_id):
                 raise UserError(_('Repair the exact valued lot/serial, not the product total.'))
             self.lot_id.check_access('read')
         elif self.lot_id:
-            raise UserError(_('An untracked product cannot have a serial.'))
+            raise UserError(_('This product is valued at product level. Repair its total, without selecting a serial.'))
         if not self.confirmed or not (self.reason or '').strip() or not (self.source or '').strip():
             raise UserError(_('Confirm the physical stock and provide a reason and evidence reference.'))
         return p
@@ -71,8 +71,15 @@ class ValuationReconciliationWizard(models.TransientModel):
         physical = sum(quants.mapped('quantity'))
         if any(q.quantity < 0 for q in quants):
             raise UserError(_('Negative physical stock rows require investigation first.'))
-        if p.tracking == 'serial' and (physical not in (0, 1) or len(quants.filtered(lambda q: q.quantity > 0)) > 1):
-            raise UserError(_('Duplicate physical serial stock must be resolved first.'))
+        if p.tracking == 'serial':
+            serials = {}
+            for q in quants:
+                if q.quantity and not q.lot_id:
+                    raise UserError(_('Serial-tracked physical stock has no serial number. Resolve it first.'))
+                balance, positions = serials.get(q.lot_id.id, (0, 0))
+                serials[q.lot_id.id] = (balance + q.quantity, positions + int(q.quantity > 0))
+            if any(balance not in (0, 1) or positions > 1 for balance, positions in serials.values()):
+                raise UserError(_('Duplicate physical serial stock must be resolved first.'))
         return {'physical': physical, 'quantity': sum(layers.mapped('quantity')), 'value': sum(layers.mapped('value')),
                 'quants': [[q.id, q.quantity, q.location_id.id, q.lot_id.id, q.package_id.id] for q in quants],
                 'layers': [[s.id, s.quantity, s.value] for s in layers]}

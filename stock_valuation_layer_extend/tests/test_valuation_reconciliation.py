@@ -108,6 +108,24 @@ class TestValuationReconciliation(TransactionCase):
         with self.assertRaises(UserError):
             self.wizard(lot=lot).action_preview()
 
+    def test_product_valued_serials_reconcile_total(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': False})
+        lots = self.env['stock.lot'].create([
+            {'name': name, 'product_id': self.product.id, 'company_id': self.company.id}
+            for name in ['REPAIR-PRODUCT-1', 'REPAIR-PRODUCT-2', 'REPAIR-PRODUCT-3']])
+        for lot in lots:
+            self.env['stock.quant']._update_available_quantity(self.product, self.location, 1, lot_id=lot)
+        self.env['stock.valuation.layer'].create({'product_id': self.product.id, 'company_id': self.company.id,
+            'quantity': 1, 'value': 300, 'remaining_qty': 0, 'remaining_value': 0})
+        self.assert_result(self.wizard(), 3, 300)
+
+    def test_product_valued_serial_duplicates_rejected(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': False})
+        lot = self.env['stock.lot'].create({'name': 'REPAIR-PRODUCT-DUP', 'product_id': self.product.id, 'company_id': self.company.id})
+        self.setup_gap(2, 1, 100, lot=lot)
+        with self.assertRaises(UserError):
+            self.wizard().action_preview()
+
     def test_serial_missing_opening_repair_and_next_removal(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})
         lot = self.env['stock.lot'].create({'name': 'REPAIR-OPEN', 'product_id': self.product.id, 'company_id': self.company.id})

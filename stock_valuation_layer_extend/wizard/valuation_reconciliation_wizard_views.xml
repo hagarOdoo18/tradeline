@@ -7,7 +7,7 @@
                 <sheet>
                     <field name="state" widget="statusbar"/>
                     <field name="currency_id" invisible="1"/>
-                    <div class="alert alert-info">Physical stock will NOT change. The target is all company-owned internal and transit stock for this product or exact serial/lot, across every location. No quantity or signed gap needs to be entered.</div>
+                    <div class="alert alert-info" role="status">Physical stock will NOT change. The target is all company-owned internal and transit stock for this product or exact serial/lot, across every location. No quantity or signed gap needs to be entered.</div>
                     <group>
                         <field name="company_id"/><field name="product_id"/><field name="lot_id" invisible="not lot_id"/>
                         <field name="physical_quantity" string="Recorded Physical Quantity / Target"/>
@@ -21,7 +21,7 @@
                         <field name="source" readonly="state != 'draft'"/>
                         <field name="reason" readonly="state != 'draft'"/>
                     </group>
-                    <div class="alert alert-warning">Keep existing total value only when the value is already correct and quantity history is missing or wrong. Otherwise enter a verified cost of ONE unit; the resulting total value is physical quantity × cost per unit. When physical stock is zero, the verified-cost policy clears the remaining value to zero without requiring a unit cost. A value change posts a journal entry against the selected counterpart account. This does not rewrite historical delivery costs or restore historical FIFO layers.</div>
+                    <div class="alert alert-warning" role="status">Keep existing total value only when the value is already correct and quantity history is missing or wrong. Otherwise enter a verified cost of ONE unit; the resulting total value is physical quantity × cost per unit. When physical stock is zero, the verified-cost policy clears the remaining value to zero without requiring a unit cost. A value change posts a journal entry against the selected counterpart account. This does not rewrite historical delivery costs or restore historical FIFO layers.</div>
                     <group string="Preview / Posted correction" invisible="state == 'draft'">
                         <field name="correction_value" string="Valuation Value / Journal Change"/>
                         <field name="resulting_value" string="Resulting Valuation Value"/>
