@@ -145,6 +145,15 @@ class TestValuationReconciliation(TransactionCase):
         with self.assertRaises(AccessError):
             self.wizard().with_user(user).action_preview()
 
+    def test_regular_manager_can_open_form(self):
+        manager = self.env['res.users'].create({'name': 'Repair Manager', 'login': 'repair_manager_test',
+            'company_id': self.company.id, 'company_ids': [Command.set(self.company.ids)],
+            'groups_id': [Command.set([self.env.ref('stock_valuation_layer_extend.group_stock_valuation_quantity_correction').id])]})
+        model = self.env['stock.valuation.reconciliation.wizard'].with_user(manager)
+        model.check_access('read')
+        view = model.get_view(view_id=self.env.ref('stock_valuation_layer_extend.view_valuation_reconciliation_wizard').id, view_type='form')
+        self.assertIn('Reconcile Valuation Only', view['arch'])
+
     def test_failure_rolls_back_layer_and_journal(self):
         from unittest.mock import patch
         self.setup_gap(3, 1, 100)

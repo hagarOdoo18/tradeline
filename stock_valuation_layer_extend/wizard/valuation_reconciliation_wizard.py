@@ -38,7 +38,7 @@ class ValuationReconciliationWizard(models.TransientModel):
             vals = dict(vals, state='draft')
         return super().write(vals)
 
-    def _check_access(self):
+    def _check_reconciliation_operator(self):
         self.ensure_one()
         if not self.env.user.has_group('stock_valuation_layer_extend.group_stock_valuation_quantity_correction'):
             raise AccessError(_('A valuation reconciliation manager is required.'))
@@ -116,7 +116,7 @@ class ValuationReconciliationWizard(models.TransientModel):
                 'view_mode': 'form', 'target': 'new', 'name': _('Reconcile Valuation to Verified Stock')}
 
     def action_preview(self):
-        p = self._check_access()
+        p = self._check_reconciliation_operator()
         current = self._read_balances(p)
         dq, dv, value, cost = self._projection(current)
         self._accounting_settings(p, dv)
@@ -129,7 +129,7 @@ class ValuationReconciliationWizard(models.TransientModel):
         self.ensure_one()
         self.env.cr.execute('SELECT id FROM stock_valuation_reconciliation_wizard WHERE id=%s FOR UPDATE', (self.id,))
         self.invalidate_recordset()
-        p = self._check_access()
+        p = self._check_reconciliation_operator()
         if self.state != 'preview':
             raise UserError(_('Preview this reconciliation before posting.'))
         p._lock_inventory_adjustment(self.company_id)
@@ -181,7 +181,7 @@ class ValuationReconciliationWizard(models.TransientModel):
         return self._open_self()
 
     def action_edit(self):
-        self._check_access()
+        self._check_reconciliation_operator()
         if self.state == 'done':
             raise UserError(_('Posted reconciliations cannot be reused.'))
         self.state = 'draft'
