@@ -23,6 +23,8 @@
                     </group>
                     <div class="alert alert-warning" role="status">Keep existing total value only when the value is already correct and quantity history is missing or wrong. Otherwise enter a verified cost of ONE unit; the resulting total value is physical quantity × cost per unit. When physical stock is zero, the verified-cost policy clears the remaining value to zero without requiring a unit cost. A value change posts a journal entry against the selected counterpart account. This does not rewrite historical delivery costs or restore historical FIFO layers.</div>
                     <group string="Preview / Posted correction" invisible="state == 'draft'">
+                        <field name="pending_negative_quantity" string="Pending Negative Remaining Quantity to Close"/>
+                        <div class="alert alert-info" role="status">This repair also rebases AVCO remaining quantities and values to the verified balance. Previous technical layer balances are retained for audit. Future receipts will not settle the closed phantom negative stock again.</div>
                         <field name="correction_value" string="Valuation Value / Journal Change"/>
                         <field name="resulting_value" string="Resulting Valuation Value"/>
                         <field name="resulting_cost" string="Resulting Cost per Unit"/>

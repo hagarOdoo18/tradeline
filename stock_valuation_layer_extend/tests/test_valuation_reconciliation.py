@@ -46,6 +46,9 @@ class TestValuationReconciliation(TransactionCase):
         self.assertEqual(before, self.env['stock.quant'].search([('product_id', '=', self.product.id)]).read(['quantity', 'reserved_quantity', 'location_id']))
         self.assertAlmostEqual(self.product.quantity_svl, quantity)
         self.assertAlmostEqual(self.product.value_svl, value)
+        layers = self.product.stock_valuation_layer_ids
+        self.assertAlmostEqual(sum(layers.mapped('remaining_qty')), quantity)
+        self.assertAlmostEqual(sum(layers.mapped('remaining_value')), value)
         self.assertEqual(wizard.state, 'done')
 
     def test_increase_quantity_keep_value(self):
@@ -134,6 +137,60 @@ class TestValuationReconciliation(TransactionCase):
         self.assert_result(w, 1, 11499)
         self.assertAlmostEqual(lot.standard_price, 11499)
         self.product._apply_counted_inventory(self.company, self.location, 0, lot=lot, reason='Test next stock operation')
+        self.assertAlmostEqual(self.product.quantity_svl, 0)
+        self.assertAlmostEqual(self.product.value_svl, 0)
+        self.assertFalse(self.product.stock_valuation_layer_ids.filtered(lambda s: s.remaining_qty < 0))
+        # A later restock must remain available to the technical AVCO pool,
+        # rather than being consumed by a phantom negative layer from the repaired opening.
+        self.product._apply_counted_inventory(self.company, self.location, 1, lot=lot, reason='Test future restock')
+        self.assertAlmostEqual(self.product.quantity_svl, 1)
+        self.assertAlmostEqual(sum(self.product.stock_valuation_layer_ids.mapped('remaining_qty')), 1)
+
+    def test_repair_closes_phantom_negative_remaining_layer(self):
+        self.setup_gap(3, 1, 300)
+        source = self.product.stock_valuation_layer_ids
+        historical_move = self.env['stock.move'].create({
+            'name': 'Historical unvalued opening delivery', 'product_id': self.product.id,
+            'product_uom': self.product.uom_id.id, 'product_uom_qty': 2,
+            'location_id': self.location.id, 'location_dest_id': self.env.ref('stock.stock_location_customers').id,
+            'company_id': self.company.id})
+        source.write({'remaining_qty': -2, 'remaining_value': 0, 'stock_move_id': historical_move.id})
+        w = self.wizard()
+        self.assert_result(w, 3, 300)
+        self.assertAlmostEqual(source.quantity, 1)
+        self.assertAlmostEqual(source.value, 300)
+        self.assertAlmostEqual(source.remaining_qty, 0)
+        self.assertEqual(w.correction_layer_id.reconciliation_layer_snapshot[0][3], -2)
+        self.product._run_fifo_vacuum(self.company)
+        self.assertAlmostEqual(self.product.value_svl, 300)
+        self.assertAlmostEqual(w.correction_layer_id.remaining_qty, 3)
+
+    def test_next_delivery_and_different_cost_receipt(self):
+        self.setup_gap(3, 1, 300)
+        self.assert_result(self.wizard(), 3, 300)
+        self.product._apply_counted_inventory(self.company, self.location, 2, reason='Next delivery')
+        self.assertAlmostEqual(self.product.quantity_svl, 2)
+        self.assertAlmostEqual(self.product.value_svl, 200)
+        receipt = self.env['stock.move'].create({
+            'name': 'Future receipt at different cost', 'product_id': self.product.id,
+            'product_uom': self.product.uom_id.id, 'product_uom_qty': 1,
+            'location_id': self.env.ref('stock.stock_location_suppliers').id,
+            'location_dest_id': self.location.id, 'company_id': self.company.id,
+            'price_unit': 160})
+        receipt._action_confirm()
+        receipt.quantity = 1
+        receipt.picked = True
+        receipt._action_done()
+        self.product._run_fifo_vacuum(self.company)
+        self.env.invalidate_all()
+        self.assertAlmostEqual(sum(self.env['stock.quant'].search([
+            ('product_id', '=', self.product.id), ('location_id', '=', self.location.id)]).mapped('quantity')), 3)
+        self.assertAlmostEqual(self.product.quantity_svl, 3)
+        self.assertAlmostEqual(self.product.value_svl, 360)
+        self.assertAlmostEqual(self.product.standard_price, 120)
+        self.assertAlmostEqual(sum(self.product.stock_valuation_layer_ids.mapped('remaining_qty')), 3)
+        self.assertFalse(self.product.stock_valuation_layer_ids.filtered(lambda s: s.remaining_qty < 0))
+        self.product._apply_counted_inventory(self.company, self.location, 0, reason='Sell remaining repaired stock')
         self.assertAlmostEqual(self.product.quantity_svl, 0)
         self.assertAlmostEqual(self.product.value_svl, 0)
 

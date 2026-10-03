@@ -14,6 +14,7 @@ class StockValuationLayer(models.Model):
     reconciliation_policy = fields.Selection([('keep', 'Keep existing total value'), ('cost', 'Set verified cost per unit')], readonly=True)
     reconciliation_user_id = fields.Many2one('res.users', readonly=True)
     reconciliation_evidence = fields.Char(readonly=True)
+    reconciliation_layer_snapshot = fields.Json(string='Source Layer Balances Before Reconciliation', readonly=True, copy=False)
 
     _sql_constraints = [
         (
