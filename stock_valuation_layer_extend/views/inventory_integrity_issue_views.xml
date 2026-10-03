@@ -12,6 +12,9 @@
                 <field name="currency_id" column_invisible="True"/><field name="valuation_value"/>
                 <field name="stored_cost"/><field name="valuation_cost"/>
                 <button name="action_adjust" type="object" string="Review Adjustment"/>
+                <button name="action_reconcile_valuation" type="object" string="Reconcile Valuation"
+                        groups="stock_valuation_layer_extend.group_stock_valuation_quantity_correction"
+                        invisible="quantity_gap == 0"/>
             </list>
         </field>
     </record>

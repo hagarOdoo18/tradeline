@@ -7,6 +7,14 @@ from .search_helpers import rewrite_product_id_text_domain, search_product_ids_b
 class StockValuationLayer(models.Model):
     _inherit = 'stock.valuation.layer'
 
+    is_valuation_reconciliation = fields.Boolean(readonly=True, copy=False, index=True)
+    reconciliation_physical_quantity = fields.Float(readonly=True, digits='Product Unit of Measure')
+    reconciliation_previous_quantity = fields.Float(readonly=True, digits='Product Unit of Measure')
+    reconciliation_previous_value = fields.Float(readonly=True, digits='Product Price')
+    reconciliation_policy = fields.Selection([('keep', 'Keep existing total value'), ('cost', 'Set verified cost per unit')], readonly=True)
+    reconciliation_user_id = fields.Many2one('res.users', readonly=True)
+    reconciliation_evidence = fields.Char(readonly=True)
+
     _sql_constraints = [
         (
             'quantity_neutralization_source_unique',

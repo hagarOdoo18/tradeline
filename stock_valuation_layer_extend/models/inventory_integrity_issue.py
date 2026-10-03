@@ -23,6 +23,23 @@ class InventoryIntegrityIssue(models.Model):
     valuation_cost = fields.Float(readonly=True, digits='Product Price')
     issue = fields.Char(readonly=True)
 
+    def action_reconcile_valuation(self):
+        self.ensure_one()
+        if self.company_id != self.env.company:
+            raise UserError(_('Switch to this issue’s company first.'))
+        if not self.env.user.has_group('stock_valuation_layer_extend.group_stock_valuation_quantity_correction'):
+            raise UserError(_('A valuation reconciliation manager is required.'))
+        if self.product_id.tracking != 'none' and not self.lot_id:
+            raise UserError(_('Select the individual lot/serial issue instead of the product total.'))
+        return {'type': 'ir.actions.act_window', 'name': _('Reconcile Valuation to Verified Stock'),
+                'res_model': 'stock.valuation.reconciliation.wizard', 'view_mode': 'form', 'target': 'new',
+                'context': {'default_company_id': self.company_id.id, 'default_product_id': self.product_id.id,
+                            'default_lot_id': self.lot_id.id, 'default_reason': self.issue,
+                            'default_physical_quantity': self.physical_quantity,
+                            'default_valuation_quantity': self.valuation_quantity,
+                            'default_valuation_value': self.valuation_value,
+                            'default_correction_quantity': self.quantity_gap}}
+
     def action_adjust(self):
         self.ensure_one()
         if self.company_id != self.env.company:
