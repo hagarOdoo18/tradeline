@@ -122,7 +122,9 @@ class ProductProduct(models.Model):
             quants.inventory_quantity = counted_quantity
         else:
             quants = Quant.with_context(inventory_mode=True).create({
-                'product_id': self.id, 'company_id': company.id, 'location_id': location.id,
+                # Quant company is derived from its validated location. Odoo
+                # rejects company_id in an inventory-mode create.
+                'product_id': self.id, 'location_id': location.id,
                 'lot_id': lot.id or False, 'inventory_quantity': counted_quantity,
             })
         if quants.with_context(inventory_name=reason or _('Controlled legacy inventory adjustment')).action_apply_inventory():

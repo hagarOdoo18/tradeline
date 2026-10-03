@@ -66,6 +66,9 @@ class TestInventoryIntegrity(TransactionCase):
     def test_cache_only_repair_preserves_quantity_and_value(self):
         self.seed()
         self.lot.with_context(disable_auto_svl=True).write({'standard_price': 0})
+        # The issue report is a SQL view; flush the source models as a
+        # committed UI request would before querying that view.
+        self.env.flush_all()
         issues = self.env['stock.inventory.integrity.issue'].search([('lot_id', '=', self.lot.id)])
         self.assertTrue(issues)
         wizard = self.wizard(cost=100)
@@ -74,6 +77,7 @@ class TestInventoryIntegrity(TransactionCase):
         self.assertAlmostEqual(self.lot.standard_price, 100)
         self.assertAlmostEqual(self.product.quantity_svl, 1)
         self.assertAlmostEqual(self.product.value_svl, 100)
+        self.env.flush_all()
         self.assertFalse(self.env['stock.inventory.integrity.issue'].search([('lot_id', '=', self.lot.id)]))
 
     def test_missing_opening_valuation_blocks_count(self):

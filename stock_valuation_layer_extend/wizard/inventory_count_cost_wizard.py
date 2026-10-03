@@ -284,7 +284,6 @@ class InventoryCountCostWizard(models.TransientModel):
                         'product_id': product.id,
                         'location_id': self.location_id.id,
                         'lot_id': self.lot_id.id if self.lot_id else False,
-                        'company_id': self.company_id.id,
                         'inventory_quantity': self.counted_quantity,
                     })
             result = quant.sudo().with_company(self.company_id).with_context(to_date=False, disable_auto_svl=False).with_context(
