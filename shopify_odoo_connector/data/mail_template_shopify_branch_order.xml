@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="mail_template_shopify_branch_order" model="mail.template">
+            <field name="name">Shopify: New Order for Branch</field>
+            <field name="model_id" ref="sale.model_sale_order"/>
+            <field name="subject">New Shopify Order {{ object.reference_number or object.name }} - {{ (object.branch_id or object.warehouse_id.branch_id).name or '' }}</field>
+            <field name="email_from">{{ (object.company_id.email_formatted or user.email_formatted) }}</field>
+            <field name="partner_to">{{ (object.branch_id or object.warehouse_id.branch_id).user_id.partner_id.id or '' }}</field>
+            <field name="auto_delete" eval="True"/>
+            <field name="description">Sent to the branch's Related User when an order is created from Shopify</field>
+            <field name="body_html" type="html">
+<div style="margin:0; padding:0; font-size:13px;">
+    <p>Hello <t t-out="(object.branch_id or object.warehouse_id.branch_id).user_id.name or ''"/>,</p>
+    <p>A new order was created from Shopify for branch
+        <strong t-out="(object.branch_id or object.warehouse_id.branch_id).name or ''"/>.</p>
+    <table style="border-collapse:collapse; margin-bottom:12px;">
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Odoo Order</strong></td><td t-out="object.name"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Shopify Order</strong></td><td t-out="object.reference_number or ''"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Date</strong></td><td t-out="format_datetime(object.date_order, tz=user.tz)"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Customer</strong></td><td t-out="object.partner_id.name or ''"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Phone</strong></td><td t-out="object.partner_shipping_id.phone or object.partner_id.phone or ''"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Warehouse</strong></td><td t-out="object.warehouse_id.name or ''"/></tr>
+        <tr><td style="padding:2px 12px 2px 0;"><strong>Status</strong></td><td t-out="dict(object._fields['state'].selection).get(object.state)"/></tr>
+    </table>
+    <table style="border-collapse:collapse; width:100%;" border="1" cellpadding="4">
+        <thead>
+            <tr style="background:#f2f2f2;">
+                <th style="text-align:left;">Product</th>
+                <th style="text-align:right;">Qty</th>
+                <th style="text-align:right;">Unit Price</th>
+                <th style="text-align:right;">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            <t t-foreach="object.order_line.filtered(lambda l: not l.display_type)" t-as="line">
+                <tr>
+                    <td t-out="line.product_id.display_name"/>
+                    <td style="text-align:right;" t-out="line.product_uom_qty"/>
+                    <td style="text-align:right;" t-out="format_amount(line.price_unit, object.currency_id)"/>
+                    <td style="text-align:right;" t-out="format_amount(line.price_subtotal, object.currency_id)"/>
+                </tr>
+            </t>
+        </tbody>
+    </table>
+    <p style="text-align:right;"><strong>Total: <t t-out="format_amount(object.amount_total, object.currency_id)"/></strong></p>
+    <t t-if="object.note">
+        <p><strong>Notes:</strong><br/><t t-out="object.note"/></p>
+    </t>
+</div>
+            </field>
+        </record>
+    </data>
+</odoo>

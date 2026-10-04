@@ -751,6 +751,8 @@ class SaleOrderSync(models.TransientModel):
                         new_lines.invalidate_recordset(
                             ['price_unit', 'discount'])
                         new_lines.sudo()._compute_amount()
+                    # notify the branch the order was created at
+                    so._shopify_notify_branch()
             except Exception as error:
                 self._log_confirmed_order_failure(
                     savepoint, each, instance, error)

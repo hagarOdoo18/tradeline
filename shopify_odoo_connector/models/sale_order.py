@@ -51,6 +51,52 @@ class SaleOrder(models.Model):
     shopify_order_ref = fields.Char(string='Shopify Order Id',
                                     help='Shopify id of order')
 
+    def _shopify_notify_branch(self):
+        """Email the branch the Shopify order was created at.
+
+        Recipient = the branch's Related User (res.branch.user_id). The
+        mail is only queued (force_send=False): it leaves with the mail
+        cron after the transaction commits, so an order rolled back later
+        sends nothing. Never raises - a mail problem must not undo an
+        imported order."""
+        template = self.env.ref(
+            'shopify_odoo_connector.mail_template_shopify_branch_order',
+            raise_if_not_found=False)
+        if not template:
+            return
+        for order in self.sudo():
+            branch = order.branch_id or order.warehouse_id.branch_id
+            user = self.env['res.users'].search([('branch_id','=',branch.id)]).id if branch.id !=88 else 66
+            if not user or not user.email:
+                self.env['log.message'].sudo().create({
+                    'name': 'Order %s: branch email not sent - branch "%s" '
+                            'has no Related User with an email.' % (
+                                order.reference_number or order.name,
+                                branch.name or '-'),
+                    'shopify_instance_id': order.shopify_instance_id.id,
+                    'model': 'sale.order',
+                })
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    template.send_mail(
+                        order.id, force_send=False,
+                        email_values={'recipient_ids': [
+                            (6, 0, user.partner_id.ids)]})
+                    order.message_post(
+                        body='Shopify order notification queued to branch '
+                             '%s (%s).' % (branch.name, user.email),
+                        subtype_xmlid='mail.mt_note')
+            except Exception as error:
+                _logger.exception('Shopify branch mail failed for %s',
+                                  order.name)
+                self.env['log.message'].sudo().create({
+                    'name': 'Order %s: branch email failed - %s' % (
+                        order.reference_number or order.name, error),
+                    'shopify_instance_id': order.shopify_instance_id.id,
+                    'model': 'sale.order',
+                })
+
     @api.model
     def _cron_cancel_shopify_orders(self):
         """Scheduled action to cancel Odoo sale orders whose Shopify
