@@ -51,26 +51,44 @@ class SaleOrder(models.Model):
     shopify_order_ref = fields.Char(string='Shopify Order Id',
                                     help='Shopify id of order')
 
+    def _shopify_branch_user(self):
+        """User that receives the Shopify order mail for this order's
+        branch - same rule the import uses for user_id: branch 88 -> user
+        66, otherwise the user whose Branch is the order's branch.
+        Returns a res.users record (possibly empty), never an id."""
+        self.ensure_one()
+        users = self.env['res.users'].sudo()
+        branch = self.branch_id or self.warehouse_id.branch_id
+        if not branch:
+            return users
+        if branch.id == 88:
+            return users.browse(66).exists()
+        # res.users.branch_id is company_dependent -> search in the
+        # order's company; limit=1 avoids a singleton error when several
+        # users share the branch
+        return users.with_company(self.company_id).search(
+            [('branch_id', '=', branch.id)], limit=1)
+
     def _shopify_notify_branch(self):
         """Email the branch the Shopify order was created at.
 
-        Recipient = the branch's Related User (res.branch.user_id). The
+        Recipient = _shopify_branch_user() (same rule as the import). The
         mail is only queued (force_send=False): it leaves with the mail
         cron after the transaction commits, so an order rolled back later
         sends nothing. Never raises - a mail problem must not undo an
         imported order."""
         template = self.env.ref(
-            'shopify_odoo_connector.mail_template_shopify_branch_order',
+            'shopify_odoo_connector.mail_template_shopify_branch_order_v1',
             raise_if_not_found=False)
         if not template:
             return
         for order in self.sudo():
             branch = order.branch_id or order.warehouse_id.branch_id
-            user = self.env['res.users'].search([('branch_id','=',branch.id)]).id if branch.id !=88 else 66
+            user = order._shopify_branch_user()
             if not user or not user.email:
                 self.env['log.message'].sudo().create({
                     'name': 'Order %s: branch email not sent - branch "%s" '
-                            'has no Related User with an email.' % (
+                            'has no user with an email.' % (
                                 order.reference_number or order.name,
                                 branch.name or '-'),
                     'shopify_instance_id': order.shopify_instance_id.id,

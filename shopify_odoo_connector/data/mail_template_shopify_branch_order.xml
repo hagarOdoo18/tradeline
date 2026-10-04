@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="1">
-        <record id="mail_template_shopify_branch_order" model="mail.template">
+    <data noupdate="0">
+        <record id="mail_template_shopify_branch_order_v1" model="mail.template">
             <field name="name">Shopify: New Order for Branch</field>
             <field name="model_id" ref="sale.model_sale_order"/>
             <field name="subject">New Shopify Order {{ object.reference_number or object.name }} - {{ (object.branch_id or object.warehouse_id.branch_id).name or '' }}</field>
             <field name="email_from">{{ (object.company_id.email_formatted or user.email_formatted) }}</field>
-            <field name="partner_to">{{ (object.branch_id or object.warehouse_id.branch_id).user_id.partner_id.id or '' }}</field>
-            <field name="auto_delete" eval="True"/>
-            <field name="description">Sent to the branch's Related User when an order is created from Shopify</field>
+            <field name="partner_to">{{ object._shopify_branch_user().partner_id.id or '' }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="description">Sent to the branch user when an order is created from Shopify</field>
             <field name="body_html" type="html">
 <div style="margin:0; padding:0; font-size:13px;">
-    <p>Hello <t t-out="(object.branch_id or object.warehouse_id.branch_id).user_id.name or ''"/>,</p>
+    <p>Hello <t t-out="object._shopify_branch_user().name or ''"/>,</p>
     <p>A new order was created from Shopify for branch
         <strong t-out="(object.branch_id or object.warehouse_id.branch_id).name or ''"/>.</p>
     <table style="border-collapse:collapse; margin-bottom:12px;">
