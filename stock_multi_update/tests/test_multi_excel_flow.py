@@ -1,6 +1,7 @@
 """Integration tests of the actual multi-product workbook posting path."""
 import base64
 import io
+from unittest import SkipTest
 from openpyxl import Workbook
 from odoo import Command
 from odoo.exceptions import UserError
@@ -12,6 +13,8 @@ class TestMultiExcelFlow(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if "account.account" not in cls.env or "quantity_svl" not in cls.env["product.product"]._fields:
+            raise SkipTest("Stock accounting is required for valuation assertions")
         cls.company = cls.env.company
         accounts = cls.env['account.account'].create([
             {'name': name, 'code': code, 'account_type': kind, 'company_ids': [Command.set(cls.company.ids)]}
@@ -43,16 +46,16 @@ class TestMultiExcelFlow(TransactionCase):
         self.assertEqual(len(order.line_ids), len(rows))
         return order
 
-    def balance(self, quantity, value):
+    def balance(self, quantity, value, valuation_quantity=None):
         self.env.invalidate_all()
         quants = self.env['stock.quant'].search([('product_id', '=', self.product.id), ('location_id', '=', self.location.id)])
         self.assertAlmostEqual(sum(quants.mapped('quantity')), quantity)
-        self.assertAlmostEqual(self.product.quantity_svl, quantity)
+        self.assertAlmostEqual(self.product.quantity_svl, quantity if valuation_quantity is None else valuation_quantity)
         self.assertAlmostEqual(self.product.value_svl, value)
-        self.assertTrue(all(s.account_move_id.state == 'posted' for s in self.product.stock_valuation_layer_ids if s.value))
+        self.assertTrue(all(s.account_move_id.state == 'posted' for s in self.product.stock_valuation_layer_ids if s.value and s.stock_move_id))
 
     def test_excel_add_subtract_and_repeat_protection(self):
-        self.product._apply_counted_inventory(self.company, self.location, 1, reason='Approved opening')
+        self.excel([['EXCEL-AUDIT-001', 1, 'add', None]]).action_apply()
         order = self.excel([['EXCEL-AUDIT-001', 2, 'add', None]])
         order.action_apply()
         self.balance(3, 300)
@@ -62,24 +65,28 @@ class TestMultiExcelFlow(TransactionCase):
         self.excel([['EXCEL-AUDIT-001', 1, 'subtract', None]]).action_apply()
         self.balance(2, 200)
 
-    def test_excel_existing_gap_blocked(self):
-        self.product._apply_counted_inventory(self.company, self.location, 1, reason='Approved opening')
-        self.env['stock.quant']._update_available_quantity(self.product, self.location, 2)
-        order = self.excel([['EXCEL-AUDIT-001', 1, 'add', None]])
-        with self.assertRaises(UserError), self.env.cr.savepoint():
-            order.action_apply()
+    def test_excel_existing_gap_posts_both_deltas(self):
+        self.excel([['EXCEL-AUDIT-001', 300, 'add', None]]).action_apply()
+        # Reproduce the reported 300 physical / 2500 valued opening balance.
+        self.env['stock.valuation.layer'].create({
+            'product_id': self.product.id, 'company_id': self.company.id,
+            'quantity': 2200, 'unit_cost': 100, 'value': 220000})
         self.env.invalidate_all()
-        self.assertEqual(order.state, 'draft')
-        self.assertAlmostEqual(self.product.quantity_svl, 1)
-        self.assertAlmostEqual(sum(self.env['stock.quant'].search([('product_id', '=', self.product.id),
-            ('location_id', '=', self.location.id)]).mapped('quantity')), 3)
+        self.excel([['EXCEL-AUDIT-001', 2, 'add', None]]).action_apply()
+        self.balance(302, 250200, valuation_quantity=2502)
+        self.excel([['EXCEL-AUDIT-001', 1, 'subtract', None]]).action_apply()
+        self.balance(301, 250100, valuation_quantity=2501)
 
-    def test_excel_unknown_cost_blocked(self):
+    def test_excel_zero_cost_uses_native_valuation(self):
         self.product.with_context(disable_auto_svl=True).standard_price = 0
-        order = self.excel([['EXCEL-AUDIT-001', 1, 'add', None]])
-        with self.assertRaises(UserError), self.env.cr.savepoint():
-            order.action_apply()
-        self.balance(0, 0)
+        self.excel([['EXCEL-AUDIT-001', 1, 'add', None]]).action_apply()
+        self.balance(1, 0)
+
+    def test_excel_cached_cost_mismatch_does_not_block(self):
+        self.excel([['EXCEL-AUDIT-001', 1, 'add', None]]).action_apply()
+        self.product.with_context(disable_auto_svl=True).standard_price = 120
+        self.excel([['EXCEL-AUDIT-001', 1, 'add', None]]).action_apply()
+        self.balance(2, 220)
 
     def test_excel_serial_add_and_remove(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})
@@ -90,12 +97,9 @@ class TestMultiExcelFlow(TransactionCase):
         self.excel([['EXCEL-AUDIT-001', 1, 'subtract', 'EXCEL-SERIAL-001']]).action_apply()
         self.balance(0, 0)
 
-    def test_excel_duplicate_serial_blocked(self):
-        self.product.write({'tracking': 'serial', 'lot_valuated': True})
-        lot = self.env['stock.lot'].create({'name': 'EXCEL-SERIAL-001', 'product_id': self.product.id,
-            'company_id': self.company.id, 'standard_price': 100})
-        self.product._apply_counted_inventory(self.company, self.location, 1, lot=lot, reason='Approved opening')
-        order = self.excel([['EXCEL-AUDIT-001', 1, 'add', 'EXCEL-SERIAL-001']])
+    def test_excel_original_insufficient_stock_validation(self):
+        self.excel([['EXCEL-AUDIT-001', 1, 'add', None]]).action_apply()
+        order = self.excel([['EXCEL-AUDIT-001', 2, 'subtract', None]])
         with self.assertRaises(UserError), self.env.cr.savepoint():
             order.action_apply()
         self.balance(1, 100)

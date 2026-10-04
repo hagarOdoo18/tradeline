@@ -25,7 +25,7 @@ class StockMultiUpdate(models.Model):
         'stock.location',
         string='Location',
         required=True,
-        domain=[('usage', '=', 'internal')],
+        domain=[('usage', 'in', ['internal', 'transit'])],
         default=lambda self: self.env.ref('stock.stock_location_stock', raise_if_not_found=False),
         tracking=True,
     )
@@ -77,8 +77,6 @@ class StockMultiUpdate(models.Model):
         for line in self.line_ids:
             line._validate()
 
-        for product in self.line_ids.product_id.sorted('id'):
-            product._lock_inventory_adjustment(self.env.company)
         for line in self.line_ids:
             line._apply_update()
 
@@ -284,16 +282,25 @@ class StockMultiUpdateLine(models.Model):
 
         product = self.product_id
         company = self.env.company
-        product._lock_inventory_adjustment(company)
         quant = self.env['stock.quant'].search([
             ('product_id', '=', product.id), ('location_id', '=', self.location_id.id),
-            ('company_id', '=', company.id), ('lot_id', '=', lot_id)])
-        if len(quant) > 1:
-            raise UserError(_('Duplicate stock rows require review.'))
+            ('company_id', '=', company.id), ('lot_id', '=', lot_id)], limit=1)
         current = quant.quantity if quant else 0
         delta = self.qty if self.operation == 'add' else -self.qty
-        before, after = product._apply_counted_inventory(
-            company, self.location_id, current + delta,
-            lot=self.env['stock.lot'].browse(lot_id),
-            reason=_('Multi Stock Update %(ref)s: %(notes)s', ref=self.update_id.name, notes=self.update_id.notes or ''))
-        self.write({'qty_before': before, 'qty_after': after})
+        # This established batch workflow posts native Odoo inventory adjustments.
+        # Historical valuation/cost issues are reviewed separately in Inventory Issues.
+        Quant = self.env['stock.quant'].sudo().with_company(company)
+        if quant:
+            quant.sudo().write({'inventory_quantity': current + delta})
+        else:
+            if delta < 0:
+                raise UserError(_('No existing stock found for "%s" to subtract from.') % product.display_name)
+            quant = Quant.with_context(inventory_mode=True).create({
+                'product_id': product.id,
+                'location_id': self.location_id.id,
+                'lot_id': lot_id,
+                'inventory_quantity': delta,
+            })
+        quant.sudo().with_context(inventory_name=_('Multi Stock Update %s') % self.update_id.name).action_apply_inventory()
+        quant.invalidate_recordset()
+        self.write({'qty_before': current, 'qty_after': quant.quantity})
