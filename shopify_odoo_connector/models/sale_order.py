@@ -72,30 +72,34 @@ class SaleOrder(models.Model):
             [('branch_id', '=', branch.id)], limit=1)
 
     def _shopify_notify_branch(self):
-        """Email the branch the Shopify order was created at.
+        """Tell the branch the Shopify order was created at.
 
         Recipient = _shopify_branch_user() (same rule as the import). The
-        mail is only queued (force_send=False): it leaves with the mail
-        cron after the transaction commits, so an order rolled back later
-        sends nothing. Never raises - a mail problem must not undo an
-        imported order."""
+        user gets:
+          * an Odoo inbox notification linked to the order,
+          * a sticky pop-up on screen if logged in,
+          * the email (only queued - leaves with the mail cron).
+        Bus pop-ups and mails go out only after the transaction commits,
+        so an order rolled back later notifies nobody. Never raises - a
+        notification problem must not undo an imported order."""
         template = self.env.ref(
             'shopify_odoo_connector.mail_template_shopify_branch_order_v1',
             raise_if_not_found=False)
-        if not template:
-            return
         for order in self.sudo():
             branch = order.branch_id or order.warehouse_id.branch_id
             user = order._shopify_branch_user()
-            if not user or not user.email:
-                self.env['log.message'].sudo().create({
-                    'name': 'Order %s: branch email not sent - branch "%s" '
-                            'has no user with an email.' % (
-                                order.reference_number or order.name,
-                                branch.name or '-'),
-                    'shopify_instance_id': order.shopify_instance_id.id,
-                    'model': 'sale.order',
-                })
+            if not user:
+                order._shopify_log_branch_notify(
+                    'branch notification not sent - branch "%s" has no '
+                    'user.' % (branch.name or '-'))
+                continue
+            order._shopify_notify_branch_in_app(user, branch)
+            if not template:
+                continue
+            if not user.email:
+                order._shopify_log_branch_notify(
+                    'branch email not sent - user "%s" of branch "%s" has '
+                    'no email.' % (user.name, branch.name or '-'))
                 continue
             try:
                 with self.env.cr.savepoint():
@@ -110,12 +114,50 @@ class SaleOrder(models.Model):
             except Exception as error:
                 _logger.exception('Shopify branch mail failed for %s',
                                   order.name)
-                self.env['log.message'].sudo().create({
-                    'name': 'Order %s: branch email failed - %s' % (
-                        order.reference_number or order.name, error),
-                    'shopify_instance_id': order.shopify_instance_id.id,
-                    'model': 'sale.order',
+                order._shopify_log_branch_notify(
+                    'branch email failed - %s' % error)
+
+    def _shopify_log_branch_notify(self, message):
+        self.ensure_one()
+        self.env['log.message'].sudo().create({
+            'name': 'Order %s: %s' % (
+                self.reference_number or self.name, message),
+            'shopify_instance_id': self.shopify_instance_id.id,
+            'model': 'sale.order',
+        })
+
+    def _shopify_notify_branch_in_app(self, user, branch):
+        """Odoo inbox notification + live pop-up for the branch user."""
+        self.ensure_one()
+        title = 'New Shopify order %s' % (self.reference_number or self.name)
+        text = '%s - %s - %s %s (branch %s)' % (
+            self.name, self.partner_id.name or '',
+            self.amount_total, self.currency_id.symbol or '',
+            branch.name or '-')
+        try:
+            with self.env.cr.savepoint():
+                # inbox (bell icon) - or an email if the user chose
+                # "Handle by Emails" in his preferences
+                self.message_notify(
+                    partner_ids=user.partner_id.ids,
+                    subject=title,
+                    body=text,
+                    record_name=self.name,
+                    email_layout_xmlid='mail.mail_notification_light',
+                )
+                # sticky pop-up, delivered after commit to the user's open
+                # Odoo tabs
+                user.partner_id._bus_send('simple_notification', {
+                    'type': 'info',
+                    'title': title,
+                    'message': text,
+                    'sticky': True,
                 })
+        except Exception as error:
+            _logger.exception('Shopify branch in-app notification failed '
+                              'for %s', self.name)
+            self._shopify_log_branch_notify(
+                'branch in-app notification failed - %s' % error)
 
     # ------------------------------------------------------------------
     # Delivery + invoice right after a Shopify order is imported
