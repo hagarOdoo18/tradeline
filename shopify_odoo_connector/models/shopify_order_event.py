@@ -57,6 +57,7 @@ class ShopifyOrderEvent(models.Model):
         ('default', 'Instance Default'),
     ], readonly=True)
     reservation_state = fields.Selection([
+        ('delivered', 'Delivered'),
         ('reserved', 'Fully Reserved'),
         ('partial', 'Partially Reserved'),
         ('waiting', 'Waiting for Stock'),
@@ -493,7 +494,11 @@ class ShopifyOrderEvent(models.Model):
         if order.state not in ('sale', 'done'):
             return 'waiting'
         if not pickings:
-            return 'waiting'
+            # the importer validates the delivery right away; every
+            # picking already done means the order is delivered
+            delivered = order.picking_ids.filtered(
+                lambda picking: picking.state == 'done')
+            return 'delivered' if delivered else 'waiting'
         states = set(pickings.mapped('state'))
         if states <= {'assigned'}:
             return 'reserved'
@@ -558,7 +563,7 @@ class ShopifyOrderEvent(models.Model):
                         self._queue_inventory_push(existing_order)
                 self.write({
                     'state': ('duplicate' if reservation in
-                              ('reserved', 'not_applicable') else 'blocked'),
+                              ('delivered', 'reserved', 'not_applicable') else 'blocked'),
                     'order_id': existing_order.id,
                     'warehouse_id': existing_order.warehouse_id.id,
                     'reservation_state': reservation,
@@ -566,7 +571,7 @@ class ShopifyOrderEvent(models.Model):
                     'error_message': False,
                     'next_retry_at': (
                         False if reservation in
-                        ('reserved', 'not_applicable') else
+                        ('delivered', 'reserved', 'not_applicable') else
                         self._next_retry()),
                 })
                 return
@@ -597,17 +602,17 @@ class ShopifyOrderEvent(models.Model):
                 self._queue_inventory_push(order)
             self.write({
                 'state': ('done' if reservation in
-                          ('reserved', 'not_applicable') else 'blocked'),
+                          ('delivered', 'reserved', 'not_applicable') else 'blocked'),
                 'order_id': order.id,
                 'warehouse_id': warehouse.id,
                 'warehouse_source': source,
                 'reservation_state': reservation,
                 'processed_at': fields.Datetime.now(),
                 'next_retry_at': (
-                    False if reservation in ('reserved', 'not_applicable')
+                    False if reservation in ('delivered', 'reserved', 'not_applicable')
                     else self._next_retry()),
                 'error_message': (
-                    False if reservation in ('reserved', 'not_applicable')
+                    False if reservation in ('delivered', 'reserved', 'not_applicable')
                     else 'Order imported but stock is not fully reserved.'),
             })
         except ValidationError as error:

@@ -24,6 +24,8 @@ import json
 import logging
 import requests
 from odoo import api, fields, models
+from odoo.exceptions import UserError
+from odoo.tools import float_compare
 
 _logger = logging.getLogger(__name__)
 
@@ -114,6 +116,126 @@ class SaleOrder(models.Model):
                     'shopify_instance_id': order.shopify_instance_id.id,
                     'model': 'sale.order',
                 })
+
+    # ------------------------------------------------------------------
+    # Delivery + invoice right after a Shopify order is imported
+    # ------------------------------------------------------------------
+    def _shopify_log(self, message):
+        """Write a log.message and a chatter note for this order."""
+        self.ensure_one()
+        self.env['log.message'].sudo().create({
+            'name': 'Order %s: %s' % (
+                self.reference_number or self.name, message),
+            'shopify_instance_id': self.shopify_instance_id.id,
+            'model': 'sale.order',
+        })
+        self.sudo().message_post(body=message, subtype_xmlid='mail.mt_note')
+
+    def _shopify_validate_deliveries(self):
+        """Validate every open delivery of this order with the reserved
+        quantities (lots / serials come from the reservation).
+
+        A picking is validated only when ALL its moves are fully reserved -
+        quantities are never forced, so stock_no_negative and serial
+        tracking stay respected. Multi-step routes (pick -> out) open the
+        next picking only once the previous one is done, hence the loop.
+        Raises UserError with the reason when something cannot be
+        delivered; the caller rolls back to its savepoint."""
+        self.ensure_one()
+        order = self.with_context(
+            skip_shopify_write=True, skip_sms=True,
+            skip_backorder=True, cancel_backorder=False,
+            skip_immediate=True)
+        for _step in range(5):
+            pickings = order.picking_ids.filtered(
+                lambda p: p.state not in ('done', 'cancel')
+                and p.picking_type_code != 'incoming')
+            if not pickings:
+                return True
+            pickings.action_assign()
+            ready = pickings.filtered(lambda p: p.move_ids.filtered(
+                lambda m: m.state != 'cancel') and all(
+                m.state == 'assigned' for m in p.move_ids
+                if m.state != 'cancel'))
+            if not ready:
+                missing = []
+                for move in pickings.move_ids.filtered(
+                        lambda m: m.state not in ('assigned', 'done',
+                                                  'cancel')):
+                    missing.append('%s (needed %s, reserved %s)' % (
+                        move.product_id.display_name, move.product_uom_qty,
+                        move.quantity))
+                raise UserError(
+                    'not enough stock reserved in %s: %s' % (
+                        ', '.join(pickings.mapped('name')),
+                        '; '.join(missing) or 'waiting on another operation'))
+            for picking in ready:
+                for move in picking.move_ids.filtered(
+                        lambda m: m.state != 'cancel'):
+                    if float_compare(
+                            move.quantity, move.product_uom_qty,
+                            precision_rounding=move.product_uom.rounding) < 0:
+                        raise UserError('%s is not fully reserved in %s' % (
+                            move.product_id.display_name, picking.name))
+                    move.picked = True
+                picking.button_validate()
+                if picking.state != 'done':
+                    raise UserError(
+                        'picking %s could not be validated (state: %s)' % (
+                            picking.name, picking.state))
+        raise UserError('deliveries still open after 5 validation rounds')
+
+    def _shopify_create_invoice(self):
+        """Create and post the customer invoice for what was delivered."""
+        self.ensure_one()
+        order = self.with_context(skip_shopify_write=True)
+        if order.invoice_status != 'to invoice':
+            return order.env['account.move']
+        invoices = order._create_invoices()
+        drafts = invoices.filtered(lambda move: move.state == 'draft')
+        if drafts:
+            drafts.action_post()
+        return invoices
+
+    def _shopify_deliver_and_invoice(self):
+        """Validate the delivery, then create + post the invoice, for
+        orders imported from Shopify.
+
+        Each step runs in its own savepoint and never raises: the order is
+        already imported and confirmed, so a missing serial or an empty
+        stock only leaves that step undone and writes a log.message - it
+        must not roll back (or count as failed) the imported order. No
+        invoice is made while the delivery is still open."""
+        for order in self:
+            order = order.with_company(order.company_id)
+            if order.state != 'sale':
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    order._shopify_validate_deliveries()
+            except Exception as error:
+                self.env.invalidate_all()
+                _logger.warning('Shopify order %s: delivery not validated: '
+                                '%s', order.name, error)
+                order._shopify_log(
+                    'delivery not validated, no invoice created - %s' % error)
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    invoices = order._shopify_create_invoice()
+            except Exception as error:
+                self.env.invalidate_all()
+                _logger.warning('Shopify order %s: invoice not created: %s',
+                                order.name, error)
+                order._shopify_log(
+                    'delivered, but invoice not created - %s' % error)
+                continue
+            if invoices:
+                order.sudo().message_post(
+                    body='Delivery validated and invoice %s posted '
+                         'automatically.' % ', '.join(
+                             invoices.mapped('name')),
+                    subtype_xmlid='mail.mt_note')
 
     @api.model
     def _cron_cancel_shopify_orders(self):

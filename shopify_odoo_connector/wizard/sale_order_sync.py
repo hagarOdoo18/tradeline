@@ -751,6 +751,10 @@ class SaleOrderSync(models.TransientModel):
                         new_lines.invalidate_recordset(
                             ['price_unit', 'discount'])
                         new_lines.sudo()._compute_amount()
+                    # validate the delivery and create + post the invoice.
+                    # Never raises: a step that fails is logged and the
+                    # order stays imported and confirmed.
+                    so._shopify_deliver_and_invoice()
                     # notify the branch the order was created at
                     so._shopify_notify_branch()
             except Exception as error:
