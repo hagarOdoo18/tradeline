@@ -38,3 +38,4 @@ from . import shopify_min_qty
 from . import shopify_order_event
 from . import shopify_sync
 # from . import stock_picking
+from . import shopify_state_approval

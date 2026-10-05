@@ -187,7 +187,9 @@ class SaleOrder(models.Model):
         order = self.with_context(
             skip_shopify_write=True, skip_sms=True,
             skip_backorder=True, cancel_backorder=False,
-            skip_immediate=True)
+            skip_immediate=True,
+            # automatic step: no Shopify Manager approval needed
+            shopify_skip_state_approval=True)
         for _step in range(5):
             pickings = order.picking_ids.filtered(
                 lambda p: p.state not in ('done', 'cancel')
@@ -230,7 +232,8 @@ class SaleOrder(models.Model):
     def _shopify_create_invoice(self):
         """Create and post the customer invoice for what was delivered."""
         self.ensure_one()
-        order = self.with_context(skip_shopify_write=True)
+        order = self.with_context(skip_shopify_write=True,
+                                  shopify_skip_state_approval=True)
         if order.invoice_status != 'to invoice':
             return order.env['account.move']
         invoices = order._create_invoices()

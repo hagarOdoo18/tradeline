@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <!-- Delivery of a Shopify order: approval buttons + warning banner.
+         Shopify Managers bypass the check, so the banner and the request
+         button are hidden from them (groups="!..."). -->
+    <record id="view_picking_form_shopify_state_approval" model="ir.ui.view">
+        <field name="name">stock.picking.form.shopify.state.approval</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="is_shopify_order" invisible="1"/>
+                <field name="shopify_state_approved" invisible="1"/>
+                <field name="shopify_approval_requested" invisible="1"/>
+                <button name="action_shopify_request_approval" type="object"
+                        string="Request Approval" class="btn-secondary"
+                        groups="!shopify_odoo_connector.group_shopify_manager"
+                        invisible="not is_shopify_order or shopify_state_approved or shopify_approval_requested or state in ('done', 'cancel')"/>
+                <button name="action_shopify_approve_state_change" type="object"
+                        string="Approve State Change" class="btn-primary"
+                        groups="shopify_odoo_connector.group_shopify_manager"
+                        invisible="not is_shopify_order or shopify_state_approved or state in ('done', 'cancel')"/>
+            </xpath>
+            <xpath expr="//header" position="after">
+                <div class="alert alert-warning mb-0" role="alert"
+                     groups="!shopify_odoo_connector.group_shopify_manager"
+                     invisible="not is_shopify_order or shopify_state_approved or state in ('done', 'cancel')">
+                    Shopify order: validating or cancelling this delivery
+                    needs a Shopify Manager approval first.
+                    <span invisible="not shopify_approval_requested">Approval requested - waiting.</span>
+                </div>
+                <div class="alert alert-success mb-0" role="status"
+                     invisible="not is_shopify_order or not shopify_state_approved or state in ('done', 'cancel')">
+                    State change approved by
+                    <field name="shopify_approved_by_id" readonly="1" class="d-inline"/>
+                    - valid for the next state change only.
+                </div>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Invoice / credit note of a Shopify order -->
+    <record id="view_move_form_shopify_state_approval" model="ir.ui.view">
+        <field name="name">account.move.form.shopify.state.approval</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="is_shopify_order" invisible="1"/>
+                <field name="shopify_state_approved" invisible="1"/>
+                <field name="shopify_approval_requested" invisible="1"/>
+                <button name="action_shopify_request_approval" type="object"
+                        string="Request Approval" class="btn-secondary"
+                        groups="!shopify_odoo_connector.group_shopify_manager"
+                        invisible="not is_shopify_order or shopify_state_approved or shopify_approval_requested"/>
+                <button name="action_shopify_approve_state_change" type="object"
+                        string="Approve State Change" class="btn-primary"
+                        groups="shopify_odoo_connector.group_shopify_manager"
+                        invisible="not is_shopify_order or shopify_state_approved"/>
+            </xpath>
+            <xpath expr="//header" position="after">
+                <div class="alert alert-warning mb-0" role="alert"
+                     groups="!shopify_odoo_connector.group_shopify_manager"
+                     invisible="not is_shopify_order or shopify_state_approved">
+                    Shopify order: posting, resetting to draft or cancelling
+                    this invoice needs a Shopify Manager approval first.
+                    <span invisible="not shopify_approval_requested">Approval requested - waiting.</span>
+                </div>
+                <div class="alert alert-success mb-0" role="status"
+                     invisible="not is_shopify_order or not shopify_state_approved">
+                    State change approved by
+                    <field name="shopify_approved_by_id" readonly="1" class="d-inline"/>
+                    - valid for the next state change only.
+                </div>
+            </xpath>
+        </field>
+    </record>
+</odoo>
