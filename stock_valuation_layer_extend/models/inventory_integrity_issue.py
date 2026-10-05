@@ -29,18 +29,23 @@ class InventoryIntegrityIssue(models.Model):
             raise UserError(_('Switch to this issue’s company first.'))
         if not self.env.user.has_group('stock_valuation_layer_extend.group_stock_valuation_quantity_correction'):
             raise UserError(_('A valuation reconciliation manager is required.'))
-        if self.product_id.lot_valuated and self.product_id.tracking != 'none' and not self.lot_id:
-            raise UserError(_('Select the individual lot/serial issue instead of the product total.'))
+        wizard = self.env['stock.valuation.reconciliation.wizard'].create({
+            'company_id': self.company_id.id, 'product_id': self.product_id.id,
+            'reason': self.issue or _('Administrator valuation review'),
+        })
+        current = wizard._read_balances(self.product_id)
+        wizard.write({'physical_quantity': current['physical'], 'valuation_quantity': current['quantity'],
+                      'valuation_value': current['value'],
+                      'correction_quantity': current['physical'] - current['quantity']})
         return {'type': 'ir.actions.act_window', 'name': _('Reconcile Valuation to Verified Stock'),
                 'res_model': 'stock.valuation.reconciliation.wizard', 'view_mode': 'form', 'target': 'new',
-                'context': {'default_company_id': self.company_id.id, 'default_product_id': self.product_id.id,
-                            'default_lot_id': self.lot_id.id, 'default_reason': self.issue,
-                            'default_physical_quantity': self.physical_quantity,
-                            'default_valuation_quantity': self.valuation_quantity,
-                            'default_valuation_value': self.valuation_value,
-                            'default_correction_quantity': self.quantity_gap}}
+                'res_id': wizard.id}
 
     def action_adjust(self):
+        # Inventory Issues repairs valuation/cost, never the physical stock count.
+        return self.action_reconcile_valuation()
+
+    def action_count_stock(self):
         self.ensure_one()
         if self.company_id != self.env.company:
             raise UserError(_('Switch to this issue’s company first.'))

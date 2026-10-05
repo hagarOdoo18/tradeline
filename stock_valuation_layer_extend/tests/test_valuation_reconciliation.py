@@ -95,21 +95,17 @@ class TestValuationReconciliation(TransactionCase):
             w.action_apply()
         self.assertAlmostEqual(self.product.quantity_svl, 1)
 
-    def test_confirm_and_positive_value_required(self):
+    def test_zero_value_and_optional_references(self):
         self.setup_gap(3, 1, 0)
         w = self.wizard()
-        with self.assertRaises(UserError):
-            w.action_preview()
-        w.write({'value_policy': 'cost', 'confirmed': False})
-        with self.assertRaises(UserError):
-            w.action_preview()
+        w.write({'confirmed': False, 'reason': False, 'source': False})
+        self.assert_result(w, 3, 0)
 
-    def test_duplicate_serial_rejected(self):
+    def test_duplicate_serial_does_not_block_valuation_only(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})
         lot = self.env['stock.lot'].create({'name': 'REPAIR-DUP', 'product_id': self.product.id, 'company_id': self.company.id})
         self.setup_gap(2, 1, 100, lot=lot)
-        with self.assertRaises(UserError):
-            self.wizard(lot=lot).action_preview()
+        self.assert_result(self.wizard(lot=lot), 2, 100)
 
     def test_product_valued_serials_reconcile_total(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': False})
@@ -122,12 +118,90 @@ class TestValuationReconciliation(TransactionCase):
             'quantity': 1, 'value': 300, 'remaining_qty': 0, 'remaining_value': 0})
         self.assert_result(self.wizard(), 3, 300)
 
-    def test_product_valued_serial_duplicates_rejected(self):
+    def test_product_valued_serial_duplicates_do_not_block(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': False})
         lot = self.env['stock.lot'].create({'name': 'REPAIR-PRODUCT-DUP', 'product_id': self.product.id, 'company_id': self.company.id})
         self.setup_gap(2, 1, 100, lot=lot)
+        self.assert_result(self.wizard(), 2, 100)
+
+    def test_cost_only_serial_product_valued_automatic_account(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': False})
+        lot = self.env['stock.lot'].create({'name': 'COST-ONLY', 'product_id': self.product.id, 'company_id': self.company.id})
+        self.setup_gap(1, 1, 0, lot=lot)
+        w = self.wizard('cost', 11499)
+        w.write({'counterpart_account_id': False})
+        self.assert_result(w, 1, 11499)
+        self.assertEqual(w.counterpart_account_id, self.accounts[1])
+        self.assertEqual(w.correction_layer_id.account_move_id.state, 'posted')
+        self.assertAlmostEqual(w.correction_layer_id.quantity, 0)
+        self.assertAlmostEqual(self.product.standard_price, 11499)
+
+    def test_all_valued_serials_automatically_repair_quantity_and_cost(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        lots = self.env['stock.lot'].create([
+            {'name': name, 'product_id': self.product.id, 'company_id': self.company.id}
+            for name in ['AUTO-A', 'AUTO-B']])
+        self.setup_gap(1, 0, 0, lot=lots[0])
+        self.setup_gap(1, 3, 300, lot=lots[1])
+        w = self.wizard('cost', 120)
+        w.counterpart_account_id = False
+        self.assert_result(w, 2, 240)
+        self.assertEqual(len(w.detail_ids), 2)
+        for lot in lots:
+            self.assertAlmostEqual(lot.standard_price, 120)
+            layers = self.product.stock_valuation_layer_ids.filtered(lambda s: s.lot_id == lot)
+            self.assertAlmostEqual(sum(layers.mapped('quantity')), 1)
+            self.assertAlmostEqual(sum(layers.mapped('value')), 120)
+            self.assertAlmostEqual(sum(layers.mapped('remaining_qty')), 1)
+        moves = w.detail_ids.correction_layer_id.account_move_id
+        self.assertTrue(all(move.state == 'posted' for move in moves))
+        self.assertTrue(all(abs(sum(move.line_ids.mapped('balance'))) < 0.001 for move in moves))
+        self.product._apply_counted_inventory(self.company, self.location, 0, lot=lots[0], reason='Next sale after bulk repair')
+        self.assertAlmostEqual(self.product.quantity_svl, 1)
+        self.assertAlmostEqual(self.product.value_svl, 120)
+
+    def test_zero_cost_policy_and_zero_stock(self):
+        self.setup_gap(3, 3, 300)
+        self.assert_result(self.wizard('cost', 0), 3, 0)
+
+    def test_issue_buttons_open_same_product_scope(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        lot = self.env['stock.lot'].create({'name': 'ISSUE-AUTO', 'product_id': self.product.id, 'company_id': self.company.id})
+        self.setup_gap(1, 0, 0, lot=lot)
+        self.env.flush_all()
+        issue = self.env['stock.inventory.integrity.issue'].search([
+            ('product_id', '=', self.product.id), ('company_id', '=', self.company.id), ('lot_id', '=', lot.id)], limit=1)
+        self.assertTrue(issue)
+        for action in [issue.action_adjust(), issue.action_reconcile_valuation()]:
+            self.assertEqual(action['res_model'], 'stock.valuation.reconciliation.wizard')
+            w = self.env[action['res_model']].browse(action['res_id'])
+            self.assertFalse(w.lot_id)
+            self.assertEqual(w.physical_quantity, 1)
+
+    def test_bulk_stale_preview_and_atomic_rollback(self):
+        from unittest.mock import patch
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        lots = self.env['stock.lot'].create([
+            {'name': name, 'product_id': self.product.id, 'company_id': self.company.id}
+            for name in ['ATOMIC-A', 'ATOMIC-B']])
+        for lot in lots:
+            self.setup_gap(1, 0, 0, lot=lot)
+        w = self.wizard('cost', 100)
+        w.action_preview()
+        original = type(w).action_apply
+        def fail_second(record):
+            if record.parent_id and record.lot_id == lots[1]:
+                raise UserError('Test failure on second serial')
+            return original(record)
+        with patch.object(type(w), 'action_apply', fail_second), self.assertRaises(UserError):
+            w.action_apply()
+        self.env.invalidate_all()
+        self.assertAlmostEqual(self.product.quantity_svl, 0)
+        self.assertAlmostEqual(self.product.value_svl, 0)
+        self.assertFalse(self.env['account.move'].search([('journal_id', '=', self.journal.id)]))
+        self.env['stock.quant']._update_available_quantity(self.product, self.location, 1, lot_id=lots[0])
         with self.assertRaises(UserError):
-            self.wizard().action_preview()
+            w.action_apply()
 
     def test_serial_missing_opening_repair_and_next_removal(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})

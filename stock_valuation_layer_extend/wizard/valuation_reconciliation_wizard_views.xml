@@ -7,21 +7,23 @@
                 <sheet>
                     <field name="state" widget="statusbar"/>
                     <field name="currency_id" invisible="1"/>
-                    <div class="alert alert-info" role="status">Physical stock will NOT change. The target is all company-owned internal and transit stock for this product or exact serial/lot, across every location. No quantity or signed gap needs to be entered.</div>
+                    <div class="alert alert-info" role="status">Update valuation to the recorded stock across all company locations. Physical stock stays unchanged. Locations and serials are selected automatically. Keep the current total value, or enter one unit cost for all stock of this product.</div>
                     <group>
-                        <field name="company_id"/><field name="product_id"/><field name="lot_id" invisible="not lot_id"/>
+                        <field name="company_id"/><field name="product_id"/><field name="lot_id" invisible="1"/>
                         <field name="physical_quantity" string="Recorded Physical Quantity / Target"/>
                         <field name="valuation_quantity" string="Valuation Quantity Before"/>
                         <field name="valuation_value" string="Valuation Value Before"/>
                         <field name="correction_quantity" string="Valuation Quantity Change"/>
                         <field name="value_policy" readonly="state != 'draft'"/>
                         <field name="target_unit_cost" invisible="value_policy != 'cost' or physical_quantity == 0" readonly="state != 'draft'"/>
-                        <field name="counterpart_account_id" domain="[('company_ids', 'in', [company_id]), ('deprecated', '=', False), ('account_type', 'not in', ['asset_receivable', 'liability_payable', 'off_balance'])]" readonly="state != 'draft'"/>
-                        <field name="confirmed" readonly="state != 'draft'"/>
+                        <field name="confirmed" invisible="1"/>
+                    </group>
+                    <div class="alert alert-warning" role="status">Unit cost is the cost of ONE unit, not the total. Setting a cost revalues all recorded stock of this product, including every valued serial. Zero cost is allowed for approved zero-value stock. Value changes post a balanced journal entry using the automatic counterpart account. Historical delivery costs are not rewritten.</div>
+                    <group string="Optional reference and accounting settings">
                         <field name="source" readonly="state != 'draft'"/>
                         <field name="reason" readonly="state != 'draft'"/>
+                        <field name="counterpart_account_id" placeholder="Selected automatically at preview" domain="[('company_ids', 'in', [company_id]), ('deprecated', '=', False), ('account_type', 'not in', ['asset_receivable', 'liability_payable', 'off_balance'])]" readonly="state != 'draft'"/>
                     </group>
-                    <div class="alert alert-warning" role="status">Keep existing total value only when the value is already correct and quantity history is missing or wrong. Otherwise enter a verified cost of ONE unit; the resulting total value is physical quantity × cost per unit. When physical stock is zero, the verified-cost policy clears the remaining value to zero without requiring a unit cost. A value change posts a journal entry against the selected counterpart account. This does not rewrite historical delivery costs or restore historical FIFO layers.</div>
                     <group string="Preview / Posted correction" invisible="state == 'draft'">
                         <field name="pending_negative_quantity" string="Pending Negative Remaining Quantity to Close"/>
                         <div class="alert alert-info" role="status">This repair also rebases AVCO remaining quantities and values to the verified balance. Previous technical layer balances are retained for audit. Future receipts will not settle the closed phantom negative stock again.</div>
@@ -30,6 +32,14 @@
                         <field name="resulting_cost" string="Resulting Cost per Unit"/>
                         <field name="correction_layer_id" invisible="state != 'done'"/>
                     </group>
+                    <field name="detail_ids" invisible="state == 'draft' or not detail_ids">
+                        <list create="0" edit="0" delete="0" open_form_view="0">
+                            <field name="lot_id" string="Automatically selected serial / lot"/>
+                            <field name="physical_quantity"/><field name="valuation_quantity"/>
+                            <field name="correction_quantity"/><field name="correction_value"/>
+                            <field name="resulting_value"/><field name="resulting_cost"/>
+                        </list>
+                    </field>
                 </sheet>
                 <footer>
                     <button name="action_preview" type="object" string="Preview" class="btn-primary" invisible="state != 'draft'"/>
