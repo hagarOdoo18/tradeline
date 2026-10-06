@@ -295,57 +295,77 @@ class SaleOrderSync(models.TransientModel):
         return instance.warehouse_id
 
     def _pick_product_with_stock(self, product, warehouse, company_id,
-                                 qty_needed):
-        """Return the variant that can actually be served from `warehouse`.
+                                 qty_needed, sku=None):
+        """Return the group member that can actually be served from
+        `warehouse`.
 
         One Shopify variant can be mirrored by several Odoo products: the
-        "master" product carries the barcode, its aliases carry that same
-        value in `shopify_variant_sku`. They are interchangeable for
-        fulfilment, so when the product resolved from the Shopify payload has
-        no free stock in the order's warehouse, switch to a sibling that does.
-        Falls back to the originally resolved product when no sibling can
-        cover the line either, so behaviour is unchanged for single-variant
-        products.
+        "master" carries the code in `barcode`, its aliases carry the same
+        code in `shopify_variant_sku`. They are interchangeable for
+        fulfilment, so when the product resolved from the payload has no
+        (or not enough) free stock in the order's warehouse, switch to a
+        member that has.
+
+        Selection, on free = quantity - reserved under lot_stock_id:
+          1. the resolved product, when it covers the line;
+          2. else the member with the most free stock that covers it;
+          3. else the member with the most free stock, when it has more
+             than the resolved product (partial cover beats none);
+          4. else the resolved product unchanged.
+        Ties are broken on id so the result never depends on search order.
         """
         if not product or not warehouse or not warehouse.lot_stock_id:
             return product
-
-        barcode = product.barcode or product.shopify_variant_sku
-        if not barcode:
+        product = product[:1]
+        if product.type == 'service':
             return product
 
-        siblings = self.env['product.product'].sudo().search([
+        # every code that identifies the physical item: the line SKU and
+        # both codes of the resolved product (an alias can carry a barcode
+        # of its own AND the master's code in shopify_variant_sku)
+        codes = {
+            (code or '').strip()
+            for code in (sku, product.shopify_variant_sku, product.barcode)
+        }
+        codes.discard('')
+        if not codes:
+            return product
+        codes = list(codes)
+
+        members = self.env['product.product'].sudo().search([
             '|',
-            ('barcode', '=', barcode),
-            ('shopify_variant_sku', '=', barcode),
-            ('id', 'not in', product.ids),
+            ('barcode', 'in', codes),
+            ('shopify_variant_sku', 'in', codes),
+            ('type', '!=', 'service'),
             ('company_id', 'in', [company_id, False]),
-        ])
-        if not siblings:
+        ]) | product
+        if len(members) == 1:
             return product
 
-        location = warehouse.lot_stock_id
-
-        def _free_qty(candidate):
-            quants = self.env['stock.quant'].sudo().search([
-                ('product_id', '=', candidate.id),
+        free = dict.fromkeys(members.ids, 0.0)
+        groups = self.env['stock.quant'].sudo()._read_group(
+            [
+                ('product_id', 'in', members.ids),
                 ('company_id', '=', company_id),
-                ('location_id', 'child_of', location.id),
-            ])
-            return (sum(quants.mapped('quantity'))
-                    - sum(quants.mapped('reserved_quantity')))
+                ('location_id', 'child_of', warehouse.lot_stock_id.id),
+            ],
+            ['product_id'],
+            ['quantity:sum', 'reserved_quantity:sum'],
+        )
+        for quant_product, quantity, reserved in groups:
+            free[quant_product.id] = (quantity or 0.0) - (reserved or 0.0)
 
-        # Keep the resolved product when it can cover the line itself.
-        if _free_qty(product) >= qty_needed:
+        own_free = free.get(product.id, 0.0)
+        if own_free >= qty_needed:
             return product
 
-        # Otherwise take the sibling with the most free stock that still
-        # covers the ordered quantity.
-        scored = [(candidate, _free_qty(candidate)) for candidate in siblings]
-        scored.sort(key=lambda item: item[1], reverse=True)
-        for candidate, free in scored:
-            if free >= qty_needed:
+        ranked = sorted(members, key=lambda p: (-free[p.id], p.id))
+        for candidate in ranked:
+            if free[candidate.id] >= qty_needed:
                 return candidate
+        best = ranked[0]
+        if free[best.id] > own_free:
+            return best
         return product
 
     def import_confirmed_orders_from_shopify(self, shopify_orders, instance,
@@ -625,7 +645,8 @@ class SaleOrderSync(models.TransientModel):
                         product_id = self._pick_product_with_stock(
                             product_id, order_warehouse,
                             shopify_instance.company_id.id,
-                            float(line['quantity']))
+                            float(line['quantity']),
+                            sku=line.get('sku'))
                         str_list = []
                         for desc_index in line['discount_allocations']:
                             discount_type = \
