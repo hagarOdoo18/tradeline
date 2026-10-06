@@ -164,6 +164,18 @@ class TestValuationReconciliation(TransactionCase):
         self.setup_gap(3, 3, 300)
         self.assert_result(self.wizard('cost', 0), 3, 0)
 
+    def test_clear_serial_value_without_rewriting_stored_cost(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        lot = self.env['stock.lot'].create({'name': 'VALUE-ONLY-NO-STOCK',
+            'product_id': self.product.id, 'company_id': self.company.id})
+        lot.with_context(disable_auto_svl=True).standard_price = 76492
+        self.setup_gap(0, 0, -0.01, lot=lot)
+        self.assert_result(self.wizard('keep', lot=lot), 0, 0)
+        self.assertAlmostEqual(lot.standard_price, 76492)
+        layer = self.product.stock_valuation_layer_ids.filtered(lambda record: record.is_valuation_reconciliation)
+        self.assertAlmostEqual(layer.value, 0.01)
+        self.assertAlmostEqual(layer.quantity, 0)
+
     def test_issue_buttons_open_same_product_scope(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})
         lot = self.env['stock.lot'].create({'name': 'ISSUE-AUTO', 'product_id': self.product.id, 'company_id': self.company.id})

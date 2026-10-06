@@ -200,7 +200,9 @@ class ValuationReconciliationWizard(models.TransientModel):
                 raise UserError(_('Reconciliation verification failed. Nothing was posted.'))
             if float_compare(sum(s[3] for s in after['layers']), current['physical'], precision_rounding=p.uom_id.rounding) or not self.company_id.currency_id.is_zero(sum(s[4] for s in after['layers']) - value):
                 raise UserError(_('The remaining valuation balance failed verification. Nothing was posted.'))
-            if self.lot_id:
+            # Clearing orphan value at zero physical stock is a value-only repair.
+            # Preserve the serial/lot's stored cost cache when no units remain.
+            if self.lot_id and current['physical'] > 0:
                 self.lot_id.sudo().with_company(self.company_id).with_context(disable_auto_svl=True).write({'standard_price': cost})
             p._sync_standard_price_from_valuation(self.company_id)
             self.write({'correction_layer_id': layer.id, 'state': 'done'})
