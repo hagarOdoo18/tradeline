@@ -283,8 +283,58 @@ class SyncCustomer(models.TransientModel):
         return (partners_by_mobile, countries_by_name, states_by_name,
                 synced_refs)
 
-    @staticmethod
-    def _shopify_customer_vals(customer, instance, countries_by_name,
+    # Egyptian national ID: 14 digits, century digit 2 (1900s) or 3 (2000s)
+    _NATIONAL_ID_RE = re.compile(r'(?<!\d)([23]\d{13})(?!\d)')
+
+    @classmethod
+    def _shopify_customer_national_id(cls, customer):
+        """Return the 14-digit national ID carried by a Shopify customer,
+        or False.
+
+        Shopify has no native field for it, so it is looked up where stores
+        usually put it, in this order:
+          1. `tax_exempt` (and `tax_exemptions`) -- this store's field;
+          2. the customer note;
+          3. the default address `company` / `address2` fields.
+        Arabic-Indic digits are normalised and separators (spaces, dashes)
+        removed before matching.
+        """
+        def _extract(value):
+            if not value:
+                return False
+            text = str(value).translate(str.maketrans(
+                '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
+            text = re.sub(r'[\s\-_.]', '', text)
+            match = cls._NATIONAL_ID_RE.search(text)
+            return match.group(1) if match else False
+
+        # 1. tax_exempt -- where this store keeps the national ID. Standard
+        #    Shopify sends a boolean there; True/False carry no ID and are
+        #    skipped. tax_exemptions (list) is checked with it.
+        tax_exempt = customer.get('tax_exempt')
+        if not isinstance(tax_exempt, bool):
+            national_id = _extract(tax_exempt)
+            if national_id:
+                return national_id
+        for exemption in customer.get('tax_exemptions') or []:
+            national_id = _extract(exemption)
+            if national_id:
+                return national_id
+
+        national_id = _extract(customer.get('note'))
+        if national_id:
+            return national_id
+
+        address = (customer.get('default_address')
+                   or (customer.get('addresses') or [{}])[0] or {})
+        for field in ('company', 'address2'):
+            national_id = _extract(address.get(field))
+            if national_id:
+                return national_id
+        return False
+
+    @classmethod
+    def _shopify_customer_vals(cls, customer, instance, countries_by_name,
                                states_by_name):
         """Build the res.partner values for one Shopify customer."""
         vals = {}
@@ -318,6 +368,11 @@ class SyncCustomer(models.TransientModel):
             'synced_customer': True,
             'company_id': instance.company_id.id,
         })
+        # only set when found: an empty value must never wipe a national ID
+        # already entered on an existing partner
+        national_id = cls._shopify_customer_national_id(customer)
+        if national_id:
+            vals['vat'] = national_id
         return vals
 
     def import_customers_from_shopify(self, shopify_customers, instance):

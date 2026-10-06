@@ -282,6 +282,192 @@ class SaleOrder(models.Model):
                              invoices.mapped('name')),
                     subtype_xmlid='mail.mt_note')
 
+    # ------------------------------------------------------------------
+    # Cancellation coming from Shopify: return + credit note, then cancel
+    # ------------------------------------------------------------------
+    def _shopify_cancel_context(self):
+        return self.with_company(self.company_id).with_context(
+            skip_shopify_write=True, disable_cancel_warning=True,
+            skip_sms=True, skip_backorder=True, cancel_backorder=False,
+            skip_immediate=True,
+            # automatic step: no Shopify Manager approval needed
+            shopify_skip_state_approval=True)
+
+    @staticmethod
+    def _shopify_returnable_qty(move):
+        """Quantity of a done move not returned yet (open returns count)."""
+        returned = sum(move.returned_move_ids.filtered(
+            lambda m: m.state != 'cancel').mapped('product_qty'))
+        return move.product_qty - returned
+
+    def _shopify_fill_return_lots(self, return_picking):
+        """Copy the lots / serials of the delivered move lines onto the
+        return moves, so a tracked product can be validated."""
+        for move in return_picking.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel')
+                and m.product_id.tracking != 'none'):
+            if move.move_line_ids and all(
+                    ml.lot_id for ml in move.move_line_ids):
+                continue
+            origin_lines = move.origin_returned_move_id.move_line_ids.filtered(
+                'lot_id')
+            if not origin_lines:
+                continue
+            move.move_line_ids.unlink()
+            remaining = move.product_uom_qty
+            vals_list = []
+            for line in origin_lines:
+                if remaining <= 0:
+                    break
+                qty = min(line.quantity, remaining)
+                remaining -= qty
+                vals_list.append({
+                    'move_id': move.id,
+                    'picking_id': return_picking.id,
+                    'product_id': move.product_id.id,
+                    'product_uom_id': move.product_uom.id,
+                    'lot_id': line.lot_id.id,
+                    'quantity': qty,
+                    'location_id': move.location_id.id,
+                    'location_dest_id': move.location_dest_id.id,
+                })
+            self.env['stock.move.line'].create(vals_list)
+
+    def _shopify_return_deliveries(self):
+        """Create and validate a return for every done delivery of the
+        order that still has something left to return.
+
+            stock.picking: the validated return pickings.
+        Raises UserError when a return cannot be validated."""
+        self.ensure_one()
+        order = self._shopify_cancel_context()
+        returns = self.env['stock.picking']
+        deliveries = order.picking_ids.filtered(
+            lambda p: p.state == 'done' and p.picking_type_code == 'outgoing'
+            and not p.move_ids.origin_returned_move_id)
+        for picking in deliveries:
+            wizard = order.env['stock.return.picking'].with_context(
+                dict(order.env.context, active_id=picking.id,
+                     active_ids=picking.ids, active_model='stock.picking')
+            ).create({'picking_id': picking.id})
+            to_return = False
+            for line in wizard.product_return_moves:
+                qty = self._shopify_returnable_qty(line.move_id) \
+                    if line.move_id else 0.0
+                line.quantity = max(qty, 0.0)
+                to_return = to_return or qty > 0
+            # nothing left to return (already returned earlier)
+            wizard.product_return_moves.filtered(
+                lambda l: l.quantity <= 0).unlink()
+            if not to_return or not wizard.product_return_moves:
+                continue
+            if hasattr(wizard, '_create_return'):
+                return_picking = wizard._create_return()
+            else:  # Odoo <= 16
+                return_picking = self.env['stock.picking'].browse(
+                    wizard._create_returns()[0])
+            return_picking = return_picking.with_context(order.env.context)
+            if return_picking.state == 'draft':
+                return_picking.action_confirm()
+            return_picking.action_assign()
+            self._shopify_fill_return_lots(return_picking)
+            for move in return_picking.move_ids.filtered(
+                    lambda m: m.state not in ('done', 'cancel')):
+                if float_compare(
+                        move.quantity, move.product_uom_qty,
+                        precision_rounding=move.product_uom.rounding) < 0:
+                    move.quantity = move.product_uom_qty
+                move.picked = True
+            return_picking.button_validate()
+            if return_picking.state != 'done':
+                raise UserError(
+                    'return %s of %s could not be validated (state: %s)' % (
+                        return_picking.name, picking.name,
+                        return_picking.state))
+            returns |= return_picking
+        return returns
+
+    def _shopify_refund_invoices(self):
+        """Create and post a full credit note for every posted customer
+        invoice of the order that is not reversed yet. An unpaid invoice is
+        reconciled with its credit note; a paid one keeps the credit note
+        open as a customer credit to refund.
+
+            account.move: the posted credit notes."""
+        self.ensure_one()
+        order = self._shopify_cancel_context()
+        today = fields.Date.context_today(self)
+        credit_notes = self.env['account.move']
+        invoices = order.invoice_ids.filtered(
+            lambda m: m.move_type == 'out_invoice' and m.state == 'posted'
+            and m.payment_state != 'reversed')
+        for invoice in invoices:
+            reversals = getattr(invoice, 'reversal_move_ids', None)
+            if reversals is None:
+                reversals = getattr(invoice, 'reversal_move_id',
+                                    self.env['account.move'])
+            if reversals.filtered(lambda m: m.state == 'posted'):
+                continue
+            unpaid = invoice.payment_state == 'not_paid'
+            refund = invoice.with_context(order.env.context)._reverse_moves(
+                [{
+                    'ref': 'Reversal of %s - Shopify order %s cancelled' % (
+                        invoice.name, order.reference_number or order.name),
+                    'invoice_date': today,
+                    'date': today,
+                }],
+                cancel=unpaid)
+            drafts = refund.filtered(lambda m: m.state == 'draft')
+            if drafts:
+                drafts.action_post()
+            credit_notes |= refund
+        return credit_notes
+
+    def _shopify_cancel_from_shopify(self, reason=None):
+        """Cancel an order that was cancelled in Shopify.
+
+        Delivered goods are returned (validated return picking) and posted
+        invoices get a credit note before the order itself is cancelled.
+        All or nothing: raises UserError on the first failure, the caller
+        rolls back to its savepoint.
+
+            dict: ``returns`` / ``credit_notes`` / ``cancelled_pickings``.
+        """
+        self.ensure_one()
+        order = self._shopify_cancel_context()
+        result = {
+            'returns': self.env['stock.picking'],
+            'credit_notes': self.env['account.move'],
+            'cancelled_pickings': self.env['stock.picking'],
+        }
+        if order.state == 'cancel':
+            return result
+        result['returns'] = order._shopify_return_deliveries()
+        result['credit_notes'] = order._shopify_refund_invoices()
+
+        open_pickings = order.picking_ids.filtered(
+            lambda p: p.state not in ('done', 'cancel'))
+        if getattr(order, 'locked', False):
+            order.action_unlock()
+        order.action_cancel()
+        if order.state != 'cancel':
+            raise UserError('Odoo did not cancel the order (state is still '
+                            '"%s").' % order.state)
+        result['cancelled_pickings'] = open_pickings.filtered(
+            lambda p: p.state == 'cancel')
+
+        parts = ['Cancelled from Shopify']
+        if reason:
+            parts.append('reason: %s' % reason)
+        if result['returns']:
+            parts.append('return %s validated' % ', '.join(
+                result['returns'].mapped('name')))
+        if result['credit_notes']:
+            parts.append('credit note %s posted' % ', '.join(
+                result['credit_notes'].mapped('name')))
+        order._shopify_log(' - '.join(parts) + '.')
+        return result
+
     @api.model
     def _cron_cancel_shopify_orders(self):
         """Scheduled action to cancel Odoo sale orders whose Shopify
@@ -322,11 +508,13 @@ class SaleOrder(models.Model):
                 order = sync.order_id
                 if order and order.state != 'cancel':
                     try:
-                        order.sudo().with_context(
-                            skip_shopify_write=True,
-                            disable_cancel_warning=True,
-                        ).action_cancel()
+                        with self.env.cr.savepoint():
+                            order.sudo()._shopify_cancel_from_shopify(
+                                each.get('cancel_reason'))
                     except Exception as error:
+                        self.env.invalidate_all()
+                        order.sudo()._shopify_log(
+                            'Shopify cancellation not applied - %s' % error)
                         _logger.error(
                             'Failed to cancel Odoo order %s for cancelled '
                             'Shopify order %s: %s',

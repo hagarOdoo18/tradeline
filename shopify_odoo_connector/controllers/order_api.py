@@ -697,10 +697,9 @@ class ShopifyOrderApi(http.Controller):
         """Cancel ``order`` and its open deliveries. Runs in a savepoint;
         raises `_OrderRejected` to roll back.
 
-        Refused (409) once goods left the warehouse or a customer invoice is
-        posted: cancelling the sale order would leave the validated picking
-        / posted invoice in place, so that case is handled by hand in Odoo
-        (return, credit note).
+        Validated deliveries are returned and posted invoices get a credit
+        note first (`sale.order._shopify_cancel_from_shopify`); any failure
+        there rejects the request (422) and rolls everything back.
         """
         # skip_shopify_write: the cancellation comes FROM Shopify, do not
         # push the order back. disable_cancel_warning: no wizard, cancel.
@@ -719,51 +718,22 @@ class ShopifyOrderApi(http.Controller):
                           cancelled_picking_ids=[])
             return 200, result
 
-        done = order.picking_ids.filtered(lambda p: p.state == 'done')
-        if done:
-            raise _OrderRejected(
-                'order_delivered',
-                'The order has validated deliveries (%s); it cannot be '
-                'cancelled from the API - handle it in Odoo with a return.'
-                % ', '.join(done.mapped('name')), 409,
-                picking_ids=done.ids)
-        posted = order.invoice_ids.filtered(lambda m: m.state == 'posted')
-        if posted:
-            raise _OrderRejected(
-                'order_invoiced',
-                'The order has posted invoices (%s); it cannot be cancelled '
-                'from the API - handle it in Odoo with a credit note.'
-                % ', '.join(posted.mapped('name')), 409,
-                invoice_ids=posted.ids)
-
-        open_pickings = order.picking_ids.filtered(
-            lambda p: p.state not in ('done', 'cancel'))
+        reason = data.get('cancel_reason')
         try:
-            order.action_cancel()
+            outcome = order._shopify_cancel_from_shopify(reason)
         except (UserError, ValidationError) as error:
             raise _OrderRejected('cancel_failed', str(error), 422)
-        if order.state != 'cancel':
-            raise _OrderRejected(
-                'cancel_failed',
-                'Odoo did not cancel the order (state is still "%s").'
-                % order.state, 422)
-
-        reason = data.get('cancel_reason')
-        note = 'Cancelled from Shopify through the order status API%s.' % (
-            ' (reason: %s)' % reason if reason else '')
-        try:
-            order.message_post(body=note)
-        except Exception:  # pragma: no cover - the chatter is best effort
-            _logger.exception('Could not post the cancel note on %s',
-                              order.name)
         self._log(instance, 'Shopify order %s: %s cancelled via the order '
                             'status API.' % (shopify_order_id, order.name))
 
         result.update(
             state=order.state,
             already_cancelled=False,
-            cancelled_picking_ids=open_pickings.filtered(
-                lambda p: p.state == 'cancel').ids,
+            cancelled_picking_ids=outcome['cancelled_pickings'].ids,
+            return_picking_ids=outcome['returns'].ids,
+            return_pickings=outcome['returns'].mapped('name'),
+            credit_note_ids=outcome['credit_notes'].ids,
+            credit_notes=outcome['credit_notes'].mapped('name'),
         )
         return 200, result
 
