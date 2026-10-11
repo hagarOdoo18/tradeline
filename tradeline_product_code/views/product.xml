@@ -34,6 +34,10 @@
                     <field name="e_invoicing_code" groups="tradeline_product_code.group_e_invoicing_data"/>
                     <!-- Add new fields here -->
                 </xpath>
+                <xpath expr="//field[@name='barcode']" position="after">
+                    <field name="standard_price" groups="inventory_customization.group_product_serial_admin"/>
+                    <!-- Add new fields here -->
+                </xpath>
 
             </field>
         </record>
