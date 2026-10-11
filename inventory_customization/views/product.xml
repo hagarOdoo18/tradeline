@@ -62,7 +62,7 @@
                   <field name="display_name"/>
                   <field name="product_template_variant_value_ids"  widget="many2many_tags" groups="product.group_product_variant" readonly="1"/>
                   <field name="lst_price"/>
-                  <field name="standard_price"/>
+                  <field name="standard_price" groups="inventory_customization.group_product_serial_admin"/>
                   <field name="qty_available"/>
                   <field name="virtual_available"/>
                   <field name="vendor_id"/>
