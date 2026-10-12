@@ -1,3 +1,7 @@
+import base64
+import io
+
+from openpyxl import Workbook
 from odoo import Command
 from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
@@ -138,3 +142,51 @@ class TestInventoryIntegrity(TransactionCase):
         with self.assertRaises(UserError):
             wizard.action_apply()
         self.assertAlmostEqual(self.product.quantity_svl, 0)
+
+    def test_excel_adjustment_posts_while_preexisting_valuation_gap_remains(self):
+        if 'import.stock.quant.wizard' not in self.env:
+            self.skipTest('Excel import module is not installed')
+
+        self.seed()
+        second_lot = self.env['stock.lot'].create({
+            'name': 'INTEGRITY-002', 'product_id': self.product.id,
+            'company_id': self.company.id, 'standard_price': 100,
+        })
+        # Reproduce unrelated legacy valuation history: physical 1, valued 10.
+        self.env['stock.valuation.layer'].create({
+            'product_id': self.product.id, 'company_id': self.company.id,
+            'quantity': 9, 'unit_cost': 100, 'value': 900,
+        })
+        self.env.flush_all()
+        self.assertAlmostEqual(self.product.quantity_svl, 10)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['Location', 'Item Code', 'Quantity', 'Serial'])
+        sheet.append([self.location.complete_name, 'INTEGRITY-SKU', 1, second_lot.name])
+        self.product.barcode = 'INTEGRITY-SKU'
+        stream = io.BytesIO()
+        workbook.save(stream)
+        wizard = self.env['import.stock.quant.wizard'].create({
+            'file': base64.b64encode(stream.getvalue()),
+            'filename': 'integrity-adjustment.xlsx',
+            'company_id': self.company.id,
+        })
+
+        wizard.action_preview()
+        wizard.action_apply()
+
+        self.env.flush_all()
+        physical = sum(self.env['stock.quant'].search([
+            ('product_id', '=', self.product.id), ('company_id', '=', self.company.id),
+            ('location_id', '=', self.location.id),
+        ]).mapped('quantity'))
+        self.assertAlmostEqual(physical, 2)
+        self.assertAlmostEqual(self.product.quantity_svl, 11)
+        # The import posted its own +1 movement but did not repair the old +9 gap.
+        self.assertAlmostEqual(self.product.quantity_svl - physical, 9)
+        issues = self.env['stock.inventory.integrity.issue'].search([
+            ('product_id', '=', self.product.id),
+        ])
+        self.assertTrue(any('Physical / valuation quantity mismatch' in issue.issue for issue in issues))
+        self.assertEqual(wizard.state, 'done')

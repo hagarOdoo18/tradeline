@@ -155,7 +155,8 @@ class ImportStockQuantWizard(models.TransientModel):
                 raise UserError(_('Stock changed since Preview at row %(row)s. Preview the file again.', row=line.row_no))
             line.product_id._apply_counted_inventory(
                 self.company_id, line.location_id, current + line.quantity, lot=line.lot_id,
-                reason=_('Excel stock adjustment: %(file)s, row %(row)s', file=self.filename or '', row=line.row_no))
+                reason=_('Excel stock adjustment: %(file)s, row %(row)s', file=self.filename or '', row=line.row_no),
+                allow_existing_valuation_issues=True)
 
         self.state = 'done'
 

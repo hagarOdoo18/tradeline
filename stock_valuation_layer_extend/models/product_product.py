@@ -67,11 +67,15 @@ class ProductProduct(models.Model):
                     raise UserError(_('Serial/lot %(lot)s has an invalid or inconsistent cost. Correct its cost before changing quantity.',
                                       lot=lot.display_name))
 
-    def _apply_counted_inventory(self, company, location, counted_quantity, lot=None, reason=None):
+    def _apply_counted_inventory(self, company, location, counted_quantity, lot=None, reason=None,
+                                 allow_existing_valuation_issues=False):
         """Private common posting path used by legacy count and delta tools.
 
         Existing approved positive costs are used. Unknown costs require the
         Count & Cost wizard. No direct physical quantity writes are permitted.
+        Some established stock import workflows may explicitly allow a count
+        while a pre-existing valuation issue is open. The stock move still
+        posts through Odoo normally; this option never reconciles old layers.
         """
         self.ensure_one()
         product = self.with_company(company).with_context(to_date=False, disable_auto_svl=False)
@@ -95,7 +99,8 @@ class ProductProduct(models.Model):
         if counted_quantity < 0 or (product.tracking == 'serial' and counted_quantity not in (0, 1)):
             raise UserError(_('Counts cannot be negative; a serial must have a final count of 0 or 1.'))
         product._lock_inventory_adjustment(company)
-        product._check_inventory_valuation_integrity(company)
+        if not allow_existing_valuation_issues:
+            product._check_inventory_valuation_integrity(company)
         Quant = self.env['stock.quant'].sudo().with_company(company).with_context(to_date=False, disable_auto_svl=False)
         domain = [('product_id', '=', self.id), ('company_id', '=', company.id),
                   ('location_id', '=', location.id), ('lot_id', '=', lot.id or False)]
@@ -129,7 +134,8 @@ class ProductProduct(models.Model):
             })
         if quants.with_context(inventory_name=reason or _('Controlled legacy inventory adjustment')).action_apply_inventory():
             raise UserError(_('Inventory conflict requires review. The adjustment was not posted.'))
-        product._check_inventory_valuation_integrity(company)
+        if not allow_existing_valuation_issues:
+            product._check_inventory_valuation_integrity(company)
         if float_compare(quants.quantity, counted_quantity, precision_rounding=product.uom_id.rounding):
             raise UserError(_('The posted count differs from the requested count.'))
         layers = product.sudo().stock_valuation_layer_ids.filtered(lambda s: s.company_id == company) - before_layers
