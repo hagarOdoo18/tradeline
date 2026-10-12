@@ -80,9 +80,7 @@
                                            optional="show"
                                            string="New Lot/Serial"
                                            invisible="tracking == 'none' or not tracking or lot_id"/>
-                                    <field name="operation" widget="badge"
-                                           decoration-success="operation == 'add'"
-                                           decoration-danger="operation == 'subtract'"/>
+                                    <field name="operation" widget="selection_badge"/>
                                     <field name="qty" string="Qty" required="1"/>
 
                                     <!-- Draft: show live preview -->
