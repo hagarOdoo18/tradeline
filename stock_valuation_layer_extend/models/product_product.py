@@ -10,13 +10,20 @@ class ProductProduct(models.Model):
     _inherit = 'product.product'
 
     def _lock_inventory_adjustment(self, company):
-        """Serialize controlled adjustments, including cost-only changes."""
+        """Serialize controlled adjustments, including cost-only changes.
+
+        FOR NO KEY UPDATE, not FOR UPDATE: it still serializes adjustments
+        against each other, but does not conflict with the FOR KEY SHARE lock
+        PostgreSQL takes on product_product when any row referencing the
+        product is inserted (stock.quant, stock.move.line, ...). FOR UPDATE
+        blocked picking validation / POS for the whole length of an import.
+        """
         self.ensure_one()
         if company not in self.env.user.company_ids:
             raise UserError(_('You cannot adjust inventory for this company.'))
-        self.env.cr.execute('SELECT id FROM product_product WHERE id = %s FOR UPDATE', (self.id,))
+        self.env.cr.execute('SELECT id FROM product_product WHERE id = %s FOR NO KEY UPDATE', (self.id,))
         self.env.cr.execute(
-            'SELECT id FROM stock_quant WHERE product_id = %s AND company_id = %s ORDER BY id FOR UPDATE',
+            'SELECT id FROM stock_quant WHERE product_id = %s AND company_id = %s ORDER BY id FOR NO KEY UPDATE',
             (self.id, company.id),
         )
         self.env.invalidate_all()
