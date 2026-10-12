@@ -71,10 +71,9 @@ class ProductProduct(models.Model):
                                  allow_existing_valuation_issues=False):
         """Private common posting path used by legacy count and delta tools.
 
-        Existing approved positive costs are used. Unknown costs require the
-        Count & Cost wizard. No direct physical quantity writes are permitted.
-        Some established stock import workflows may explicitly allow a count
-        while a pre-existing valuation issue is open. The stock move still
+        Controlled counts require a positive cost when adding stock. Established
+        Excel imports can explicitly allow existing valuation/cost issues and
+        use Odoo's native valuation, including zero cost. The stock move still
         posts through Odoo normally; this option never reconciles old layers.
         """
         self.ensure_one()
@@ -119,7 +118,7 @@ class ProductProduct(models.Model):
                 ('quantity', '>', 0)]):
             raise UserError(_('This serial is already in stock elsewhere. Use an internal transfer.'))
         cost = lot.with_company(company).standard_price if lot and product.lot_valuated else product.standard_price
-        if difference > 0 and cost <= 0:
+        if not allow_existing_valuation_issues and difference > 0 and cost <= 0:
             raise UserError(_('Adding stock requires a positive documented cost. Use Count & Cost Adjustment.'))
         before_layers = product.sudo().stock_valuation_layer_ids.filtered(lambda s: s.company_id == company)
         before_qty, before_value, before_cost = product.sudo().quantity_svl, product.sudo().value_svl, product.sudo().standard_price

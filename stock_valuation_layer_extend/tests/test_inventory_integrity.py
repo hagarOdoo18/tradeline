@@ -190,3 +190,43 @@ class TestInventoryIntegrity(TransactionCase):
         ])
         self.assertTrue(any('Physical / valuation quantity mismatch' in issue.issue for issue in issues))
         self.assertEqual(wizard.state, 'done')
+
+    def test_excel_new_serial_with_zero_cost_posts_and_remains_an_issue(self):
+        if 'import.stock.quant.wizard' not in self.env:
+            self.skipTest('Excel import module is not installed')
+
+        self.product.with_context(disable_auto_svl=True).write({
+            'barcode': 'INTEGRITY-ZERO-SKU', 'standard_price': 0,
+        })
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(['Location', 'Item Code', 'Quantity', 'Serial'])
+        sheet.append([self.location.complete_name, self.product.barcode, 1, 'INTEGRITY-ZERO-001'])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        wizard = self.env['import.stock.quant.wizard'].create({
+            'file': base64.b64encode(stream.getvalue()),
+            'filename': 'zero-cost-serial.xlsx', 'company_id': self.company.id,
+        })
+
+        wizard.action_preview()
+        self.assertEqual(wizard.line_ids.error_msg, 'Serial Not Found')
+        wizard.create_lots()
+        self.assertAlmostEqual(wizard.line_ids.lot_id.standard_price, 0)
+        wizard.action_apply()
+
+        self.env.flush_all()
+        quant = self.env['stock.quant'].search([
+            ('product_id', '=', self.product.id), ('company_id', '=', self.company.id),
+            ('location_id', '=', self.location.id), ('lot_id', '=', wizard.line_ids.lot_id.id),
+        ])
+        self.assertAlmostEqual(quant.quantity, 1)
+        self.assertAlmostEqual(self.product.quantity_svl, 1)
+        self.assertAlmostEqual(self.product.value_svl, 0)
+        self.assertAlmostEqual(wizard.line_ids.lot_id.standard_price, 0)
+        self.assertEqual(wizard.state, 'done')
+        self.assertTrue(self.product.stock_valuation_layer_ids.filtered('stock_move_id'))
+        issues = self.env['stock.inventory.integrity.issue'].search([
+            ('product_id', '=', self.product.id),
+        ])
+        self.assertTrue(any('Zero or negative inventory value' in issue.issue for issue in issues))
