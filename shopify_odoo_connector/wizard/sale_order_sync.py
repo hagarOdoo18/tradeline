@@ -708,6 +708,13 @@ class SaleOrderSync(models.TransientModel):
                                             refund_line['quantity']
                         line_vals_list.append(line_vals)
 
+                    # orders served from the instance's default warehouse
+                    # carry the Shopify shipping charge as an untaxed line
+                    shipping_vals = self._shopify_shipping_line_vals(
+                        each, so, order_warehouse, shopify_instance, currency)
+                    if shipping_vals:
+                        line_vals_list.append(shipping_vals)
+
                     if float(each['current_total_discounts']) != 0.00:
                         discount_lines = each['current_total_discounts_set']
                         product_id = self.env.ref(
@@ -789,6 +796,55 @@ class SaleOrderSync(models.TransientModel):
                     except Exception as error:
                         self._log_confirmed_order_failure(
                             savepoint, each, instance, error)
+
+    SHOPIFY_SHIPPING_PRODUCT_CODE = 'Shipping/1'
+
+    def _shopify_shipping_line_vals(self, order, sale_order, warehouse,
+                                    instance, currency):
+        """Sale-order-line vals for the order's Shopify shipping charge.
+
+        Only orders assigned to the instance's default warehouse get the
+        line; branch / pickup orders don't. The amount is the sum of the
+        payload's shipping_lines[].price and the line is never taxed.
+        Returns None when there is nothing to add or the product with
+        internal reference 'Shipping/1' does not exist (logged).
+        """
+        if not warehouse or warehouse != instance.warehouse_id:
+            return None
+        shipping_lines = order.get('shipping_lines') or []
+        price = sum(float(line.get('price') or 0.0)
+                    for line in shipping_lines)
+        if not price:
+            return None
+        product = self.env['product.product'].sudo().search([
+            ('barcode', '=', self.SHOPIFY_SHIPPING_PRODUCT_CODE),
+            ('company_id', 'in', [instance.company_id.id, False]),
+        ], limit=1)
+        if not product:
+            self.env['log.message'].sudo().create([{
+                'name': ' Order : %s shipping line (%s) skipped - no product'
+                        ' with internal reference %s.' % (
+                            order.get('name'), price,
+                            self.SHOPIFY_SHIPPING_PRODUCT_CODE),
+                'shopify_instance_id': instance.id,
+                'model': 'sale.order',
+            }])
+            return None
+        title = ', '.join(line.get('title') for line in shipping_lines
+                          if line.get('title'))
+        return {
+            'product_id': product.id,
+            'name': title or product.display_name,
+            'price_unit': price,
+            'product_uom_qty': 1,
+            'currency_id': currency.id,
+            'discount': 0,
+            'tax_id': [(6, 0, [])],
+            'shopify_line_ref': '',
+            'shopify_instance_id': instance.id,
+            'order_id': sale_order.id,
+            'company_id': instance.company_id.id,
+        }
 
     # ------------------------------------------------------------------
     # order payload helpers
@@ -909,6 +965,8 @@ class SaleOrderSync(models.TransientModel):
                 ('shopify_sync_ids.instance_id', '=', instance.id),
             ] + company_domain, limit=1)
             if partner:
+                self._shopify_update_partner_vat(
+                    partner, customer, billing or shipping, order, instance)
                 return partner
 
         details = dict(customer)
@@ -951,6 +1009,11 @@ class SaleOrderSync(models.TransientModel):
             })
             partner = Partner.create(partner_vals)
             created = True
+        # national ID -> vat (customer vat / note / address company,
+        # address2). Written after create so a vat Odoo refuses is logged
+        # instead of failing the whole order.
+        self._shopify_update_partner_vat(
+            partner, details, billing or shipping, order, instance)
 
         if customer_ref and not partner.shopify_sync_ids.filtered(
                 lambda sync: sync.instance_id == instance
@@ -968,6 +1031,33 @@ class SaleOrderSync(models.TransientModel):
                 'model': 'res.partner',
             }])
         return partner
+
+    def _shopify_update_partner_vat(self, partner, customer, address,
+                                    order, instance):
+        """Write the national ID carried by the Shopify customer to an
+        existing partner's vat when it differs.
+
+        Nothing is written when the payload carries no national ID, so an
+        order never clears a vat. A vat Odoo refuses (e.g. VAT validation)
+        is logged and skipped -- the order itself must still import.
+        """
+        national_id = self.env[
+            'sync.customer']._shopify_customer_national_id(
+            dict(customer, default_address=(
+                customer.get('default_address') or address or {})))
+        if not national_id or partner.vat == national_id:
+            return
+        try:
+            with self.env.cr.savepoint():
+                partner.with_context(shopify_no_export=True).sudo().write(
+                    {'vat': national_id})
+        except Exception as error:  # noqa: BLE001
+            self.env['log.message'].sudo().create([{
+                'name': 'Order %s: vat %s not written to customer %s: %s' % (
+                    order.get('name'), national_id, partner.name, error),
+                'shopify_instance_id': instance.id,
+                'model': 'res.partner',
+            }])
 
     def _log_confirmed_order_failure(self, savepoint, order, instance, error):
         """Roll one Shopify order back and record why it failed.

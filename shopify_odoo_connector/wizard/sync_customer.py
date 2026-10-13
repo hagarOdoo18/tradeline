@@ -293,7 +293,7 @@ class SyncCustomer(models.TransientModel):
 
         Shopify has no native field for it, so it is looked up where stores
         usually put it, in this order:
-          1. `tax_exempt` (and `tax_exemptions`) -- this store's field;
+          1. `vat` -- this store's field;
           2. the customer note;
           3. the default address `company` / `address2` fields.
         Arabic-Indic digits are normalised and separators (spaces, dashes)
@@ -308,18 +308,10 @@ class SyncCustomer(models.TransientModel):
             match = cls._NATIONAL_ID_RE.search(text)
             return match.group(1) if match else False
 
-        # 1. tax_exempt -- where this store keeps the national ID. Standard
-        #    Shopify sends a boolean there; True/False carry no ID and are
-        #    skipped. tax_exemptions (list) is checked with it.
-        tax_exempt = customer.get('tax_exempt')
-        if not isinstance(tax_exempt, bool):
-            national_id = _extract(tax_exempt)
-            if national_id:
-                return national_id
-        for exemption in customer.get('tax_exemptions') or []:
-            national_id = _extract(exemption)
-            if national_id:
-                return national_id
+        # 1. vat -- where this store keeps the national ID.
+        national_id = _extract(customer.get('vat'))
+        if national_id:
+            return national_id
 
         national_id = _extract(customer.get('note'))
         if national_id:
