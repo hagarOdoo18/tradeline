@@ -8,21 +8,42 @@
                 <field name="state" widget="statusbar"/>
                 <field name="filename" invisible="1"/>
                 <group>
-                    <field name="company_id"/>
-                    <field name="file" filename="filename"/>
+                    <field name="company_id" readonly="state not in ('draft', 'preview')"/>
+                    <field name="file" filename="filename" readonly="state not in ('draft', 'preview')"/>
+                </group>
+                <div class="alert alert-success" role="status" invisible="state != 'done'">
+                    Import completed. Review Result / Note for any skipped rows.
+                    Serials already in stock are skipped so uploading the file again does not duplicate stock.
+                </div>
+                <div class="alert alert-info" role="status" invisible="state != 'processing'">
+                    Import is running in the background. You can close this window.
+                    Reopen it from Products / Stock Import History and click Refresh to see progress.
+                    Each completed batch updates stock and valuation together.
+                </div>
+                <div class="alert alert-warning" role="alert" invisible="state != 'failed'">
+                    This import paused. Completed batches remain saved; the failing batch was not posted.
+                    Review the message below before retrying. Do not upload the whole file again for untracked products.
+                    <field name="processing_error" readonly="1"/>
+                </div>
+                <group invisible="state in ('draft', 'preview')">
+                    <field name="applied_rows"/>
+                    <field name="skipped_rows"/>
+                    <field name="remaining_rows"/>
                 </group>
                 <footer>
-                    <button name="action_preview" type="object" string="Preview" class="btn-primary" invisible="state == 'done'"/>
+                    <button name="action_preview" type="object" string="Preview" class="btn-primary" invisible="state not in ('draft', 'preview')"/>
                     <button name="action_remove_invalid_lines" type="object" string="Remove Invalid Lines" invisible="state != 'preview'"
                            />
                     <button name="action_apply" type="object" string="Apply" invisible="state != 'preview'"
                            />
                     <button name="create_lots" type="object" string="Create Lots" invisible="state != 'preview'"
                            />
+                    <button name="action_refresh" type="object" string="Refresh" invisible="state not in ('processing', 'failed')"/>
+                    <button name="action_retry" type="object" string="Retry Remaining Rows" invisible="state != 'failed'"/>
                     <button string="Close" class="btn-secondary" special="cancel"/>
                 </footer>
-                <field name="line_ids">
-                    <list>
+                <field name="line_ids" readonly="1">
+                    <list decoration-muted="skipped" create="0" delete="0">
                         <field name="row_no"/>
                         <field name="item_code"/>
                         <field name="location_name"/>
@@ -31,14 +52,42 @@
                         <field name="projected_quantity"/>
                         <field name="serial"/>
                         <field name="is_valid"/>
+                        <field name="skipped"/>
+                        <field name="result_note"/>
                         <field name="error_msg"/>
-                        <button name="create_lot" type="object" string="Create Lot" invisible="not serial"
+                        <field name="processed" optional="hide"/>
+                        <button name="create_lot" type="object" string="Create Lot" invisible="not serial or parent.state != 'preview'"
                            />
                     </list>
                 </field>
             </form>
         </field>
     </record>
+
+    <record id="view_stock_import_history_list" model="ir.ui.view">
+        <field name="name">import.stock.quant.wizard.list</field>
+        <field name="model">import.stock.quant.wizard</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="state == 'failed'" decoration-success="state == 'done'">
+                <field name="create_date"/>
+                <field name="filename"/>
+                <field name="create_uid"/>
+                <field name="company_id"/>
+                <field name="state"/>
+                <field name="applied_rows"/>
+                <field name="skipped_rows"/>
+                <field name="remaining_rows"/>
+            </list>
+        </field>
+    </record>
+    <record id="action_stock_import_history" model="ir.actions.act_window">
+        <field name="name">Stock Import History</field>
+        <field name="res_model">import.stock.quant.wizard</field>
+        <field name="view_mode">list,form</field>
+    </record>
+    <menuitem id="menu_stock_import_history" name="Stock Import History"
+              parent="stock.menu_stock_inventory_control" action="action_stock_import_history"
+              groups="import_stock_quant_excel.group_import_stock_quant"/>
 
 
     <record id="action_import_stock_quant" model="ir.actions.act_window">

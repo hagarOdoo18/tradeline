@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="rule_stock_import_company" model="ir.rule">
+        <field name="name">Stock imports: allowed companies</field>
+        <field name="model_id" ref="model_import_stock_quant_wizard"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_stock_import_owner" model="ir.rule">
+        <field name="name">Stock imports: own imports</field>
+        <field name="model_id" ref="model_import_stock_quant_wizard"/>
+        <field name="groups" eval="[(4, ref('group_import_stock_quant'))]"/>
+        <field name="domain_force">[('create_uid', '=', user.id)]</field>
+    </record>
+    <record id="rule_stock_import_admin" model="ir.rule">
+        <field name="name">Stock imports: administrator review</field>
+        <field name="model_id" ref="model_import_stock_quant_wizard"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+    <record id="rule_stock_import_line_company" model="ir.rule">
+        <field name="name">Stock import rows: allowed companies</field>
+        <field name="model_id" ref="model_import_stock_quant_line"/>
+        <field name="domain_force">[('wizard_id.company_id', 'in', company_ids)]</field>
+    </record>
+    <record id="rule_stock_import_line_owner" model="ir.rule">
+        <field name="name">Stock import rows: own imports</field>
+        <field name="model_id" ref="model_import_stock_quant_line"/>
+        <field name="groups" eval="[(4, ref('group_import_stock_quant'))]"/>
+        <field name="domain_force">[('wizard_id.create_uid', '=', user.id)]</field>
+    </record>
+    <record id="rule_stock_import_line_admin" model="ir.rule">
+        <field name="name">Stock import rows: administrator review</field>
+        <field name="model_id" ref="model_import_stock_quant_line"/>
+        <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+    </record>
+</odoo>
