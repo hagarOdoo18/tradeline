@@ -83,8 +83,11 @@ GRAPHQL_INVENTORY_MIN_VERSION = (2024, 7)
 # available whatever the instance field says.
 #
 # Only the inventory push uses this; every other call still uses the
-# instance's own version. Raise it when it leaves Shopify's support window.
-INVENTORY_API_VERSION = '2025-10'
+# instance's own version. Raise it when it leaves Shopify's support window:
+# Shopify keeps each quarterly version accessible for 12 months, and 2025-10
+# stopped being accessible on 2026-10-16 15:00 UTC. 2026-10 runs to
+# 2027-10-16; check shopify.dev/docs/api/usage/versioning before then.
+INVENTORY_API_VERSION = '2026-10'
 SHOPIFY_TIMEOUT = 30
 # Transient failures to ride out: a dropped keep-alive connection, a gateway
 # that could not reach Shopify ("upstream connect error", 502/503/504) and

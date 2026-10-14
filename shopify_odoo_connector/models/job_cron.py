@@ -31,10 +31,21 @@ from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
-# How long one _do_job tick may keep draining the queue. The cron fires every
-# minute; ir.cron holds a row lock on the cron record for the whole callback,
-# so a tick that overruns delays the next one rather than running beside it.
-JOB_BUDGET_SECONDS = 50
+# How long one _do_job tick may keep draining the queue, overridable per
+# database with the system parameter
+# 'shopify_odoo_connector.job_budget_seconds' (see _job_budget_seconds).
+#
+# The budget is only checked *between* jobs, and the inventory producer splits
+# a pass into at most INVENTORY_MAX_JOBS (5) large jobs - 600 groups each at a
+# 3000-group catalogue. A budget shorter than one job's run therefore means
+# one job per tick, and five jobs take five minutes of waiting whatever the
+# work itself costs. That is what 50s did here.
+#
+# Longer than the 1-minute cron interval on purpose: ir.cron holds a row lock
+# on the cron record (SELECT ... FOR UPDATE NOWAIT) for the whole callback, so
+# a tick that outlives the interval makes the next trigger skip rather than
+# run beside it.
+JOB_BUDGET_SECONDS = 240
 
 # Postgres raises these when two transactions wrote the same row and this one
 # lost the race. Nothing is wrong with the job itself: the same work replayed
@@ -101,10 +112,10 @@ class JobCron(models.Model):
     def _do_job(self):
         """Method to do cron jobs for exporting and importing data.
 
-        Drains the pending queue for up to JOB_BUDGET_SECONDS instead of
-        running a single job per tick. Processing one job per minute could
-        never keep up with a producer that queues one batch per 20 records —
-        the backlog only grew.
+        Drains the pending queue for as long as :meth:`_job_budget_seconds`
+        allows instead of running a single job per tick. Processing one job
+        per minute could never keep up with a producer that queues a batch
+        per 20 records — the backlog only grew.
 
         Each job runs, and is committed, in a transaction of its own, so a
         failure never rolls back the jobs already done in this tick. A job
@@ -117,9 +128,10 @@ class JobCron(models.Model):
         and left the rest of the queue waiting for the next minute.
         """
         start = time.monotonic()
+        budget = self._job_budget_seconds()
         processed = failed = 0
         after_id = 0
-        while time.monotonic() - start < JOB_BUDGET_SECONDS:
+        while time.monotonic() - start < budget:
             job_id = self._next_pending_id(after_id)
             if not job_id:
                 break
@@ -142,10 +154,30 @@ class JobCron(models.Model):
                     'updates after %d attempts, left pending for the next '
                     'run', job_id, MAX_ATTEMPTS)
                 break
+        elapsed = time.monotonic() - start
         if processed or failed:
             _logger.info(
-                'Shopify job queue: %d job(s) done, %d failed in %.1fs',
-                processed, failed, time.monotonic() - start)
+                'Shopify job queue: %d job(s) done, %d failed in %.1fs '
+                '(budget %.0fs%s)', processed, failed, elapsed, budget,
+                ', spent' if elapsed >= budget else '')
+
+    @api.model
+    def _job_budget_seconds(self):
+        """How long one tick may keep draining, in seconds.
+
+        Tunable per database with the system parameter
+        'shopify_odoo_connector.job_budget_seconds'; a missing or unusable
+        value falls back to JOB_BUDGET_SECONDS. It has to exceed the run time
+        of a single job, or the queue advances one job per tick - see the
+        note on the constant.
+        """
+        try:
+            budget = float(self.env['ir.config_parameter'].sudo().get_param(
+                'shopify_odoo_connector.job_budget_seconds',
+                JOB_BUDGET_SECONDS))
+        except (TypeError, ValueError):
+            budget = JOB_BUDGET_SECONDS
+        return budget if budget > 0 else JOB_BUDGET_SECONDS
 
     @api.model
     def _next_pending_id(self, after_id=0):
