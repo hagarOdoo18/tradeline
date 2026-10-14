@@ -91,6 +91,7 @@
                             <field name="company_id"/>
                             <field name="warehouse_id"/>
                             <field name="default_sale_tax_id"/>
+                            <field name="confirmed_order_sync_hours"/>
                         </group>
                         <group string="Token Status">
                             <field name="access_token" readonly="1"

@@ -21,6 +21,7 @@
 #
 ################################################################################
 import dateutil.parser
+from datetime import datetime, timedelta
 import json
 import logging
 import pytz
@@ -116,33 +117,49 @@ class SaleOrderSync(models.TransientModel):
     @api.model
     def _cron_sync_confirmed_orders(self):
         """Scheduled action to import confirmed orders from Shopify for all
-        active connected instances. Mirrors the manual 'From Shopify ->
-        Confirmed Orders' wizard flow: for each instance a transient
-        sale.order.sync record is created and sync_confirmed_orders is
-        called, which queues import_confirmed_orders_from_shopify job.cron
-        records that _do_job then processes."""
+        active connected instances. Only orders created within the last
+        ``shopify.configuration.confirmed_order_sync_hours`` hours are
+        pulled (default 48). A value of 0 disables the time filter and
+        reverts to the full open-order walk."""
         instances = self.env['shopify.configuration'].search(
             [('company_id', '=', self.env.company.id)])
+        now_utc = datetime.utcnow()
         for instance in instances:
             try:
+                hours = instance.confirmed_order_sync_hours or 0
+                created_at_min = (
+                    (now_utc - timedelta(hours=hours)).strftime(
+                        '%Y-%m-%dT%H:%M:%SZ')
+                    if hours > 0 else None)
                 wizard = self.sudo().create({
                     'import_orders': 'odoo',
                     'shopify_instance_id': instance.id,
                     'type_order': 'confirmed',
                 })
-                wizard.sync_confirmed_orders(instance, wizard.id)
+                wizard.sync_confirmed_orders(
+                    instance, wizard.id,
+                    created_at_min=created_at_min)
             except Exception as error:
                 _logger.error(
                     'Failed to queue confirmed orders sync for Shopify '
                     'instance %s: %s', instance.name, str(error))
 
-    def sync_confirmed_orders(self, instance, ref):
-        """Method to create  jobs for importing confirmed orders."""
+    def sync_confirmed_orders(self, instance, ref, created_at_min=None):
+        """Method to create  jobs for importing confirmed orders.
+
+        :param created_at_min: optional ISO 8601 timestamp (e.g.
+            ``2026-10-12T11:56:00Z``). When set, only orders created at or
+            after this moment are fetched from Shopify. Shopify preserves
+            the filter on subsequent `page_info` pages, so it is only
+            applied to the first-page URL.
+        """
         model = self.env['ir.model'].search([('model', '=', "sale.order.sync")])
         store_name = instance.shop_name
         version = instance.version
         order_url = "https://%s/admin/api/%s/orders.json" % (
             store_name, version)
+        if created_at_min:
+            order_url = "%s?created_at_min=%s" % (order_url, created_at_min)
         payload = []
         headers = instance._get_shopify_headers()
         response = requests.request("GET", order_url,

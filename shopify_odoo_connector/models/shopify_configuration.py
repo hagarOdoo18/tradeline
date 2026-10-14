@@ -107,6 +107,11 @@ class ShopifyConfiguration(models.Model):
                                            help='Last customer synced date')
     order_last_synced = fields.Datetime(string='Order Last Synced',
                                         help='Last order synced date')
+    confirmed_order_sync_hours = fields.Integer(
+        string='Confirmed Order Sync Window (hours)', default=48,
+        help='The scheduled confirmed-order sync only pulls Shopify '
+             'orders created within the last N hours. Set to 0 to '
+             'disable the time filter and pull every open order.')
     state = fields.Selection([('new', 'Not Connected'),
                               ('sync', 'Connected'), ],
                              string='Status', readonly=True, index=True,
