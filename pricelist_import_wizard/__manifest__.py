@@ -1,7 +1,7 @@
 {
     'name': 'Pricelist Import Wizard',
-    'version': '18.0.2.0.0',
-    'summary': 'Import pricelist items from an Excel/CSV sheet',
+    'version': '18.0.3.0.0',
+    'summary': 'Import pricelist items from an Excel/CSV sheet, and clear them',
     'description': """
         Wizard to import product.pricelist.item records from a spreadsheet.
 
@@ -21,6 +21,9 @@
 
         Currency and company are inherited from the pricelist. A preview step
         resolves every row and reports warnings and errors before committing.
+
+        Also adds a "Clear Items" button on the pricelist form that deletes
+        every price rule of that pricelist, behind a confirmation dialog.
     """,
     'category': 'Sales/Sales',
     'author': 'Tradeline',
