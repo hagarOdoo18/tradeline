@@ -392,6 +392,20 @@ class SaleOrderSync(models.TransientModel):
 
             get_shopify_orders(list):list of dictionary with orders values.
         """
+        # Nothing an import does may be pushed back to Shopify. The order
+        # came FROM Shopify, so shopify_order_ref holds a real ORDER id, not
+        # a draft order's: the write() and action_confirm() overrides would
+        # PUT it to draft_orders/<ref>.json and
+        # draft_orders/<ref>/complete.json, which 404s at best and completes
+        # an unrelated draft order at worst.
+        #
+        # Set once here, where self.env carries it into every record this
+        # method touches (`sale_order = self.env['sale.order']` included), so
+        # every ORM write on the order is covered - there are four per order
+        # (shopify_order_ref, discount_id, action_confirm's own state write,
+        # and the explicit complete.json PUT) and each was a full HTTPS round
+        # trip with no timeout.
+        self = self.with_context(skip_shopify_write=True)
         wizard = self.env['sale.order.sync'].sudo().browse(ref)
         shopify_instance = instance
         store_name = instance.shop_name

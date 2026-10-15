@@ -27,6 +27,11 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import float_compare
 
+# Every Shopify call here gets this. A `requests` call with no timeout blocks
+# for ever, and these run inside a job.cron handler: one stalled connection
+# took the whole queue tick with it.
+SHOPIFY_TIMEOUT = 30
+
 _logger = logging.getLogger(__name__)
 
 
@@ -557,7 +562,8 @@ class SaleOrder(models.Model):
             })
             response = requests.request("POST", order_url,
                                         headers=instance._get_shopify_headers(),
-                                        data=payload)
+                                        data=payload,
+                                        timeout=SHOPIFY_TIMEOUT)
             response_rec = response.json()
             if response_rec.get('draft_order'):
                 response_order_id = response_rec['draft_order']['id']
@@ -614,16 +620,18 @@ class SaleOrder(models.Model):
                                 "use_customer_default_address": True}})
             requests.request("PUT", order_complete_url,
                              headers=instance._get_shopify_headers(),
-                             data=payload)
+                             data=payload, timeout=SHOPIFY_TIMEOUT)
         return res
 
     def write(self, vals):
         super().write(vals)
+        if self._context.get('skip_shopify_write'):
+            return True
+        # Read the configurations once, not once per record per write.
+        configs = self.env['shopify.configuration'].search(
+            [('company_id', '=', self.env.company.id)])
         for rec in self:
-            if self._context.get('skip_shopify_write'):
-                return True
-            for config in self.env['shopify.configuration'].search(
-                    [('company_id', '=', self.env.company.id)]):
+            for config in configs:
                 if rec.shopify_sync_ids.shopify_order_ref:
                     order_url = ("https://%s/admin/api/%s/draft_orders/%s.json") % (
                         config.shop_name, config.version,
@@ -643,4 +651,8 @@ class SaleOrder(models.Model):
                     })
                     requests.request("PUT", order_url,
                                      headers=config._get_shopify_headers(),
-                                     data=payload)
+                                     data=payload, timeout=SHOPIFY_TIMEOUT)
+        # Odoo's write() contract: callers that test the result get a
+        # truthy value whether or not anything was pushed. The skip path
+        # already returned True; this path used to fall off the end as None.
+        return True
