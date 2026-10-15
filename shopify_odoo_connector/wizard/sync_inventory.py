@@ -97,6 +97,17 @@ SHOPIFY_RETRY_TOTAL = 4
 SHOPIFY_RETRY_BACKOFF = 1.0
 SHOPIFY_RETRY_STATUSES = (429, 500, 502, 503, 504)
 
+# GraphQL throttling is not an HTTP status. When the cost bucket is empty
+# Shopify answers the mutation with HTTP 200 and
+# errors[].extensions.code == 'THROTTLED', so the urllib3 retry above (which
+# only sees 429/5xx) never notices it. Retries and bucket pacing are handled
+# in _post_inventory_graphql / _graphql_throttle_pause instead.
+GRAPHQL_MAX_RETRIES = 3
+# Longest single pause while waiting for the bucket to refill.
+GRAPHQL_MAX_PAUSE = 5.0
+# Assumed cost of a chunk when Shopify did not tell us what it cost.
+GRAPHQL_ASSUMED_COST = 250
+
 # Bulk 'available' write, API version 2024-07 and later. One call carries
 # up to GRAPHQL_SET_CHUNK quantities, replacing that many REST POSTs.
 GRAPHQL_SET_QUANTITIES = '''
@@ -1184,18 +1195,95 @@ class SyncInventory(models.TransientModel):
                 pushed += 1
         return pushed, failures, retried
 
+    @staticmethod
+    def _graphql_throttle_pause(body, needed=None):
+        """Sleep while the GraphQL cost bucket cannot afford the next call.
+
+        Shopify's Admin GraphQL limit is a leaky bucket measured in points
+        (100/s restore on a standard plan), and every response carries what
+        the call cost and what is left. Pacing on that is what keeps a long
+        run of bulk mutations from being throttled in the first place.
+
+        Returns the number of seconds slept, for the tests and the log.
+        """
+        cost = (body.get('extensions') or {}).get('cost') or {}
+        status = cost.get('throttleStatus') or {}
+        available = status.get('currentlyAvailable')
+        if available is None:
+            return 0.0
+        restore = float(status.get('restoreRate') or 50) or 50.0
+        needed = needed or cost.get('requestedQueryCost') or GRAPHQL_ASSUMED_COST
+        if available >= needed:
+            return 0.0
+        pause = min(GRAPHQL_MAX_PAUSE, (needed - available) / restore)
+        if pause > 0:
+            time.sleep(pause)
+            return pause
+        return 0.0
+
+    def _post_inventory_graphql(self, session, url, headers, payload):
+        """POST one inventory mutation, waiting out Shopify's throttling.
+
+        Returns ``(body, error, throttled)``. `error` is None on success.
+        `throttled` marks the one failure the caller must NOT send to REST:
+        the bucket never recovered, and REST is the slower path, not a
+        rescue.
+        """
+        body = {}
+        for attempt in range(GRAPHQL_MAX_RETRIES + 1):
+            try:
+                resp = session.post(url, headers=headers, data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
+            except requests.exceptions.RequestException as err:
+                return body, str(err), False
+            if resp.status_code not in (200, 201):
+                return body, ('HTTP %s %s' % (
+                    resp.status_code, (resp.text or '').strip()[:300])), False
+            try:
+                body = resp.json() or {}
+            except ValueError:
+                return {}, 'unreadable response', False
+
+            errors = [error for error in (body.get('errors') or [])
+                      if isinstance(error, dict)]
+            if any((error.get('extensions') or {}).get('code') == 'THROTTLED'
+                   for error in errors):
+                if attempt >= GRAPHQL_MAX_RETRIES:
+                    return body, ('throttled by Shopify, still short of '
+                                  'cost after %d attempt(s)'
+                                  % (attempt + 1)), True
+                self._graphql_throttle_pause(body)
+                continue
+
+            user_errors = ((body.get('data') or {}).get(
+                'inventorySetQuantities') or {}).get('userErrors') or []
+            if body.get('errors') or user_errors:
+                return body, json.dumps(
+                    body.get('errors') or user_errors)[:300], False
+            return body, None, False
+        return body, 'throttled by Shopify', True
+
     def _graphql_set_levels(self, session, graphql_url, headers,
                             location_id, quantities):
         """Set `available` for many items at once (API 2024-07+).
 
-        Returns ``(pushed, leftover, failures)``: `leftover` holds the
-        quantities of any chunk the mutation could not place, so the
-        caller can fall back to the REST endpoint for those instead of
-        losing them.
+        Returns ``(pushed, leftover, failures)``. `leftover` holds the
+        quantities of a chunk that failed for a reason one-POST-per-item
+        can do better with - a single bad inventory item poisoning the
+        whole mutation, say - so the caller can fall back to REST and
+        isolate it.
+
+        A chunk Shopify **throttled** is deliberately not put in
+        `leftover`. REST is limited to about two requests a second, so
+        pushing a throttled 250-item chunk down that path costs around two
+        minutes; and because the cron re-publishes the whole catalogue
+        every pass, the chunk goes out again a few minutes later anyway.
+        Sending it to REST was what made a throttled push take so long.
         """
         pushed = 0
         leftover = {}
         failures = []
+        throttled_items = 0
         items = list((quantities or {}).items())
         for start in range(0, len(items), GRAPHQL_SET_CHUNK):
             chunk = items[start:start + GRAPHQL_SET_CHUNK]
@@ -1210,40 +1298,31 @@ class SyncInventory(models.TransientModel):
                     'quantity': int(available),
                 } for item, available in chunk],
             }}
-            error = None
-            try:
-                resp = session.post(
-                    graphql_url, headers=headers,
-                    data=json.dumps({'query': GRAPHQL_SET_QUANTITIES,
-                                     'variables': variables}),
-                    timeout=SHOPIFY_TIMEOUT)
-            except requests.exceptions.RequestException as err:
-                error = str(err)
-            else:
-                if resp.status_code not in (200, 201):
-                    error = 'HTTP %s %s' % (resp.status_code,
-                                            (resp.text or '').strip()[:300])
-                else:
-                    try:
-                        body = resp.json() or {}
-                    except ValueError:
-                        body = {}
-                        error = 'unreadable response'
-                    if not error:
-                        user_errors = (
-                            (body.get('data') or {}).get(
-                                'inventorySetQuantities') or {}
-                        ).get('userErrors') or []
-                        if body.get('errors') or user_errors:
-                            error = json.dumps(
-                                body.get('errors') or user_errors)[:300]
+            body, error, throttled = self._post_inventory_graphql(
+                session, graphql_url, headers,
+                json.dumps({'query': GRAPHQL_SET_QUANTITIES,
+                            'variables': variables}))
+            if error and throttled:
+                throttled_items += len(chunk)
+                failures.append(
+                    'bulk set of %d item(s) at location %s: %s - left for '
+                    'the next pass' % (len(chunk), location_id, error))
+                continue
             if error:
                 failures.append(
                     'bulk set of %d item(s) at location %s: %s - retried '
                     'one by one' % (len(chunk), location_id, error))
                 leftover.update(dict(chunk))
-            else:
-                pushed += len(chunk)
+                continue
+            pushed += len(chunk)
+            # Pace the next chunk against the bucket this response reported,
+            # so the run slows down a little instead of being throttled.
+            self._graphql_throttle_pause(body)
+        if throttled_items:
+            _logger.warning(
+                'Inventory push: %d quantity(ies) at location %s left for '
+                'the next pass after Shopify throttling', throttled_items,
+                location_id)
         return pushed, leftover, failures
 
     # ------------------------------------------------------------------
