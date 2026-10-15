@@ -120,7 +120,8 @@ class ProductTemplate(models.Model):
             })
             response = requests.request('POST', product_url,
                                         headers=instance._get_shopify_headers(),
-                                        data=payload)
+                                        data=payload,
+                                        timeout=SHOPIFY_TIMEOUT)
             create_list = []
             if 'errors' not in response.json():
                 for item in response.json()['product']['variants']:

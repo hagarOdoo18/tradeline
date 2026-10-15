@@ -3,6 +3,12 @@ import json
 import requests
 from odoo import fields, models, _
 from odoo.exceptions import ValidationError
+# Seconds before a Shopify call is abandoned. A `requests` call with no
+# timeout blocks for ever: held across the per-order advisory lock in the
+# importer (and inside a job.cron handler, whose budget is only checked
+# *between* jobs) one stalled connection froze the whole queue, and every
+# later cron tick then skipped on the ir_cron row lock.
+SHOPIFY_TIMEOUT = 30
 
 
 class SyncLocation(models.TransientModel):
@@ -34,7 +40,7 @@ class SyncLocation(models.TransientModel):
         headers    = instance._get_shopify_headers()
 
         url      = "https://%s/admin/api/%s/locations.json" % (store_name, version)
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=SHOPIFY_TIMEOUT)
 
         if response.status_code != 200:
             raise ValidationError(_(
@@ -120,7 +126,7 @@ class SyncLocation(models.TransientModel):
                 }
             })
 
-            response = requests.post(url, headers=headers, data=payload)
+            response = requests.post(url, headers=headers, data=payload, timeout=SHOPIFY_TIMEOUT)
 
             if response.status_code in (200, 201):
                 loc = response.json().get('location', {})

@@ -25,6 +25,12 @@ import logging
 import requests
 from odoo import fields, models, tools, _
 from odoo.exceptions import UserError
+# Seconds before a Shopify call is abandoned. A `requests` call with no
+# timeout blocks for ever: held across the per-order advisory lock in the
+# importer (and inside a job.cron handler, whose budget is only checked
+# *between* jobs) one stalled connection froze the whole queue, and every
+# later cron tick then skipped on the ir_cron row lock.
+SHOPIFY_TIMEOUT = 30
 
 _logger = logging.getLogger(__name__)
 
@@ -102,7 +108,8 @@ class ResPartners(models.Model):
             })
             response = requests.request('POST', customer_url,
                                         headers=instance._get_shopify_headers(),
-                                        data=payload)
+                                        data=payload,
+                                        timeout=SHOPIFY_TIMEOUT)
             response_rec = response.json()
             if response_rec.get('customer'):
                 response_customer_id = response_rec['customer']['id']

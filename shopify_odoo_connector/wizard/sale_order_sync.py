@@ -30,6 +30,12 @@ import requests
 import odoo
 from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
+# Seconds before a Shopify call is abandoned. A `requests` call with no
+# timeout blocks for ever: held across the per-order advisory lock in the
+# importer (and inside a job.cron handler, whose budget is only checked
+# *between* jobs) one stalled connection froze the whole queue, and every
+# later cron tick then skipped on the ir_cron row lock.
+SHOPIFY_TIMEOUT = 30
 
 _logger = logging.getLogger(__name__)
 
@@ -164,7 +170,8 @@ class SaleOrderSync(models.TransientModel):
         headers = instance._get_shopify_headers()
         response = requests.request("GET", order_url,
                                     headers=headers,
-                                    data=payload)
+                                    data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
         if 'orders' in response.json():
             shopify_orders = response.json()['orders']
             self.env['job.cron'].sudo().create([{
@@ -193,7 +200,8 @@ class SaleOrderSync(models.TransientModel):
                               "limit=%s&page_info=%s") % (
                                   store_name, version, limit, page_info)
                 response = requests.request('GET', order_link,
-                                            headers=headers, data=payload)
+                                            headers=headers, data=payload,
+                                            timeout=SHOPIFY_TIMEOUT)
                 if 'orders' in response.json():
                     orders = response.json()['orders']
                     self.env['job.cron'].sudo().create({
@@ -225,7 +233,8 @@ class SaleOrderSync(models.TransientModel):
         headers = instance._get_shopify_headers()
         response = requests.request("GET", order_url,
                                     headers=headers,
-                                    data=payload)
+                                    data=payload,
+                                    timeout=SHOPIFY_TIMEOUT)
         if 'draft_orders' in response.json() and response.json(
         )['draft_orders']:
             shopify_orders = response.json()['draft_orders']
@@ -254,7 +263,8 @@ class SaleOrderSync(models.TransientModel):
                               "limit=%s&page_info=%s") % (
                                   store_name, version, limit, page_info)
                 response = requests.request('GET', order_link,
-                                            headers=headers, data=payload)
+                                            headers=headers, data=payload,
+                                            timeout=SHOPIFY_TIMEOUT)
                 if 'draft_orders' in response.json():
                     orders = response.json()['draft_orders']
                     self.env['job.cron'].sudo().create([{
@@ -1139,7 +1149,8 @@ class SaleOrderSync(models.TransientModel):
                                            store_name, version, customer_id)
                         response = requests.request("GET", customer_url,
                                                     headers=headers,
-                                                    data=[])
+                                                    data=[],
+                                                    timeout=SHOPIFY_TIMEOUT)
                         customer_response = response.json()
                         customer_vals = {}
                         customer = customer_response['customer']
@@ -1447,7 +1458,8 @@ class SaleOrderSync(models.TransientModel):
                 })
                 response = requests.request("POST", order_url,
                                             headers=headers,
-                                            data=payload)
+                                            data=payload,
+                                            timeout=SHOPIFY_TIMEOUT)
                 if response.status_code == 201:
                     response_rec = response.json()
                     response_order_id = response_rec['draft_order']['id']

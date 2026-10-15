@@ -31,6 +31,12 @@ from babel.dates import format_date
 from odoo import fields, models, _
 from odoo.exceptions import ValidationError
 from odoo.tools.misc import get_lang
+# Seconds before a Shopify call is abandoned. A `requests` call with no
+# timeout blocks for ever: held across the per-order advisory lock in the
+# importer (and inside a job.cron handler, whose budget is only checked
+# *between* jobs) one stalled connection froze the whole queue, and every
+# later cron tick then skipped on the ir_cron row lock.
+SHOPIFY_TIMEOUT = 30
 
 _logger = logging.getLogger(__name__)
 
@@ -507,7 +513,8 @@ class ShopifyConfiguration(models.Model):
                 'X-Shopify-Access-Token': token,
             }
             response = requests.request('POST', url, headers=headers,
-                                        data=payload)
+                                        data=payload,
+                                        timeout=SHOPIFY_TIMEOUT)
             if response.status_code == 200:
                 self.state = 'sync'
             else:
@@ -594,7 +601,8 @@ class ShopifyConfiguration(models.Model):
                     })
                     response = requests.request('POST', product_url,
                                                 headers=self._get_shopify_headers(),
-                                                data=payload)
+                                                data=payload,
+                                                timeout=SHOPIFY_TIMEOUT)
                     response_rec = response.json()
                     if 'errors' not in response_rec:
                         for item in response_rec['product']['variants']:
@@ -664,7 +672,8 @@ class ShopifyConfiguration(models.Model):
                     })
                     response = requests.request('POST', customer_url,
                                                 headers=self._get_shopify_headers(),
-                                                data=payload)
+                                                data=payload,
+                                                timeout=SHOPIFY_TIMEOUT)
                     response_rec = response.json()
                     if 'errors' not in response_rec.keys():
                         customer.shopify_sync_ids.sudo().create({
@@ -700,7 +709,8 @@ class ShopifyConfiguration(models.Model):
                     })
                     response = requests.request('POST', order_url,
                                                 headers=self._get_shopify_headers(),
-                                                data=payload)
+                                                data=payload,
+                                                timeout=SHOPIFY_TIMEOUT)
                     response_rec = response.json()
                     if 'errors' not in response_rec.keys():
                         response_order_id = response_rec['draft_order']['id']

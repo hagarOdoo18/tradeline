@@ -26,6 +26,12 @@ import logging
 import requests
 from odoo import api, models, fields, _
 from odoo.exceptions import ValidationError
+# Seconds before a Shopify call is abandoned. A `requests` call with no
+# timeout blocks for ever: held across the per-order advisory lock in the
+# importer (and inside a job.cron handler, whose budget is only checked
+# *between* jobs) one stalled connection froze the whole queue, and every
+# later cron tick then skipped on the ir_cron row lock.
+SHOPIFY_TIMEOUT = 30
 
 _logger = logging.getLogger(__name__)
 
@@ -455,7 +461,8 @@ class SyncProduct(models.TransientModel):
                         }
                     })
                     response = requests.request('POST', product_url,
-                                                headers=headers, data=payload)
+                                                headers=headers, data=payload,
+                                                timeout=SHOPIFY_TIMEOUT)
                     if response.status_code != 201:
                         self.env['log.message'].sudo().create([{
                             'name': 'Exporting Product: ' + rec.name +
@@ -489,7 +496,8 @@ class SyncProduct(models.TransientModel):
             store_name, version, product)
         headers = shopify_instance._get_shopify_headers()
         response = requests.request('GET', product_url,
-                                    headers=headers, data=[])
+                                    headers=headers, data=[],
+                                    timeout=SHOPIFY_TIMEOUT)
         if 'product' in response.json():
             product = response.json()['product']
             if product['options']:
@@ -645,7 +653,7 @@ class SyncProduct(models.TransientModel):
                             [('shopify_product', '=', image['product_id'])])
                         src = image['src']
                         image_1920 = base64.b64encode(
-                            requests.get(src).content)
+                            requests.get(src, timeout=SHOPIFY_TIMEOUT).content)
                         for i in variant:
                             i.write({'image_1920': image_1920})
                 for rec in shopify_price_list:
