@@ -66,7 +66,7 @@ class PricelistImportWizard(models.TransientModel):
         string='Apply On',
         default='1_product',
         required=True,
-        readonly=True,
+
         help='Fixed to "Product" level as per import requirements.',
     )
     compute_price = fields.Selection(
@@ -78,7 +78,7 @@ class PricelistImportWizard(models.TransientModel):
         string='Compute Price',
         default='fixed',
         required=True,
-        readonly=True,
+
         help='Fixed to "Fixed Price" as per import requirements.',
     )
     date_start = fields.Date(string='Start Date',        required=True,)
