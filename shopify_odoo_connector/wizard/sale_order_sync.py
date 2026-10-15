@@ -150,6 +150,21 @@ class SaleOrderSync(models.TransientModel):
                     'Failed to queue confirmed orders sync for Shopify '
                     'instance %s: %s', instance.name, str(error))
 
+    @api.model
+    def _pending_confirmed_order_jobs(self, instance_id):
+        """Confirmed-order import jobs still queued for this instance.
+
+        Counts `pending` only. A `failed` job is never retried by
+        `job.cron._do_job`, so counting those would wedge the importer for
+        good; a row stuck in `pending`, however, does block every later run
+        - that is the first thing to check if imports stop silently.
+        """
+        return self.env['job.cron'].sudo().search_count([
+            ('state', '=', 'pending'),
+            ('function', '=', 'import_confirmed_orders_from_shopify'),
+            ('instance_id', '=', instance_id),
+        ])
+
     def sync_confirmed_orders(self, instance, ref, created_at_min=None):
         """Method to create  jobs for importing confirmed orders.
 
@@ -159,6 +174,24 @@ class SaleOrderSync(models.TransientModel):
             the filter on subsequent `page_info` pages, so it is only
             applied to the first-page URL.
         """
+        # A run covers the whole created_at_min window, so anything still
+        # pending means the previous run has not landed yet. Queueing another
+        # copy would stack duplicate pages: _do_job would take the per-order
+        # advisory lock and re-check every order it already imported, and the
+        # queue would only grow.
+        #
+        # Skipping is lossless here because the producer re-fetches a rolling
+        # window (confirmed_order_sync_hours) instead of advancing a
+        # watermark - the next run asks Shopify for the same orders again.
+        instance_id = self.shopify_instance_id.id or instance.id
+        pending = self._pending_confirmed_order_jobs(instance_id)
+        if pending:
+            _logger.info(
+                'Confirmed order sync: %d job(s) still pending for instance '
+                '%s, skipping this run', pending,
+                instance.name or instance_id)
+            return
+
         model = self.env['ir.model'].search([('model', '=', "sale.order.sync")])
         store_name = instance.shop_name
         version = instance.version
