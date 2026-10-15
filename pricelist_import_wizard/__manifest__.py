@@ -1,14 +1,26 @@
 {
     'name': 'Pricelist Import Wizard',
-    'version': '18.0.1.0.0',
-    'summary': 'Import pricelist items from Excel/CSV sheet',
+    'version': '18.0.2.0.0',
+    'summary': 'Import pricelist items from an Excel/CSV sheet',
     'description': """
-        Wizard to import pricelist items from a spreadsheet.
-        Supports item_code (product internal reference) and fixed_price columns.
-        Automatically applies:
-          - applied_on = '1_product' (Product level)
-          - compute_price = 'fixed'
-          - Currency and Company inherited from the pricelist
+        Wizard to import product.pricelist.item records from a spreadsheet.
+
+        Supports every option of both driving fields:
+
+          applied_on    : 3_global, 2_product_category, 1_product, 0_product_variant
+          compute_price : fixed, percentage, formula (with base: Sales Price /
+                          Cost / Other Pricelist)
+
+        The expected sheet columns follow the chosen combination:
+          - target  : item_code (product / variant) or category (category level);
+                      no target column for All Products
+          - value   : fixed_price | percent_price | price_discount,
+                      price_surcharge, price_round, price_min_margin,
+                      price_max_margin
+          - optional: min_quantity
+
+        Currency and company are inherited from the pricelist. A preview step
+        resolves every row and reports warnings and errors before committing.
     """,
     'category': 'Sales/Sales',
     'author': 'Tradeline',
