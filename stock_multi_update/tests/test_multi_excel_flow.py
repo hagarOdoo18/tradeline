@@ -235,8 +235,15 @@ class TestMultiExcelFlow(TransactionCase):
         zero = Product.create({'name': 'Batch Zero', 'default_code': 'BATCH-ZERO',
                                'is_storable': True, 'categ_id': self.product.categ_id.id,
                                'standard_price': 0})
-        fifo_category = self.product.categ_id.copy({
-            'name': 'Batch FIFO', 'property_cost_method': 'fifo'})
+        category = self.product.categ_id
+        fifo_category = self.env['product.category'].create({
+            'name': 'Batch FIFO', 'property_cost_method': 'fifo',
+            'property_valuation': 'real_time',
+            'property_stock_valuation_account_id': category.property_stock_valuation_account_id.id,
+            'property_stock_account_input_categ_id': category.property_stock_account_input_categ_id.id,
+            'property_stock_account_output_categ_id': category.property_stock_account_output_categ_id.id,
+            'property_stock_journal': category.property_stock_journal.id,
+        })
         fifo = Product.create({'name': 'Batch FIFO', 'default_code': 'BATCH-FIFO',
                                'is_storable': True, 'categ_id': fifo_category.id,
                                'standard_price': 60})
