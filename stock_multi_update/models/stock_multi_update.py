@@ -1,3 +1,5 @@
+from collections import defaultdict, deque
+
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
 
@@ -7,6 +9,8 @@ class StockMultiUpdate(models.Model):
     _description = 'Stock Multi Product Update'
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'id desc'
+
+    _posting_batch_size = 100
 
     name = fields.Char(
         string='Reference',
@@ -77,8 +81,20 @@ class StockMultiUpdate(models.Model):
         for line in self.line_ids:
             line._validate()
 
+        # Valuation costs are shared by a product, even across different lots.
+        # Post at most one row per product in each wave, preserving that
+        # product's original row order and every individual stock movement.
+        # Never combine additions/subtractions into a single net adjustment.
+        by_product = defaultdict(deque)
         for line in self.line_ids:
-            line._apply_update()
+            by_product[line.product_id.id].append(line.id)
+        while by_product:
+            line_ids = []
+            for product_id in list(by_product)[:self._posting_batch_size]:
+                line_ids.append(by_product[product_id].popleft())
+                if not by_product[product_id]:
+                    del by_product[product_id]
+            self.env['stock.multi.update.line'].browse(line_ids)._apply_updates_batch()
 
         self.write({'state': 'done'})
 
@@ -262,45 +278,108 @@ class StockMultiUpdateLine(models.Model):
 
 
     def _apply_update(self):
+        """Keep the private single-line entry point for existing callers."""
         self.ensure_one()
-        lot_id = False
+        return self._apply_updates_batch()
 
-        if self.tracking in ('serial', 'lot'):
-            if self.lot_id:
-                lot_id = self.lot_id.id
-            elif self.lot_name:
-                lot = self.env['stock.lot'].search([('name', '=', self.lot_name),
-                    ('product_id', '=', self.product_id.id),
-                    ('company_id', 'in', [False, self.env.company.id])], limit=1)
-                if not lot:
-                    lot = self.env['stock.lot'].create({
-                        'name': self.lot_name,
-                        'product_id': self.product_id.id,
-                        'company_id': self.env.company.id,
-                    })
-                lot_id = lot.id
+    def _apply_updates_batch(self):
+        """Post independent products together through Odoo's native ORM path.
 
-        product = self.product_id
+        The caller supplies one document and at most one row per product.
+        Repeated products are deliberately posted in later waves, since AVCO
+        and FIFO state can change after an earlier row for the same product.
+        The document remains one transaction, including all its snapshots.
+        """
+        if not self:
+            return
+        update = self.update_id
+        update.ensure_one()
+        if len(self.product_id) != len(self):
+            raise UserError(_('Repeated products must be posted in separate batches.'))
         company = self.env.company
-        quant = self.env['stock.quant'].search([
-            ('product_id', '=', product.id), ('location_id', '=', self.location_id.id),
-            ('company_id', '=', company.id), ('lot_id', '=', lot_id)], limit=1)
-        current = quant.quantity if quant else 0
-        delta = self.qty if self.operation == 'add' else -self.qty
-        # This established batch workflow posts native Odoo inventory adjustments.
-        # Historical valuation/cost issues are reviewed separately in Inventory Issues.
+        Lot = self.env['stock.lot']
+        lots_by_key = {}
+        named_lines = self.filtered(
+            lambda line: line.tracking in ('serial', 'lot') and not line.lot_id and line.lot_name)
+        if named_lines:
+            lots = Lot.search([
+                ('name', 'in', named_lines.mapped('lot_name')),
+                ('product_id', 'in', named_lines.product_id.ids),
+                ('company_id', 'in', [False, company.id]),
+            ])
+            for lot in lots:
+                lots_by_key.setdefault((lot.product_id.id, lot.name), lot)
+            missing = [line for line in named_lines
+                       if (line.product_id.id, line.lot_name) not in lots_by_key]
+            if missing:
+                lots = Lot.create([{
+                    'name': line.lot_name,
+                    'product_id': line.product_id.id,
+                    'company_id': company.id,
+                } for line in missing])
+                for lot in lots:
+                    lots_by_key[(lot.product_id.id, lot.name)] = lot
+
+        lot_ids = {}
+        for line in self:
+            lot = Lot.browse()
+            if line.tracking in ('serial', 'lot'):
+                lot = line.lot_id or lots_by_key.get((line.product_id.id, line.lot_name), lot)
+            lot_ids[line.id] = lot.id or False
+
+        # Read with the caller's permissions, as in the single-row workflow.
+        quants = self.env['stock.quant'].search([
+            ('product_id', 'in', self.product_id.ids),
+            ('location_id', '=', update.location_id.id),
+            ('company_id', '=', company.id),
+            ('lot_id', 'in', list(set(lot_ids.values()))),
+        ])
+        by_key = {}
+        for quant in quants:
+            # Preserve the original search(limit=1) choice if legacy duplicate
+            # quants exist; this optimization does not merge or repair them.
+            by_key.setdefault((quant.product_id.id, quant.lot_id.id or False), quant)
+
         Quant = self.env['stock.quant'].sudo().with_company(company)
-        if quant:
-            quant.sudo().write({'inventory_quantity': current + delta})
-        else:
-            if delta < 0:
-                raise UserError(_('No existing stock found for "%s" to subtract from.') % product.display_name)
-            quant = Quant.with_context(inventory_mode=True).create({
-                'product_id': product.id,
-                'location_id': self.location_id.id,
-                'lot_id': lot_id,
-                'inventory_quantity': delta,
-            })
-        quant.sudo().with_context(inventory_name=_('Multi Stock Update %s') % self.update_id.name).action_apply_inventory()
-        quant.invalidate_recordset()
-        self.write({'qty_before': current, 'qty_after': quant.quantity})
+        existing_by_target = defaultdict(lambda: Quant.browse())
+        before = {}
+        new_vals = []
+        for line in self:
+            key = (line.product_id.id, lot_ids[line.id])
+            quant = by_key.get(key)
+            current = quant.quantity if quant else 0
+            before[line.id] = current
+            delta = line.qty if line.operation == 'add' else -line.qty
+            if quant:
+                existing_by_target[current + delta] |= quant.sudo()
+            else:
+                if delta < 0:
+                    raise UserError(_('No existing stock found for "%s" to subtract from.')
+                                    % line.product_id.display_name)
+                new_vals.append({
+                    'product_id': line.product_id.id,
+                    'location_id': update.location_id.id,
+                    'lot_id': lot_ids[line.id],
+                    'inventory_quantity': delta,
+                })
+        for target, matching_quants in existing_by_target.items():
+            matching_quants.write({'inventory_quantity': target})
+        if new_vals:
+            # All rows belong to one location, as required by the installed
+            # branch extension's multi-create implementation.
+            for quant in Quant.with_context(inventory_mode=True).create(new_vals):
+                by_key[(quant.product_id.id, quant.lot_id.id or False)] = quant
+
+        to_apply = Quant.browse([
+            by_key[(line.product_id.id, lot_ids[line.id])].id for line in self])
+        result = to_apply.with_context(
+            inventory_name=_('Multi Stock Update %s') % update.name).action_apply_inventory()
+        if result:
+            raise UserError(_('The stock adjustment requires review. No update was saved.'))
+        to_apply.invalidate_recordset(['quantity'])
+        snapshots = defaultdict(lambda: self.browse())
+        for line in self:
+            quant = by_key[(line.product_id.id, lot_ids[line.id])]
+            snapshots[(before[line.id], quant.quantity)] |= line
+        for (qty_before, qty_after), lines in snapshots.items():
+            lines.write({'qty_before': qty_before, 'qty_after': qty_after})

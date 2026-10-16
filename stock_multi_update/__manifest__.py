@@ -1,6 +1,6 @@
 {
     'name': 'Stock Multi Product Update',
-    'version': '18.0.2.0.2',
+    'version': '18.0.2.0.3',
     'summary': 'Add or subtract quantity with serial/lot for multiple products — saved records',
     'category': 'Inventory/Inventory',
     'author': 'Tradeline',
