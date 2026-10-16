@@ -1,11 +1,19 @@
 """Integration tests of the actual multi-product workbook posting path."""
 import base64
 import io
+import logging
+from time import perf_counter
 from unittest import SkipTest
 from openpyxl import Workbook
 from odoo import Command
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
+
+_logger = logging.getLogger(__name__)
+
+
+class _RollbackReference(Exception):
+    """Roll a reference execution back without retaining its stock changes."""
 
 
 @tagged('post_install', '-at_install')
@@ -103,3 +111,214 @@ class TestMultiExcelFlow(TransactionCase):
         with self.assertRaises(UserError), self.env.cr.savepoint():
             order.action_apply()
         self.balance(1, 100)
+
+    def _document(self, rows):
+        return self.env['stock.multi.update'].create({
+            'location_id': self.location.id,
+            'line_ids': [Command.create(dict(row, sequence=index))
+                         for index, row in enumerate(rows)],
+        })
+
+    def _legacy_apply(self, document):
+        """Frozen pre-batching posting path, for economic-result comparisons."""
+        self.env.cr.execute(
+            'SELECT id FROM stock_multi_update WHERE id = %s FOR UPDATE', (document.id,))
+        document.invalidate_recordset()
+        for line in document.line_ids:
+            line._validate()
+        for line in document.line_ids:
+            lot = self.env['stock.lot']
+            if line.tracking in ('serial', 'lot'):
+                lot = line.lot_id
+                if not lot and line.lot_name:
+                    lot = self.env['stock.lot'].search([
+                        ('name', '=', line.lot_name), ('product_id', '=', line.product_id.id),
+                        ('company_id', 'in', [False, self.company.id]),
+                    ], limit=1)
+                    if not lot:
+                        lot = self.env['stock.lot'].create({
+                            'name': line.lot_name, 'product_id': line.product_id.id,
+                            'company_id': self.company.id,
+                        })
+            quant = self.env['stock.quant'].search([
+                ('product_id', '=', line.product_id.id), ('location_id', '=', line.location_id.id),
+                ('company_id', '=', self.company.id), ('lot_id', '=', lot.id or False),
+            ], limit=1)
+            before = quant.quantity if quant else 0
+            delta = line.qty if line.operation == 'add' else -line.qty
+            if quant:
+                quant.sudo().write({'inventory_quantity': before + delta})
+            else:
+                if delta < 0:
+                    raise UserError('No existing stock to subtract from')
+                quant = self.env['stock.quant'].sudo().with_company(self.company).with_context(
+                    inventory_mode=True).create({
+                        'product_id': line.product_id.id, 'location_id': line.location_id.id,
+                        'lot_id': lot.id or False, 'inventory_quantity': delta,
+                    })
+            quant.sudo().with_context(
+                inventory_name='Multi Stock Update %s' % document.name).action_apply_inventory()
+            quant.invalidate_recordset()
+            line.write({'qty_before': before, 'qty_after': quant.quantity})
+        document.state = 'done'
+
+    def _economic_snapshot(self, document, products):
+        self.env.flush_all()
+        products.invalidate_recordset()
+        layers = self.env['stock.valuation.layer'].search([
+            ('product_id', 'in', products.ids), ('company_id', '=', self.company.id),
+        ], order='id')
+        quants = self.env['stock.quant'].search([
+            ('product_id', 'in', products.ids), ('location_id', '=', self.location.id),
+        ])
+        moves = self.env['stock.move'].search([
+            ('product_id', 'in', products.ids), ('is_inventory', '=', True),
+        ], order='id')
+        journals = layers.account_move_id
+        return {
+            'state': document.state,
+            'snapshots': [(l.qty_before, l.qty_after) for l in document.line_ids],
+            'products': [(p.id, round(p.quantity_svl, 6), round(p.value_svl, 6),
+                          round(p.standard_price, 6)) for p in products.sorted('id')],
+            'physical': sorted((q.product_id.id, q.lot_id.name or '', round(q.quantity, 6))
+                               for q in quants),
+            'layers': sorted((s.product_id.id, s.lot_id.name or '', round(s.quantity, 6),
+                              round(s.value, 6), round(s.unit_cost, 6),
+                              round(s.remaining_qty, 6), round(s.remaining_value, 6))
+                             for s in layers),
+            'moves': sorted((m.product_id.id, m.location_id.id, m.location_dest_id.id,
+                             round(m.quantity, 6), m.state) for m in moves),
+            'ledger': sorted((l.product_id.id or 0, l.account_id.id,
+                              round(l.debit, 6), round(l.credit, 6),
+                              round(l.amount_currency, 6)) for l in journals.line_ids),
+            'journal_states': sorted(journals.mapped('state')),
+        }
+
+    def _compare_with_legacy(self, rows, products, measure=False):
+        metrics = {}
+        try:
+            with self.env.cr.savepoint():
+                reference = self._document(rows)
+                self.env.flush_all()
+                self.env.invalidate_all()
+                queries = self.env.cr.sql_log_count
+                started = perf_counter()
+                self._legacy_apply(reference)
+                self.env.flush_all()
+                metrics['legacy_seconds'] = perf_counter() - started
+                metrics['legacy_queries'] = self.env.cr.sql_log_count - queries
+                expected = self._economic_snapshot(reference, products)
+                raise _RollbackReference()
+        except _RollbackReference:
+            pass
+        actual = self._document(rows)
+        self.env.flush_all()
+        self.env.invalidate_all()
+        queries = self.env.cr.sql_log_count
+        started = perf_counter()
+        actual.action_apply()
+        self.env.flush_all()
+        metrics['batch_seconds'] = perf_counter() - started
+        metrics['batch_queries'] = self.env.cr.sql_log_count - queries
+        self.assertEqual(self._economic_snapshot(actual, products), expected)
+        if measure:
+            _logger.info('Multi Stock Update 59-row benchmark: %s', metrics)
+            self.assertLess(metrics['batch_queries'], metrics['legacy_queries'] * 0.85)
+        return actual
+
+    def test_batch_matches_sequential_avco_fifo_zero_cost_and_repeated_rows(self):
+        other = self.product.copy({'name': 'Batch Other', 'default_code': 'BATCH-OTHER',
+                                   'standard_price': 25})
+        zero = self.product.copy({'name': 'Batch Zero', 'default_code': 'BATCH-ZERO',
+                                  'standard_price': 0})
+        fifo_category = self.product.categ_id.copy({
+            'name': 'Batch FIFO', 'property_cost_method': 'fifo'})
+        fifo = self.product.copy({'name': 'Batch FIFO', 'default_code': 'BATCH-FIFO',
+                                  'categ_id': fifo_category.id, 'standard_price': 60})
+        products = self.product | other | zero | fifo
+        opening = self._document([
+            {'product_id': p.id, 'qty': 5, 'operation': 'add'}
+            for p in self.product | other | fifo])
+        self._legacy_apply(opening)
+        self.product.with_context(disable_auto_svl=True).standard_price = 120
+        rows = [
+            {'product_id': self.product.id, 'qty': 2, 'operation': 'add'},
+            {'product_id': other.id, 'qty': 1, 'operation': 'subtract'},
+            {'product_id': self.product.id, 'qty': 1, 'operation': 'subtract'},
+            {'product_id': zero.id, 'qty': 3, 'operation': 'add'},
+            {'product_id': fifo.id, 'qty': 1, 'operation': 'subtract'},
+            {'product_id': other.id, 'qty': 2, 'operation': 'add'},
+            {'product_id': self.product.id, 'qty': 1, 'operation': 'add'},
+            {'product_id': fifo.id, 'qty': 2, 'operation': 'add'},
+        ]
+        document = self._compare_with_legacy(rows, products)
+        self.assertEqual([(l.qty_before, l.qty_after) for l in document.line_ids],
+                         [(5, 7), (5, 4), (7, 6), (0, 3), (5, 4), (4, 6), (6, 7), (4, 6)])
+
+    def test_batch_matches_sequential_serials_and_named_lots(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        other = self.product.copy({'name': 'Batch Serial', 'default_code': 'BATCH-SERIAL'})
+        lot_product = self.product.copy({'name': 'Batch Lot', 'default_code': 'BATCH-LOT',
+                                         'tracking': 'lot'})
+        opening_lot = self.env['stock.lot'].create({
+            'name': 'BATCH-OLD-SERIAL', 'product_id': self.product.id,
+            'company_id': self.company.id, 'standard_price': 100})
+        self._legacy_apply(self._document([{
+            'product_id': self.product.id, 'lot_id': opening_lot.id,
+            'qty': 1, 'operation': 'add',
+        }]))
+        self._compare_with_legacy([
+            {'product_id': self.product.id, 'lot_name': 'BATCH-NEW-SERIAL',
+             'qty': 1, 'operation': 'add'},
+            {'product_id': other.id, 'lot_name': 'BATCH-OTHER-SERIAL',
+             'qty': 1, 'operation': 'add'},
+            {'product_id': self.product.id, 'lot_id': opening_lot.id,
+             'qty': 1, 'operation': 'subtract'},
+            {'product_id': lot_product.id, 'lot_name': 'BATCH-NEW-LOT',
+             'qty': 3, 'operation': 'add'},
+        ], self.product | other | lot_product)
+
+    def test_batch_keeps_initial_subtraction_validation(self):
+        document = self._document([
+            {'product_id': self.product.id, 'qty': 2, 'operation': 'add'},
+            {'product_id': self.product.id, 'qty': 1, 'operation': 'subtract'},
+        ])
+        # Existing behavior validates every subtraction against the starting
+        # stock before posting; batching must not silently change that policy.
+        with self.assertRaises(UserError), self.env.cr.savepoint():
+            document.action_apply()
+        self.balance(0, 0)
+        self.assertEqual(document.state, 'draft')
+
+    def test_later_serial_conflict_rolls_back_earlier_batch(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        lot = self.env['stock.lot'].create({
+            'name': 'BATCH-OCCUPIED', 'product_id': self.product.id,
+            'company_id': self.company.id, 'standard_price': 100})
+        self._legacy_apply(self._document([{
+            'product_id': self.product.id, 'lot_id': lot.id,
+            'qty': 1, 'operation': 'add',
+        }]))
+        document = self._document([
+            {'product_id': self.product.id, 'lot_name': 'BATCH-ROLLBACK-NEW',
+             'qty': 1, 'operation': 'add'},
+            {'product_id': self.product.id, 'lot_id': lot.id,
+             'qty': 1, 'operation': 'add'},
+        ])
+        with self.assertRaises(UserError), self.env.cr.savepoint():
+            document.action_apply()
+        self.balance(1, 100)
+        self.assertEqual(document.state, 'draft')
+        self.assertFalse(self.env['stock.lot'].search([
+            ('product_id', '=', self.product.id), ('name', '=', 'BATCH-ROLLBACK-NEW')]))
+
+    def test_batch_reduces_queries_without_changing_59_row_results(self):
+        products = self.env['product.product'].create([{
+            'name': 'Batch Benchmark %s' % n, 'is_storable': True,
+            'categ_id': self.product.categ_id.id, 'standard_price': 10 + n,
+        } for n in range(26)])
+        self._legacy_apply(self._document([
+            {'product_id': p.id, 'qty': 10, 'operation': 'add'} for p in products]))
+        rows = [{'product_id': products[n % 26].id, 'qty': 1,
+                 'operation': 'add' if n % 3 else 'subtract'} for n in range(59)]
+        self._compare_with_legacy(rows, products, measure=True)
