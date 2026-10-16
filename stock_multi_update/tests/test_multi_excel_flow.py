@@ -4,6 +4,7 @@ import io
 import logging
 from time import perf_counter
 from unittest import SkipTest
+from unittest.mock import patch
 from openpyxl import Workbook
 from odoo import Command
 from odoo.exceptions import UserError
@@ -251,7 +252,10 @@ class TestMultiExcelFlow(TransactionCase):
             {'product_id': self.product.id, 'qty': 1, 'operation': 'add'},
             {'product_id': fifo.id, 'qty': 2, 'operation': 'add'},
         ]
-        document = self._compare_with_legacy(rows, products)
+        # A small cap also exercises a document with more independent products
+        # than fit in one batch, as well as repeated rows for the same product.
+        with patch.object(type(self.env['stock.multi.update']), '_posting_batch_size', 2):
+            document = self._compare_with_legacy(rows, products)
         self.assertEqual([(l.qty_before, l.qty_after) for l in document.line_ids],
                          [(5, 7), (5, 4), (7, 6), (0, 3), (5, 4), (4, 6), (6, 7), (4, 6)])
 
