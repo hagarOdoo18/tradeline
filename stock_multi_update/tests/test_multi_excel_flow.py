@@ -228,14 +228,18 @@ class TestMultiExcelFlow(TransactionCase):
         return actual
 
     def test_batch_matches_sequential_avco_fifo_zero_cost_and_repeated_rows(self):
-        other = self.product.copy({'name': 'Batch Other', 'default_code': 'BATCH-OTHER',
-                                   'standard_price': 25})
-        zero = self.product.copy({'name': 'Batch Zero', 'default_code': 'BATCH-ZERO',
-                                  'standard_price': 0})
+        Product = self.env['product.product']
+        other = Product.create({'name': 'Batch Other', 'default_code': 'BATCH-OTHER',
+                                'is_storable': True, 'categ_id': self.product.categ_id.id,
+                                'standard_price': 25})
+        zero = Product.create({'name': 'Batch Zero', 'default_code': 'BATCH-ZERO',
+                               'is_storable': True, 'categ_id': self.product.categ_id.id,
+                               'standard_price': 0})
         fifo_category = self.product.categ_id.copy({
             'name': 'Batch FIFO', 'property_cost_method': 'fifo'})
-        fifo = self.product.copy({'name': 'Batch FIFO', 'default_code': 'BATCH-FIFO',
-                                  'categ_id': fifo_category.id, 'standard_price': 60})
+        fifo = Product.create({'name': 'Batch FIFO', 'default_code': 'BATCH-FIFO',
+                               'is_storable': True, 'categ_id': fifo_category.id,
+                               'standard_price': 60})
         products = self.product | other | zero | fifo
         opening = self._document([
             {'product_id': p.id, 'qty': 5, 'operation': 'add'}
@@ -261,9 +265,13 @@ class TestMultiExcelFlow(TransactionCase):
 
     def test_batch_matches_sequential_serials_and_named_lots(self):
         self.product.write({'tracking': 'serial', 'lot_valuated': True})
-        other = self.product.copy({'name': 'Batch Serial', 'default_code': 'BATCH-SERIAL'})
-        lot_product = self.product.copy({'name': 'Batch Lot', 'default_code': 'BATCH-LOT',
-                                         'tracking': 'lot'})
+        Product = self.env['product.product']
+        other = Product.create({'name': 'Batch Serial', 'default_code': 'BATCH-SERIAL',
+                                'is_storable': True, 'categ_id': self.product.categ_id.id,
+                                'tracking': 'serial', 'lot_valuated': True, 'standard_price': 100})
+        lot_product = Product.create({'name': 'Batch Lot', 'default_code': 'BATCH-LOT',
+                                      'is_storable': True, 'categ_id': self.product.categ_id.id,
+                                      'tracking': 'lot', 'lot_valuated': True, 'standard_price': 100})
         opening_lot = self.env['stock.lot'].create({
             'name': 'BATCH-OLD-SERIAL', 'product_id': self.product.id,
             'company_id': self.company.id, 'standard_price': 100})
