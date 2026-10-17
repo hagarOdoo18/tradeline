@@ -219,11 +219,40 @@ class TestStockImport(StockImportTestCommon):
             self.assertLess(metrics['optimized']['queries'], metrics['legacy']['queries'])
         self.assert_balances(500, 500, 50000)
 
-    def test_untracked_mixed_signs_and_lots_match_legacy(self):
+    def test_untracked_mixed_signs_match_legacy(self):
         wizard = self.excel([(2, None), (-1, None)] * 55)
         wizard.action_preview()
         self._compare_import(wizard, self.product)
         self.assert_balances(55, 55, 5500)
+
+    def test_fifo_lot_rows_match_legacy(self):
+        self.product.categ_id.property_cost_method = 'fifo'
+        self.product.write({'tracking': 'lot', 'lot_valuated': True})
+        wizard = self.excel([(2, 'EQUIVALENT-LOT'), (-1, 'EQUIVALENT-LOT')] * 55)
+        wizard.action_preview()
+        wizard.create_lots()
+        wizard.line_ids.lot_id.with_context(disable_auto_svl=True).standard_price = 100
+        self._compare_import(wizard, self.product)
+        self.assert_balances(55, 55, 5500)
+
+    def test_distant_serial_transfer_and_other_batches_match_legacy(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        opening = self.excel([(1, 'TRANSFER-EQUIVALENT')])
+        opening.action_preview()
+        opening.create_lots()
+        opening.line_ids.lot_id.with_context(disable_auto_svl=True).standard_price = 100
+        opening.action_apply()
+        destination = self.env['stock.location'].create({'name': 'Transfer comparison destination',
+            'usage': 'internal', 'company_id': self.company.id})
+        wizard = self.excel([(-1, 'TRANSFER-EQUIVALENT')] +
+            [(1, 'TRANSFER-FILLER-%03d' % n) for n in range(110)] + [(1, 'TRANSFER-EQUIVALENT')])
+        wizard.action_preview()
+        wizard.create_lots()
+        wizard.line_ids[-1].write({'location_id': destination.id, 'location_name': destination.complete_name,
+                                   'previous_quantity': 0, 'projected_quantity': 1})
+        wizard.line_ids.lot_id.with_context(disable_auto_svl=True).standard_price = 100
+        self._compare_import(wizard, self.product)
+        self.assertEqual(wizard.applied_rows, 112)
 
     def test_100_serial_rows_post_stock_valuation_and_accounting(self):
         self.serial_batch(100)
@@ -419,3 +448,18 @@ class TestLargeStockImport(StockImportTestCommon):
         self.assertEqual(batches, 50)
         self.assertEqual((wizard.state, wizard.applied_rows, wizard.remaining_rows), ('done', 5000, 0))
         self.assert_balances(5000, 5000, 0)
+
+
+@tagged('post_install', '-at_install', 'excel_import_performance', '-standard')
+class TestExcelImportPerformance(StockImportTestCommon):
+    _snapshot = TestStockImport._snapshot
+    _compare_import = TestStockImport._compare_import
+
+    def test_4492_serial_rows_match_legacy(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        wizard = self.excel([(1, 'LARGE-EQUIVALENT-%05d' % n) for n in range(4492)])
+        wizard.action_preview()
+        wizard.create_lots()
+        wizard.line_ids.lot_id.with_context(disable_auto_svl=True).standard_price = 100
+        self._compare_import(wizard, self.product)
+        self.assert_balances(4492, 4492, 449200)
