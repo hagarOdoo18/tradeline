@@ -4,6 +4,21 @@ The app is deployed and installed on the neutralized **staging** database
 `tradelinestores-stage-40023055`. Monitoring is disabled. This is not a claim
 that production alerts or independent outage notifications are active.
 
+## Deployment hold
+
+The owner explicitly requested keeping this staged until an agreed quiet
+period. Do not merge or push it to the production branch, install it on the
+production database, enable production monitoring, or restart production
+until that window is explicitly agreed. External checks must remain paused
+until the production heartbeat is connected, except for a controlled alert
+delivery test. No rollout time has been scheduled.
+
+The external free-account sign-in email has been requested. Activation is
+pending confirmation of the provider's account terms. No external check or
+outage notifications are active yet.
+
+## Completed verification
+
 - 18 isolated Odoo 18 transaction tests passed, with no failed tests/errors.
 - Coverage includes database lock-chain/idle-transaction detection, bounded
   failed probes, real PostgreSQL metadata queries, partial Done-batch stock
