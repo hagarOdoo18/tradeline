@@ -8,6 +8,7 @@ from time import perf_counter
 import openpyxl
 from odoo import api, models, fields, _
 from odoo.exceptions import UserError
+from odoo.osv import expression
 from odoo.tools import float_compare
 
 _logger = logging.getLogger(__name__)
@@ -328,11 +329,20 @@ class ImportStockQuantWizard(models.Model):
         _logger.info('Excel stock import %s: processed %s rows in %.2fs', self.id, len(lines), perf_counter() - started)
 
     def _update_progress(self):
-        processed = self.line_ids.filtered('processed')
-        remaining = len(self.line_ids - processed)
+        # Count in PostgreSQL through the ORM rather than loading every row
+        # again after each committed batch. Keep the importing user's rules.
+        counts = self.env['import.stock.quant.line']._read_group(
+            [('wizard_id', '=', self.id)], ['processed', 'skipped'], ['__count'])
+        applied = skipped = remaining = 0
+        for processed, is_skipped, count in counts:
+            if not processed:
+                remaining += count
+            elif is_skipped:
+                skipped += count
+            else:
+                applied += count
         self.write({'state': 'processing' if remaining else 'done',
-                    'applied_rows': len(processed.filtered(lambda line: not line.skipped)),
-                    'skipped_rows': len(processed.filtered('skipped')), 'remaining_rows': remaining})
+                    'applied_rows': applied, 'skipped_rows': skipped, 'remaining_rows': remaining})
 
     @staticmethod
     def _batch_key(line):
@@ -342,9 +352,22 @@ class ImportStockQuantWizard(models.Model):
                 False if line.product_id.tracking == 'serial' else line.location_id.id)
 
     def _next_batch(self):
-        pending = self.line_ids.filtered(lambda line: not line.processed)
-        keys = {self._batch_key(line) for line in pending[:self._posting_batch_size]}
-        return pending.filtered(lambda line: self._batch_key(line) in keys)
+        Line = self.env['import.stock.quant.line']
+        pending_domain = [('wizard_id', '=', self.id), ('processed', '=', False)]
+        seeds = Line.search(pending_domain, order='id', limit=self._posting_batch_size)
+        if not seeds:
+            return seeds
+        # Fetch all partners of the first 100 pending rows, including a serial
+        # transfer's opposite location or a repeated row far down the workbook.
+        # A hard row limit here would change stock and valuation semantics.
+        keys = {self._batch_key(line) for line in seeds}
+        domains = []
+        for product_id, lot_id, location_id in keys:
+            domain = [('product_id', '=', product_id), ('lot_id', '=', lot_id)]
+            if location_id:
+                domain.append(('location_id', '=', location_id))
+            domains.append(domain)
+        return Line.search(expression.AND([pending_domain, expression.OR(domains)]), order='id')
 
     @api.model
     def _cron_process_imports(self):
@@ -434,7 +457,7 @@ class ImportStockQuantLine(models.Model):
     _name = 'import.stock.quant.line'
     _description = 'Import Stock Quant Line'
 
-    wizard_id = fields.Many2one('import.stock.quant.wizard', ondelete='cascade')
+    wizard_id = fields.Many2one('import.stock.quant.wizard', ondelete='cascade', index=True)
     row_no = fields.Integer()
     location_name = fields.Char()
     item_code = fields.Char()

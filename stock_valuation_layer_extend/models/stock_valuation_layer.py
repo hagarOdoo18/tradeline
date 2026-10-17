@@ -138,19 +138,25 @@ class StockValuationLayer(models.Model):
     def _compute_last_po_cost(self):
         """Most recent confirmed PO line price; fallback to standard_price."""
         PurchaseOrderLine = self.env['purchase.order.line']
+        # Native inventory posting can create hundreds of serial layers for
+        # one product at once. Resolve its display cost once per compute call,
+        # retaining the same ordering, permissions and fallback as before.
+        costs = {}
         for rec in self:
             if not rec.product_id:
                 rec.last_po_cost = 0.0
                 continue
-            last_line = PurchaseOrderLine.search(
-                [
-                    ('product_id', '=', rec.product_id.id),
-                    ('order_id.state', 'in', ['purchase', 'done']),
-                ],
-                order='date_approve desc, id desc',
-                limit=1,
-            )
-            rec.last_po_cost = last_line.price_unit if last_line else rec.product_id.standard_price
+            if rec.product_id.id not in costs:
+                last_line = PurchaseOrderLine.search(
+                    [
+                        ('product_id', '=', rec.product_id.id),
+                        ('order_id.state', 'in', ['purchase', 'done']),
+                    ],
+                    order='date_approve desc, id desc',
+                    limit=1,
+                )
+                costs[rec.product_id.id] = last_line.price_unit if last_line else rec.product_id.standard_price
+            rec.last_po_cost = costs[rec.product_id.id]
 
     def _compute_available_qty(self):
         """Real-time qty on hand."""

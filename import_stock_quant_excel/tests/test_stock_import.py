@@ -1,6 +1,7 @@
 import base64
 import io
 import logging
+from contextlib import nullcontext
 from time import perf_counter
 from unittest import SkipTest
 from unittest.mock import patch
@@ -12,6 +13,33 @@ from odoo.tests import TransactionCase, new_test_user, tagged
 from odoo.tools import mute_logger
 
 _logger = logging.getLogger(__name__)
+
+
+class _RollbackReference(Exception):
+    pass
+
+
+def _legacy_next_batch(wizard):
+    pending = wizard.line_ids.filtered(lambda line: not line.processed)
+    keys = {wizard._batch_key(line) for line in pending[:wizard._posting_batch_size]}
+    return pending.filtered(lambda line: wizard._batch_key(line) in keys)
+
+
+def _legacy_update_progress(wizard):
+    processed = wizard.line_ids.filtered('processed')
+    remaining = len(wizard.line_ids - processed)
+    wizard.write({'state': 'processing' if remaining else 'done',
+                  'applied_rows': len(processed.filtered(lambda line: not line.skipped)),
+                  'skipped_rows': len(processed.filtered('skipped')), 'remaining_rows': remaining})
+
+
+def _legacy_last_po_cost(layers):
+    for layer in layers:
+        last = layers.env['purchase.order.line'].search([
+            ('product_id', '=', layer.product_id.id),
+            ('order_id.state', 'in', ['purchase', 'done'])],
+            order='date_approve desc, id desc', limit=1) if layer.product_id else False
+        layer.last_po_cost = last.price_unit if last else layer.product_id.standard_price
 
 
 class StockImportTestCommon(TransactionCase):
@@ -99,6 +127,104 @@ class StockImportTestCommon(TransactionCase):
 
 @tagged('post_install', '-at_install')
 class TestStockImport(StockImportTestCommon):
+    def _snapshot(self, wizard, products):
+        self.env.flush_all()
+        products.invalidate_recordset()
+        domain = [('product_id', 'in', products.ids)]
+        layers = self.env['stock.valuation.layer'].search(domain)
+        quants = self.env['stock.quant'].search(domain)
+        moves = self.env['stock.move'].search(domain + [('is_inventory', '=', True)])
+        return {
+            'products': [(p.id, round(p.quantity_svl, 6), round(p.value_svl, 6), round(p.standard_price, 6))
+                         for p in products.sorted('id')],
+            'quants': sorted((q.product_id.id, q.location_id.id, q.lot_id.name or '',
+                              round(q.quantity, 6), round(q.reserved_quantity, 6)) for q in quants),
+            'layers': sorted((s.product_id.id, s.lot_id.name or '', round(s.quantity, 6), round(s.value, 6),
+                              round(s.unit_cost, 6), round(s.remaining_qty, 6), round(s.remaining_value, 6),
+                              round(s.last_po_cost, 6) if 'last_po_cost' in s._fields else 0) for s in layers),
+            'moves': sorted((m.product_id.id, m.location_id.id, m.location_dest_id.id,
+                             round(m.quantity, 6), m.state) for m in moves),
+            'ledger': sorted((l.product_id.id or 0, l.account_id.id, round(l.debit, 6),
+                              round(l.credit, 6), round(l.amount_currency, 6))
+                             for l in layers.account_move_id.line_ids),
+            'journals': sorted(layers.account_move_id.mapped('state')),
+            'progress': (wizard.state, wizard.applied_rows, wizard.skipped_rows, wizard.remaining_rows),
+            'rows': [(l.row_no, l.processed, l.skipped, l.result_note) for l in wizard.line_ids],
+        }
+
+    def _compare_import(self, wizard, products):
+        Wizard = type(wizard)
+        Layer = type(self.env['stock.valuation.layer'])
+        metrics = {}
+        def run(label):
+            self.env.flush_all()
+            self.env.invalidate_all()
+            started, queries = perf_counter(), self.env.cr.sql_log_count
+            wizard.action_apply()
+            batches = 0
+            # Odoo starts a fresh environment for each committed cron callback.
+            while wizard.state == 'processing':
+                self.env.flush_all()
+                self.env.invalidate_all()
+                self.env['import.stock.quant.wizard']._cron_process_imports()
+                batches += 1
+            self.env.flush_all()
+            metrics[label] = {'seconds': perf_counter() - started,
+                              'queries': self.env.cr.sql_log_count - queries, 'batches': batches}
+            return self._snapshot(wizard, products)
+        try:
+            with self.env.cr.savepoint(), patch.object(Wizard, '_next_batch', _legacy_next_batch), \
+                    patch.object(Wizard, '_update_progress', _legacy_update_progress), \
+                    (patch.object(Layer, '_compute_last_po_cost', _legacy_last_po_cost)
+                     if hasattr(Layer, '_compute_last_po_cost') else nullcontext()):
+                expected = run('legacy')
+                raise _RollbackReference()
+        except _RollbackReference:
+            pass
+        actual = run('optimized')
+        self.assertEqual(actual, expected)
+        _logger.info('Excel import equivalent-results benchmark rows=%s: %s', len(wizard.line_ids), metrics)
+        return metrics
+
+    def test_batch_selection_matches_legacy_with_distant_duplicates_and_serial_transfers(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        wizard = self.excel([(1, 'SELECT-%03d' % n) for n in range(120)] + [(1, 'SELECT-000')])
+        wizard.action_preview()
+        wizard.create_lots()
+        other = self.env['stock.location'].create({'name': 'Selection destination', 'usage': 'internal',
+                                                  'company_id': self.company.id})
+        wizard.line_ids[-1].write({'location_id': other.id, 'quantity': -1})
+        self.env.flush_all()
+        self.env.invalidate_all()
+        expected = _legacy_next_batch(wizard)
+        self.assertEqual(wizard._next_batch(), expected)
+        self.assertIn(wizard.line_ids[-1], expected)
+        expected[:40].write({'processed': True, 'skipped': True})
+        expected[40:80].write({'processed': True, 'skipped': False})
+        _legacy_update_progress(wizard)
+        progress = (wizard.state, wizard.applied_rows, wizard.skipped_rows, wizard.remaining_rows)
+        self.env.invalidate_all()
+        wizard._update_progress()
+        self.assertEqual((wizard.state, wizard.applied_rows, wizard.skipped_rows, wizard.remaining_rows), progress)
+        self.assertEqual(wizard._next_batch(), _legacy_next_batch(wizard))
+
+    def test_500_serial_results_match_legacy_with_fewer_queries(self):
+        self.product.write({'tracking': 'serial', 'lot_valuated': True})
+        wizard = self.excel([(1, 'EQUIVALENT-%04d' % n) for n in range(500)])
+        wizard.action_preview()
+        wizard.create_lots()
+        wizard.line_ids.lot_id.with_context(disable_auto_svl=True).standard_price = 100
+        metrics = self._compare_import(wizard, self.product)
+        if 'last_po_cost' in self.env['stock.valuation.layer']._fields:
+            self.assertLess(metrics['optimized']['queries'], metrics['legacy']['queries'])
+        self.assert_balances(500, 500, 50000)
+
+    def test_untracked_mixed_signs_and_lots_match_legacy(self):
+        wizard = self.excel([(2, None), (-1, None)] * 55)
+        wizard.action_preview()
+        self._compare_import(wizard, self.product)
+        self.assert_balances(55, 55, 5500)
+
     def test_100_serial_rows_post_stock_valuation_and_accounting(self):
         self.serial_batch(100)
 

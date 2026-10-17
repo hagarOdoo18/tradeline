@@ -1,7 +1,7 @@
 {
     'name': 'Import Stock Quant From Excel',
     'license': 'LGPL-3',
-    'version': '18.0.1.0.4',
+    'version': '18.0.1.0.5',
     'category': 'Inventory',
     'summary': 'Import stock using Excel with preview and error handling',
     'depends': ['stock_account'],
