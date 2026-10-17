@@ -219,6 +219,24 @@ class TestStockImport(StockImportTestCommon):
             self.assertLess(metrics['optimized']['queries'], metrics['legacy']['queries'])
         self.assert_balances(500, 500, 50000)
 
+    def test_progress_and_selection_stay_within_import_and_handle_completion(self):
+        other = self.excel([(10, None)] * 5)
+        other.action_preview()
+        wizard = self.excel([(1, None)] * 3)
+        wizard.action_preview()
+        wizard.line_ids[0].write({'processed': True, 'skipped': False})
+        wizard.line_ids[1].write({'processed': True, 'skipped': True})
+        wizard._update_progress()
+        self.assertEqual((wizard.state, wizard.applied_rows, wizard.skipped_rows, wizard.remaining_rows),
+                         ('processing', 1, 1, 1))
+        self.assertEqual(wizard._next_batch(), wizard.line_ids[2])
+        wizard.line_ids[2].write({'processed': True})
+        wizard._update_progress()
+        self.assertEqual((wizard.state, wizard.applied_rows, wizard.skipped_rows, wizard.remaining_rows),
+                         ('done', 2, 1, 0))
+        self.assertFalse(wizard._next_batch())
+        self.assertFalse(any(other.line_ids.mapped('processed')))
+
     def test_untracked_mixed_signs_match_legacy(self):
         wizard = self.excel([(2, None), (-1, None)] * 55)
         wizard.action_preview()
