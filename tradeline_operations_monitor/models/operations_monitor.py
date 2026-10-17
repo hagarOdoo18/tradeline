@@ -285,19 +285,27 @@ class OperationsMonitor(models.Model):
                     'Order event %s is %s.' % (bad.id, bad.state),
                     'Review the event rejection and verify its order/stock reservation.', 'critical'))
         if 'log.message' in self.env.registry:
-            logs = self.env['log.message'].sudo().search([
-                ('id', '>', self.last_log_id), ('create_date', '>=', now - timedelta(days=1)),
-                ('model', 'in', ['Stock Quantity', 'sale.order']),
-                '|', '|', ('name', '=ilike', 'Inventory push:%'),
-                ('name', '=ilike', 'Inventory push failures:%'),
-                ('name', '=ilike', 'Creation of order % failed:%'),
-            ], order='id', limit=500)
+            Log = self.env['log.message'].sudo().with_context(prefetch_fields=False)
+            latest = Log.search([], order='id desc', limit=1)
+            cursor = self.last_log_id or max(0, latest.id - 500)
+            # The legacy log table has no date/model index. Filtering it from
+            # ID zero by date and HTML text scans years of history. Walk a
+            # bounded PK tail instead, then classify the few relevant rows.
+            logs = Log.search_read([('id', '>', cursor)],
+                                   ['name', 'model', 'create_date'], order='id', limit=500)
             for log in logs:
-                observation = shopify_log_signal(log.id, log.name)
+                if (log['model'] not in ('Stock Quantity', 'sale.order')
+                        or fields.Datetime.to_datetime(log['create_date']) < now - timedelta(days=1)):
+                    continue
+                observation = shopify_log_signal(log['id'], log['name'])
                 if observation:
                     observations.append(observation)
             if logs:
-                self.last_log_id = logs[-1].id
+                self.last_log_id = logs[-1]['id']
+            if len(logs) == 500 and logs[-1]['id'] < latest.id:
+                observations.append(signal('shopify:log_scan_backlog', 'Error-log scan is catching up',
+                    'Recent persisted logs are being checked in bounded batches; the latest entries are not yet verified.',
+                    'Review Shopify / Logs directly for urgent failures while the monitor catches up.'))
         return observations
 
     def _probe_imports(self, now):

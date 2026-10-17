@@ -39,8 +39,12 @@ its blocking/long-running SQL is detected by the database probes instead.
 2. Open **Operations Monitor → Settings**. Enter only the intended two
    recipients and the existing executive-report sender/SMTP identity.
 3. Click **Check Now (No Email)** and inspect **Operations Monitor → Incidents**.
-   Review old Shopify rejection/mapping errors before activation; the initial
-   scan includes the last 24 hours of relevant persisted failures.
+   Review old Shopify rejection/mapping errors before activation. Failed jobs
+   are checked over the last 24 hours. The HTML log scan starts at the last
+   500 IDs and advances 500 rows per check, classifying errors up to 24 hours
+   old. Historical errors before that initial tail require a separate audit;
+   this monitor is for early detection after activation. Catch-up is reported
+   explicitly if incoming logs exceed the scan budget.
 4. Click **Send Test Email** and confirm receipt at both addresses. This queues
    one test; the separate alert sender runs within the next scheduler minute.
 5. Enable monitoring. Emails group new/escalated incidents, repeat at most
