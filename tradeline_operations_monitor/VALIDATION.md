@@ -1,5 +1,14 @@
 # Validation — 17 October 2026
 
+## Production rollout authorization — 18 October 2026
+
+The owner explicitly authorized launching and enabling this app in production
+now, connecting the external heartbeat and verifying actual email delivery.
+That request supersedes the earlier deployment hold recorded below. Production
+changes made by others since the staging test were merged without changing
+the monitoring implementation. The following sections preserve the staging
+and provider-only test evidence; they are not a live production status page.
+
 The app is deployed and installed on the neutralized **staging** database
 `tradelinestores-stage-40023055`. Monitoring is disabled. This is not a claim
 that production alerts or independent outage notifications are active.
