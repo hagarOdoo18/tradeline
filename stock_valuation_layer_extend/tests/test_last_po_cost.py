@@ -11,12 +11,20 @@ class TestLastPoCost(TransactionCase):
             {'name': 'Display cost PO item', 'standard_price': 70},
             {'name': 'Display cost fallback item', 'standard_price': 35}])
         partner = self.env['res.partner'].create({'name': 'Display cost supplier'})
+        destination = self.env['stock.location'].create({'name': 'Display cost receipts',
+            'usage': 'internal', 'company_id': self.env.company.id})
+        picking_type = self.env['stock.picking.type'].create({
+            'name': 'Display cost receipts', 'sequence_code': 'XPO', 'code': 'incoming',
+            'company_id': self.env.company.id,
+            'default_location_src_id': self.env.ref('stock.stock_location_suppliers').id,
+            'default_location_dest_id': destination.id})
         for state, date, price in [('purchase', '2026-01-01', 80),
                                    ('purchase', '2026-01-02', 90),
                                    ('purchase', '2026-01-02', 95),
                                    ('draft', '2026-01-03', 110)]:
             order = self.env['purchase.order'].create({
                 'partner_id': partner.id, 'company_id': self.env.company.id,
+                'picking_type_id': picking_type.id,
                 'order_line': [Command.create({'product_id': products[0].id, 'product_qty': 1,
                     'price_unit': price, 'name': 'Display cost test',
                     'product_uom': products[0].uom_po_id.id, 'date_planned': date})]})
