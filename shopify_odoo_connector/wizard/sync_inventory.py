@@ -296,7 +296,9 @@ class SyncInventory(models.TransientModel):
         A group can hold variants of different categories (the same physical
         item entered twice under different categories, for instance). The
         strictest rule wins, so the higher minimum is the one applied - never
-        publish more than the most protective rule allows.
+        publish more than the most protective rule allows. Resolution is per
+        product, so a rule targeting a specific variant applies even inside a
+        mixed group.
         """
         instance_id = self.shopify_instance_id.id
         warehouse_id = warehouse.id if warehouse else 0
@@ -306,12 +308,12 @@ class SyncInventory(models.TransientModel):
         for product_id in product_ids:
             categ_id = categ_by_product.get(product_id, 0)
             min_qty, strategy = rule_model._resolve(
-                index, instance_id, warehouse_id,
+                index, instance_id, warehouse_id, product_id,
                 categ_chains.get(categ_id) or ([categ_id] if categ_id else []))
             if best is None or min_qty > best[0]:
                 best = (min_qty, strategy)
         return best or (rule_model._resolve(index, instance_id,
-                                            warehouse_id, []))
+                                            warehouse_id, 0, []))
 
     # ------------------------------------------------------------------
     # quantity helpers

@@ -12,6 +12,9 @@
                 <field name="categ_ids" widget="many2many_tags"
                        placeholder="All Categories"
                        options="{'no_create': True}"/>
+                <field name="product_ids" widget="many2many_tags"
+                       placeholder="All Variants"
+                       options="{'no_create': True}" optional="show"/>
                 <field name="min_qty" sum="Total"/>
                 <field name="strategy"/>
                 <field name="instance_id"
@@ -42,6 +45,10 @@
                                    widget="many2many_tags"
                                    placeholder="All Categories"
                                    options="{'no_create': True}"/>
+                            <field name="product_ids"
+                                   widget="many2many_tags"
+                                   placeholder="All Variants"
+                                   options="{'no_create': True}"/>
                             <field name="instance_id"
                                    placeholder="All Instances"
                                    options="{'no_create': True}"/>
@@ -64,9 +71,10 @@
                         <p>
                             When several rules match a product, the most
                             specific one wins: the instance first, then the
-                            warehouse, then the closest product category
-                            (a listed category also covers its child
-                            categories).
+                            warehouse, then a listed product variant, then the
+                            closest product category (a listed category also
+                            covers its child categories). A rule for a specific
+                            variant normally leaves Product Categories empty.
                         </p>
                     </div>
                 </sheet>
@@ -81,11 +89,14 @@
             <search string="Minimum Quantities">
                 <field name="warehouse_ids"/>
                 <field name="categ_ids"/>
+                <field name="product_ids"/>
                 <field name="instance_id"/>
                 <filter name="filter_all_warehouses" string="All Warehouses"
                         domain="[('warehouse_ids', '=', False)]"/>
                 <filter name="filter_all_categories" string="All Categories"
                         domain="[('categ_ids', '=', False)]"/>
+                <filter name="filter_variant_rules" string="Per Variant"
+                        domain="[('product_ids', '!=', False)]"/>
                 <separator/>
                 <filter name="filter_archived" string="Archived"
                         domain="[('active', '=', False)]"/>
@@ -106,7 +117,7 @@
         <field name="search_view_id" ref="shopify_min_qty_view_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Set a minimum quantity per warehouse and product category
+                Set a minimum quantity per warehouse, product category or variant
             </p>
             <p>
                 Stock at or below the minimum is not advertised on Shopify,
