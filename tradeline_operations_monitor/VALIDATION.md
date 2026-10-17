@@ -13,9 +13,27 @@ until that window is explicitly agreed. External checks must remain paused
 until the production heartbeat is connected, except for a controlled alert
 delivery test. No rollout time has been scheduled.
 
-The external free-account sign-in email has been requested. Activation is
-pending confirmation of the provider's account terms. No external check or
-outage notifications are active yet.
+The external free Healthchecks account was activated after the owner's
+explicit acceptance of its terms. The production check is configured for a
+one-minute period and two-minute grace, and remains **paused and disconnected
+from Odoo**. No production outage notifications are active yet.
+
+## Independent provider delivery test
+
+A separate check named **TEST ONLY — Operations alert delivery** received a
+manual success ping and was deliberately allowed to expire. The provider
+sent a DOWN email at **12:56:33 UTC**, after its one-minute period and
+two-minute grace. A new manual success ping triggered an UP email at
+**12:57:12 UTC**. Both messages were read back in the intended owner's Gmail
+inbox, verifying actual provider delivery without stopping any Odoo service.
+The test check was then paused too.
+
+The second intended recipient has an email integration assigned to both
+checks, but it is **Unconfirmed**. The provider sent its confirmation link;
+that recipient must confirm it before her alert delivery can be tested.
+Neither this provider-only test nor the isolated Odoo tests verifies the
+future production Odoo-to-provider connection or production SMTP delivery.
+The production ping URL has not been saved in staging or committed to Git.
 
 ## Completed verification
 
@@ -43,6 +61,8 @@ outage notifications are active yet.
 
 Before activation: deploy/install on production in the agreed window, review
 the no-email baseline, send a test email and verify SMTP/inbox delivery, then
-enable monitoring. Connect an external provider check and test missing-ping
-and recovery notification delivery to both intended recipients. The external
-account/check and actual email delivery were not verified by the tests above.
+enable monitoring. Connect the prepared external provider check and verify
+the first committed production heartbeat, missing-ping/recovery delivery to
+both intended recipients, and the production Odoo SMTP channel. Keep external
+checks paused until that rollout. Independent HTTP availability/latency polling
+and host CPU/RAM/disk telemetry are not configured by this staging work.
