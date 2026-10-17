@@ -1,0 +1,115 @@
+# Operations warning system
+
+This app detects symptoms that can delay reservations and stock publication.
+It does not stop checkout, change stock/costs, restart jobs, terminate database
+sessions, or guarantee that overselling cannot happen. It is independent of
+the stock import/valuation workflows and is disabled when first installed.
+
+## What it detects
+
+| Condition | Initial thresholds / handling |
+| --- | --- |
+| Shopify inventory/order queue delayed | Warning after 3 minutes; critical after 10 |
+| Critical cron disabled, failing, or overdue | Disabled/failing is critical; overdue uses the delay thresholds |
+| Partial stock push even when batch says Done | Critical, based on persisted connector failure summaries |
+| Individual order rejected inside a Done batch | Critical, based on the persisted per-order rejection log |
+| Shopify order event blocked, failed, or waiting too long | Critical rejection; age-based delay warning |
+| Database lock wait | Warning after 30 seconds; critical after 120 seconds |
+| Idle transaction holding resources | Warning after 60 seconds; critical after 180 seconds |
+| Long active SQL | Warning after 60 seconds; critical after 300 seconds |
+| PostgreSQL connection pressure | Warning at 85%; critical at 95% |
+| Excel import failed or stopped progressing | Immediate failure signal; age-based stalled-progress check |
+| Failed outgoing mail / executive report | Critical persisted failure |
+| Operational alert queued too long | Age-based warning/critical signal |
+| Monitor/scheduler stopped | External heartbeat expires; authenticated HTTP health becomes 503 after 3 minutes |
+
+Live conditions need two consecutive checks by default. Explicit persisted
+failures alert on the first check. Checks run every minute, not continuously;
+email delivery and host availability add time. These are detection targets,
+not guaranteed response-time SLAs. A blocked scheduler can only be detected
+reliably by the independent cloud monitor.
+
+An old Multi Stock Update **Draft is not flagged as a stalled import**: drafts
+may be legitimate work in progress. Multi Stock is an atomic transaction, so
+its blocking/long-running SQL is detected by the database probes instead.
+
+## Odoo setup
+
+1. Install **Tradeline Operations Monitor**. Administrator access is required.
+2. Open **Operations Monitor → Settings**. Enter only the intended two
+   recipients and the existing executive-report sender/SMTP identity.
+3. Click **Check Now (No Email)** and inspect **Operations Monitor → Incidents**.
+   Review old Shopify rejection/mapping errors before activation; the initial
+   scan includes the last 24 hours of relevant persisted failures.
+4. Click **Send Test Email** and confirm receipt at both addresses. This queues
+   one test; the separate alert sender runs within the next scheduler minute.
+5. Enable monitoring. Emails group new/escalated incidents, repeat at most
+   every 15 minutes per continuing incident, and report live-condition recovery.
+
+Individual order/publication failures remain open until reviewed. Their absence
+from a later scan or another successful batch is not proof they were repaired.
+Open the referenced job/log/event, correct the cause, verify the affected
+stock/order, then **Mark Reviewed / Resolved**. New failure evidence reopens it.
+
+The probes run with a two-second SQL timeout and 100ms lock timeout each,
+without taking business row locks. They read status/timestamps and relevant
+log summaries, not stock import workbooks or job/order JSON payloads. Mail is
+queued separately so SMTP waits do not hold the health-check transaction open.
+
+## Independent outage email: cloud heartbeat
+
+No extra always-on PC is needed for a hosted heartbeat check:
+
+1. Create a check at [Healthchecks.io](https://healthchecks.io/docs/).
+2. Set period **1 minute** and grace **2 minutes**.
+3. Configure and verify email notifications for both intended recipients in
+   the provider account. Complete any invitation/email confirmation yourself.
+4. Copy the UUID-based `https://hc-ping.com/<UUID>` URL into Odoo's secret
+   **Heartbeat URL** field. Do not paste it into Git, email bodies or URLs in
+   documents; it allows signalling the check.
+5. Confirm pings arrive after committed Odoo checks. The app sends `/fail` for
+   confirmed critical conditions and success pings otherwise. No stock,
+   customer, order, database, or recipient data is included in the ping.
+6. On a test system, stop/pause the monitoring cron and confirm the provider
+   emails both addresses when check-ins expire. Resume and verify recovery.
+
+If Odoo, its database, cron workers, or its outgoing mail stop working, the
+provider can send its own emails without depending on Odoo. A configured URL
+alone is not proof that recipients or alert delivery were verified.
+
+## Website/HTTP availability and response time
+
+For independent frontend availability/latency checks, configure an HTTP monitor
+such as [Better Stack](https://betterstack.com/docs/uptime/monitoring-start/).
+Use `https://<production-host>/tradeline/operations/health`, with a secret
+`Authorization: Bearer <Health Token>` header generated in Settings. HTTP 503
+means confirmed critical operations status or a stale monitor; 401 means the
+token/configuration is wrong. The response contains only overall status and
+the monitoring timestamp. Do not put the token in the URL. The HTTP monitor
+also detects timeouts, server errors, TLS/network failures, and slow responses
+according to its configured thresholds.
+
+Heartbeat expiry covers scheduler/database failure; HTTP polling covers the
+case where Odoo cron is alive but HTTP workers or the public site are stuck.
+Both can live in a hosted monitoring service; provider account activation and
+recipient verification are external setup steps.
+
+## Maintenance and limitations
+
+Set **Maintenance Until** for intentional maintenance while the monitor is
+running. It mutes Odoo notifications and sends success heartbeats during that
+window. If Odoo itself will be offline, pause the corresponding external checks
+at the provider for that window too; an offline server cannot send its own
+maintenance signal.
+
+This does not independently compare every accepted Shopify order against Odoo
+or every live Shopify quantity against warehouse stock. A failure that leaves
+no queue, event or persistent connector error can escape these checks; source
+reconciliation is separate. CPU/RAM/disk metrics need the hosting provider's
+infrastructure telemetry; database symptoms and HTTP latency are covered here.
+Monitoring permissions must expose PostgreSQL sessions for the Odoo role;
+otherwise the database probe is reported unavailable, not falsely healthy.
+
+Tests simulate slow/failed probes, a blocking chain, partial Done-batch errors,
+rejected orders, stalled imports, confirmation/escalation/reminders/recovery,
+manual failure review, maintenance, authenticated health, and mail isolation.

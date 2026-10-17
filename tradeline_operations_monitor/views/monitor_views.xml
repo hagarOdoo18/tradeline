@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_operations_monitor_form" model="ir.ui.view">
+        <field name="name">tradeline.operations.monitor.form</field>
+        <field name="model">tradeline.operations.monitor</field>
+        <field name="arch" type="xml">
+            <form create="0" delete="0">
+                <header>
+                    <button name="action_check_now" type="object" string="Check Now (No Email)" class="btn-primary"/>
+                    <button name="action_test_email" type="object" string="Send Test Email"/>
+                    <button name="action_generate_token" type="object" string="Generate Health Token"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-info" role="status">
+                        Monitoring reads operational status. It does not change stock, retry orders, kill database sessions or stop sales.
+                        Complete the external monitor setup to receive alerts when Odoo cannot run or send email.
+                    </div>
+                    <div class="alert alert-warning" role="status" invisible="heartbeat_url">
+                        Independent outage alerts are not connected. Internal emails alone cannot cover an Odoo or scheduler outage.
+                    </div>
+                    <group>
+                        <group string="Email Alerts">
+                            <field name="name"/>
+                            <field name="active"/>
+                            <field name="recipient_emails" placeholder="you@example.com,hagar@example.com"/>
+                            <field name="sender_email"/>
+                            <field name="maintenance_until"/>
+                        </group>
+                        <group string="Thresholds">
+                            <field name="warning_minutes"/>
+                            <field name="critical_minutes"/>
+                            <field name="lock_warning_seconds"/>
+                            <field name="confirmation_checks"/>
+                            <field name="reminder_minutes"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Current Health">
+                            <field name="overall_status"/>
+                            <field name="last_checked_at"/>
+                            <field name="last_duration_seconds"/>
+                        </group>
+                        <group string="Independent Monitoring">
+                            <field name="heartbeat_url" password="1"/>
+                            <field name="health_token" password="1"/>
+                            <div class="text-muted" colspan="2">
+                                Cloud heartbeat: every 1 minute, 2-minute grace. Add both email recipients at the provider.
+                                For HTTP availability, monitor /tradeline/operations/health using an Authorization: Bearer header.
+                                Health tokens must not be placed in URLs.
+                            </div>
+                        </group>
+                    </group>
+                    <field name="incident_ids">
+                        <list create="0" delete="0" decoration-danger="state == 'open' and severity == 'critical'"
+                              decoration-warning="state == 'open' and severity == 'warning'" decoration-muted="state == 'resolved'">
+                            <field name="title"/>
+                            <field name="severity"/>
+                            <field name="state"/>
+                            <field name="first_seen_at"/>
+                            <field name="last_seen_at"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_operations_incident_list" model="ir.ui.view">
+        <field name="name">tradeline.operations.incident.list</field>
+        <field name="model">tradeline.operations.incident</field>
+        <field name="arch" type="xml">
+            <list create="0" delete="0" decoration-danger="state == 'open' and severity == 'critical'"
+                  decoration-warning="state == 'open' and severity == 'warning'" decoration-muted="state == 'resolved'">
+                <field name="title"/>
+                <field name="severity"/>
+                <field name="state"/>
+                <field name="first_seen_at"/>
+                <field name="last_seen_at"/>
+                <field name="last_notified_at"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_operations_incident_form" model="ir.ui.view">
+        <field name="name">tradeline.operations.incident.form</field>
+        <field name="model">tradeline.operations.incident</field>
+        <field name="arch" type="xml">
+            <form create="0" delete="0" edit="0">
+                <header>
+                    <button name="action_resolve" type="object" string="Mark Reviewed / Resolved" invisible="state == 'resolved'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <h1><field name="title"/></h1>
+                    <group>
+                        <field name="severity"/>
+                        <field name="first_seen_at"/>
+                        <field name="last_seen_at"/>
+                        <field name="resolved_at"/>
+                        <field name="latched"/>
+                    </group>
+                    <group string="What Was Detected"><field name="details" nolabel="1"/></group>
+                    <group string="What To Do"><field name="action" nolabel="1"/></group>
+                    <div class="alert alert-info" role="status">
+                        Individual job/order/publication errors stay open until reviewed. A healthy cron or a Done batch does not resolve them.
+                        Live delays and lock waits recover automatically after a successful healthy check.
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="view_operations_incident_search" model="ir.ui.view">
+        <field name="name">tradeline.operations.incident.search</field>
+        <field name="model">tradeline.operations.incident</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="title"/>
+                <filter name="unresolved" string="Unresolved" domain="[('state','!=','resolved')]"/>
+                <filter name="critical" string="Critical" domain="[('severity','=','critical')]"/>
+                <group string="Group By">
+                    <filter name="severity" string="Severity" context="{'group_by':'severity'}"/>
+                    <filter name="state" string="State" context="{'group_by':'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="action_operations_monitor" model="ir.actions.act_window">
+        <field name="name">Operations Monitoring</field>
+        <field name="res_model">tradeline.operations.monitor</field>
+        <field name="view_mode">form</field>
+        <field name="res_id" ref="monitor_default"/>
+    </record>
+    <record id="action_operations_incidents" model="ir.actions.act_window">
+        <field name="name">Operations Incidents</field>
+        <field name="res_model">tradeline.operations.incident</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_unresolved': 1}</field>
+    </record>
+    <menuitem id="menu_operations_root" name="Operations Monitor" sequence="30" groups="base.group_system"/>
+    <menuitem id="menu_operations_incidents" name="Incidents" parent="menu_operations_root" action="action_operations_incidents" sequence="10"/>
+    <menuitem id="menu_operations_settings" name="Settings" parent="menu_operations_root" action="action_operations_monitor" sequence="20"/>
+</odoo>
