@@ -361,12 +361,20 @@ class ImportStockQuantWizard(models.Model):
         # transfer's opposite location or a repeated row far down the workbook.
         # A hard row limit here would change stock and valuation semantics.
         keys = {self._batch_key(line) for line in seeds}
-        domains = []
+        serial_lots = defaultdict(set)
+        locations_by_lot = defaultdict(set)
         for product_id, lot_id, location_id in keys:
-            domain = [('product_id', '=', product_id), ('lot_id', '=', lot_id)]
             if location_id:
-                domain.append(('location_id', '=', location_id))
-            domains.append(domain)
+                locations_by_lot[(product_id, lot_id)].add(location_id)
+            else:
+                serial_lots[product_id].add(lot_id)
+        # A serial-heavy file commonly has 100 lots of the same product.
+        # Use one IN clause for those lots instead of 100 OR branches.
+        domains = [[('product_id', '=', product_id), ('lot_id', 'in', list(lot_ids))]
+                   for product_id, lot_ids in serial_lots.items()]
+        domains.extend([[('product_id', '=', product_id), ('lot_id', '=', lot_id),
+                         ('location_id', 'in', list(location_ids))]
+                        for (product_id, lot_id), location_ids in locations_by_lot.items()])
         return Line.search(expression.AND([pending_domain, expression.OR(domains)]), order='id')
 
     @api.model
