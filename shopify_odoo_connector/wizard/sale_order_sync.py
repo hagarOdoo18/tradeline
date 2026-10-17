@@ -871,7 +871,7 @@ class SaleOrderSync(models.TransientModel):
                         self._log_confirmed_order_failure(
                             savepoint, each, instance, error)
 
-    SHOPIFY_SHIPPING_PRODUCT_CODE = 'Shipping/1'
+    SHOPIFY_SHIPPING_PRODUCT_CODE = 'Shipping/2'
 
     def _shopify_shipping_line_vals(self, order, sale_order, warehouse,
                                     instance, currency):

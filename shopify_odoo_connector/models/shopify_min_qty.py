@@ -23,16 +23,19 @@ DEFAULT_STRATEGY = 'threshold'
 class ShopifyMinQty(models.Model):
     """One minimum-quantity rule.
 
-    A rule is matched on (instance, warehouses, product categories). Warehouses
-    and categories are many2many, so a single row can cover "Cairo + Alex" and
-    "Phones + Tablets" at once. Leaving a list empty makes the rule apply to
-    *all* values of it, so a row with everything empty is the global default.
+    A rule is matched on (instance, warehouses, product variants, product
+    categories). Warehouses, variants and categories are many2many, so a
+    single row can cover "Cairo + Alex" and "Phones + Tablets" at once.
+    Leaving a list empty makes the rule apply to *all* values of it, so a row
+    with everything empty is the global default.
 
     When several rules match, the most specific one wins, in this order:
 
     1. instance set beats instance empty;
     2. a listed warehouse beats an empty warehouse list;
-    3. the closest product category wins - a listed category first, then the
+    3. a listed product variant beats a rule with no variant - a variant is
+       the most granular target;
+    4. the closest product category wins - a listed category first, then the
        nearest listed parent category, then a rule with no category at all.
 
     Warehouse outranks category on purpose: the threshold exists to protect a
@@ -59,6 +62,14 @@ class ShopifyMinQty(models.Model):
         help='Leave empty to apply the rule to every product category. '
              'A listed category also covers its child categories, unless a '
              'child is listed on a rule of its own.')
+    product_ids = fields.Many2many(
+        'product.product',
+        'shopify_min_qty_product_rel', 'min_qty_id', 'product_id',
+        string='Product Variants',
+        help='Leave empty to apply the rule to every product variant. '
+             'A listed variant is the most specific target: it beats a '
+             'category rule of the same warehouse scope. Normally a '
+             'per-variant rule leaves Product Categories empty.')
     min_qty = fields.Integer(
         string='Minimum Qty', required=True, default=DEFAULT_MIN_QTY,
         help='Quantity kept out of Shopify. See Strategy for how it is used.')
@@ -84,19 +95,23 @@ class ShopifyMinQty(models.Model):
     # display / integrity
     # ------------------------------------------------------------------
 
-    @api.depends('warehouse_ids', 'categ_ids', 'min_qty')
+    @api.depends('warehouse_ids', 'product_ids', 'categ_ids', 'min_qty')
     def _compute_display_name(self):
         for rule in self:
             warehouses = ', '.join(
                 rule.warehouse_ids.mapped('name')) or _('All Warehouses')
-            categories = ', '.join(
-                rule.categ_ids.mapped('complete_name')) or _('All Categories')
+            if rule.product_ids:
+                scope = ', '.join(rule.product_ids.mapped('display_name'))
+            else:
+                scope = ', '.join(
+                    rule.categ_ids.mapped('complete_name')
+                ) or _('All Categories')
             rule.display_name = '%s / %s: %s' % (
-                warehouses, categories, rule.min_qty)
+                warehouses, scope, rule.min_qty)
 
     def _expanded_keys(self):
-        """The concrete (instance, warehouse, category) triples this rule
-        covers, with ``0`` standing for "empty / applies to all".
+        """The concrete (instance, warehouse, variant, category) tuples this
+        rule covers, with ``0`` standing for "empty / applies to all".
 
         This is the same expansion :meth:`_build_index` does, and it is what
         makes "do two rules overlap?" a plain set intersection.
@@ -104,12 +119,15 @@ class ShopifyMinQty(models.Model):
         self.ensure_one()
         instance_key = self.instance_id.id or 0
         warehouse_keys = self.warehouse_ids.ids or [0]
+        product_keys = self.product_ids.ids or [0]
         categ_keys = self.categ_ids.ids or [0]
-        return {(instance_key, warehouse_key, categ_key)
+        return {(instance_key, warehouse_key, product_key, categ_key)
                 for warehouse_key in warehouse_keys
+                for product_key in product_keys
                 for categ_key in categ_keys}
 
-    @api.constrains('instance_id', 'warehouse_ids', 'categ_ids', 'active')
+    @api.constrains('instance_id', 'warehouse_ids', 'product_ids',
+                    'categ_ids', 'active')
     def _check_unique_rule(self):
         """No two active rules may cover the same combination.
 
@@ -135,16 +153,20 @@ class ShopifyMinQty(models.Model):
                 clash = keys & other._expanded_keys()
                 if not clash:
                     continue
-                _instance_key, warehouse_key, categ_key = sorted(clash)[0]
+                (_instance_key, warehouse_key,
+                 product_key, categ_key) = sorted(clash)[0]
                 raise ValidationError(_(
                     'Rule "%(other)s" already covers warehouse '
-                    '"%(warehouse)s" and category "%(category)s" for this '
-                    'Shopify instance. Merge the two rules or narrow one of '
-                    'them.',
+                    '"%(warehouse)s", variant "%(variant)s" and category '
+                    '"%(category)s" for this Shopify instance. Merge the two '
+                    'rules or narrow one of them.',
                     other=other.display_name,
                     warehouse=(self.env['stock.warehouse'].browse(
                         warehouse_key).name if warehouse_key
                         else _('All Warehouses')),
+                    variant=(self.env['product.product'].browse(
+                        product_key).display_name if product_key
+                        else _('All Variants')),
                     category=(self.env['product.category'].browse(
                         categ_key).complete_name if categ_key
                         else _('All Categories')),
@@ -158,12 +180,13 @@ class ShopifyMinQty(models.Model):
     def _build_index(self, instance=None):
         """Read the rules once and return a flat lookup dict.
 
-        Each rule is expanded into one entry per (warehouse, category) pair it
-        covers, so resolving a minimum during the inventory push is a dict
-        lookup instead of a search per group.
+        Each rule is expanded into one entry per (warehouse, variant,
+        category) combination it covers, so resolving a minimum during the
+        inventory push is a dict lookup instead of a search per group.
 
-        Returns ``{(instance_id, warehouse_id, categ_id): (min_qty,
-        strategy)}`` with ``0`` standing for "empty / applies to all".
+        Returns ``{(instance_id, warehouse_id, product_id, categ_id):
+        (min_qty, strategy)}`` with ``0`` standing for "empty / applies to
+        all".
         """
         domain = []
         if instance:
@@ -171,20 +194,23 @@ class ShopifyMinQty(models.Model):
                       ('instance_id', '=', instance.id)]
         index = {}
         for rule in self.sudo().search_read(
-                domain, ['instance_id', 'warehouse_ids', 'categ_ids',
-                         'min_qty', 'strategy']):
+                domain, ['instance_id', 'warehouse_ids', 'product_ids',
+                         'categ_ids', 'min_qty', 'strategy']):
             instance_key = rule['instance_id'] and rule['instance_id'][0] or 0
             value = (rule['min_qty'], rule['strategy'] or DEFAULT_STRATEGY)
             for warehouse_key in rule['warehouse_ids'] or [0]:
-                for categ_key in rule['categ_ids'] or [0]:
-                    key = (instance_key, warehouse_key, categ_key)
-                    current = index.get(key)
-                    # _check_unique_rule keeps this from happening; should two
-                    # rules still collide (a rule written around the
-                    # constraint), the stricter one wins rather than the last
-                    # one read, so the result never depends on the row order.
-                    if current is None or value[0] > current[0]:
-                        index[key] = value
+                for product_key in rule['product_ids'] or [0]:
+                    for categ_key in rule['categ_ids'] or [0]:
+                        key = (instance_key, warehouse_key,
+                               product_key, categ_key)
+                        current = index.get(key)
+                        # _check_unique_rule keeps this from happening; should
+                        # two rules still collide (a rule written around the
+                        # constraint), the stricter one wins rather than the
+                        # last one read, so the result never depends on row
+                        # order.
+                        if current is None or value[0] > current[0]:
+                            index[key] = value
         return index
 
     @api.model
@@ -206,19 +232,24 @@ class ShopifyMinQty(models.Model):
         return chains
 
     @api.model
-    def _resolve(self, index, instance_id, warehouse_id, categ_chain):
+    def _resolve(self, index, instance_id, warehouse_id, product_id,
+                 categ_chain):
         """Most specific ``(min_qty, strategy)`` for one combination.
 
-        `categ_chain` is the category and its ancestors, deepest first (see
+        `product_id` is the variant being published; a rule that lists it
+        beats a category rule of the same warehouse scope. `categ_chain` is
+        the category and its ancestors, deepest first (see
         :meth:`_categ_chain`).
         """
         if index:
             for inst_key in (instance_id or 0, 0):
                 for wh_key in (warehouse_id or 0, 0):
-                    for categ_key in list(categ_chain or ()) + [0]:
-                        match = index.get((inst_key, wh_key, categ_key))
-                        if match is not None:
-                            return match
+                    for prod_key in (product_id or 0, 0):
+                        for categ_key in list(categ_chain or ()) + [0]:
+                            match = index.get(
+                                (inst_key, wh_key, prod_key, categ_key))
+                            if match is not None:
+                                return match
         return DEFAULT_MIN_QTY, DEFAULT_STRATEGY
 
     @api.model
