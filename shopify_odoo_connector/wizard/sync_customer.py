@@ -366,7 +366,7 @@ class SyncCustomer(models.TransientModel):
             'shopify_customer_ref': customer.get('id'),
             'shopify_instance_id': instance.id,
             'synced_customer': True,
-            'company_id': instance.company_id.id,
+            'company_id': False,
         })
         # only set when found: an empty value must never wipe a national ID
         # already entered on an existing partner

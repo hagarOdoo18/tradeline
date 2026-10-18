@@ -1079,7 +1079,7 @@ class SaleOrderSync(models.TransientModel):
                 'shopify_instance_id': instance.id,
                 'synced_customer': bool(customer_ref),
                 'shopify_customer_ref': customer_ref,
-                'company_id': instance.company_id.id,
+                'company_id': False,
             })
             partner = Partner.create(partner_vals)
             created = True
@@ -1223,7 +1223,7 @@ class SaleOrderSync(models.TransientModel):
                             'shopify_instance_id'] = shopify_instance.id
                         customer_vals['synced_customer'] = True
                         customer_vals[
-                            'company_id'] = shopify_instance.company_id.id
+                            'company_id'] = False
                         partner_id = self.env['res.partner'].sudo().create(
                             customer_vals).id
                         partner_ = self.env['res.partner'].sudo().browse(
