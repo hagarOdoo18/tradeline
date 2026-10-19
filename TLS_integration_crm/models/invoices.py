@@ -11,6 +11,10 @@ from dateutil.relativedelta import relativedelta
 
 _logger = logging.getLogger(__name__)
 
+# Bound network inactivity while the integration holds an Odoo transaction.
+# POSTs are deliberately not retried: a lost response can follow acceptance.
+TVC_HTTP_TIMEOUT = (5, 30)
+
 
 
 
@@ -46,7 +50,8 @@ class AccountInvoice(models.Model):
                        '.AspNetCore.Session=CfDJ8Jmk3bOcAM5Gra9%2BuoaWcngZUBsiQsjqQ3owU084F4nJ0EX1qyhmhWhZX4Y7sF61vjDEaYna6bAl7sv%2BfBCgoIj2qoNc%2Bi8Qq%2BE8%2B6Sd7RvaMZSst92GSaX0D8%2FOUSpeL%2B%2BcctkLrqyGspctwG14cmCrgjb1spO7DirY3qKWTkpJ'
         }
         try:
-            r = requests.post (url=url, data=body, headers=headers,files=files,verify=False)
+            r = requests.post (url=url, data=body, headers=headers,files=files,verify=False,
+                               timeout=TVC_HTTP_TIMEOUT)
             token = r.json ().get (u'access_token', False)
             return token
         except:
@@ -125,7 +130,8 @@ class AccountInvoice(models.Model):
                         })
 
             try :
-                r = requests.post (url=url , data=pload , headers=headers , verify=False)
+                r = requests.post (url=url , data=pload , headers=headers , verify=False,
+                                   timeout=TVC_HTTP_TIMEOUT)
 
                 if r.status_code == 200:
                     if tvc_invoice:
@@ -155,6 +161,16 @@ class AccountInvoice(models.Model):
                     self._cr.commit()
                     time.sleep (10)
                     _logger.info (r)
+            except requests.RequestException as error:
+                # No response is available on a timeout. Do not read r.text
+                # or claim success, and do not replay a potentially accepted
+                # invoice in this call. Keep the audit item for reconciliation.
+                if tvc_invoice_obj:
+                    tvc_invoice_obj.state = 'error'
+                    tvc_invoice_obj.note = (
+                        'Delivery unconfirmed (%s). Verify the invoice at TVC '
+                        'before retrying.' % type(error).__name__)
+                _logger.warning('TVC invoice delivery unconfirmed (%s)', type(error).__name__)
             except :
                 if tvc_invoice_obj :
 

@@ -203,11 +203,30 @@ class TestOperationsMonitor(TransactionCase):
 
     def test_database_lock_chain_and_idle_transaction_are_distinguished(self):
         self.monitor.read(['lock_warning_seconds'])
-        fetches = iter([[(123, 'active', 'Lock', [456], 180, 180),
-                         (456, 'idle in transaction', 'Client', [], 250, 200)], (20, 100)])
+        fetches = iter([[(123, 'active', 'Lock', [456], 180, 180, False, self.now, 'stock_quant'),
+                         (456, 'idle in transaction', 'Client', [], 250, 200, False, self.now, 'stock_quant')], (20, 100)])
         with patch.object(type(self.env.cr), 'execute', lambda *args, **kwargs: None), \
                 patch.object(type(self.env.cr), 'fetchall', lambda cr: next(fetches), create=True), \
                 patch.object(type(self.env.cr), 'fetchone', lambda cr: next(fetches), create=True):
             observations = self.monitor._probe_database(self.now)
         self.assertEqual({item['code'] for item in observations}, {'database:blocked:123', 'database:idle:456'})
         self.assertTrue(all(item['severity'] == 'critical' for item in observations))
+
+    def test_cron_coordination_is_exempt_only_without_blocked_peers_and_within_budget(self):
+        self.monitor.read(['lock_warning_seconds', 'critical_minutes'])
+        rows = [(101, 'idle in transaction', 'Client', [], 240, 240, True, self.now, 'ir_cron_progress'),
+                (102, 'idle in transaction', 'Client', [], 240, 240, True, self.now, 'ir_cron_progress'),
+                (103, 'active', 'Lock', [102], 180, 180, False, self.now, 'ir_cron'),
+                (104, 'idle in transaction', 'Client', [], 601, 601, True, self.now, 'ir_cron_progress'),
+                (105, 'idle in transaction (aborted)', 'Client', [], 240, 240, True, self.now, 'ir_cron_progress'),
+                (106, 'idle in transaction', 'Client', [], 240, 240, False, self.now, 'stock_quant')]
+        fetches = iter([rows, (20, 100)])
+        with patch.object(type(self.env.cr), 'execute', lambda *args, **kwargs: None), \
+                patch.object(type(self.env.cr), 'fetchall', lambda cr: next(fetches), create=True), \
+                patch.object(type(self.env.cr), 'fetchone', lambda cr: next(fetches), create=True):
+            observations = self.monitor._probe_database(self.now)
+        self.assertEqual({item['code'] for item in observations}, {
+            'database:idle:102', 'database:blocked:103', 'database:idle:104',
+            'database:idle:105', 'database:idle:106'})
+        self.assertTrue(all(item['severity'] == 'critical' for item in observations))
+        self.assertIn('stock_quant', observations[-1]['details'])
