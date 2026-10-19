@@ -201,23 +201,45 @@ class OperationsMonitor(models.Model):
                        'critical' if seconds >= self.critical_minutes * 60 else 'warning')]
 
     def _probe_database(self, now):
-        self.env.cr.execute("""
-            SELECT pid, state, wait_event_type, pg_blocking_pids(pid),
+        self.env.cr.execute(r"""
+            SELECT a.pid, a.state, a.wait_event_type, pg_blocking_pids(a.pid),
                    EXTRACT(EPOCH FROM (clock_timestamp() - query_start)),
-                   EXTRACT(EPOCH FROM (clock_timestamp() - state_change))
-              FROM pg_stat_activity
+                   EXTRACT(EPOCH FROM (clock_timestamp() - state_change)),
+                   (query ~* '^\s*WITH last_cron_progress AS\s*\('
+                    AND query LIKE '%%FROM ir_cron_progress%%'
+                    AND NOT EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid=a.pid
+                                    AND l.granted AND l.locktype='advisory')
+                    AND NOT EXISTS (
+                        SELECT 1 FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+                         WHERE l.pid=a.pid AND l.granted AND c.relkind IN ('r','p','m')
+                           AND c.relname NOT IN ('ir_cron', 'ir_cron_progress',
+                                                 'ir_cron_trigger', 'ir_module_module')
+                    )),
+                   backend_start,
+                   substring(query FROM '(?i)(?:FROM|UPDATE|INTO)\s+"?([a-z_][a-z_0-9]*)')
+              FROM pg_stat_activity a
              WHERE datname=current_database() AND pid<>pg_backend_pid()
         """)
         observations = []
-        for pid, state, wait, blockers, query_age, state_age in self.env.cr.fetchall():
+        sessions = self.env.cr.fetchall()
+        blocking_pids = {pid for row in sessions for pid in row[3]}
+        for pid, state, wait, blockers, query_age, state_age, coordinator, backend_start, table in sessions:
+            context = ' Backend started: %s. Last SQL relation: %s.' % (backend_start, table or 'unknown')
             if wait == 'Lock' and blockers and (query_age or 0) >= self.lock_warning_seconds:
                 observations.append(signal('database:blocked:%s' % pid, 'Database work is blocked',
-                    'Session %s has waited %.0fs; blocking sessions: %s.' % (pid, query_age, ', '.join(map(str, blockers))),
+                    'Session %s has waited %.0fs; blocking sessions: %s.' % (pid, query_age, ', '.join(map(str, blockers))) + context,
                     'Inspect the blocking transaction in Odoo.sh. Do not terminate sessions blindly.',
                     'critical' if query_age >= 120 else 'warning'))
             if state in ('idle in transaction', 'idle in transaction (aborted)') and (state_age or 0) >= 60:
+                # Odoo 18 holds the acquired cron row on cron_cr while the
+                # callback runs on job_cr. This coordination cursor is normally
+                # idle. Exempt only that known query, with metadata-only locks,
+                # no blocked peers, and for less than the critical job budget.
+                if (state == 'idle in transaction' and coordinator
+                        and pid not in blocking_pids and state_age < self.critical_minutes * 60):
+                    continue
                 observations.append(signal('database:idle:%s' % pid, 'Transaction held open while idle',
-                    'Session %s has been idle inside a transaction for %.0fs.' % (pid, state_age),
+                    'Session %s has been idle inside a transaction for %.0fs.' % (pid, state_age) + context,
                     'Check long Shopify requests and uncommitted inventory work.',
                     'critical' if state_age >= 180 else 'warning'))
             if state == 'active' and wait != 'Lock' and (query_age or 0) >= 60:
