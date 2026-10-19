@@ -48,8 +48,9 @@ BEGIN
   END LOOP;
 END $$;
 
--- Generate each build only when no valid non-partial B-tree already starts
--- with that reference column. Execute one concurrent build at a time.
+-- Preserve full indexes and Odoo's partial WHERE column IS NOT NULL indexes:
+-- both support the non-null equality lookup performed by a foreign key.
+-- Generate a build only for an actually missing reference index.
 WITH targets(table_name, column_name) AS (VALUES
     ('account_move', 'extract_attachment_id'),
     ('account_move', 'e_invoice_file'),
@@ -67,7 +68,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid=i.indexrelid
     JOIN pg_am am ON am.oid=ic.relam
     WHERE i.indrelid=a.attrelid AND i.indkey[0]=a.attnum
-      AND i.indisvalid AND i.indisready AND i.indpred IS NULL AND am.amname='btree'
+      AND i.indisvalid AND i.indisready AND am.amname='btree'
+      AND (i.indpred IS NULL OR pg_get_expr(i.indpred,i.indrelid)=
+           '(' || quote_ident(a.attname) || ' IS NOT NULL)')
 )
 ORDER BY t.table_name, t.column_name
 \gexec
@@ -84,7 +87,9 @@ SELECT bool_and(EXISTS (
     SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid=i.indexrelid
     JOIN pg_am am ON am.oid=ic.relam
     WHERE i.indrelid=a.attrelid AND i.indkey[0]=a.attnum
-      AND i.indisvalid AND i.indisready AND i.indpred IS NULL AND am.amname='btree'
+      AND i.indisvalid AND i.indisready AND am.amname='btree'
+      AND (i.indpred IS NULL OR pg_get_expr(i.indpred,i.indrelid)=
+           '(' || quote_ident(a.attname) || ' IS NOT NULL)')
 )) AS all_references_indexed
 FROM targets t
 JOIN pg_attribute a ON a.attrelid=to_regclass('public.' || t.table_name)

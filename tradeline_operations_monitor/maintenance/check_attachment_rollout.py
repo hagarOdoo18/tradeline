@@ -59,7 +59,10 @@ def main():
                 JOIN pg_am am ON am.oid=ic.relam
                 JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
                 WHERE i.indrelid=%s::regclass AND a.attname=%s
-                  AND i.indpred IS NULL AND am.amname='btree' ORDER BY ic.relname''', [table, column])
+                  AND am.amname='btree'
+                  AND (i.indpred IS NULL OR pg_get_expr(i.indpred,i.indrelid)=
+                       '(' || quote_ident(a.attname) || ' IS NOT NULL)')
+                ORDER BY ic.relname''', [table, column])
             indexes = cr.fetchall()
             entry = dict(table=table, column=column, indexes=indexes)
             if args.plans:

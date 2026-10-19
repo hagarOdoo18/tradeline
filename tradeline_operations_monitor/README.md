@@ -42,7 +42,8 @@ incident; it does not establish that the website was offline. An independent
 HTTP poller is needed to measure public website downtime.
 
 For slow attachment deletion, `maintenance/attachment-reference-indexes.sql`
-adds five supporting reference indexes using concurrent builds. Run it with
+ensures five references have supporting indexes using concurrent builds only
+where needed, preserving Odoo's existing not-null partial indexes. Run it with
 psql in autocommit after staging verification; it is deliberately not run
 during module upgrade, where a large blocking index build could interrupt work.
 The script verifies the expected foreign keys and usable indexes, and changes
