@@ -29,6 +29,28 @@ email delivery and host availability add time. These are detection targets,
 not guaranteed response-time SLAs. A blocked scheduler can only be detected
 reliably by the independent cloud monitor.
 
+Odoo 18's scheduler keeps a coordination transaction open while its callback
+runs on another connection. The known acquisition query is exempt from idle
+alerts only while it holds scheduler metadata locks, no advisory locks, blocks
+no sampled peer, and remains below the configured critical minutes. Business
+transactions, aborted transactions, actual blockers and overlong coordination
+transactions still alert. Database alerts include backend start time and the
+last SQL relation name without copying SQL values or customer payloads.
+
+An external **DOWN (received a failure signal)** means a confirmed operational
+incident; it does not establish that the website was offline. An independent
+HTTP poller is needed to measure public website downtime.
+
+For slow attachment deletion, `maintenance/attachment-reference-indexes.sql`
+ensures five references have supporting indexes using concurrent builds only
+where needed, preserving Odoo's existing not-null partial indexes. Run it with
+psql in autocommit after staging verification; it is deliberately not run
+during module upgrade, where a large blocking index build could interrupt work.
+The script verifies the expected foreign keys and usable indexes, and changes
+no business records. `maintenance/check_attachment_rollout.py` captures row
+counts, DML counters and deterministic business-record sample fingerprints for
+before/after verification, and measures read-only reference lookup plans.
+
 An old Multi Stock Update **Draft is not flagged as a stalled import**: drafts
 may be legitimate work in progress. Multi Stock is an atomic transaction, so
 its blocking/long-running SQL is detected by the database probes instead.
