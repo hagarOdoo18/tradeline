@@ -94,7 +94,7 @@ test('simultaneous Enter/click/scan cannot insert a serial twice', async () => {
     assert.equal(f.screen.pos._pendingLotSerialAdds.size, 0);
 });
 
-test('failed or cancelled configuration releases pending serial', async () => {
+test('failed configuration releases pending serial', async () => {
     const f = fixture();
     const nativeAdd = f.screen.pos.addLineToCurrentOrder;
     f.screen.pos.addLineToCurrentOrder = async () => { throw new Error('configuration failed'); };
@@ -103,6 +103,17 @@ test('failed or cancelled configuration releases pending serial', async () => {
     f.screen.pos.addLineToCurrentOrder = nativeAdd;
     await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
     assert.equal(f.events.added, 1);
+});
+
+test('cancelled configuration can be retried without a false duplicate', async () => {
+    const f = fixture();
+    const nativeAdd = f.screen.pos.addLineToCurrentOrder;
+    f.screen.pos.addLineToCurrentOrder = async () => undefined;
+    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
+    f.screen.pos.addLineToCurrentOrder = nativeAdd;
+    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
+    assert.equal(f.events.added, 1);
+    assert.equal(f.events.alerts.length, 0);
 });
 
 test('different serials on a merged product line remain allowed', async () => {
