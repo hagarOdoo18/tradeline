@@ -381,7 +381,7 @@ class TestCopilotQueries(TransactionCase):
         prompt = self.service._agent_system_prompt()
         self.assertIn("cannot see, save or modify unsaved forms", prompt)
         self.assertEqual({tool["name"] for tool in self.service._agent_tools()}, {
-            "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets"})
+            "request_clarification", "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets"})
 
     def test_source_metadata_describes_executed_query_not_model_prose(self):
         result = self.query.execute_query(self._spec(group_by=["company_id"], aggregates=["color:sum"], limit=1))
@@ -637,3 +637,49 @@ class TestCopilotQueries(TransactionCase):
     def test_greetings_are_conversational_but_data_claims_still_need_queries(self):
         greeting = self.service._finish_agent_response("hello", False, "openai", "test", "Hello. What are we looking into?", [], [], True)
         self.assertFalse(any(b["type"] == "warning" for b in greeting["blocks"]))
+
+    def test_clarification_ends_both_provider_loops_before_bundled_queries(self):
+        question = {"question": "Which period and sales measure should I compare?", "choices": ["Posted invoices", "Confirmed orders"]}
+        self.settings.openai_api_key = "fake-not-sent"
+        claude = {"content": [
+            {"type": "tool_use", "id": "q1", "name": "query_data", "input": self._spec()},
+            {"type": "tool_use", "id": "c1", "name": "request_clarification", "input": question}]}
+        openai = {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "q1", "type": "function", "function": {"name": "query_data", "arguments": json.dumps(self._spec())}},
+            {"id": "c1", "type": "function", "function": {"name": "request_clarification", "arguments": json.dumps(question)}}]}}]}
+        for provider, payload in [("claude", claude), ("openai", openai)]:
+            with self.subTest(provider=provider), patch.object(type(self.service), "_agent_request", return_value=payload) as request, \
+                    patch.object(type(self.query), "execute_query", side_effect=AssertionError("Ambiguous scope must not query")):
+                answer = self.service.generate_response("Compare our sales", provider=provider)
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(answer["blocks"][0]["content"], question["question"])
+            self.assertFalse(any(b["type"] in {"table", "warning"} for b in answer["blocks"]))
+            self.assertEqual(answer["blocks"][1], {"type": "reply_choices", "choices": question["choices"]})
+        unsupported = self.service._finish_agent_response("Sales?", False, "claude", "test", "Sales were 999.", [], [], True)
+        self.assertTrue(any("No Odoo data query" in b.get("content", "") for b in unsupported["blocks"]))
+
+    def test_clarification_validation_and_arabic_question_persistence(self):
+        for values in [{"question": "?"}, {"question": "Compare what?", "choices": "bad"},
+                       {"question": "Compare what?", "choices": ["x" * 161]}, {"question": "Compare what?", "write": True}]:
+            with self.subTest(values=values), self.assertRaises(ValidationError):
+                self.service._agent_dispatch("request_clarification", values, [], False, "claude", "test")
+        question = {"question": "هل تقصد أوامر البيع أم الفواتير المرحلة؟", "choices": ["الفواتير المرحلة", "أوامر البيع"]}
+        payload = {"content": [{"type": "tool_use", "id": "clarify", "name": "request_clarification", "input": question}]}
+        with patch.object(type(self.service), "_agent_request", return_value=payload):
+            result = self.env["ai.copilot.ui"].with_user(self.user).chat_send({"message": "قارن المبيعات", "provider": "claude"})
+        saved = self.env["ai.copilot.message"].browse(result["message_id"])
+        self.assertEqual(saved.content, question["question"])
+        self.assertEqual(saved.response_json[1]["choices"], question["choices"])
+        self.assertFalse(any(b["type"] == "warning" for b in saved.response_json))
+
+    def test_sol_streamed_clarification_finishes_without_second_generation(self):
+        self.settings.openai_api_key = "fake-not-sent"
+        response = FakeProviderStream([{"type": "response.completed", "response": {"status": "completed", "output": [{
+            "type": "function_call", "call_id": "c1", "name": "request_clarification", "status": "completed",
+            "arguments": json.dumps({"question": "Which upgrade and purchase period should I use?", "choices": []})}]}}])
+        with patch("odoo.addons.tradeline_ai_copilot.models.ai_copilot_agent.requests.post", return_value=response) as post:
+            events = list(self.service._generate_response_stream("Who should we target?", provider="openai", llm_model="gpt-6.1-sol"))
+        self.assertEqual(post.call_count, 1)
+        final = events[-1]["response"]
+        self.assertEqual(final["blocks"], [{"type": "text", "content": "Which upgrade and purchase period should I use?"}])
+        self.assertTrue(response.closed)

@@ -19,7 +19,7 @@ export class CopilotBase extends Component {
         this.state = useState({ open: false, loading: false, historyLoading: false, input: "", messages: [],
             conversationId: null, mode: "side", provider: "", models: {}, history: [], search: "", sidebar: window.innerWidth >= 900,
             enableXlsx: true, enableCsv: true, exportBusy: "", error: "", enableHistory: true,
-            streamVersion: 0, status: "", configLoading: false, canAccess: false });
+            streamVersion: 0, status: "", configLoading: false, canAccess: false, showLatest: false });
         onWillStart(async () => {
             try { this.state.canAccess = await user.hasGroup("tradeline_ai_copilot.group_ai_copilot_user"); }
             catch { /* Fail closed without disrupting the underlying Odoo page. */ }
@@ -87,6 +87,27 @@ export class CopilotBase extends Component {
     onMessagesScroll() {
         const el = this.messagesRef.el;
         this.autoScroll = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        this.state.showLatest = !this.autoScroll;
+    }
+    jumpToLatest() {
+        this.autoScroll = true;
+        this.state.showLatest = false;
+        if (this.messagesRef.el) { this.messagesRef.el.scrollTop = this.messagesRef.el.scrollHeight; }
+    }
+    useReplyChoice(choice) {
+        if (this.busy) { return; }
+        this.state.input = choice;
+        this.inputRef.el?.focus({ preventScroll: true });
+    }
+    async copyAnswer(message) {
+        const text = (message.blocks || []).filter(block => block.type === "text").map(block => block.content).join("\n\n");
+        if (!text) { return; }
+        try {
+            await navigator.clipboard.writeText(text);
+            this.notification.add("Answer copied.", { type: "success" });
+        } catch {
+            this.notification.add("Copy is unavailable in this browser. Select the answer text to copy it.", { type: "warning" });
+        }
     }
     toggleSidebar() { this.state.sidebar = !this.state.sidebar; }
     toggleSize() { this.state.mode = this.state.mode === "fullscreen" ? "side" : "fullscreen"; }
@@ -95,7 +116,7 @@ export class CopilotBase extends Component {
     onProviderChange(ev) { this.state.provider = ev.target.value; }
     newConversation() {
         if (this.busy) { return; }
-        Object.assign(this.state, { conversationId: null, messages: [], input: "", error: "" });
+        Object.assign(this.state, { conversationId: null, messages: [], input: "", error: "", showLatest: false });
         this.autoScroll = true;
         this.inputRef.el?.focus();
     }
@@ -103,6 +124,7 @@ export class CopilotBase extends Component {
         if (this.busy) { return; }
         this.state.historyLoading = true;
         this.autoScroll = true;
+        this.state.showLatest = false;
         this.state.error = "";
         try {
             const result = await this.orm.call("ai.copilot.ui", "load_conversation", [id]);
@@ -121,7 +143,7 @@ export class CopilotBase extends Component {
         this.pendingMessage = this.state.messages[this.state.messages.length - 1];
         this.autoScroll = true;
         this.textBuffer = "";
-        Object.assign(this.state, { input: "", error: "", loading: true, status: "Checking saved Odoo data..." });
+        Object.assign(this.state, { input: "", error: "", loading: true, showLatest: false, status: "Understanding your question..." });
         this.streamController = new AbortController();
         let responseSaved = false;
         try {

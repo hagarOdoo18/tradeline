@@ -25,6 +25,50 @@ button from another Odoo screen. This upgrades the existing Copilot; the separat
   Source IDs such as `[S1]` are assigned by the server and passed to the model.
   Missing/invalid citations and answers without completed queries get a warning.
   Source metadata documents the query; it does not certify the model's prose.
+- Material ambiguity uses a dedicated `request_clarification` response. It ends
+  the tool round before bundled data calls, offers optional editable reply
+  choices, and does not display the missing-data warning. Unsupported business
+  answers without a completed query still receive that warning.
+- Copy-answer and jump-to-latest controls, compact supporting tables (over 12
+  rows start collapsed), clearer analysis preview notices, and Tradeline brand
+  artwork with a native SVG AI accent keep long conversations manageable.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[Odoo chat workspace / popup] <--> S[Authenticated Copilot service]
+    S <--> AI[OpenAI Sol or Claude\nplanning and streamed explanation]
+    S --> C[Clarification question\noptional editable choices]
+    C --> UI
+    S --> T[Validated read-only tools]
+    T --> P[Model / field policy\nuser ACLs and company / branch rules]
+    P --> D[Saved Odoo, legacy and Shopify-linked records]
+    T --> R[Deterministic aggregates\ncohorts, identity resolution, basket math]
+    R --> S
+    S --> W[Separate OpenAI public web search\npublic subject only, cited URLs]
+    W --> S
+    S --> H[Private chat history, audit and report files]
+    S --> UI
+```
+
+The service has its own streaming cursor; it does not receive unsaved form data.
+The selected language model receives the question, bounded recent conversation
+and bounded tool results. Raw identifiers used by the identity resolver remain
+inside that server-side helper. Public research is a separate request without
+automatic Odoo-record or conversation attachment. API keys stay on the server.
+The only writes belong to Copilot's history, audit and generated report storage.
+There is no business-operation or direct live Shopify API tool. Downloads rerun
+queries under current access checks.
+
+The strongest next improvements are an administrator-approved metric/glossary
+catalog (revenue, margin, refunds and product families), source freshness
+indicators, a separately authorized read-only live Shopify connector, and a
+benchmark of representative executive questions checked against known reports.
+These are recommendations, not capabilities enabled by this UI update. Product
+scope follows the user's prompt and confirmed follow-ups; example exclusions do
+not become global filters. Model routing should follow measured accuracy, cost
+and latency on that benchmark rather than an untested complexity heuristic.
 
 ## Configuration and upgrade
 

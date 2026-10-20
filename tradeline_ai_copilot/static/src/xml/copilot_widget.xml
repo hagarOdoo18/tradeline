@@ -10,7 +10,7 @@
     <t t-name="tradeline_ai_copilot.PanelContent">
         <aside t-if="state.sidebar" class="tl-ai-sidebar" aria-label="Conversations">
             <button type="button" class="tl-ai-icon-button tl-ai-sidebar-dismiss" t-on-click="toggleSidebar" aria-label="Close conversations"><i class="fa fa-times" aria-hidden="true"/></button>
-            <div class="tl-ai-sidebar-brand">Tradeline AI</div>
+            <div class="tl-ai-sidebar-brand"><img src="/tradeline_ai_copilot/static/src/img/tradeline_ai_wordmark.svg" alt="Tradeline AI" width="202" height="48"/></div>
             <button type="button" class="tl-ai-button tl-ai-primary tl-ai-new" t-on-click="newConversation" t-att-disabled="busy"><i class="fa fa-plus" aria-hidden="true"/> New conversation</button>
             <div t-if="state.enableHistory" class="tl-ai-search"><i class="fa fa-search" aria-hidden="true"/><input type="search" aria-label="Search conversations" placeholder="Search conversations..." t-att-value="state.search" t-on-input="onSearch"/></div>
             <div class="tl-ai-recent">Recent</div>
@@ -38,16 +38,17 @@
                     <article t-foreach="state.messages" t-as="msg" t-key="msg.id || msg_index" t-att-class="'tl-ai-message ' + (msg.role === 'user' ? 'is-user' : 'is-assistant')">
                         <t t-if="msg.role === 'user'"><div class="tl-ai-user-bubble" dir="auto"><t t-esc="msg.content"/></div></t>
                         <t t-elif="msg.role === 'assistant'">
-                            <div class="tl-ai-assistant-label">Tradeline AI</div>
+                            <div class="tl-ai-assistant-label"><img src="/tradeline_ai_copilot/static/src/img/tradeline_ai_mark.svg" alt="" width="22" height="22"/><span>Your reporting coworker</span></div>
                             <t t-foreach="msg.blocks || []" t-as="block" t-key="block_index">
                                 <div t-if="block.type === 'text'" class="tl-ai-answer" dir="auto"><t t-foreach="answerParts(block.content, msg)" t-as="part" t-key="part_index"><a t-if="part.url" t-att-href="part.url" t-att-title="part.title" target="_blank" rel="noopener noreferrer"><t t-esc="part.text"/></a><t t-else="" t-esc="part.text"/></t><span t-if="msg.streaming" class="tl-ai-stream-cursor" aria-hidden="true">▍</span></div>
                                 <section t-elif="block.type === 'web_sources'" class="tl-ai-result tl-ai-source"><h3>Public web sources</h3><p><t t-esc="block.subject"/> · <t t-esc="block.queried_at"/> UTC</p><ul><li t-foreach="block.citations" t-as="citation" t-key="citation.id"><a t-att-href="citation.url" target="_blank" rel="noopener noreferrer">[<t t-esc="citation.id"/>] <t t-esc="citation.title"/></a></li></ul><p><t t-esc="block.scope"/></p></section>
+                                <div t-elif="block.type === 'reply_choices'" class="tl-ai-reply-choices" aria-label="Suggested replies"><button type="button" t-foreach="block.choices" t-as="choice" t-key="choice_index" class="tl-ai-button" t-on-click="() => this.useReplyChoice(choice)" t-att-disabled="busy"><t t-esc="choice"/></button><span class="tl-ai-muted">Choose a starting point, then edit your reply.</span></div>
                                 <div t-elif="block.type === 'warning' || block.type === 'clarification'" class="tl-ai-warning" role="status"><i class="fa fa-info-circle" aria-hidden="true"/><span dir="auto"><t t-esc="block.content"/></span></div>
                                 <CopilotChart t-elif="block.type === 'chart'" block="block"/>
                                 <section t-elif="block.type === 'table'" class="tl-ai-result">
                                     <div class="tl-ai-result-heading"><h3><t t-esc="block.title || 'Supporting data'"/></h3><span><t t-esc="block.rows.length"/> rows<t t-if="block.truncated"> · limited</t></span></div>
                                     <CopilotChart t-if="block.chart" block="block.chart"/>
-                                    <div class="tl-ai-table-scroll" tabindex="0" role="region" aria-label="Result data"><table><thead><tr><th t-foreach="block.columns" t-as="column" t-key="column" scope="col"><t t-esc="block.labels ? (block.labels[column] || column) : column"/></th></tr></thead><tbody><tr t-foreach="block.rows" t-as="row" t-key="row_index"><td t-foreach="block.columns" t-as="column" t-key="column" dir="auto"><t t-esc="normalizeValue(row[column])"/></td></tr><tr t-if="!block.rows.length"><td t-att-colspan="block.columns.length">No records match these filters.</td></tr></tbody></table></div>
+                                    <details class="tl-ai-evidence" t-att-open="block.rows.length &lt;= 12 ? true : undefined"><summary>Supporting data · <t t-esc="block.rows.length"/> rows</summary><div class="tl-ai-table-scroll" tabindex="0" role="region" aria-label="Result data"><table><thead><tr><th t-foreach="block.columns" t-as="column" t-key="column" scope="col"><t t-esc="block.labels ? (block.labels[column] || column) : column"/></th></tr></thead><tbody><tr t-foreach="block.rows" t-as="row" t-key="row_index"><td t-foreach="block.columns" t-as="column" t-key="column" dir="auto"><t t-esc="normalizeValue(row[column])"/></td></tr><tr t-if="!block.rows.length"><td t-att-colspan="block.columns.length">No records match these filters.</td></tr></tbody></table></div></details>
                                     <details t-if="block.provenance" class="tl-ai-source">
                                         <summary><i class="fa fa-database" aria-hidden="true"/> Sources &amp; filters <span>[<t t-esc="block.provenance.source_id"/>] · <t t-esc="block.provenance.model_label"/></span></summary>
                                         <dl>
@@ -70,6 +71,7 @@
                                 <div t-elif="block.type === 'download'" class="tl-ai-download"><button type="button" class="tl-ai-button" t-on-click="() => this.openDownload(block.url)"><i class="fa fa-download" aria-hidden="true"/> <t t-esc="block.label"/></button></div>
                                 <div t-elif="block.type === 'kpi'" class="tl-ai-legacy-kpi"><span t-foreach="block.items" t-as="item" t-key="item.label"><t t-esc="item.label"/>: <strong><t t-esc="item.value"/></strong></span></div>
                             </t>
+                            <div t-if="!msg.streaming" class="tl-ai-answer-actions"><button type="button" class="tl-ai-button tl-ai-ghost" t-on-click="() => this.copyAnswer(msg)" aria-label="Copy answer" title="Copy answer"><i class="fa fa-copy" aria-hidden="true"/> Copy answer</button></div>
                         </t>
                     </article>
                     <div t-if="state.loading" class="tl-ai-thinking" role="status"><i class="fa fa-circle-o-notch fa-spin" aria-hidden="true"/> <t t-esc="state.status"/></div>
@@ -77,15 +79,16 @@
                 </div>
             </div>
             <footer class="tl-ai-composer-area">
+                <div t-if="state.showLatest" class="tl-ai-latest-wrap"><button type="button" class="tl-ai-button tl-ai-latest" t-on-click="jumpToLatest"><i class="fa fa-arrow-down" aria-hidden="true"/> Jump to latest</button></div>
                 <div t-if="state.error" class="tl-ai-error" role="alert"><t t-esc="state.error"/></div>
                 <div class="tl-ai-composer"><textarea t-ref="input" rows="2" maxlength="12000" aria-label="Message" placeholder="Ask about your business..." dir="auto" t-att-value="state.input" t-on-input="onInput" t-on-keydown="onKeydown" t-att-disabled="state.historyLoading"/><button type="button" t-if="state.loading" class="tl-ai-send" aria-label="Stop response" title="Stop response" t-on-click="stopResponse"><i class="fa fa-stop" aria-hidden="true"/></button><button type="button" t-else="" class="tl-ai-send" aria-label="Send message" title="Send message" t-on-click="sendMessage" t-att-disabled="busy || !state.input.trim() || !state.provider"><i class="fa fa-arrow-up" aria-hidden="true"/></button></div>
-                <p class="tl-ai-disclaimer">Read-only reporting · Saved data only · Review figures before decisions</p>
+                <p class="tl-ai-disclaimer">Enter to send · Shift+Enter for a new line · Read-only reporting</p>
             </footer>
         </main>
     </t>
     <t t-name="tradeline_ai_copilot.FloatingWidget">
         <div t-if="state.canAccess and state.open" t-att-class="rootClass"><div class="tl-ai-panel" t-ref="panel" t-on-keydown="onPanelKeydown"><t t-call="tradeline_ai_copilot.PanelContent"/></div></div>
-        <button type="button" t-if="state.canAccess and !state.open" class="tl-ai-launcher" t-on-click="toggleOpen" title="Chat with Odoo" aria-label="Open Chat with Odoo"><i class="fa fa-comments-o" aria-hidden="true"/></button>
+        <button type="button" t-if="state.canAccess and !state.open" class="tl-ai-launcher" t-on-click="toggleOpen" title="Chat with Odoo" aria-label="Open Chat with Odoo"><img src="/tradeline_ai_copilot/static/src/img/tradeline_ai_mark.svg" alt="" width="34" height="34"/></button>
     </t>
     <t t-name="tradeline_ai_copilot.WorkspaceAction"><div class="tl-ai-workspace-page"><div t-if="state.canAccess" t-att-class="rootClass"><div class="tl-ai-panel" t-ref="panel" t-on-keydown="onPanelKeydown"><t t-call="tradeline_ai_copilot.PanelContent"/></div></div><p t-else="" class="p-4" role="status">Access requires the Tradeline AI / Reporting User group. Contact your administrator.</p></div></t>
 </templates>

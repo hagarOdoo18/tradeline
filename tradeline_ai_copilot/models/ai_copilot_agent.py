@@ -22,6 +22,9 @@ class AICopilotAgent(models.AbstractModel):
             return {"name": name, "description": description, "input_schema": {
                 "type": "object", "properties": properties, "required": required, "additionalProperties": False}}
         tools = [
+            tool("request_clarification", "Ask a concise question when a material part of the user's scope is ambiguous (metric, dates, product family, channel). This ends the current reply without running further tools. Ask only for missing decisions; do not state unverified business figures. Optional choices are suggested replies, never filters applied automatically.",
+                 {"question": {"type": "string", "maxLength": 700},
+                  "choices": {"type": "array", "maxItems": 4, "items": {"type": "string", "maxLength": 160}}}, ["question"]),
             tool("search_models", "Discover enabled business models by English technical name, label or installed module name. Only readable models are returned. Use an empty keyword to browse, or try sale, stock, account, purchase, pos, partner or a custom module name. Each page returns up to 60 matches; use offset 60, 120, etc to continue. An empty page ends the search. Never assume a custom model exists.",
                  {"keyword": {"type": "string"}, "offset": {"type": "integer", "minimum": 0, "maximum": 10000}}, []),
             tool("describe_model", "Inspect readable fields, their labels, types, relations and selection values before querying. Unavailable or sensitive fields are omitted. Use this to discover branch fields and correct sales/invoice states instead of guessing.",
@@ -62,6 +65,9 @@ class AICopilotAgent(models.AbstractModel):
             "Lead with the finding, distinguish observations from hypotheses, and recommend one useful next analysis. Suggestions are proposals, never executed actions. "
             "Use business_context to understand legacy/current sources, compare_customer_sets for buyer/non-buyer cohorts, and analyze_baskets for bundles. "
             "Preserve dates, filters and customer/product definitions across follow-ups unless the user changes them. Reuse previous query definitions, but refresh the evidence. "
+            "Derive scope from the current request and confirmed follow-ups; never turn an earlier example's product exclusions into a global rule. "
+            "When a missing metric, date range, product-family boundary or channel would materially change the answer, use request_clarification before publishing figures. "
+            "For clear requests investigate directly; do not ask the user to decide schema names or technical query details. "
             "Never match old numeric IDs to current IDs or guess customer links from names. Unresolved exclusion identities make non-buyer candidates provisional, not proven non-buyers. "
             "For legacy/current cohorts enable both legacy resolution flags: identifiers can exist even when partner links are empty. Use the server-side resolver; never retrieve raw phones/national IDs for manual matching. "
             "Explain identifier method counts and unresolved coverage. An exact identifier match is a reporting candidate, not verified proof of identity; do not merge customers. "
@@ -187,6 +193,19 @@ class AICopilotAgent(models.AbstractModel):
         engine = self.env["ai.copilot.query"]
         if not isinstance(arguments, dict):
             raise ValidationError("Tool arguments must be an object.")
+        if name == "request_clarification":
+            if set(arguments) - {"question", "choices"}:
+                raise ValidationError("Use a clarification question and optional reply choices.")
+            question, choices = arguments.get("question"), arguments.get("choices", [])
+            if not isinstance(question, str) or not 5 <= len(question.strip()) <= 700:
+                raise ValidationError("Use a concise clarification question.")
+            if not isinstance(choices, list) or len(choices) > 4 or any(
+                    not isinstance(choice, str) or not 1 <= len(choice.strip()) <= 160 for choice in choices):
+                raise ValidationError("Use up to four short suggested replies.")
+            result = {"kind": "clarification", "question": question.strip(),
+                      "choices": list(dict.fromkeys(choice.strip() for choice in choices))}
+            results.append(result)
+            return result
         if name == "search_models":
             return engine.search_models(**arguments)
         if name == "describe_model":
@@ -210,7 +229,7 @@ class AICopilotAgent(models.AbstractModel):
             raise AccessError("Only approved read-only tools are available.")
         result["title"] = str(arguments.get("title") or "Query results")[:160]
         result["result_id"] = len(results)
-        result["source_id"] = "S%s" % (1 + len([r for r in results if r.get("kind") != "web"]))
+        result["source_id"] = "S%s" % (1 + len([r for r in results if r.get("kind") not in {"web", "clarification"}]))
         result["provenance"]["source_id"] = result["source_id"]
         results.append(result)
         self._log_audit(conversation, {"prompt": result["title"], "intent": "read_only_tool",
@@ -277,14 +296,20 @@ class AICopilotAgent(models.AbstractModel):
                     failures.append("The response reached its length limit. Ask a narrower follow-up for more detail.")
                 return text or "No answer was returned. Please narrow the question.", results, failures
             tool_results = []
+            # Resolve scope first even if a provider bundles a question with data calls.
+            calls.sort(key=lambda call: call.get("name") != "request_clarification")
             for call in calls:
                 if stream:
-                    yield {"type": "status", "status": "Researching public sources..." if call.get("name") == "research_public_web" else "Checking saved Odoo data..."}
+                    status = {"research_public_web": "Researching public sources...",
+                              "request_clarification": "Clarifying your question..."}.get(call.get("name"), "Checking saved Odoo data...")
+                    yield {"type": "status", "status": status}
                 try:
                     if len(tool_results) >= 5 or len(results) >= 8 or time.monotonic() >= deadline:
                         raise ValidationError("Investigation budget reached; narrow the question.")
                     with self.env.cr.savepoint():
                         data = self._agent_dispatch(call["name"], call.get("input"), results, conversation, provider, llm_model)
+                    if isinstance(data, dict) and data.get("kind") == "clarification":
+                        return data["question"], results, failures
                     output = json.dumps(data, default=str)
                     error = False
                 except (AccessError, ValidationError, UserError) as exc:
@@ -367,16 +392,22 @@ class AICopilotAgent(models.AbstractModel):
         blocks = [{"type": "text", "content": text}]
         warnings = list(warnings)
         web_results = [r for r in results if r.get("kind") == "web"]
-        results = [r for r in results if r.get("kind") != "web"]
+        clarifications = [r for r in results if r.get("kind") == "clarification"]
+        results = [r for r in results if r.get("kind") not in {"web", "clarification"}]
+        if clarifications:
+            text = clarifications[-1]["question"]
+            blocks[0]["content"] = text
+            if clarifications[-1]["choices"]:
+                blocks.append({"type": "reply_choices", "choices": clarifications[-1]["choices"]})
         cited = set(re.findall(r"\[[SW]\d+\]", text))
         available = {"[%s]" % result["source_id"] for result in results}
         available.update("[%s]" % citation["id"] for r in web_results for citation in r["citations"])
         if cited - available:
             warnings.append("The explanation refers to an unavailable source. Verify its claims against the supporting tables.")
-        if results and not cited:
+        if results and not cited and not clarifications:
             warnings.append("The explanation did not cite its supporting sources. Check the figures against Sources & filters below.")
         smalltalk = bool(re.fullmatch(r"\s*(?:hi|hello|hey|thanks|thank you|good morning|good evening)[!.,\s]*", prompt, re.I))
-        if not results and not web_results and connected and not smalltalk:
+        if not results and not web_results and not clarifications and connected and not smalltalk:
             warnings.append("No Odoo data query was completed for this answer. It is not evidence of business figures.")
         for warning in dict.fromkeys(warnings):
             blocks.append({"type": "warning", "content": warning})
@@ -394,7 +425,9 @@ class AICopilotAgent(models.AbstractModel):
                 "can_export": bool(self._check_model_access(result["source"])[1].allow_export),
                 "result_id": result["result_id"]})
             if result["truncated"]:
-                blocks.append({"type": "warning", "content": "This result reached its row/group limit. It may omit additional records or groups; narrow the filters for complete coverage."})
+                message = ("Showing a limited list of analysis results. Calculations use the complete matched data within the stated scope."
+                           if result.get("analysis") else "This result reached its row/group limit. It may omit additional records or groups; narrow the filters for complete coverage.")
+                blocks.append({"type": "warning", "content": message})
             if result["cells_truncated"]:
                 blocks.append({"type": "warning", "content": "Long text values were shortened to keep this report manageable."})
             for enabled, requested, kind in [(settings.enable_csv, wants_csv, "csv"), (settings.enable_xlsx, wants_xlsx, "xlsx")]:
