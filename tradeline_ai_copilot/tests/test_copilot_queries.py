@@ -278,6 +278,64 @@ class TestCopilotQueries(TransactionCase):
         self.assertEqual(message["content"], "A report. More detail.")
         self.assertEqual(json.loads(message["tool_calls"][0]["function"]["arguments"]), {"keyword": "sale"})
 
+    def test_sol_responses_round_trip_preserves_reasoning_and_read_only_results(self):
+        self.settings.openai_api_key = "fake-not-sent"
+        native_output = [
+            {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "opaque-test"},
+            {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "query_data",
+             "arguments": json.dumps(self._spec(aggregates=["__count"])), "status": "completed"},
+        ]
+        report = {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+                  "content": [{"type": "output_text", "text": "There are 2 records [S1].", "annotations": []}]}
+        streams = [FakeProviderStream([{"type": "response.completed", "response": {
+            "status": "completed", "output": native_output}}]), FakeProviderStream([
+                {"type": "response.output_text.delta", "delta": "There are "},
+                {"type": "response.output_text.delta", "delta": "2 records [S1]."},
+                {"type": "response.completed", "response": {"status": "completed", "output": [report]}}])]
+        with patch("odoo.addons.tradeline_ai_copilot.models.ai_copilot_agent.requests.post", side_effect=streams) as post:
+            events = list(self.service._generate_response_stream("Count the QA records", provider="openai", llm_model="gpt-6.1-sol"))
+        self.assertEqual(post.call_count, 2)
+        request = post.call_args.kwargs["json"]
+        self.assertEqual(post.call_args.args[0], "https://api.openai.com/v1/responses")
+        self.assertEqual(request["input"][1:3], native_output)
+        self.assertEqual(request["input"][3]["type"], "function_call_output")
+        self.assertEqual(request["input"][3]["call_id"], "call_1")
+        self.assertFalse(request["store"])
+        self.assertEqual(request["reasoning"], {"effort": "low"})
+        self.assertNotIn("temperature", request)
+        self.assertFalse(request["tools"][0]["strict"])
+        self.assertEqual(len([e for e in events if e["type"] == "delta"]), 2)
+        answer = events[-1]["response"]
+        self.assertEqual(answer["blocks"][0]["content"], "There are 2 records [S1].")
+        self.assertTrue(any(b["type"] == "table" and b["rows"] == [{"__count": 2}] for b in answer["blocks"]))
+        self.assertTrue(all(s.closed for s in streams))
+        self.assertEqual(self.partners.mapped("color"), [3, 7, 99])
+
+    def test_luna_and_sol_use_responses_but_existing_chat_models_stay_compatible(self):
+        self.settings.openai_api_key = "fake-not-sent"
+        for model in ["gpt-6.1-sol", "gpt-6-luna"]:
+            url, request, unused_headers = self.service._agent_request_parameters("openai", model,
+                [{"role": "user", "content": "Count sales"}], self.service._agent_tools())
+            self.assertTrue(url.endswith("/responses"))
+            self.assertEqual(request["model"], model)
+            self.assertIn("reasoning.encrypted_content", request["include"])
+        url, request, unused_headers = self.service._agent_request_parameters("openai", "gpt-4.1-mini",
+            [{"role": "user", "content": "Count sales"}], self.service._agent_tools())
+        self.assertTrue(url.endswith("/chat/completions"))
+        self.assertIn("function", request["tools"][0])
+
+    def test_responses_truncated_tools_and_failed_streams_cannot_execute(self):
+        for status in ["incomplete", "failed"]:
+            response = FakeProviderStream([{"type": "response." + status, "response": {
+                "status": status, "incomplete_details": {"reason": "max_output_tokens"}, "output": [{
+                    "type": "function_call", "call_id": "bad", "name": "query_data",
+                    "arguments": "{}", "status": "in_progress"}]}}])
+            with self.subTest(status=status), self.assertRaises(ValueError):
+                self._consume(collect_provider_stream(response, "openai_responses", time.monotonic() + 30))
+        with self.assertRaises(ValueError):
+            self._consume(collect_provider_stream(FakeProviderStream([
+                {"type": "response.output_text.delta", "delta": "Partial"}]), "openai_responses", time.monotonic() + 30))
+
     def test_incomplete_stream_is_not_accepted_as_finished(self):
         response = FakeProviderStream(self._claude_text(["Partial answer"])[0:-2])
         with self.assertRaises(ValueError):

@@ -2,6 +2,8 @@
 import json
 import time
 
+from .openai_responses import normalize_response
+
 
 def provider_events(response, deadline):
     response.encoding = "utf-8"
@@ -36,6 +38,15 @@ def collect_provider_stream(response, provider, deadline):
         event = json.loads(raw)
         if event.get("error") or event.get("type") == "error":
             raise ValueError("The provider reported a streaming error.")
+        if provider == "openai_responses":
+            kind = event.get("type")
+            if kind in {"response.output_text.delta", "response.refusal.delta"}:
+                yield {"type": "delta", "text": event.get("delta", "")}
+            elif kind in {"response.completed", "response.incomplete"}:
+                return normalize_response(event["response"])
+            elif kind in {"response.failed", "response.cancelled"}:
+                raise ValueError("The provider response did not complete.")
+            continue
         if provider == "claude":
             kind = event.get("type")
             index = event.get("index", 0)

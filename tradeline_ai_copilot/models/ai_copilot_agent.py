@@ -9,6 +9,7 @@ import requests
 from odoo import fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from .provider_stream import collect_provider_stream
+from .openai_responses import normalize_response, responses_payload, uses_responses
 
 _logger = logging.getLogger(__name__)
 
@@ -93,6 +94,10 @@ class AICopilotAgent(models.AbstractModel):
             return "https://api.anthropic.com/v1/messages", payload, {
                 "x-api-key": settings.claude_api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
         else:
+            if uses_responses(model):
+                return "https://api.openai.com/v1/responses", responses_payload(
+                    model, self._agent_system_prompt(), messages, tools, settings.max_tokens), {
+                    "Authorization": "Bearer " + settings.openai_api_key, "Content-Type": "application/json"}
             payload = {"model": model, "messages": [{"role": "system", "content": self._agent_system_prompt()}] + messages}
             if tools:
                 payload["tools"] = [{"type": "function", "function": {
@@ -104,7 +109,8 @@ class AICopilotAgent(models.AbstractModel):
         url, payload, headers = self._agent_request_parameters(provider, model, messages, tools)
         response = requests.post(url, json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        return normalize_response(data) if url.endswith("/responses") else data
 
     def _agent_request_stream(self, provider, model, messages, tools, timeout, deadline):
         url, payload, headers = self._agent_request_parameters(provider, model, messages, tools)
@@ -112,7 +118,8 @@ class AICopilotAgent(models.AbstractModel):
         response = requests.post(url, json=payload, headers=headers, timeout=(min(10, timeout), timeout), stream=True)
         try:
             response.raise_for_status()
-            return (yield from collect_provider_stream(response, provider, deadline))
+            protocol = "openai_responses" if url.endswith("/responses") else provider
+            return (yield from collect_provider_stream(response, protocol, deadline))
         finally:
             response.close()
 
@@ -213,7 +220,10 @@ class AICopilotAgent(models.AbstractModel):
                     except (TypeError, ValueError):
                         arguments = None
                     calls.append({"id": call["id"], "name": function.get("name"), "input": arguments})
-                messages.append({key: message[key] for key in ("role", "content", "tool_calls") if key in message})
+                if "_responses_output" in payload:
+                    messages.append({"_responses_output": payload["_responses_output"]})
+                else:
+                    messages.append({key: message[key] for key in ("role", "content", "tool_calls") if key in message})
             if not calls:
                 if (provider == "claude" and payload.get("stop_reason") == "max_tokens") or (
                         provider == "openai" and payload["choices"][0].get("finish_reason") == "length"):
