@@ -3,6 +3,9 @@
 import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
 import { patch } from "@web/core/utils/patch";
 import { onWillUnmount, useEffect, useState } from "@odoo/owl";
+import { _t } from "@web/core/l10n/translation";
+import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { ConnectionLostError } from "@web/core/network/rpc";
 
 const LIVE_SEARCH_DELAY_MS = 250;
 const MIN_QUERY_LENGTH = 3;
@@ -112,12 +115,25 @@ patch(ProductScreen.prototype, {
             };
         }
 
-        const response = await this.pos.data.call(
-            "stock.lot",
-            "search_pos_products",
-            [normalizedQuery, this.pos.config.id],
-            { limit: RESULT_LIMIT }
-        );
+        // An already loaded register can resolve exact serials without RPC.
+        // Do not turn server access/validation errors into an offline fallback.
+        if (this.pos.data.network.offline) {
+            return this._getCachedLotSerialMatches(normalizedQuery);
+        }
+        let response;
+        try {
+            response = await this.pos.data.call(
+                "stock.lot",
+                "search_pos_products",
+                [normalizedQuery, this.pos.config.id],
+                { limit: RESULT_LIMIT }
+            );
+        } catch (error) {
+            if (!(error instanceof ConnectionLostError)) {
+                throw error;
+            }
+            return this._getCachedLotSerialMatches(normalizedQuery);
+        }
         const matches = response?.products || [];
         const productIds = matches.map((item) => item.product_id);
         const missingProductIds = productIds.filter(
@@ -148,6 +164,32 @@ patch(ProductScreen.prototype, {
             products: productIds
                 .map((productId) => this.pos.models["product.product"].get(productId))
                 .filter(Boolean),
+        };
+    },
+
+    _getCachedLotSerialMatches(query) {
+        const normalizedQuery = query.toLowerCase();
+        const matches = [];
+        const matchedLotsByProductId = {};
+        const products = [];
+        for (const lot of this.pos.models["stock.lot"]?.filter(
+            (lot) => (lot.name || "").toLowerCase() === normalizedQuery
+        ) || []) {
+            const product = lot.product_id;
+            // Use only loaded, unambiguous serial stock. Current stock/location
+            // and sold-state validation still happens on the server at sync.
+            if (product?.tracking !== "serial" || lot.product_qty !== 1) {
+                continue;
+            }
+            matches.push({ product_id: product.id, matched_lots: [lot.name] });
+            matchedLotsByProductId[product.id] = [lot.name];
+            products.push(product);
+        }
+        return {
+            matches,
+            matchedLotsByProductId,
+            productIds: products.map((product) => product.id),
+            products,
         };
     },
 
@@ -256,12 +298,39 @@ patch(ProductScreen.prototype, {
     },
 
     async _addLotSerialMatchToCurrentOrder(exactMatch) {
-        await this.pos.addLineToCurrentOrder(
-            { product_id: exactMatch.product },
-            { code: this._buildLotSerialCode(exactMatch.lotName) },
-            exactMatch.product.needToConfigure()
+        const { product, lotName } = exactMatch;
+        const pending = this.pos._pendingLotSerialAdds ||= new Set();
+        const key = JSON.stringify([product.id, lotName]);
+        const alreadyUsed = product.tracking === "serial" && (
+            pending.has(key) || this.pos.models["pos.order"].some((order) =>
+                !order.finalized && order.get_orderlines().some((line) =>
+                    line.product_id.id === product.id && line.qty > 0 &&
+                    !line.refunded_orderline_id &&
+                    line.pack_lot_ids.some((lot) => lot.lot_name === lotName)
+                )
+            )
         );
-        this.numberBuffer.reset();
+        if (alreadyUsed) {
+            this.dialog.add(AlertDialog, {
+                title: _t("Serial already in an open order"),
+                body: _t('Serial "%s" is already in an open order. Each serial can only be added once.', lotName),
+            });
+            this.numberBuffer.reset();
+            return;
+        }
+        // Reserve before awaiting native configuration so overlapping Enter,
+        // click and scanner events cannot both pass the duplicate check.
+        pending.add(key);
+        try {
+            await this.pos.addLineToCurrentOrder(
+                { product_id: product },
+                { code: this._buildLotSerialCode(lotName) },
+                product.needToConfigure()
+            );
+            this.numberBuffer.reset();
+        } finally {
+            pending.delete(key);
+        }
     },
 
     async _resolveSingleExactLotSerialMatch(searchWord, options = {}) {
