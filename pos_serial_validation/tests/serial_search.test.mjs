@@ -19,6 +19,7 @@ const modules = {
         Object.defineProperties(target, Object.getOwnPropertyDescriptors(extension));
     }`,
     '@odoo/owl': 'export const onWillUnmount = () => {}; export const useEffect = () => {}; export const useState = x => x;',
+    '@point_of_sale/app/navbar/navbar': 'export class Navbar { setup() {} }',
     '@web/core/l10n/translation': `export const _t = (text, ...args) => args.reduce((s, a) => s.replace('%s', a), text);`,
     '@web/core/confirmation_dialog/confirmation_dialog': 'export class AlertDialog {}',
     '@web/core/network/rpc': 'export class ConnectionLostError extends Error {}',
@@ -29,6 +30,13 @@ await module.link(name => { assert.ok(linked.has(name), name); return linked.get
 await module.evaluate();
 const { ProductScreen } = linked.get('@point_of_sale/app/screens/product_screen/product_screen').namespace;
 const { ConnectionLostError } = linked.get('@web/core/network/rpc').namespace;
+const navbarSource = await readFile(new URL('../static/src/js/navbar.js', import.meta.url), 'utf8');
+// Navbar lifecycle registration is irrelevant to the event-handler contract.
+const navbarOwl = new SourceTextModule('export const onMounted = () => {}; export const onPatched = () => {}; export const onWillUnmount = () => {};');
+const navbarModule = new SourceTextModule(navbarSource);
+await navbarModule.link(name => name === '@odoo/owl' ? navbarOwl : linked.get(name));
+await navbarModule.evaluate();
+const { Navbar } = linked.get('@point_of_sale/app/navbar/navbar').namespace;
 
 function fixture({ offline = false, tracking = 'serial', orders = [], lots } = {}) {
     const screen = new ProductScreen();
@@ -210,4 +218,39 @@ test('offline unsafe cached serial never falls through to another scanner patch'
     assert.equal(f.screen.nativeScans, 0);
     assert.equal(f.events.added, 0);
     assert.equal(f.events.alerts.length, 1);
+});
+
+test('rapid scanner Enter uses visible input before the model debounce', async () => {
+    const navbar = new Navbar();
+    const queries = [];
+    const events = [];
+    const input = { value: ' SER-NEW ', dispatchEvent: event => events.push(event.type) };
+    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
+        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'SER-OLD',
+        _addExactLotSerialSearchMatch: async query => { queries.push(query); return true; } };
+    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: input,
+        preventDefault() {}, stopPropagation() {} });
+    assert.deepEqual(queries, ['SER-NEW']);
+    assert.deepEqual(events, ['input']);
+    assert.equal(input.value, '');
+    assert.equal(navbar.pos.searchProductWord, '');
+});
+
+test('an empty input never submits an older debounced serial', async () => {
+    const navbar = new Navbar();
+    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
+        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'SER-OLD',
+        _addExactLotSerialSearchMatch: async () => { assert.fail('stale serial submitted'); } };
+    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: { value: '' } });
+});
+
+test('unknown serial keeps input intact for correction', async () => {
+    const navbar = new Navbar();
+    const input = { value: 'UNKNOWN', dispatchEvent: () => assert.fail('input cleared') };
+    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
+        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'UNKNOWN',
+        _addExactLotSerialSearchMatch: async () => false };
+    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: input,
+        preventDefault() {}, stopPropagation() {} });
+    assert.equal(input.value, 'UNKNOWN');
 });

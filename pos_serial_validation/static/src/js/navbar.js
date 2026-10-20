@@ -71,7 +71,9 @@ patch(Navbar.prototype, {
             return;
         }
 
-        const searchWord = (this.pos.searchProductWord || "").trim();
+        // A scanner's Enter can arrive before Input's 500ms model debounce.
+        const input = event.currentTarget || this._lotSerialSearchInputEl;
+        const searchWord = (input?.value ?? this.pos.searchProductWord ?? "").trim();
         if (!searchWord) {
             return;
         }
@@ -84,6 +86,13 @@ patch(Navbar.prototype, {
         event.preventDefault();
         event.stopPropagation();
 
-        await addExactLotSerialMatch(searchWord, { skipMinLength: true });
+        const handled = await addExactLotSerialMatch(searchWord, { skipMinLength: true });
+        if (handled && input) {
+            // Replace the pending debounced input value as well as the model,
+            // otherwise it can restore the just-scanned serial after the add.
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            this.pos.searchProductWord = "";
+        }
     },
 });
