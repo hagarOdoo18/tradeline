@@ -15,6 +15,11 @@ class TestPosLotLoading(TransactionCase):
         cls.product = cls.env['product.product'].create({
             'name': 'POS loading test', 'is_storable': True, 'tracking': 'lot',
         })
+        # The negative-quantity case uses only this synthetic product/location.
+        # Honour installations with OCA stock_no_negative instead of disabling
+        # the stock check globally in the hosted transaction-test runner.
+        if 'allow_negative_stock' in cls.product._fields:
+            cls.product.allow_negative_stock = True
         cls.lots = cls.Lot.create([
             {'name': name, 'product_id': cls.product.id, 'company_id': cls.env.company.id}
             for name in ['POS-ZERO', 'POS-AVAILABLE', 'POS-NEGATIVE', 'POS-HISTORICAL']
