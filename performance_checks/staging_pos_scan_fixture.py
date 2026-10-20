@@ -18,13 +18,22 @@ if 'module_pos_hr' in config._fields:
 if 'enable_product_bar_lot_serial_search' in config._fields:
     config.enable_product_bar_lot_serial_search = True
 location = config.picking_type_id.default_location_src_id
+assert not env['product.product'].search_count([
+    ('barcode', 'in', ['9900026102101', '9900026102102'])
+]), 'Reserved QA barcodes already exist'
+category = env['product.category'].create({
+    'name': marker, 'property_valuation': 'manual_periodic',
+    'property_cost_method': 'standard',
+})
 products = env['product.product'].create([
     {'name': marker + ' Serial', 'default_code': 'QA-PERF-SERIAL-PRODUCT',
      'barcode': '9900026102101', 'tracking': 'serial', 'is_storable': True,
-     'available_in_pos': True, 'list_price': 10, 'taxes_id': [(5, 0, 0)]},
+     'available_in_pos': True, 'categ_id': category.id,
+     'list_price': 10, 'taxes_id': [(5, 0, 0)]},
     {'name': marker + ' Plain', 'default_code': 'QA-PERF-PLAIN-PRODUCT',
      'barcode': '9900026102102', 'tracking': 'none', 'is_storable': True,
-     'available_in_pos': True, 'list_price': 5, 'taxes_id': [(5, 0, 0)]},
+     'available_in_pos': True, 'categ_id': category.id,
+     'list_price': 5, 'taxes_id': [(5, 0, 0)]},
 ])
 lots = env['stock.lot'].create([
     {'name': name, 'product_id': products[0].id, 'company_id': env.company.id}
