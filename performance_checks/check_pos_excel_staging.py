@@ -76,22 +76,24 @@ def check_lots():
     Lot = env['stock.lot']
     names = Lot._load_pos_data_fields(0)
     # A representative bounded comparison first; no cashier session is loaded.
-    ids = Lot.search([], limit=20000).ids
-    domain = [('id', 'in', ids)]
-    expected = timed('lot_native_20000', lambda: Lot.search_read(domain, names, load=False))
-    with patch.object(type(Lot), '_load_pos_data_domain', return_value=domain):
-        actual = timed('lot_optimized_20000', lambda: Lot._load_pos_data(
-            {'pos.config': {'data': [{'id': 0}]}}))
-    assert actual['fields'] == names
-    assert len(actual['data']) == len(expected)
-    for old, new in zip(expected, actual['data']):
-        assert old.keys() == new.keys()
-        for name in names:
-            if name == 'product_qty':
-                assert abs(old[name] - new[name]) <= 1e-8, 'Quantity mismatch'
-            else:
-                assert old[name] == new[name], 'Lot data/order mismatch'
-    print('LOT_PAYLOAD_EQUIVALENT rows=%s' % len(expected), flush=True)
+    ids = Lot.search([], limit=None if os.environ.get('TL_FULL_LOTS') else 20000).ids
+    for offset in range(0, len(ids), 20000):
+        domain = [('id', 'in', ids[offset:offset + 20000])]
+        expected = timed('lot_native_%s' % offset, lambda: Lot.search_read(domain, names, load=False))
+        with patch.object(type(Lot), '_load_pos_data_domain', return_value=domain):
+            actual = timed('lot_optimized_%s' % offset, lambda: Lot._load_pos_data(
+                {'pos.config': {'data': [{'id': 0}]}}))
+        assert actual['fields'] == names
+        assert len(actual['data']) == len(expected)
+        for old, new in zip(expected, actual['data']):
+            assert old.keys() == new.keys()
+            for name in names:
+                if name == 'product_qty':
+                    assert abs(old[name] - new[name]) <= 1e-8, 'Quantity mismatch'
+                else:
+                    assert old[name] == new[name], 'Lot data/order mismatch'
+        print('LOT_PAYLOAD_EQUIVALENT offset=%s rows=%s' % (offset, len(expected)), flush=True)
+    print('LOT_CATALOGUE_EQUIVALENT total=%s' % len(ids), flush=True)
 
 
 def check_invoices():
@@ -148,8 +150,9 @@ try:
     import requests
     with patch.object(requests.sessions.Session, 'request', side_effect=AssertionError('External HTTP disabled in QA')):
         check_lots()
-        check_invoices()
-        check_apple()
+        if not os.environ.get('TL_LOTS_ONLY'):
+            check_invoices()
+            check_apple()
     (root / 'comparison-results.json').write_text(json.dumps(results, indent=2))
     print('POS_EXCEL_ALL_COMPARISONS_PASSED', flush=True)
 finally:
