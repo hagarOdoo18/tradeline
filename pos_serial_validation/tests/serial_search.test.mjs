@@ -118,7 +118,6 @@ test('serial already on another open order is blocked', async () => {
 for (const [name, options] of Object.entries({
     'finalized order': { finalized: true, qty: 1 },
     'negative return line': { qty: -1 },
-    'zero quantity': { qty: 0 },
     'linked refund line': { qty: 1, refunded_orderline_id: { id: 9 } },
     'different product': { qty: 1, differentProduct: true },
 })) {
@@ -138,6 +137,14 @@ test('lot-tracked product retains repeated lot quantities', async () => {
     await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
     await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
     assert.equal(f.events.added, 2);
+});
+
+test('zero-quantity serial line still reserves its pack lot before native merging', async () => {
+    const f = fixture();
+    f.lines.push({ product_id: f.product, qty: 0, pack_lot_ids: [{ lot_name: 'SER-1' }] });
+    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
+    assert.equal(f.events.added, 0);
+    assert.equal(f.events.alerts.length, 1);
 });
 
 test('offline exact lookup uses loaded stock and makes no RPC', async () => {

@@ -301,10 +301,11 @@ patch(ProductScreen.prototype, {
         const { product, lotName } = exactMatch;
         const pending = this.pos._pendingLotSerialAdds ||= new Set();
         const key = JSON.stringify([product.id, lotName]);
+        // Native merging retains pack lots on zero-quantity lines too.
         const alreadyUsed = product.tracking === "serial" && (
             pending.has(key) || this.pos.models["pos.order"].some((order) =>
                 !order.finalized && order.get_orderlines().some((line) =>
-                    line.product_id.id === product.id && line.qty > 0 &&
+                    line.product_id.id === product.id && line.qty >= 0 &&
                     !line.refunded_orderline_id &&
                     line.pack_lot_ids.some((lot) => lot.lot_name === lotName)
                 )
