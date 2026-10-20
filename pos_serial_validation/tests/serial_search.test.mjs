@@ -195,3 +195,12 @@ test('normal barcode still uses native scanner path', async () => {
     assert.equal(f.screen.nativeScans, 1);
     assert.equal(f.events.added, 0);
 });
+
+test('offline unsafe cached serial never falls through to another scanner patch', async () => {
+    const f = fixture({ offline: true });
+    f.screen.pos.models['stock.lot'][0].product_qty = 2;
+    await f.screen._barcodeProductAction({ base_code: 'SER-1' });
+    assert.equal(f.screen.nativeScans, 0);
+    assert.equal(f.events.added, 0);
+    assert.equal(f.events.alerts.length, 1);
+});

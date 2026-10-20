@@ -463,6 +463,18 @@ patch(ProductScreen.prototype, {
                 await this._addLotSerialMatchToCurrentOrder(exactMatch);
                 return;
             }
+            if (this.pos.data.network.offline && this.pos.models["stock.lot"]?.some(
+                (lot) => (lot.name || "").toLowerCase() === barcode.toLowerCase() &&
+                    lot.product_id?.tracking === "serial"
+            )) {
+                // A known but ambiguous/unavailable cached serial must not
+                // fall through to another scanner patch which selects the first lot.
+                this.dialog.add(AlertDialog, {
+                    title: _t("Serial unavailable offline"),
+                    body: _t("This serial cannot be resolved safely from the loaded stock. Reconnect before adding it."),
+                });
+                return;
+            }
         }
 
         return await super._barcodeProductAction(...arguments);
