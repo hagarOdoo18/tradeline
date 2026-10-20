@@ -22,7 +22,7 @@ try:
         result = run_suite(OdooSuite(cases))
     print('STAGING_POS_REGRESSIONS ' + json.dumps({
         'tests': result.testsRun, 'success': result.wasSuccessful(),
-        'failures': len(result.failures), 'errors': len(result.errors),
+        'failures': result.failures_count, 'errors': result.errors_count,
     }), flush=True)
     assert result.wasSuccessful(), 'Staging POS regression suite failed'
 finally:
