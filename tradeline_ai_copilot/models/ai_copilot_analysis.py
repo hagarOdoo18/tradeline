@@ -3,6 +3,7 @@ import json
 import time
 from collections import Counter, defaultdict
 from itertools import combinations
+from psycopg2.errors import QueryCanceled
 
 from odoo import fields, models
 from odoo.exceptions import AccessError, ValidationError
@@ -43,15 +44,21 @@ class CopilotAnalysis(models.AbstractModel):
     def _analysis_groups(self, model, domain, groups, deadline):
         if time.monotonic() > deadline:
             raise ValidationError("Analysis time budget reached; narrow the dates or products.")
-        with self._budget():
-            rows = model.read_group(domain, [], groups, lazy=False, limit=self.ANALYSIS_GROUP_LIMIT + 1)
+        try:
+            with self._budget():
+                rows = model.read_group(domain, [], groups, lazy=False, limit=self.ANALYSIS_GROUP_LIMIT + 1)
+        except QueryCanceled as exc:
+            raise ValidationError("This analysis exceeded the eight-second query budget. Narrow the date window, branch or product scope; do not infer absence from this failure.") from exc
         if len(rows) > self.ANALYSIS_GROUP_LIMIT:
             raise ValidationError("Analysis exceeds 50,000 distinct groups. Narrow the dates/products; incomplete sets cannot establish absence.")
         return rows
 
-    def _customer_set(self, spec, export, deadline):
-        if not isinstance(spec, dict) or set(spec) - {"model", "domain", "key_field", "resolve_legacy_links"}:
-            raise ValidationError("Use a model, domain, customer key_field and optional resolve_legacy_links.")
+    def _customer_set(self, spec, export, deadline, identity_cache=None):
+        if not isinstance(spec, dict) or set(spec) - {"model", "domain", "key_field", "resolve_legacy_links", "resolve_legacy_identifiers"}:
+            raise ValidationError("Use a model, domain, customer key_field and optional legacy resolution flags.")
+        for flag in ("resolve_legacy_links", "resolve_legacy_identifiers"):
+            if flag in spec and type(spec[flag]) is not bool:
+                raise ValidationError("Legacy resolution flags must be booleans.")
         name, key = spec.get("model"), spec.get("key_field", "partner_id")
         model, unused_policy = self._analysis_model(name, export)
         self._analysis_relation(name, key, "res.partner")
@@ -60,33 +67,45 @@ class CopilotAnalysis(models.AbstractModel):
         keys = {row[key][0] for row in rows if row.get(key)}
         missing = sum(row["__count"] for row in rows if not row.get(key))
         total = sum(row["__count"] for row in rows)
-        linked, ambiguous = 0, 0
-        if spec.get("resolve_legacy_links") and name != "legacy.invoice.line":
-            raise ValidationError("Legacy customer bridges apply only to legacy invoice lines.")
-        if missing and name == "legacy.invoice.line" and spec.get("resolve_legacy_links"):
-            bridge, unused_policy = self._analysis_model("legacy.invoice.customer.bridge", export)
-            for field, target in [("invoice_id", "legacy.invoice"), ("target_partner_id", "res.partner")]:
-                self._analysis_relation(bridge._name, field, target)
-            self._domain(bridge._name, [["match_status", "in", ["strict", "linked"]]])
+        linked, ambiguous, identifier_linked, methods = 0, 0, 0, {}
+        resolve = spec.get("resolve_legacy_links") or spec.get("resolve_legacy_identifiers")
+        if resolve and (name != "legacy.invoice.line" or key != "partner_id"):
+            raise ValidationError("Legacy resolution applies only to legacy invoice lines with partner_id as the customer key.")
+        if missing and resolve:
             invoices = self._analysis_groups(model, domain + [(key, "=", False)], ["invoice_id"], deadline)
             counts = {r["invoice_id"][0]: r["__count"] for r in invoices if r.get("invoice_id")}
-            mappings = defaultdict(set)
-            invoice_ids = list(counts)
-            for start in range(0, len(invoice_ids), 500):
-                matches = self._analysis_groups(bridge, [("invoice_id", "in", invoice_ids[start:start+500]),
-                    ("match_status", "in", ["strict", "linked"]), ("target_partner_id", "!=", False)],
-                    ["invoice_id", "target_partner_id"], deadline)
-                for row in matches:
-                    mappings[row["invoice_id"][0]].add(row["target_partner_id"][0])
+            mappings = self._legacy_bridge_mappings(counts, export, deadline) if spec.get("resolve_legacy_links") else {}
             for invoice_id, targets in mappings.items():
                 if len(targets) == 1:
                     keys.update(targets)
                     linked += counts[invoice_id]
                 else:
                     ambiguous += counts[invoice_id]
+            if spec.get("resolve_legacy_identifiers"):
+                matches, methods = self._legacy_identifier_matches(model, domain + [(key, "=", False)], counts,
+                    set(mappings), export, deadline, identity_cache if identity_cache is not None else {})
+                keys.update(matches.values())
+                identifier_linked = sum(counts[invoice_id] for invoice_id in matches)
         return keys, {"model": name, "domain": spec.get("domain", []), "key_field": key,
-                      "matching_rows": total, "unresolved_rows": missing - linked,
-                      "bridge_linked_rows": linked, "ambiguous_link_rows": ambiguous}
+                      "matching_rows": total, "unresolved_rows": missing - linked - identifier_linked,
+                      "bridge_linked_rows": linked, "ambiguous_link_rows": ambiguous,
+                      "identifier_matched_rows": identifier_linked, "identifier_resolution_rows": methods}
+
+    def _legacy_bridge_mappings(self, counts, export, deadline):
+        bridge, unused_policy = self._analysis_model("legacy.invoice.customer.bridge", export)
+        for field, target in [("invoice_id", "legacy.invoice"), ("target_partner_id", "res.partner")]:
+            self._analysis_relation(bridge._name, field, target)
+        self._domain(bridge._name, [["match_status", "in", ["strict", "linked"]]])
+        mappings = defaultdict(set)
+        invoice_ids = list(counts)
+        for start in range(0, len(invoice_ids), 500):
+            matches = self._analysis_groups(bridge, [("invoice_id", "in", invoice_ids[start:start+500]),
+                ("match_status", "in", ["strict", "linked"]), ("target_partner_id", "!=", False)],
+                ["invoice_id", "target_partner_id"], deadline)
+            for row in matches:
+                mappings[row["invoice_id"][0]].add(row["target_partner_id"][0])
+        return mappings
+
 
     def _visible_keys(self, model_name, keys, export, deadline, names=False):
         model, unused_policy = self._analysis_model(model_name, export)
@@ -132,9 +151,13 @@ class CopilotAnalysis(models.AbstractModel):
         if not isinstance(included, list) or not 1 <= len(included) <= 4 or not isinstance(excluded, list) or len(excluded) > 4:
             raise ValidationError("Use one to four include sources and up to four exclusion sources.")
         deadline, populations, coverage = time.monotonic() + 25, [set(), set()], []
+        identity_cache, source_cache = {}, {}
         for index, sources in enumerate([included, excluded]):
             for source in sources:
-                keys, detail = self._customer_set(source, export, deadline)
+                source_key = json.dumps(source, sort_keys=True, default=str)
+                if source_key not in source_cache:
+                    source_cache[source_key] = self._customer_set(source, export, deadline, identity_cache)
+                keys, detail = source_cache[source_key]
                 populations[index].update(keys)
                 coverage.append(dict(detail, role="include" if index == 0 else "exclude"))
         # Customer record rules apply even if an invoice-line relationship is visible.
@@ -147,7 +170,9 @@ class CopilotAnalysis(models.AbstractModel):
         unresolved_exclusions = sum(c["unresolved_rows"] for c in coverage if c["role"] == "exclude")
         summary["unresolved_exclusion_rows"] = unresolved_exclusions
         scope = ("Union of include sources minus union of exclusion sources, deduplicated by exact saved res.partner ID. "
-                 "Only strict/linked, unambiguous legacy invoice bridges are accepted when requested. No name/phone guessing. "
+                 "Legacy resolution can use saved strict/linked bridges and optional unique exact normalized identifiers; no names or approximate matching. "
+                 "Computed matches compare Egyptian mobile formats or explicitly international phones, and structurally valid Egyptian national IDs (individual VAT only). "
+                 "National IDs are not authenticated. Shared identifiers and conflicting signals remain unresolved. Uniqueness is within readable current contacts including archived contacts. "
                  "Unresolved rows are excluded from customer counts and are NOT customers who did not upgrade. "
                  "Duplicate contacts are not merged. Absence means no matching purchase in these visible sources and filters, not no purchase elsewhere. "
                  "If unresolved_exclusion_rows is nonzero, eligible_customers are PROVISIONAL candidates: an unresolved purchase might belong to them. "
@@ -157,7 +182,12 @@ class CopilotAnalysis(models.AbstractModel):
             columns = ["customer_id"] + (["customer_name"] if spec.get("include_names") else [])
             labels = {"customer_id": "Customer ID", "customer_name": "Customer"}
         else:
-            rows = [{"metric": key, "count": value} for key, value in summary.items()]
+            metric_labels = {"included_customers": "Customers with qualifying purchases",
+                "also_in_excluded_set": "Customers also in the exclusion set",
+                "eligible_customers": "Provisional candidates" if unresolved_exclusions else "Customers with no linked exclusion purchase",
+                "unresolved_source_rows": "Unresolved source rows (definitions may overlap)",
+                "unresolved_exclusion_rows": "Unresolved exclusion rows"}
+            rows = [{"metric": metric_labels[key], "count": value} for key, value in summary.items()]
             columns, labels = ["metric", "count"], {"metric": "Measure", "count": "Count"}
         result = self._analysis_result(dict(spec, analysis_type="customer_sets"), "res.partner", "Cross-module customer cohort",
                                        rows, columns, labels, coverage, scope, export)
@@ -224,7 +254,7 @@ class CopilotAnalysis(models.AbstractModel):
                  "sale.order.line": "Confirmed order demand, not invoiced purchases. Do not add to invoices as revenue.",
                  "pos.order.line": "POS basket data. Check order state and overlap with invoices before combining.",
                  "product.product": "Current product variants. Inspect names/categories/codes to distinguish handsets from accessories; text mentions are insufficient.",
-                 "res.partner": "Current customer identities. Never join unrelated databases by numeric ID, names or approximate phone matches."}
+                 "res.partner": "Current customer identities: mobile/phone; individual Egyptian national ID in vat, company tax ID in vat. Never join databases by numeric ID or names."}
         available = []
         for name, meaning in roles.items():
             if name not in self.env:

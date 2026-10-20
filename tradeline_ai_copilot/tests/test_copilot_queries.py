@@ -470,6 +470,13 @@ class TestCopilotQueries(TransactionCase):
         with self.assertRaises(ValidationError):
             self.query.compare_customer_sets(spec)
 
+    def test_analysis_timeout_gives_actionable_scope_error(self):
+        from psycopg2.errors import QueryCanceled
+        spec = self._customer_cohort_fixture()
+        with patch.object(type(self.env["res.partner"]), "read_group", side_effect=QueryCanceled), self.assertRaisesRegex(ValidationError, "eight-second"):
+            self.query.compare_customer_sets(spec)
+        self.assertEqual(self.partners.mapped("color"), [3, 7, 99])
+
     def test_cohort_export_rechecks_source_policy_and_requeries(self):
         spec = self._customer_cohort_fixture()
         result = self.query.compare_customer_sets(spec)
@@ -521,6 +528,67 @@ class TestCopilotQueries(TransactionCase):
         result = self.query.compare_customer_sets({"include": [{"model": "legacy.invoice.line", "key_field": "partner_id",
             "domain": [["invoice_id", "in", invoices.ids]]}], "exclude": []})
         self.assertEqual(result["analysis"]["sources"][0]["matching_rows"], 2)
+
+    def test_identity_normalization_and_conflict_rules(self):
+        from odoo.addons.tradeline_ai_copilot.models.ai_copilot_identity import phone_key, national_key, identity_match
+        for value in ["01012345678", "+20 101 234 5678", "0020-101-234-5678", "٠١٠١٢٣٤٥٦٧٨"]:
+            self.assertEqual(phone_key(value), "201012345678")
+        for value in ["555-1234", "01012345678 ext 5", "00000000000"]:
+            self.assertFalse(phone_key(value))
+        self.assertEqual(national_key("٢٩٠٠١٠١١٢٣٤٥٦٧"), "29001011234567")
+        for value in ["123456789", "29013011234567", "39001011234567"]:
+            self.assertFalse(national_key(value))
+        index = {"national": {"id-a": {1}}, "phone": {"a": {1}, "shared": {1, 2}, "b": {2}}}
+        self.assertEqual(identity_match(["id-a"], ["a"], index), (1, "national_id"))
+        self.assertEqual(identity_match([], ["shared"], index), (False, "ambiguous"))
+        self.assertEqual(identity_match(["id-a"], ["b"], index), (False, "conflicting"))
+        self.assertFalse(identity_match(["unknown"], ["a"], index)[0])
+
+    def test_legacy_identifiers_are_read_only_unique_and_not_sent_to_model(self):
+        invoices = self._legacy_analysis_fixture()
+        self.partners[0].write({"mobile": "01012345678", "vat": "29001011234567"})
+        self.partners[1].write({"mobile": "01112345678", "vat": "29102021234567"})
+        duplicate = self.env["res.partner"].create({"name": "QA archived duplicate", "mobile": "01112345678", "active": False})
+        invoices[0].write({"source_partner_mobile": "+20 101 234 5678", "source_partner_national_id": "29001011234567"})
+        invoices[1].write({"source_partner_mobile": "01112345678"})
+        invoices[2].write({"source_partner_mobile": "01012345678", "source_partner_national_id": "29102021234567"})
+        watched = invoices | self.env["legacy.invoice"]
+        before = [(record.id, record.write_date, record.partner_id.id) for record in watched]
+        partner_dates = (self.partners | duplicate).mapped("write_date")
+        source = {"model": "legacy.invoice.line", "key_field": "partner_id", "domain": [["invoice_id", "in", invoices.ids]],
+                  "resolve_legacy_links": True, "resolve_legacy_identifiers": True}
+        result = self.query.compare_customer_sets({"include": [source], "exclude": [source]})
+        coverage = result["analysis"]["sources"][0]
+        self.assertEqual(result["analysis"]["included_customers"], 1)
+        self.assertEqual(coverage["identifier_matched_rows"], 1)
+        self.assertEqual(coverage["identifier_resolution_rows"], {"national_id": 1, "ambiguous": 1, "conflicting": 1})
+        self.assertEqual(coverage["unresolved_rows"], 2)
+        for value in ["29001011234567", "29102021234567", "01012345678", "201012345678"]:
+            self.assertNotIn(value, json.dumps(result))
+        self.assertEqual(before, [(record.id, record.write_date, record.partner_id.id) for record in watched])
+        self.assertEqual(partner_dates, (self.partners | duplicate).mapped("write_date"))
+        self.assertTrue(self.service.export_from_query_meta(result["query"], "xlsx")["file_id"])
+
+    def test_identity_lookup_rejects_partial_index_and_field_policy_bypass(self):
+        with patch.object(type(self.query), "IDENTITY_CONTACT_LIMIT", 1), self.assertRaisesRegex(ValidationError, "partial"):
+            self.query._identity_index(False, time.monotonic() + 25)
+        self.policy.allowed_fields_csv = "name"
+        with self.assertRaises(AccessError):
+            self.query._identity_index(False, time.monotonic() + 25)
+
+    def test_legacy_line_phone_fallback_and_current_contact_record_rules(self):
+        invoices = self._legacy_analysis_fixture()
+        line = self.env["legacy.invoice.line"].search([("invoice_id", "=", invoices[0].id)])
+        if "customer_phone" not in line._fields:
+            self.skipTest("Optional line customer fields are not installed")
+        self.partners[0].mobile = "01012345678"
+        self.partners[2].mobile = "01012345678"  # other company, not visible to analyst
+        line.customer_phone = "0020 1012345678"
+        result = self.query.compare_customer_sets({"include": [{"model": "legacy.invoice.line", "key_field": "partner_id",
+            "domain": [["invoice_id", "=", invoices[0].id]], "resolve_legacy_identifiers": True}]})
+        self.assertEqual(result["analysis"]["included_customers"], 1)
+        self.assertEqual(result["analysis"]["sources"][0]["identifier_resolution_rows"], {"phone": 1})
+        self.assertNotIn(str(self.partners[2].id), json.dumps(result["rows"]))
 
     def test_basket_math_counts_documents_not_duplicate_lines(self):
         invoices = self._legacy_analysis_fixture()

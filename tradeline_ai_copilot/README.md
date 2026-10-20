@@ -87,7 +87,17 @@ Customer cohorts compute full unions/differences before applying preview limits.
 Keys must be saved customer relationships, not matching numbers from separate
 databases. Legacy invoice lines can resolve missing customer IDs through existing
 strict/linked, unambiguous invoice bridges. Other links are excluded and counted
-as unresolved rows. If exclusions contain unresolved identities, candidates are
+as unresolved rows. Optional `resolve_legacy_identifiers=true` also compares
+header/line phones and national IDs against current contacts without saving links.
+Egyptian mobile formats and explicitly international numbers are normalized;
+individual VAT values can represent structurally valid Egyptian national IDs.
+Unique exact identifiers only: shared numbers, duplicate IDs and conflicting
+signals stay unresolved. These are reporting matches, not authenticated identities.
+Raw identifiers stay server-side and are not returned to the AI or source metadata.
+The lookup includes archived contacts, applies current-user permissions, is reused
+within a cohort request and refuses partial indexes above 200,000 visible contacts
+or the 25-second analysis budget. Uniqueness is within readable contacts only.
+If exclusions contain unresolved identities, candidates are
 provisional. Duplicate contacts are not merged and returns are not automatically
 netted. Filter actual handset products/categories to exclude accessory mentions.
 
