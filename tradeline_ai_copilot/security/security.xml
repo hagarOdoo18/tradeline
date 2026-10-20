@@ -1,30 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="module_category_ai_copilot" model="ir.module.category">
+        <field name="name">Tradeline AI</field>
+        <field name="sequence">45</field>
+    </record>
+    <record id="group_ai_copilot_user" model="res.groups">
+        <field name="name">Reporting User</field>
+        <field name="category_id" ref="module_category_ai_copilot"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="users" eval="[(4, ref('base.user_admin'))]"/>
+        <field name="comment">Use the read-only reporting chat, charts and exports within existing Odoo data permissions. Assign only to approved internal users.</field>
+    </record>
     <record id="rule_ai_copilot_conversation_own" model="ir.rule">
         <field name="name">AI Copilot conversations: own records</field>
         <field name="model_id" ref="model_ai_copilot_conversation"/>
-        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="groups" eval="[(6, 0, [ref('group_ai_copilot_user')])]"/>
         <field name="domain_force">[('user_id', '=', user.id)]</field>
     </record>
 
     <record id="rule_ai_copilot_message_own" model="ir.rule">
         <field name="name">AI Copilot messages: own conversation</field>
         <field name="model_id" ref="model_ai_copilot_message"/>
-        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="groups" eval="[(6, 0, [ref('group_ai_copilot_user')])]"/>
         <field name="domain_force">[('user_id', '=', user.id)]</field>
     </record>
 
     <record id="rule_ai_copilot_generated_file_own" model="ir.rule">
         <field name="name">AI Copilot generated files: own</field>
         <field name="model_id" ref="model_ai_copilot_generated_file"/>
-        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="groups" eval="[(6, 0, [ref('group_ai_copilot_user')])]"/>
         <field name="domain_force">[('user_id', '=', user.id)]</field>
     </record>
 
     <record id="rule_ai_copilot_audit_log_own" model="ir.rule">
         <field name="name">AI Copilot audit logs: own for non-admin</field>
         <field name="model_id" ref="model_ai_copilot_audit_log"/>
-        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+        <field name="groups" eval="[(6, 0, [ref('group_ai_copilot_user')])]"/>
         <field name="domain_force">[('user_id', '=', user.id)]</field>
     </record>
 

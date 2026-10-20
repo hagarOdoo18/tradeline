@@ -21,6 +21,7 @@ class AICopilotService(models.AbstractModel):
     _description = "AI Copilot Service"
 
     TECHNICAL_MODEL_PREFIXES = (
+        "ai.copilot.",
         "ir.",
         "bus.",
         "mail.",
@@ -32,6 +33,7 @@ class AICopilotService(models.AbstractModel):
         "auth_",
     )
     TECHNICAL_MODELS = {
+        "res.users",
         "res.users.apikeys",
         "res.users.log",
         "res.config.settings",
@@ -77,10 +79,13 @@ class AICopilotService(models.AbstractModel):
             return
         if not self.env.user.has_group("base.group_user"):
             raise AccessError("Only internal Odoo users can access the AI copilot.")
+        if not self.env.user.has_group("tradeline_ai_copilot.group_ai_copilot_user"):
+            raise AccessError("You need the Tradeline AI / Reporting User group to use this assistant.")
 
     @api.model
     def get_settings(self):
-        self._assert_internal_user()
+        if not self.env.is_superuser() and not self.env.user.has_group("base.group_system"):
+            self._assert_internal_user()
         return self.env["ai.copilot.settings"].sudo().get_singleton()
 
     def _get_deny_model_prefixes(self):
@@ -91,11 +96,16 @@ class AICopilotService(models.AbstractModel):
     def _get_deny_field_patterns(self):
         settings = self.get_settings()
         configured = [item.strip().lower() for item in (settings.hard_deny_field_patterns or "").split(",") if item.strip()]
-        return configured or ["password", "token", "secret", "api_key", "session"]
+        return list(set(configured + ["password", "passwd", "token", "secret", "api_key", "apikey", "session", "private_key", "oauth", "signature"]))
 
     def _is_model_denied(self, model_name):
-        if model_name in self.TECHNICAL_MODELS:
+        if model_name in self.TECHNICAL_MODELS or model_name.startswith("res.users."):
             return True
+        if model_name in self.env:
+            model = self.env[model_name]
+            # Abstract services and virtual UI helpers are not business datasets.
+            if model._abstract or (not model._auto and getattr(type(model), "_table_query", None) == "0"):
+                return True
         prefixes = self._get_deny_model_prefixes()
         return any(model_name.startswith(prefix) for prefix in prefixes)
 
@@ -112,7 +122,6 @@ class AICopilotService(models.AbstractModel):
 
     @api.model
     def refresh_allowed_models(self):
-        self._assert_internal_user()
         if not self.env.is_superuser() and not self.env.user.has_group("base.group_system"):
             raise AccessError("Only admins can refresh policy models.")
 
@@ -132,6 +141,8 @@ class AICopilotService(models.AbstractModel):
                 "enabled": True,
             }
             if model_name in existing:
+                # Keep administrator restrictions when refreshing the catalog.
+                values.pop("enabled", None)
                 existing[model_name].write(values)
             else:
                 values["model_name"] = model_name
@@ -410,10 +421,15 @@ class AICopilotService(models.AbstractModel):
 
     def _safe_fields_for_model(self, model_name, explicit_fields=None):
         model = self.env[model_name]
-        info = model.fields_get()
+        # Request only the metadata needed here. A broken selection callback in a
+        # custom module must not break reporting for all other fields on that model.
+        info = model.fields_get(attributes=["type"])
         deny_patterns = self._get_deny_field_patterns()
         allowed = []
         for field_name, attrs in info.items():
+            field = model._fields[field_name]
+            if field.type == "selection" and isinstance(field.selection, str) and not callable(getattr(model, field.selection, None)):
+                continue
             field_type = attrs.get("type")
             if field_type in ("binary", "html"):
                 continue
@@ -740,7 +756,15 @@ class AICopilotService(models.AbstractModel):
         writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            writer.writerow({column: row.get(column) for column in columns})
+            values = {}
+            for column in columns:
+                value = row.get(column)
+                if isinstance(value, (list, tuple)):
+                    value = value[1] if len(value) > 1 else str(value)
+                if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+                    value = "'" + value
+                values[column] = value
+            writer.writerow(values)
         data = output.getvalue().encode("utf-8")
         filename = "ai_copilot_export_%s_%s.csv" % (model_name.replace(".", "_"), fields.Date.context_today(self))
         return self._create_attachment_file(
@@ -753,9 +777,9 @@ class AICopilotService(models.AbstractModel):
             "csv",
         )
 
-    def _export_xlsx(self, rows, columns, conversation, model_name, question, provider, llm_model):
+    def _export_xlsx(self, rows, columns, conversation, model_name, question, provider, llm_model, provenance=None):
         output = io.BytesIO()
-        workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+        workbook = xlsxwriter.Workbook(output, {"in_memory": True, "strings_to_formulas": False, "strings_to_urls": False})
         fmt_header = workbook.add_format({"bold": True, "bg_color": "#E5E7EB", "border": 1})
         fmt_cell = workbook.add_format({"border": 1})
         summary = workbook.add_worksheet("Summary")
@@ -785,6 +809,17 @@ class AICopilotService(models.AbstractModel):
             "Provider": provider or "",
             "Model": llm_model or "",
         }
+        if provenance:
+            metadata.update({
+                "Source queried at (UTC)": provenance["queried_at"],
+                "Companies": ", ".join(company["name"] for company in provenance["companies"]),
+                "Filters (Odoo domain)": json.dumps(provenance["domain"], ensure_ascii=False),
+                "Fields": ", ".join(provenance["fields"]),
+                "Grouped by": ", ".join(provenance["group_by"]),
+                "Measures": ", ".join(provenance["aggregates"]),
+                "Result limit": provenance["limit"],
+                "Coverage": "Limited result" if provenance["truncated"] else "All matching rows/groups returned",
+            })
         meta_row = 0
         for key, value in metadata.items():
             meta_sheet.write(meta_row, 0, key, fmt_header)
@@ -806,6 +841,7 @@ class AICopilotService(models.AbstractModel):
         )
 
     def _check_model_access(self, model_name):
+        self._assert_internal_user()
         if self._is_model_denied(model_name):
             raise AccessError("This model is blocked by policy.")
         entry = self._ensure_allowed_model_entry(model_name)

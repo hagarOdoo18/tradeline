@@ -14,6 +14,8 @@
                         <field name="temperature"/>
                         <field name="max_tokens"/>
                         <field name="timeout_seconds"/>
+                        <field name="enable_flexible_queries"/>
+                        <field name="max_tool_rounds"/>
                     </group>
                     <group string="Provider Credentials">
                         <field name="openai_api_key" password="True"/>
