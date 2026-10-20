@@ -185,6 +185,15 @@ export class CopilotBase extends Component {
         if (typeof value === "number") { return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value); }
         return String(value);
     }
+    answerParts(content, message) {
+        const citations = new Map((message.blocks || []).filter(block => block.type === "web_sources")
+            .flatMap(block => block.citations || []).filter(citation => String(citation.url || "").startsWith("https://"))
+            .map(citation => [citation.id, citation]));
+        return String(content || "").split(/(\[W\d+\])/g).map(text => {
+            const citation = citations.get(text.slice(1, -1));
+            return { text, url: citation?.url, title: citation?.title };
+        });
+    }
     sourceCompanies(source) { return (source.companies || []).map(company => company.name).join(", "); }
     sourceFields(source, keys) { return (keys || []).map(key => source.labels?.[key] || key).join(", "); }
     sourceFilter(filter) {

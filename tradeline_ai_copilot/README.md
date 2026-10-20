@@ -77,7 +77,34 @@ engine remains available by disabling Flexible Queries, with a visible warning.
 
 ## Data boundaries
 
-Only three tools exist: `search_models`, `describe_model`, and `query_data`.
+The read-only tools are `search_models`, `describe_model`, `query_data`,
+`business_context`, `compare_customer_sets`, and `analyze_baskets`.
+`research_public_web` is available when an OpenAI key is configured and the
+`tradeline_ai_copilot.enable_web_search` system parameter is `True` (default).
+Set it to `False` to disable public research. Web searches incur provider usage.
+
+Customer cohorts compute full unions/differences before applying preview limits.
+Keys must be saved customer relationships, not matching numbers from separate
+databases. Legacy invoice lines can resolve missing customer IDs through existing
+strict/linked, unambiguous invoice bridges. Other links are excluded and counted
+as unresolved rows. If exclusions contain unresolved identities, candidates are
+provisional. Duplicate contacts are not merged and returns are not automatically
+netted. Filter actual handset products/categories to exclude accessory mentions.
+
+Basket analysis deduplicates products per document and reports support,
+directional confidence and lift. It is evidence of association, not causation or
+profitability. Both analyses enforce source/linked-record permissions, aggregation
+policies and field restrictions, use ORM reads, and fail above 50,000 grouped
+keys or their time budget. Exports rerun the same analysis with current access;
+metadata includes every source definition and its coverage limitations.
+
+Public research uses a separate, nonstored OpenAI Responses request with hosted
+web search. It receives a short public subject and no automatic attachment of
+Odoo records or chat history. Obvious private identifiers are rejected; the
+reporting agent is instructed not to place private business data in subjects.
+Public evidence uses clickable `[W1]` citations; Odoo query evidence uses `[S1]`.
+Web content is treated as untrusted data. Responses are bounded and require real
+HTTPS citation annotations before they are accepted.
 There is no write, create, delete, workflow, arbitrary Python or model-written SQL
 tool. Business models are queried without `sudo`, with the active user's ACLs,
 record rules and active-company context. Existing branch restrictions continue to

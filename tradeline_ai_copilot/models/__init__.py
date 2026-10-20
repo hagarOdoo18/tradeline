@@ -7,4 +7,6 @@ from . import ai_copilot_audit_log
 from . import ai_copilot_service
 from . import ai_copilot_ui
 from . import ai_copilot_query
+from . import ai_copilot_analysis
 from . import ai_copilot_agent
+from . import ai_copilot_research

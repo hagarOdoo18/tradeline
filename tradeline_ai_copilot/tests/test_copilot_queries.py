@@ -380,7 +380,8 @@ class TestCopilotQueries(TransactionCase):
     def test_reporting_prompt_and_tools_cannot_operate_forms(self):
         prompt = self.service._agent_system_prompt()
         self.assertIn("cannot see, save or modify unsaved forms", prompt)
-        self.assertEqual({tool["name"] for tool in self.service._agent_tools()}, {"search_models", "describe_model", "query_data"})
+        self.assertEqual({tool["name"] for tool in self.service._agent_tools()}, {
+            "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets"})
 
     def test_source_metadata_describes_executed_query_not_model_prose(self):
         result = self.query.execute_query(self._spec(group_by=["company_id"], aggregates=["color:sum"], limit=1))
@@ -440,3 +441,131 @@ class TestCopilotQueries(TransactionCase):
         self.assertIn("Clarify ambiguous revenue or profit", prompt)
         self.assertIn("[S1]", prompt)
         self.assertIn("never earlier assistant prose", prompt)
+
+    def _customer_cohort_fixture(self):
+        children = self.env["res.partner"]
+        for parent in [self.partners[0], self.partners[0], self.partners[1], False]:
+            children |= self.env["res.partner"].create({"name": "Cohort saved purchase", "company_id": self.company.id,
+                "parent_id": parent.id if parent else False})
+        include = {"model": "res.partner", "domain": [["id", "in", children.ids]], "key_field": "parent_id"}
+        exclude = dict(include, domain=[["id", "=", children[2].id]])
+        return {"include": [include, include], "exclude": [exclude], "title": "QA cross-source cohort"}
+
+    def test_cohort_deduplicates_union_and_difference_with_missing_identities(self):
+        spec = self._customer_cohort_fixture()
+        result = self.query.compare_customer_sets(spec)
+        self.assertEqual(result["analysis"]["included_customers"], 2)
+        self.assertEqual(result["analysis"]["eligible_customers"], 1)
+        self.assertEqual(result["analysis"]["also_in_excluded_set"], 1)
+        preview = self.query.compare_customer_sets(dict(spec, show_customers=True, include_names=True))
+        self.assertEqual(preview["rows"], [{"customer_id": self.partners[0].id, "customer_name": self.partners[0].name}])
+        self.assertFalse(result["analysis"]["identity_coverage_complete"])
+        self.assertTrue(result["analysis"]["absence_established_within_matched_scope"])
+
+    def test_cohort_refuses_incomplete_sets_and_noncustomer_keys(self):
+        spec = self._customer_cohort_fixture()
+        with patch.object(type(self.query), "ANALYSIS_GROUP_LIMIT", 1), self.assertRaises(ValidationError):
+            self.query.compare_customer_sets(spec)
+        spec["include"][0] = {"model": "res.partner", "domain": [], "key_field": "company_id"}
+        with self.assertRaises(ValidationError):
+            self.query.compare_customer_sets(spec)
+
+    def test_cohort_export_rechecks_source_policy_and_requeries(self):
+        spec = self._customer_cohort_fixture()
+        result = self.query.compare_customer_sets(spec)
+        export = self.service.export_from_query_meta(result["query"], "xlsx")
+        self.assertTrue(export["file_id"])
+        self.policy.allow_export = False
+        with self.assertRaises(AccessError):
+            self.service.export_from_query_meta(result["query"], "xlsx")
+
+    def _legacy_analysis_fixture(self):
+        if "legacy.invoice.line" not in self.env:
+            self.skipTest("Optional legacy archive is not installed in this test database")
+        self.user.write({"groups_id": [(4, self.env.ref("account.group_account_readonly").id)]})
+        invoices = self.env["legacy.invoice"]
+        for i in range(3):
+            invoice = self.env["legacy.invoice"].create({"source_db": "copilot-strategy-qa", "source_id": 800+i,
+                "company_id": self.company.id, "currency_id": self.company.currency_id.id,
+                "state": "paid", "invoice_type": "out_invoice", "invoice_date": "2026-01-01"})
+            self.env["legacy.invoice.line"].create({"invoice_id": invoice.id, "source_id": 900+i, "name": "QA handset", "quantity": 1})
+            invoices |= invoice
+        return invoices
+
+    def test_legacy_bridge_uses_only_unambiguous_accepted_links(self):
+        invoices = self._legacy_analysis_fixture()
+        bridge = self.env["legacy.invoice.customer.bridge"]
+        for invoice, partner, status, method in [
+            (invoices[0], self.partners[0], "linked", "manual"),
+            (invoices[1], self.partners[0], "strict", "phone"),
+            (invoices[1], self.partners[1], "strict", "email"),
+            (invoices[2], self.partners[1], "ambiguous", "phone")]:
+            bridge.create({"invoice_id": invoice.id, "source_partner_id": invoice.id,
+                "target_partner_id": partner.id, "match_status": status, "match_method": method})
+        source = {"model": "legacy.invoice.line", "domain": [["invoice_id", "in", invoices.ids]],
+                  "key_field": "partner_id", "resolve_legacy_links": True}
+        result = self.query.compare_customer_sets({"include": [source], "exclude": [source]})
+        self.assertEqual(result["analysis"]["included_customers"], 1)
+        self.assertEqual(result["analysis"]["eligible_customers"], 0)
+        coverage = result["analysis"]["sources"][0]
+        self.assertEqual(coverage["bridge_linked_rows"], 1)
+        self.assertEqual(coverage["unresolved_rows"], 2)
+        self.assertEqual(coverage["ambiguous_link_rows"], 1)
+        self.assertFalse(result["analysis"]["absence_established_within_matched_scope"])
+
+    def test_analysis_enforces_header_record_rules(self):
+        invoices = self._legacy_analysis_fixture()
+        invoices.partner_id = self.partners[0]
+        self.env["ir.rule"].create({"name": "QA block one legacy header", "model_id": self.env["ir.model"]._get_id("legacy.invoice"),
+            "domain_force": "[('id', '!=', %s)]" % invoices[0].id})
+        result = self.query.compare_customer_sets({"include": [{"model": "legacy.invoice.line", "key_field": "partner_id",
+            "domain": [["invoice_id", "in", invoices.ids]]}], "exclude": []})
+        self.assertEqual(result["analysis"]["sources"][0]["matching_rows"], 2)
+
+    def test_basket_math_counts_documents_not_duplicate_lines(self):
+        invoices = self._legacy_analysis_fixture()
+        products = self.env["product.product"].create([{"name": "Copilot Basket A"}, {"name": "Copilot Basket B"}])
+        line = self.env["legacy.invoice.line"]
+        for i, (invoice, product) in enumerate([(invoices[0], products[0]), (invoices[0], products[0]),
+                (invoices[0], products[1]), (invoices[1], products[0]), (invoices[2], products[1])]):
+            line.create({"invoice_id": invoice.id, "source_id": 1000+i, "name": product.name, "product_id": product.id, "quantity": 1})
+        result = self.query.analyze_baskets({"model": "legacy.invoice.line", "domain": [["invoice_id", "in", invoices.ids]],
+            "transaction_field": "invoice_id", "product_field": "product_id"})
+        self.assertEqual(result["analysis"]["sources"][0]["analyzed_baskets"], 3)
+        self.assertEqual(result["rows"][0]["baskets_together"], 1)
+        self.assertEqual(result["rows"][0]["support_pct"], 33.33)
+        self.assertEqual(result["rows"][0]["a_to_b_pct"], 50)
+        self.assertEqual(result["rows"][0]["lift"], .75)
+        self.assertEqual(result["query"]["model"], "legacy.invoice.line")
+        self.assertTrue(self.service.export_from_query_meta(result["query"], "xlsx")["file_id"])
+
+    def test_public_web_isolated_payload_and_real_citation_validation(self):
+        self.settings.openai_api_key = "fake-not-sent"
+        payload = {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text",
+            "text": "A public fact. reference", "annotations": [{"type": "url_citation", "url": "https://www.apple.com/iphone/",
+            "title": "Apple", "start_index": 15, "end_index": 24}]}]}]}
+        with patch("odoo.addons.tradeline_ai_copilot.models.ai_copilot_research.requests.post") as post:
+            post.return_value.iter_content.return_value = [json.dumps(payload).encode()]
+            result = self.service._research_public_web("iPhone public product specifications", "product")
+            request = post.call_args.kwargs["json"]
+            self.assertFalse(request["store"])
+            self.assertNotIn("Copilot Alpha", json.dumps(request))
+            self.assertNotIn("conversation", request)
+            self.assertEqual(request["tools"][0]["type"], "web_search")
+            self.assertEqual(result["citations"][0]["id"], "W1")
+            self.assertIn("[W1]", result["content"])
+            self.assertTrue(post.return_value.close.called)
+        for subject in ["contact person@example.com", "call 01012345678", "invoice S123 private details", "secret api key"]:
+            with self.subTest(subject=subject), self.assertRaises(ValidationError):
+                self.service._research_public_web(subject)
+
+    def test_web_citations_are_preserved_without_fabricated_odoo_sources(self):
+        web = {"kind": "web", "subject": "Public retail strategy", "content": "Fact [W1]", "queried_at": "2026-01-01",
+            "scope": "Public research", "citations": [{"id": "W1", "title": "Official", "url": "https://www.apple.com/"}]}
+        answer = self.service._finish_agent_response("Research publicly", False, "openai", "gpt-6.1-sol", "Fact [W1]", [web], [], True)
+        self.assertTrue(any(b["type"] == "web_sources" for b in answer["blocks"]))
+        self.assertFalse(any(b["type"] == "warning" for b in answer["blocks"]))
+
+    def test_greetings_are_conversational_but_data_claims_still_need_queries(self):
+        greeting = self.service._finish_agent_response("hello", False, "openai", "test", "Hello. What are we looking into?", [], [], True)
+        self.assertFalse(any(b["type"] == "warning" for b in greeting["blocks"]))

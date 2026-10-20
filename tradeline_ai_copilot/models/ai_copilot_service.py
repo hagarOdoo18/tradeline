@@ -819,6 +819,8 @@ class AICopilotService(models.AbstractModel):
                 "Measures": ", ".join(provenance["aggregates"]),
                 "Result limit": provenance["limit"],
                 "Coverage": "Limited result" if provenance["truncated"] else "All matching rows/groups returned",
+                "Analysis sources and coverage": json.dumps(provenance.get("analysis_sources", []), ensure_ascii=False),
+                "Scope and limitations": provenance.get("scope", ""),
             })
         meta_row = 0
         for key, value in metadata.items():

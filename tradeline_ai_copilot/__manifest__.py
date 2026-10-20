@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Tradeline AI BI Copilot",
-    "summary": "Executive chat with permission-aware queries, charts and Excel exports",
-    "version": "18.0.3.2.0",
+    "summary": "Strategic reporting chat with legacy cohorts, basket analysis and cited web research",
+    "version": "18.0.3.3.0",
     "category": "Productivity",
     "author": "Tradeline",
     "license": "LGPL-3",

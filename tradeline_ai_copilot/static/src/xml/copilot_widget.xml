@@ -40,7 +40,8 @@
                         <t t-elif="msg.role === 'assistant'">
                             <div class="tl-ai-assistant-label">Tradeline AI</div>
                             <t t-foreach="msg.blocks || []" t-as="block" t-key="block_index">
-                                <div t-if="block.type === 'text'" class="tl-ai-answer" dir="auto"><t t-esc="block.content"/><span t-if="msg.streaming" class="tl-ai-stream-cursor" aria-hidden="true">▍</span></div>
+                                <div t-if="block.type === 'text'" class="tl-ai-answer" dir="auto"><t t-foreach="answerParts(block.content, msg)" t-as="part" t-key="part_index"><a t-if="part.url" t-att-href="part.url" t-att-title="part.title" target="_blank" rel="noopener noreferrer"><t t-esc="part.text"/></a><t t-else="" t-esc="part.text"/></t><span t-if="msg.streaming" class="tl-ai-stream-cursor" aria-hidden="true">▍</span></div>
+                                <section t-elif="block.type === 'web_sources'" class="tl-ai-result tl-ai-source"><h3>Public web sources</h3><p><t t-esc="block.subject"/> · <t t-esc="block.queried_at"/> UTC</p><ul><li t-foreach="block.citations" t-as="citation" t-key="citation.id"><a t-att-href="citation.url" target="_blank" rel="noopener noreferrer">[<t t-esc="citation.id"/>] <t t-esc="citation.title"/></a></li></ul><p><t t-esc="block.scope"/></p></section>
                                 <div t-elif="block.type === 'warning' || block.type === 'clarification'" class="tl-ai-warning" role="status"><i class="fa fa-info-circle" aria-hidden="true"/><span dir="auto"><t t-esc="block.content"/></span></div>
                                 <CopilotChart t-elif="block.type === 'chart'" block="block"/>
                                 <section t-elif="block.type === 'table'" class="tl-ai-result">
