@@ -240,7 +240,10 @@ class TestPosConfiguratorAvailability(TransactionCase):
                         0,
                         {
                             "attribute_id": self.color_attribute.id,
-                            "value_ids": [(6, 0, [self.color_values["Black"].id])],
+                            # Native Odoo omits single-value attributes from
+                            # product_template_variant_value_ids.
+                            "value_ids": [(6, 0, [self.color_values["Black"].id,
+                                                   self.color_values["Orange"].id])],
                         },
                     ),
                     (
@@ -275,9 +278,6 @@ class TestPosConfiguratorAvailability(TransactionCase):
         color_ptav = self._ptav_by_name(color_line)
         capacity_ptav = self._ptav_by_name(capacity_line)
 
-        if "ptav_active" in self.env["product.template.attribute.value"]._fields:
-            capacity_ptav["128"].write({"ptav_active": False})
-
         variant = self._variant_for(template, color_ptav["Black"], capacity_ptav["128"])
         lot = self.StockLot.create(
             {
@@ -293,6 +293,12 @@ class TestPosConfiguratorAvailability(TransactionCase):
             1.0,
             lot_id=lot,
         )
+
+        if "ptav_active" in self.env["product.template.attribute.value"]._fields:
+            capacity_ptav["128"].write({"ptav_active": False})
+            # Retain an active legacy variant with stock and an inactive alias.
+            # This is the imported state the availability mapper must support.
+            variant.active = True
 
         payload = self.ProductTemplate.get_pos_configurator_availability(template.id, self.pos_config.id)
 

@@ -169,7 +169,21 @@ class TestStockLotSearch(TransactionCase):
             cls.duplicate_product_b, cls.stock_location, 1.0, lot_id=cls.duplicate_lot_b
         )
 
-        cls.second_company = cls.env["res.company"].create({"name": "POS Search Company 2"})
+        # Hosted contact rules require company details, even for test companies.
+        partner_values = {
+            'name': 'POS Search Company 2', 'is_company': True,
+            'vat': 'QA-POS-FOREIGN-COMPANY-2',
+        }
+        if 'mobile_type' in cls.env['res.partner']._fields:
+            partner_values.update({
+                'company_type': 'company', 'mobile_type': 'foreigner',
+                'mobile': 'QA-POS-SEARCH-COMPANY-2',
+                'company_size': 'small', 'company_device': 1,
+            })
+        partner = cls.env['res.partner'].with_context(no_vat_validation=True).create(partner_values)
+        cls.second_company = cls.env["res.company"].create({
+            "name": "POS Search Company 2", "partner_id": partner.id,
+        })
         cls.second_company_location = cls.StockLocation.create(
             {
                 "name": "Company 2 Stock",
