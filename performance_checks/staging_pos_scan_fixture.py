@@ -11,8 +11,14 @@ env = env(context=dict(env.context, no_reset_password=True, tracking_disable=Tru
                        mail_create_nolog=True, shopify_no_export=True))
 base = env['pos.config'].search([('company_id', '=', env.company.id)], limit=1)
 assert base and base.picking_type_id.default_location_src_id
+methods = base.payment_method_ids.filtered(lambda method: not method.is_cash_count)
+if not methods:
+    methods = env['pos.payment.method'].search([
+        ('company_id', '=', env.company.id), ('is_cash_count', '=', False),
+    ], limit=1)
+assert methods, 'A non-cash test payment method is required; do not reuse a live cash drawer'
 config = base.copy({'name': marker, 'cash_control': False,
-                    'payment_method_ids': [(6, 0, base.payment_method_ids.ids)]})
+                    'payment_method_ids': [(6, 0, methods.ids)]})
 if 'module_pos_hr' in config._fields:
     config.module_pos_hr = False
 if 'enable_product_bar_lot_serial_search' in config._fields:
