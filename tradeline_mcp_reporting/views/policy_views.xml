@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="settings_mcp" model="ir.ui.view">
+        <field name="name">ai.copilot.settings.mcp</field>
+        <field name="model">ai.copilot.settings</field>
+        <field name="inherit_id" ref="tradeline_ai_copilot.view_ai_copilot_settings_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='enable_history']/ancestor::group[1]" position="after">
+                <group string="External MCP reporting" groups="base.group_system">
+                    <field name="enable_mcp_reporting"/>
+                    <label for="enable_mcp_reporting" string="Also approve datasets/fields in Allowed Models and assign MCP Reporting User explicitly."/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+    <record id="policy_mcp" model="ir.ui.view">
+        <field name="name">ai.copilot.allowed.model.mcp</field>
+        <field name="model">ai.copilot.allowed.model</field>
+        <field name="inherit_id" ref="tradeline_ai_copilot.view_ai_copilot_allowed_model_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="External MCP scope" groups="base.group_system">
+                    <field name="mcp_enabled"/>
+                    <field name="mcp_fields_csv"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

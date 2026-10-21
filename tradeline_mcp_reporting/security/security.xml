@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_mcp_reporting_user" model="res.groups">
+        <field name="name">MCP Reporting User</field>
+        <field name="category_id" ref="tradeline_ai_copilot.module_category_ai_copilot"/>
+        <field name="implied_ids" eval="[(4, ref('tradeline_ai_copilot.group_ai_copilot_user'))]"/>
+        <field name="comment">Opt-in external Claude access to explicitly approved reporting datasets. No business-model permissions are granted by this group.</field>
+    </record>
+</odoo>

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "tradeline-reporting": {
+      "command": "C:/PATH/TO/claude_odoo_mcp/.venv/Scripts/python.exe",
+      "args": [
+        "C:/PATH/TO/claude_odoo_mcp/server.py",
+        "--config",
+        "C:/Users/YOUR_USER/.tradeline-mcp/config.json"
+      ]
+    }
+  }
+}
