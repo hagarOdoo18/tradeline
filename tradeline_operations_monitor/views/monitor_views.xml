@@ -98,6 +98,11 @@
                         <field name="latched"/>
                     </group>
                     <group string="What Was Detected"><field name="details" nolabel="1"/></group>
+                    <group string="Shopify Log Message" invisible="not source_log_excerpt">
+                        <field name="source_log_excerpt" nolabel="1" colspan="2"/>
+                        <field name="source_log_url" widget="url" text="Open Original Shopify Log"
+                               options="{'website_path': True}" invisible="not source_log_url"/>
+                    </group>
                     <group string="What To Do"><field name="action" nolabel="1"/></group>
                     <div class="alert alert-info" role="status">
                         Individual job/order/publication errors stay open until reviewed. A healthy cron or a Done batch does not resolve them.

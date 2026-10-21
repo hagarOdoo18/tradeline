@@ -185,6 +185,61 @@ class TestOperationsMonitor(TransactionCase):
         self.assertNotIn('Tax is required', rejection['details'])
         self.assertIsNone(shopify_log_signal(125, 'Inventory push: 11067 level(s) updated, 0 unchanged (skipped), 0 failed (5 group(s), 2 location(s)) in 24.6s via GraphQL'))
 
+    def test_unrelated_incident_has_no_shopify_log(self):
+        incident = self.monitor._reconcile([dict(self.problem, latched=True)], {'shopify'}, self.now)
+        self.assertFalse(incident.source_log_excerpt)
+        self.assertFalse(incident.source_log_url)
+
+    def test_existing_incident_reads_original_log_without_rescan_or_email_disclosure(self):
+        if 'log.message' not in self.env.registry:
+            self.skipTest('Shopify connector is not installed')
+        log = self.env['log.message'].sudo().create({
+            'name': '<p>Creation of order #1336 failed: Please Set Mobile Number</p>'
+                    '<p>Customer &amp; delivery details.</p>',
+            'model': 'sale.order',
+        })
+        observation = shopify_log_signal(log.id, log.name)
+        incident = self.monitor._reconcile([observation], {'shopify'}, self.now)
+        cursor = self.monitor.last_log_id
+        self.assertIn('Shopify log %s' % log.id, incident.source_log_excerpt)
+        self.assertIn('Creation of order #1336 failed: Please Set Mobile Number', incident.source_log_excerpt)
+        self.assertIn('\nCustomer & delivery details.', incident.source_log_excerpt)
+        self.assertNotIn('<p>', incident.source_log_excerpt)
+        self.assertEqual(incident.source_log_url, '/odoo/log.message/%s' % log.id)
+        self.assertEqual(self.monitor.last_log_id, cursor)
+        self.assertNotIn('Please Set Mobile Number', self.monitor._email_body(incident, self.now))
+        # Reopening an existing incident derives its log from saved evidence.
+        incident.invalidate_recordset(['source_log_excerpt', 'source_log_url'])
+        self.assertIn('Please Set Mobile Number', incident.source_log_excerpt)
+        incident.invalidate_recordset(['source_log_excerpt', 'source_log_url'])
+        with patch.object(type(log), 'has_access', return_value=False):
+            self.assertFalse(incident.source_log_excerpt)
+            self.assertFalse(incident.source_log_url)
+        log.unlink()
+        incident.invalidate_recordset(['source_log_excerpt', 'source_log_url'])
+        self.assertIn('unavailable', incident.source_log_excerpt)
+        self.assertFalse(incident.source_log_url)
+
+    def test_source_log_tracks_latest_evidence_and_truncates_long_messages(self):
+        if 'log.message' not in self.env.registry:
+            self.skipTest('Shopify connector is not installed')
+        logs = self.env['log.message'].sudo().create([
+            {'name': '<p>Creation of order #1336 failed: Please Set Mobile Number</p>', 'model': 'sale.order'},
+            {'name': '<p>Creation of order #1337 failed: %s</p>' % ('x' * 9000), 'model': 'sale.order'},
+        ])
+        incident = self.monitor._reconcile([shopify_log_signal(logs[0].id, logs[0].name)], {'shopify'}, self.now)
+        self.assertIn('#1336', incident.source_log_excerpt)
+        self.monitor._reconcile([shopify_log_signal(logs[1].id, logs[1].name)], {'shopify'}, self.now)
+        self.assertIn('#1337', incident.source_log_excerpt)
+        self.assertNotIn('#1336', incident.source_log_excerpt)
+        self.assertIn('[Message truncated.', incident.source_log_excerpt)
+        self.assertLess(len(incident.source_log_excerpt), 8200)
+        self.assertEqual(incident.source_log_url, '/odoo/log.message/%s' % logs[1].id)
+        for invalid in ('not-a-log', '123:2026-10-21', '-1', '0', '2147483648', '9' * 5000, '١٢٣', ''):
+            incident.evidence_version = invalid
+            self.assertFalse(incident.source_log_excerpt)
+            self.assertFalse(incident.source_log_url)
+
     def test_stalled_excel_import_and_paused_import_are_detected_without_opening_file(self):
         if 'import.stock.quant.wizard' not in self.env.registry:
             self.skipTest('Excel importer is not installed')

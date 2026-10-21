@@ -14,6 +14,7 @@ from markupsafe import Markup
 
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
+from odoo.tools import html2plaintext
 
 _logger = logging.getLogger(__name__)
 EMAIL = re.compile(r'^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$')
@@ -40,12 +41,12 @@ def shopify_log_signal(log_id, message):
     if failed or text.startswith('Inventory push failures:'):
         return signal('shopify:partial_inventory', 'Shopify stock push was incomplete',
             'Shopify log %s reports stock-publication errors, even if the job says Done.' % log_id,
-            'Review Shopify / Logs, repair invalid mappings and verify the affected variants.',
+            'Review Shopify / Configuration / Log Messages, repair invalid mappings and verify the affected variants.',
             'critical', latched=True, version=log_id)
     if re.search(r'Creation of order .+ failed:', text, re.I):
         return signal('shopify:order_import_error', 'An individual Shopify order was not imported',
             'Shopify log %s records an order rejection inside a batch.' % log_id,
-            'Review Shopify / Logs. Correct the validation problem and confirm the order is imported and reserved.',
+            'Review Shopify / Configuration / Log Messages. Correct the validation problem and confirm the order is imported and reserved.',
             'critical', latched=True, version=log_id)
     return None
 
@@ -480,6 +481,8 @@ class OperationsIncident(models.Model):
     state = fields.Selection([('observing', 'Confirming'), ('open', 'Open'), ('resolved', 'Resolved')], default='observing', index=True)
     latched = fields.Boolean(help='An individual failure needs explicit review; it cannot be cleared by the absence of new errors.')
     evidence_version = fields.Char()
+    source_log_excerpt = fields.Text(string='Shopify Log Message', compute='_compute_source_log')
+    source_log_url = fields.Char(string='Source Log', compute='_compute_source_log')
     consecutive_checks = fields.Integer(default=0)
     first_seen_at = fields.Datetime()
     last_seen_at = fields.Datetime()
@@ -488,6 +491,41 @@ class OperationsIncident(models.Model):
     notified_severity = fields.Char()
 
     _sql_constraints = [('incident_code', 'unique(monitor_id, code)', 'An incident code is unique per monitor.')]
+
+    @api.depends('code', 'evidence_version')
+    def _compute_source_log(self):
+        """Read the referenced connector log for both new and existing incidents.
+
+        Shopify is optional. Respect its log permissions, and keep the original
+        message in the authenticated incident view rather than alert emails.
+        """
+        referenced = {}
+        for incident in self:
+            incident.source_log_excerpt = False
+            incident.source_log_url = False
+            if incident.code in ('shopify:order_import_error', 'shopify:partial_inventory'):
+                version = incident.evidence_version or ''
+                if len(version) <= 10 and version.isascii() and version.isdigit() and 0 < int(version) <= 2147483647:
+                    referenced[incident.id] = int(version)
+        if not referenced or 'log.message' not in self.env.registry:
+            return
+        Log = self.env['log.message']
+        if not Log.has_access('read'):
+            return
+        logs = {log.id: log for log in Log.search([('id', 'in', list(set(referenced.values())))])}
+        for incident in self:
+            log_id = referenced.get(incident.id)
+            if not log_id:
+                continue
+            log = logs.get(log_id)
+            if not log:
+                incident.source_log_excerpt = 'Shopify log %s is unavailable or you do not have access to it.' % log_id
+                continue
+            message = html2plaintext(log.name or '', include_references=False)
+            if len(message) > 8000:
+                message = message[:8000] + '\n[Message truncated. Open the original Shopify log for the full message.]'
+            incident.source_log_excerpt = 'Shopify log %s\n%s' % (log_id, message)
+            incident.source_log_url = '/odoo/log.message/%s' % log_id
 
     def action_resolve(self):
         if not self.env.user.has_group('base.group_system'):

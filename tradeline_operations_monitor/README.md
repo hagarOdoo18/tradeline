@@ -77,6 +77,17 @@ from a later scan or another successful batch is not proof they were repaired.
 Open the referenced job/log/event, correct the cause, verify the affected
 stock/order, then **Mark Reviewed / Resolved**. New failure evidence reopens it.
 
+Shopify order-import and partial-inventory incidents show the latest referenced
+**Shopify Log Message** directly below **What Was Detected**, with an
+**Open Original Shopify Log** link. These are database records under
+**Shopify → Configuration → Log Messages**; their IDs are not Odoo.sh server-log
+line numbers. Existing incidents use their saved evidence IDs without rescanning
+the log table. Messages are shown as plain text (up to 8,000 characters, with an
+explicit truncation notice); the original log contains the full message.
+Deleted/inaccessible logs are reported as unavailable. Viewing the message
+respects connector log permissions. Original messages are not copied to alert
+emails or the public health/heartbeat responses.
+
 The probes run with a two-second SQL timeout and 100ms lock timeout each,
 without taking business row locks. They read status/timestamps and relevant
 log summaries, not stock import workbooks or job/order JSON payloads. Mail is
