@@ -68,8 +68,8 @@ class CopilotProductSales(models.AbstractModel):
             raise ValidationError("Use a short legacy product search label.")
         start, end = self._unit_dates(spec)
         # Historical units must include archived variants; this never changes ACLs/rules.
-        self = self.with_context(active_test=False)
         product, unused = self._analysis_model("product.product", export)
+        product = product.with_context(active_test=False)
         if not {"id", "uom_id"} <= self._readable_fields(product._name).keys():
             raise AccessError("Product IDs and units must be readable.")
         with self._budget():
@@ -77,6 +77,7 @@ class CopilotProductSales(models.AbstractModel):
         if {p["id"] for p in products} != set(ids):
             raise AccessError("One or more selected products are unavailable under your access rules.")
         units, unused = self._model("uom.uom")
+        units = units.with_context(active_test=False)
         if not {"factor", "category_id", "rounding", "display_name"} <= self._readable_fields("uom.uom").keys():
             raise AccessError("Unit conversion fields are unavailable under your data policy.")
         unit_ids = {p["uom_id"][0] for p in products if p.get("uom_id")}

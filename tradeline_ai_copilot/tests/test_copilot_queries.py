@@ -975,6 +975,7 @@ class TestCopilotQueries(TransactionCase):
         self.assertIn(("order_id.account_move", "=", False), checked)
         self.assertIn(("order_id.date_order", "<", "2026-10-03 00:00:00"), checked)
         self.assertFalse(result["analysis"]["lifetime_history_complete"])
+
         self.assertEqual(before, moves.read(["state", "write_date"]))
         chart = self.service._agent_chart(result, "bar", "Source counts")
         self.assertEqual(chart["data"]["datasets"][0]["data"][:2], [7, 3])
@@ -1016,6 +1017,12 @@ class TestCopilotQueries(TransactionCase):
         self.assertEqual(result["analysis"]["sources"][2]["unmapped_text_candidate_lines"], 1)
         self.assertEqual(result["analysis"]["sources"][2]["visible_archive_window"]["first_date"], fields.Date.to_date("2026-01-01"))
         self.assertFalse(result["analysis"]["lifetime_history_complete"])
+        # Product status must not override normal archive-document visibility.
+        invoices[0].copy({"source_id": 999001, "active": False,
+            "line_ids": [(0, 0, {"source_id": 999001, "product_id": products[0].id,
+                "name": "Copilot Duo disabled duplicate", "uom_id": products[0].uom_id.id, "quantity": 999})]})
+        visible = self.query.product_sales_units({"product_ids": products.ids, "legacy_search": "Copilot Duo"})
+        self.assertEqual(visible["analysis"]["legacy_net_units"], 4)
 
     def test_recovered_identical_tool_error_clears_only_its_warning(self):
         spec = self._spec(aggregates=["__count"])
