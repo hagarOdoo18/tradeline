@@ -121,6 +121,8 @@ class TestCopilotQueries(TransactionCase):
         before = self.partners.read(["write_date", "color"])
         result = self.query.data_freshness({"model": "res.partner", "domain": [["id", "in", self.partners.ids]], "date_field": "create_date"})
         self.assertEqual(result["rows"][0]["records"], 2)
+        self.assertNotEqual(result["rows"][0]["earliest_business_date"], "Unknown")
+        self.assertLessEqual(result["rows"][0]["earliest_business_date"], result["rows"][0]["latest_business_date"])
         self.assertIn("not proof", result["provenance"]["scope"])
         self.assertEqual(before, self.partners.read(["write_date", "color"]))
         self.policy.allowed_fields_csv = "name"
@@ -593,6 +595,9 @@ class TestCopilotQueries(TransactionCase):
         self.assertEqual(result["analysis"]["included_customers"], 2)
         self.assertEqual(result["analysis"]["eligible_customers"], 1)
         self.assertEqual(result["analysis"]["also_in_excluded_set"], 1)
+        chart = self.service._agent_chart(result, "bar", "Matched customer populations")
+        self.assertEqual(chart["data"]["datasets"][0]["data"], [1, 1])
+        self.assertEqual(len(chart["data"]["labels"]), 2)
         preview = self.query.compare_customer_sets(dict(spec, show_customers=True, include_names=True))
         self.assertEqual(preview["rows"], [{"customer_id": self.partners[0].id, "customer_name": self.partners[0].name}])
         self.assertFalse(result["analysis"]["identity_coverage_complete"])
@@ -605,6 +610,66 @@ class TestCopilotQueries(TransactionCase):
         spec["include"][0] = {"model": "res.partner", "domain": [], "key_field": "company_id"}
         with self.assertRaises(ValidationError):
             self.query.compare_customer_sets(spec)
+
+    def test_pos_cohort_resolves_header_customer_and_anonymous_rows(self):
+        # Use real policy/relationship validation when POS is installed. The
+        # controlled read population includes repeat and anonymous purchases.
+        if "pos.order.line" not in self.env:
+            self.skipTest("POS source is optional; production read-only verification covers it")
+        self.user.groups_id |= self.env.ref("point_of_sale.group_pos_user")
+        for name in ["pos.order.line", "pos.order"]:
+            self.service._check_model_access(name)[1].write({"enabled": True, "allow_groupby": True, "allow_export": True})
+        groups = [{"order_id": (1, "one"), "__count": 2}, {"order_id": (2, "two"), "__count": 1},
+                  {"order_id": (3, "anonymous"), "__count": 4}]
+        headers = [{"id": 1, "partner_id": (self.partners[0].id, "Alpha")},
+                   {"id": 2, "partner_id": (self.partners[0].id, "Alpha")}, {"id": 3, "partner_id": False}]
+        spec = {"model": "pos.order.line", "domain": [], "key_field": "order_id.partner_id"}
+        with patch.object(type(self.query), "_analysis_groups", return_value=groups), \
+                patch.object(type(self.env["pos.order"]), "search_read", return_value=headers):
+            keys, detail = self.query._customer_set(spec, False, time.monotonic() + 25)
+        self.assertEqual(keys, {self.partners[0].id})
+        self.assertEqual((detail["matching_rows"], detail["unresolved_rows"]), (7, 4))
+        for key in ["order_id.user_id", "order_id.partner_id.vat", "partner_id"]:
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                self.query._customer_set(dict(spec, key_field=key), False, time.monotonic() + 25)
+
+    def test_legacy_order_identity_does_not_use_old_numeric_ids(self):
+        if "legacy.sale.order.line" not in self.env:
+            self.skipTest("Legacy sales order addon is optional")
+        self.user.groups_id |= self.env.ref("sales_team.group_sale_salesman_all_leads")
+        for name in ["legacy.sale.order", "legacy.sale.order.line"]:
+            self.service._check_model_access(name)[1].write({"enabled": True, "allow_groupby": True, "allow_export": True})
+        self.partners[0].mobile = "01012345678"
+        order = self.env["legacy.sale.order"].create({"source_db": "QA", "source_order_id": self.partners[1].id,
+            "name": "QA legacy order", "company_id": self.company.id, "date_order": "2025-12-01 12:00:00",
+            "state": "sale", "source_partner_mobile": "+20 101 234 5678"})
+        line = self.env["legacy.sale.order.line"].create({"order_id": order.id, "source_line_id": 123,
+            "qty_ordered": 1, "qty_delivered": 1, "product_name": "QA handset"})
+        before = (order.write_date, line.write_date, self.partners.mapped("write_date"))
+        source = {"model": "legacy.sale.order.line", "key_field": "order_id", "domain": [["id", "=", line.id]],
+                  "resolve_legacy_identifiers": True}
+        keys, detail = self.query._customer_set(source, False, time.monotonic() + 25, {})
+        self.assertEqual(keys, {self.partners[0].id})
+        self.assertEqual(detail["identifier_resolution_rows"], {"phone": 1})
+        self.assertNotIn("01012345678", json.dumps(detail))
+        self.assertEqual(before, (order.write_date, line.write_date, self.partners.mapped("write_date")))
+        with self.assertRaises(ValidationError):
+            self.query._customer_set(dict(source, resolve_legacy_identifiers=False), False, time.monotonic() + 25)
+
+    def test_unfinished_discovery_gets_one_bounded_completion_retry(self):
+        responses = [
+            {"content": [{"type": "text", "text": "I haven't completed the customer comparison. The next step is to finish matching."}]},
+            {"content": [{"type": "tool_use", "id": "calculate", "name": "compare_customer_sets", "input": self._customer_cohort_fixture()}]},
+            {"content": [{"type": "text", "text": "One matched customer has no purchase in the exclusion scope [S1]."}]},
+        ]
+        with patch.object(type(self.service), "_agent_request", side_effect=responses) as request:
+            answer = self.service.generate_response("Compare buyers across sources", provider="claude")
+        self.assertEqual(request.call_count, 3)
+        self.assertTrue(any(b.get("analysis", {}).get("eligible_customers") == 1 for b in answer["blocks"] if b["type"] == "table"))
+        self.assertNotIn("haven't completed", answer["blocks"][0]["content"])
+        with patch.object(type(self.service), "_agent_request", return_value=responses[0]) as request:
+            self.service.generate_response("Compare buyers across sources", provider="claude")
+        self.assertEqual(request.call_count, 2)
 
     def test_analysis_timeout_gives_actionable_scope_error(self):
         from psycopg2.errors import QueryCanceled

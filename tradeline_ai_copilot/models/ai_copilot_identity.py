@@ -109,9 +109,10 @@ class CopilotIdentity(models.AbstractModel):
                 return index
             last_id = rows[-1]["id"]
 
-    def _legacy_identifier_matches(self, line_model, domain, counts, blocked, export, deadline, cache):
-        header, unused_policy = self._analysis_model("legacy.invoice", export)
-        header_fields = self._identity_read_fields(header._name, ["source_partner_mobile", "source_partner_national_id", "source_partner_tax_id", "source_partner_type"])
+    def _legacy_identifier_matches(self, line_model, domain, counts, blocked, export, deadline, cache,
+                                   header_name="legacy.invoice", parent_field="invoice_id"):
+        header, unused_policy = self._analysis_model(header_name, export)
+        header_fields = self._identity_read_fields(header._name, ["source_partner_mobile", "source_partner_phone", "source_partner_national_id", "source_partner_tax_id", "source_partner_type"])
         line_fields = self._identity_read_fields(line_model._name, ["customer_mobile", "customer_phone"])
         if not header_fields and not line_fields:
             raise AccessError("Legacy customer identifier fields are unavailable under the data policy.")
@@ -129,14 +130,15 @@ class CopilotIdentity(models.AbstractModel):
             for row in headers:
                 item = evidence[row["id"]]
                 item["phone"].add(phone_key(row.get("source_partner_mobile")))
+                item["phone"].add(phone_key(row.get("source_partner_phone")))
                 item["national"].add(national_key(row.get("source_partner_national_id")))
                 if str(row.get("source_partner_type") or "").lower() not in {"company", "business"}:
                     item["national"].add(national_key(row.get("source_partner_tax_id")))
             # Group line identifiers within the exact source scope; raw identifiers are never returned.
             if line_fields:
-                groups = self._analysis_groups(line_model, domain + [("invoice_id", "in", batch)], ["invoice_id"] + line_fields, deadline)
+                groups = self._analysis_groups(line_model, domain + [(parent_field, "in", batch)], [parent_field] + line_fields, deadline)
                 for row in groups:
-                    invoice_id = row["invoice_id"][0] if row.get("invoice_id") else False
+                    invoice_id = row[parent_field][0] if row.get(parent_field) else False
                     if invoice_id in evidence:
                         for field in line_fields:
                             evidence[invoice_id]["phone"].add(phone_key(row.get(field)))

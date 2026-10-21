@@ -14,7 +14,8 @@ class CopilotAnalysis(models.AbstractModel):
 
     ANALYSIS_GROUP_LIMIT = 50000
     PARENTS = {"account.move.line": "move_id", "legacy.invoice.line": "invoice_id",
-               "sale.order.line": "order_id", "pos.order.line": "order_id"}
+               "sale.order.line": "order_id", "pos.order.line": "order_id",
+               "legacy.sale.order.line": "order_id"}
 
     def _analysis_model(self, name, export=False):
         model, policy = self._model(name)
@@ -61,20 +62,49 @@ class CopilotAnalysis(models.AbstractModel):
                 raise ValidationError("Legacy resolution flags must be booleans.")
         name, key = spec.get("model"), spec.get("key_field", "partner_id")
         model, unused_policy = self._analysis_model(name, export)
-        self._analysis_relation(name, key, "res.partner")
         domain = self._analysis_domain(name, spec.get("domain", []), export)
+        # POS has no stored customer on the line. Resolve only this validated
+        # header relationship, respecting both header and contact record rules.
+        if key == "order_id.partner_id" and name == "pos.order.line":
+            self._analysis_relation(name, "order_id", "pos.order")
+            header, unused_policy = self._analysis_model("pos.order", export)
+            self._analysis_relation("pos.order", "partner_id", "res.partner")
+            groups = self._analysis_groups(model, domain, ["order_id"], deadline)
+            counts = {r["order_id"][0]: r["__count"] for r in groups if r.get("order_id")}
+            keys, mapped = set(), 0
+            ids = list(counts)
+            for start in range(0, len(ids), 500):
+                if time.monotonic() > deadline:
+                    raise ValidationError("Customer analysis time budget reached; narrow the source dates.")
+                with self._budget():
+                    headers = header.search_read([("id", "in", ids[start:start+500])], ["partner_id"], limit=500)
+                for row in headers:
+                    if row.get("partner_id"):
+                        keys.add(row["partner_id"][0])
+                        mapped += counts[row["id"]]
+            total = sum(r["__count"] for r in groups)
+            return keys, {"model": name, "domain": spec.get("domain", []), "key_field": key,
+                          "matching_rows": total, "unresolved_rows": total - mapped,
+                          "bridge_linked_rows": 0, "ambiguous_link_rows": 0,
+                          "identifier_matched_rows": 0, "identifier_resolution_rows": {}}
+        legacy_order = name == "legacy.sale.order.line" and key == "order_id"
+        self._analysis_relation(name, key, "legacy.sale.order" if legacy_order else "res.partner")
         rows = self._analysis_groups(model, domain, [key], deadline)
-        keys = {row[key][0] for row in rows if row.get(key)}
-        missing = sum(row["__count"] for row in rows if not row.get(key))
+        keys = set() if legacy_order else {row[key][0] for row in rows if row.get(key)}
+        missing = sum(row["__count"] for row in rows if legacy_order or not row.get(key))
         total = sum(row["__count"] for row in rows)
         linked, ambiguous, identifier_linked, methods = 0, 0, 0, {}
         resolve = spec.get("resolve_legacy_links") or spec.get("resolve_legacy_identifiers")
-        if resolve and (name != "legacy.invoice.line" or key != "partner_id"):
-            raise ValidationError("Legacy resolution applies only to legacy invoice lines with partner_id as the customer key.")
+        if legacy_order and not spec.get("resolve_legacy_identifiers"):
+            raise ValidationError("Legacy sales orders require server-side identifier resolution; old order IDs are not customer IDs.")
+        if resolve and not (legacy_order or (name == "legacy.invoice.line" and key == "partner_id")):
+            raise ValidationError("Legacy resolution supports legacy invoice lines (partner_id) and legacy sales order lines (order_id).")
         if missing and resolve:
-            invoices = self._analysis_groups(model, domain + [(key, "=", False)], ["invoice_id"], deadline)
-            counts = {r["invoice_id"][0]: r["__count"] for r in invoices if r.get("invoice_id")}
-            mappings = self._legacy_bridge_mappings(counts, export, deadline) if spec.get("resolve_legacy_links") else {}
+            parent = "order_id" if legacy_order else "invoice_id"
+            unresolved_domain = domain if legacy_order else domain + [(key, "=", False)]
+            invoices = rows if legacy_order else self._analysis_groups(model, unresolved_domain, [parent], deadline)
+            counts = {r[parent][0]: r["__count"] for r in invoices if r.get(parent)}
+            mappings = self._legacy_bridge_mappings(counts, export, deadline) if spec.get("resolve_legacy_links") and not legacy_order else {}
             for invoice_id, targets in mappings.items():
                 if len(targets) == 1:
                     keys.update(targets)
@@ -82,8 +112,9 @@ class CopilotAnalysis(models.AbstractModel):
                 else:
                     ambiguous += counts[invoice_id]
             if spec.get("resolve_legacy_identifiers"):
-                matches, methods = self._legacy_identifier_matches(model, domain + [(key, "=", False)], counts,
-                    set(mappings), export, deadline, identity_cache if identity_cache is not None else {})
+                matches, methods = self._legacy_identifier_matches(model, unresolved_domain, counts,
+                    set(mappings), export, deadline, identity_cache if identity_cache is not None else {},
+                    header_name="legacy.sale.order" if legacy_order else "legacy.invoice", parent_field=parent)
                 keys.update(matches.values())
                 identifier_linked = sum(counts[invoice_id] for invoice_id in matches)
         return keys, {"model": name, "domain": spec.get("domain", []), "key_field": key,
@@ -194,6 +225,10 @@ class CopilotAnalysis(models.AbstractModel):
         result["analysis"].update(summary)
         result["analysis"]["identity_coverage_complete"] = summary["unresolved_source_rows"] == 0
         result["analysis"]["absence_established_within_matched_scope"] = unresolved_exclusions == 0
+        if not spec.get("show_customers"):
+            # Chart customer populations only; unresolved line counts have a
+            # different unit and must not share the same comparison axis.
+            result.update(chart_dimensions=["metric"], chart_measures=["count"], chart_rows=rows[1:3])
         return result
 
     def analyze_baskets(self, spec, export=False):
@@ -241,18 +276,23 @@ class CopilotAnalysis(models.AbstractModel):
                  "A → B is the fraction of A baskets containing B. Lift compares observed co-purchases with independent purchase frequency; association is not causation. "
                  "Baskets over 30 distinct products are excluded. Missing product mappings may understate associations. "
                  "Use positive purchase quantities and posted/confirmed states; validate stock and margin before proposing an offer. " + json.dumps(coverage[0]))
-        return self._analysis_result(dict(spec, analysis_type="baskets"), "product.product", "Basket association analysis",
-                                     rows, columns, labels, coverage, scope, export)
+        result = self._analysis_result(dict(spec, analysis_type="baskets"), "product.product", "Basket association analysis",
+                                      rows, columns, labels, coverage, scope, export)
+        result.update(chart_dimensions=["product_a", "product_b"], chart_measures=["baskets_together"])
+        return result
 
     def business_context(self):
         self._service()._assert_internal_user()
         roles = {"legacy.invoice": "Archived customer invoices: invoice_type=out_invoice; states open/paid; invoice_date. Old IDs are NOT current IDs.",
                  "legacy.invoice.line": "Archived purchase lines: invoice_id, partner_id, product_id, product_name/name/item_code, quantity. Legacy links may be missing.",
+                 "legacy.sale.order": "Archived sales orders; date_order and state. Confirmed demand is not proof of delivery; inspect qty_delivered/qty_invoiced on lines for completed purchases. Old IDs are not current IDs.",
+                 "legacy.sale.order.line": "Archived order lines: order_id, product_name/item_code/product_category_name, qty_ordered/qty_delivered/qty_invoiced, order_date. For customer_sets use key_field=order_id and resolve_legacy_identifiers=true. Header and line identifiers are resolved privately on the server.",
                  "legacy.invoice.customer.bridge": "Accepted customer mappings: invoice_id -> target_partner_id; strict/linked only; multiple targets are ambiguous.",
                  "account.move": "Current invoices: move_type=out_invoice and state=posted; invoice_date. Credit notes are out_refund.",
                  "account.move.line": "Current purchase lines: move_id, partner_id, product_id, quantity; filter parent type/state and positive quantities.",
                  "sale.order.line": "Confirmed order demand, not invoiced purchases. Do not add to invoices as revenue.",
-                 "pos.order.line": "POS basket data. Check order state and overlap with invoices before combining.",
+                 "pos.order": "Completed POS purchases: state in paid/done/invoiced; date_order. partner_id may be empty (anonymous sales). Customer unions deduplicate invoice overlap by current customer ID; monetary totals must not add invoiced POS twice.",
+                 "pos.order.line": "POS purchase lines: order_id, product_id, qty. For customer_sets use key_field=order_id.partner_id, positive qty, completed order states. There is no direct partner_id on this line model. Include POS for all-channel customer purchase questions.",
                  "product.product": "Current product variants. Inspect names/categories/codes to distinguish handsets from accessories; text mentions are insufficient.",
                  "res.partner": "Current customer identities: mobile/phone; individual Egyptian national ID in vat, company tax ID in vat. Never join databases by numeric ID or names."}
         available = []
@@ -267,5 +307,8 @@ class CopilotAnalysis(models.AbstractModel):
                 continue
         return {"datasets": available, "guidance": "Use customer_sets for complete set differences, not subtraction of limited previews or sum of distinct counts. "
                 "Use analyze_baskets for same-invoice bundles. Declare source/date overlap and unmapped identity coverage. "
-                "For handset cohorts inspect product categories and exclude accessories/services; preserve user scope across follow-ups.",
+                "For handset cohorts inspect product categories and exclude accessories/services; preserve user scope across follow-ups. "
+                "All-purchase customer comparisons must cover current invoices, completed POS and available legacy purchase evidence. "
+                "Use data_freshness on each source for BOTH first and last business dates; an archive ending last year may also start late in that year. "
+                "Do not treat unfulfilled sales orders as completed purchases, or absence in one channel as absence across all channels.",
                 "financial_metrics": self.metric_definitions(), "shopify": self._shopify_context()}

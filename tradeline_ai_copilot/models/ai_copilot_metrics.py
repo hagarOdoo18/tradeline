@@ -150,13 +150,17 @@ class CopilotMetrics(models.AbstractModel):
                 raise ValidationError("Choose a readable stored business date field.")
             dates = list(dict.fromkeys(dates + [date_field]))
         with self._budget():
-            data = model.read_group(domain, [key + ":max" for key in dates], [], lazy=False)[0]
+            aggregates = [key + ":max" for key in dates]
+            if date_field:
+                aggregates.append("first_business_date:min(" + date_field + ")")
+            data = model.read_group(domain, aggregates, [], lazy=False)[0]
         row = {"records": data.get("__count", 0), "latest_saved_change_utc": str(data.get("write_date") or "Unknown"),
+               "earliest_business_date": str(data.get("first_business_date") or "Unknown") if date_field else "Not requested",
                "latest_business_date": str(data.get(date_field) or "Unknown") if date_field else "Not requested"}
-        scope = "Saved records visible under your current permissions. Latest business date is transaction coverage, not ingestion time. " \
+        scope = "Saved records visible under your current permissions. Earliest/latest dates bound visible records; they do not certify gap-free transaction coverage or ingestion time. " \
                 "Latest write_date is a modification watermark, not proof of a successful / complete upstream sync. No staleness SLA is configured."
         result = self._analysis_result(dict(spec, analysis_type="freshness"), name, "Saved data freshness", [row], list(row),
-            {"records": "Matching records", "latest_saved_change_utc": "Latest saved modification (UTC)", "latest_business_date": "Latest business date"},
+            {"records": "Matching records", "latest_saved_change_utc": "Latest saved modification (UTC)", "earliest_business_date": "Earliest business date", "latest_business_date": "Latest business date"},
             [{"model": name, "domain": spec.get("domain", []), "date_field": date_field}], scope, export)
         result["provenance"]["freshness"] = dict(row, mode="Saved Odoo records", note=scope)
         return result

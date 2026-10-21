@@ -3,7 +3,8 @@
     <t t-name="tradeline_ai_copilot.Chart">
         <section class="tl-ai-chart" t-att-aria-label="props.block.title">
             <h3><t t-esc="props.block.title"/></h3>
-            <div class="tl-ai-chart-canvas"><canvas t-ref="canvas" role="img" t-att-aria-label="props.block.title + '. Exact values are in the accompanying data table.'"/></div>
+            <div class="tl-ai-chart-canvas" t-att-style="canvasStyle"><canvas t-ref="canvas" role="img" t-att-aria-label="props.block.title + '. Exact values are in the accompanying data table.'"/></div>
+            <button type="button" class="tl-ai-button tl-ai-ghost tl-ai-chart-download" t-on-click="downloadChart"><i class="fa fa-image" aria-hidden="true"/> Download chart PNG</button>
             <p t-if="props.block.truncated" class="tl-ai-muted">Chart shows a limited set of groups. See the table for the returned data.</p>
         </section>
     </t>
