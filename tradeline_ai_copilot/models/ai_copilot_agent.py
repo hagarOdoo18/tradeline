@@ -80,6 +80,7 @@ class AICopilotAgent(models.AbstractModel):
             "For complex questions briefly state your investigation plan, then investigate; do not just describe work you could do. "
             "Finish the requested calculation before your final reply. Discovery, product classification and freshness alone do not answer a customer comparison. "
             "Spend early calls on compact discovery, then prioritize compare_customer_sets / analyze_baskets over additional exploratory previews. "
+            "Request at most five independent tools per round. Evidence capacity includes two reserved computation slots after the eight standard evidence results. "
             "If a tool fails, correct its arguments and retry within the remaining budget; never present 'the next step is to finish matching' as a completed answer. "
             "If genuinely blocked, name the exact failed step and give verified partial findings without implying the full task is complete. "
             "Lead with the finding, distinguish observations from hypotheses, and recommend one useful next analysis. Suggestions are proposals, never executed actions. "
@@ -286,6 +287,8 @@ class AICopilotAgent(models.AbstractModel):
             preview["rows"].append(row)
         preview["provider_preview_rows"] = len(preview["rows"])
         preview["preview_is_complete"] = len(preview["rows"]) == result["row_count"] and not result["truncated"]
+        preview["execution_budget"] = {"standard_evidence_slots_remaining": max(0, 8 - len(results)),
+            "note": "Two additional result slots are reserved for customer comparisons, basket analysis or canonical financial reports. Prioritize the requested calculation over further previews."}
         return preview
 
     def _agent_loop(self, prompt, conversation, provider, llm_model):
@@ -341,7 +344,7 @@ class AICopilotAgent(models.AbstractModel):
                     r"(?:\b(?:haven['’]t|have not|not yet)\b.{0,100}\b(?:completed|finished|matched|produced|calculated|compared)\b|"
                     r"\bnext step\b.{0,70}\b(?:finish|complete|run|perform)\b.{0,60}\b(?:match|compar|analys|calcul))",
                     text, re.I | re.S)
-                if unfinished and not completion_retry and round_number <= round_limit and len(results) < 8 and deadline - time.monotonic() > 15:
+                if unfinished and not completion_retry and round_number <= round_limit and len(results) < 10 and deadline - time.monotonic() > 15:
                     completion_retry = True
                     messages.append({"role": "user", "content":
                         "Execution check: your draft explicitly says the requested analysis is unfinished. "
@@ -356,7 +359,8 @@ class AICopilotAgent(models.AbstractModel):
                 return text or "No answer was returned. Please narrow the question.", results, failures
             tool_results = []
             # Resolve scope first even if a provider bundles a question with data calls.
-            calls.sort(key=lambda call: call.get("name") != "request_clarification")
+            calls.sort(key=lambda call: 0 if call.get("name") == "request_clarification" else
+                       1 if call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report"} else 2)
             for call in calls:
                 if stream:
                     status = {"research_public_web": "Researching public sources...",
@@ -364,7 +368,9 @@ class AICopilotAgent(models.AbstractModel):
                               "request_clarification": "Clarifying your question..."}.get(call.get("name"), "Checking saved Odoo data...")
                     yield {"type": "status", "status": status}
                 try:
-                    if len(tool_results) >= 5 or len(results) >= 8 or time.monotonic() >= deadline:
+                    computed_report = call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report"}
+                    result_limit = 10 if computed_report else 8
+                    if len(tool_results) >= 5 or len(results) >= result_limit or time.monotonic() >= deadline:
                         raise ValidationError("Investigation budget reached; narrow the question.")
                     with self.env.cr.savepoint():
                         data = self._agent_dispatch(call["name"], call.get("input"), results, conversation, provider, llm_model)

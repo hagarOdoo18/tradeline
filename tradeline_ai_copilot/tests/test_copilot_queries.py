@@ -671,6 +671,31 @@ class TestCopilotQueries(TransactionCase):
             self.service.generate_response("Compare buyers across sources", provider="claude")
         self.assertEqual(request.call_count, 2)
 
+    def test_discovery_cannot_consume_reserved_computation_capacity(self):
+        payloads = [{"content": [{"type": "tool_use", "id": "read-%s" % i, "name": "query_data", "input": self._spec()}
+                                 for i in range(start, start+4)]} for start in [0, 4]]
+        payloads += [
+            {"content": [{"type": "text", "text": "I haven't completed the customer comparison."}]},
+            {"content": [{"type": "tool_use", "id": "main", "name": "compare_customer_sets", "input": self._customer_cohort_fixture()}]},
+            {"content": [{"type": "text", "text": "One matched customer remains in the eligible set [S9]."}]},
+        ]
+        with patch.object(type(self.service), "_agent_request", side_effect=payloads):
+            answer = self.service.generate_response("Compare our buyer groups", provider="claude")
+        reports = [b for b in answer["blocks"] if b["type"] == "table"]
+        self.assertEqual(len(reports), 9)
+        self.assertEqual(reports[-1]["analysis"]["eligible_customers"], 1)
+        self.assertFalse(any(b["type"] == "warning" for b in answer["blocks"]))
+
+    def test_primary_calculation_precedes_exploration_in_overfull_batch(self):
+        calls = [{"type": "tool_use", "id": "preview-%s" % i, "name": "query_data", "input": self._spec()} for i in range(5)]
+        calls.append({"type": "tool_use", "id": "primary", "name": "compare_customer_sets", "input": self._customer_cohort_fixture()})
+        responses = [{"content": calls}, {"content": [{"type": "text", "text": "One eligible customer [S1]."}]}]
+        with patch.object(type(self.service), "_agent_request", side_effect=responses):
+            answer = self.service.generate_response("Compare buyers", provider="claude")
+        tables = [b for b in answer["blocks"] if b["type"] == "table"]
+        self.assertEqual(len(tables), 5)
+        self.assertEqual(tables[0]["analysis"]["eligible_customers"], 1)
+
     def test_analysis_timeout_gives_actionable_scope_error(self):
         from psycopg2.errors import QueryCanceled
         spec = self._customer_cohort_fixture()
