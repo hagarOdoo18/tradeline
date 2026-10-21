@@ -549,8 +549,10 @@ class AICopilotAgent(models.AbstractModel):
         self._log_audit(conversation, {"prompt": prompt, "intent": "executive_chat", "provider": provider,
             "llm_model": llm_model, "row_count": sum(r["row_count"] for r in results),
             "status": "error" if warnings or not connected else "ok", "file_generated": bool(file_ids)})
-        return {"provider": provider, "llm_model": llm_model, "blocks": blocks,
-                "query_meta": results[-1]["query"] if results else None, "file_ids": file_ids}
+        # ORM date/datetime aggregates must also survive persistence in fields.Json,
+        # not just the SSE encoder. Normalize once at the shared response boundary.
+        return json.loads(json.dumps({"provider": provider, "llm_model": llm_model, "blocks": blocks,
+                "query_meta": results[-1]["query"] if results else None, "file_ids": file_ids}, default=str))
 
     def export_from_query_meta(self, query_meta, file_type, conversation_id=None):
         self._assert_internal_user()

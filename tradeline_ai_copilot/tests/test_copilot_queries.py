@@ -1046,3 +1046,25 @@ class TestCopilotQueries(TransactionCase):
         with patch.object(type(self.query), "execute_query", flaky), patch.object(type(self.service), "_agent_request", side_effect=replies):
             result = self.service.generate_response("Count saved contacts", provider="claude")
         self.assertTrue(any("unavailable, not zero" in b.get("content", "") for b in result["blocks"]))
+
+    def test_streamed_product_report_persists_archive_dates_in_chat_history(self):
+        products, unused = self._product_units_fixture()
+        self._legacy_analysis_fixture()
+        self.user.groups_id |= self.env.ref("point_of_sale.group_pos_user")
+        payloads = [{"content": [{"type": "tool_use", "id": "units", "name": "product_sales_units",
+            "input": {"product_ids": products.ids, "legacy_search": "Copilot Duo"}}]},
+            {"content": [{"type": "text", "text": "There are 7 net invoice units in saved records [S1]."}]}]
+        def stream(*args, **kwargs):
+            if False:
+                yield
+            return payloads.pop(0)
+        with patch.object(type(self.service), "_agent_request_stream", stream):
+            events = list(self.env["ai.copilot.ui"].with_user(self.user).with_context(
+                allowed_company_ids=self.company.ids)._chat_stream({"message": "How much Copilot Duo have we sold?", "provider": "claude"}))
+        complete = events[-1]
+        self.assertEqual(complete["type"], "complete")
+        saved = self.env["ai.copilot.message"].browse(complete["response"]["message_id"])
+        table = next(b for b in saved.response_json if b["type"] == "table")
+        self.assertEqual(table["analysis"]["sources"][2]["visible_archive_window"]["first_date"], "2026-01-01")
+        self.assertEqual(table["rows"][0]["net_units"], 7)
+        self.assertFalse(any(b["type"] == "warning" for b in saved.response_json))
