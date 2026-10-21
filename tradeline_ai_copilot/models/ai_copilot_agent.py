@@ -42,6 +42,14 @@ class AICopilotAgent(models.AbstractModel):
             "domain": {"type": "array", "items": {}}, "key_field": {"type": "string"},
             "resolve_legacy_links": {"type": "boolean"}, "resolve_legacy_identifiers": {"type": "boolean"}}, "required": ["model", "domain", "key_field"], "additionalProperties": False}
         tools += [
+            tool("metric_definitions", "Read the versioned revenue / gross-margin definitions and limitations. Use before interpreting financial questions; never guess profit from current product cost.", {}, []),
+            tool("financial_report", "Canonical deterministic financial report with exact dates, refunds, taxes and currency definitions. invoice_net_revenue = posted invoices less credit notes, ex tax, by invoice date. ledger_gross_margin = posted income minus direct-cost accounts by accounting date; not net profit and missing cost postings give no margin. Extra domain filters use the metric's source model. Each company/currency stays separate. Do not add legacy / POS / Shopify to these totals.",
+                 {"metric": {"type": "string", "enum": ["invoice_net_revenue", "ledger_gross_margin"]},
+                  "date_from": {"type": "string"}, "date_to": {"type": "string"}, "domain": {"type": "array", "items": {}},
+                  "grain": {"type": "string", "enum": ["total", "day", "month"]}, "title": {"type": "string"},
+                  "chart": {"type": "string", "enum": ["bar", "line", "none"]}}, ["metric", "date_from", "date_to"]),
+            tool("data_freshness", "Check saved-data modification and business-date watermarks for a readable Odoo model and domain. A current query or latest order date is not proof of a successful complete upstream sync. Use for stale-data / coverage questions and disclose unknown freshness.",
+                 {"model": {"type": "string"}, "domain": {"type": "array", "items": {}}, "date_field": {"type": "string"}, "title": {"type": "string"}}, ["model"]),
             tool("business_context", "Discover available current/legacy purchase datasets, customer-link relationships and metric definitions. Start here for cross-module, legacy, customer upgrade or bundle questions.", {}, []),
             tool("compare_customer_sets", "Compute complete customer cohorts: union(include) minus union(exclude), deduplicated by current res.partner ID. Each source has model, domain and a stored customer key_field (usually partner_id). For legacy.invoice.line set resolve_legacy_links=true for saved strict/linked bridges AND resolve_legacy_identifiers=true for server-side unique exact normalized phone/national-ID fallback. Does not edit records or return raw identifiers. Shared/conflicting identifiers stay unresolved. Coverage includes match method counts. Never infer absence from limited previews. Select handset products/categories, not accessories. Unknown exclusion identities make candidates provisional. show_customers returns a limited list; include_names only if requested.",
                 {"include": {"type": "array", "items": source}, "exclude": {"type": "array", "items": source},
@@ -52,6 +60,14 @@ class AICopilotAgent(models.AbstractModel):
                  "transaction_field": {"type": "string"}, "product_field": {"type": "string"},
                  "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "title": {"type": "string"}}, ["model", "domain", "transaction_field"]),
         ]
+        if "shopify.configuration" in self.env and self.env.user.has_group("base.group_system"):
+            tools.append(tool("live_shopify", "Administrator-only fixed live Shopify queries using existing instance access. Start with business_context for accessible store IDs. connection verifies current API access. orders_summary reads complete bounded order populations (max 2000) and reports per currency/status; orders lists the same evidence. Dates mean order CREATED date in store timezone. Current tax-included order value is not recognized revenue, Analytics net sales, profit or cash. All statuses/test/cancelled orders are included unless the user's prompt specifies filters. Missing older-order scope or pagination failure refuses totals. No products/inventory/customer-identity live API, mutations, imports, sync or credential refresh.",
+                {"operation": {"type": "string", "enum": ["connection", "orders_summary", "orders"]}, "instance_id": {"type": "integer"},
+                 "date_from": {"type": "string"}, "date_to": {"type": "string"}, "grain": {"type": "string", "enum": ["total", "day", "month"]},
+                 "financial_status": {"type": "string", "enum": ["any", "paid", "pending", "authorized", "partially_paid", "partially_refunded", "refunded", "voided"]},
+                 "fulfillment_status": {"type": "string", "enum": ["any", "fulfilled", "unfulfilled", "partial"]},
+                 "cancelled": {"type": "string", "enum": ["any", "yes", "no"]}, "test_orders": {"type": "string", "enum": ["any", "yes", "no"]},
+                 "limit": {"type": "integer", "minimum": 1, "maximum": 500}, "title": {"type": "string"}}, ["operation"]))
         if self._public_web_enabled() and self.get_settings().openai_api_key:
             tools.append(tool("research_public_web", "Search current public product facts, market context or retail strategy using OpenAI web search. Send only a short PUBLIC subject, never customer names, identifiers, company figures, invoice details or Odoo data. Separate research request gets no conversation history. Results contain cited public URLs (W IDs), not Odoo evidence. Use for external/current facts only; at most two searches per answer.",
                 {"subject": {"type": "string"}, "topic": {"type": "string", "enum": ["product", "market", "retail_strategy"]}}, ["subject", "topic"]))
@@ -64,6 +80,11 @@ class AICopilotAgent(models.AbstractModel):
             "For complex questions briefly state your investigation plan, then investigate; do not just describe work you could do. "
             "Lead with the finding, distinguish observations from hypotheses, and recommend one useful next analysis. Suggestions are proposals, never executed actions. "
             "Use business_context to understand legacy/current sources, compare_customer_sets for buyer/non-buyer cohorts, and analyze_baskets for bundles. "
+            "Use metric_definitions / financial_report for net invoice revenue and posted-ledger gross margin; disclose the chosen basis, exact period, tax/refund treatment, currency and cost coverage. "
+            "Never call estimated/current product-cost margins historical realized gross profit, or gross profit net profit. Missing posted COGS means margin is unavailable, not 100%%. "
+            "Use data_freshness for saved-source watermarks; queried_at is not sync time. Unknown / old watermark is not proof the source is complete or stale. "
+            "For explicitly LIVE Shopify order questions use live_shopify if available, not saved Odoo imports or public web. Distinguish current order value from revenue, refunds by order cohort from refund-period activity. "
+            "Live Shopify is store-wide administrator access, not Odoo branch-scoped order access; label it. Respect explicit filters; never silently exclude cancelled / test orders or products globally. "
             "Preserve dates, filters and customer/product definitions across follow-ups unless the user changes them. Reuse previous query definitions, but refresh the evidence. "
             "Derive scope from the current request and confirmed follow-ups; never turn an earlier example's product exclusions into a global rule. "
             "When a missing metric, date range, product-family boundary or channel would materially change the answer, use request_clarification before publishing figures. "
@@ -167,11 +188,11 @@ class AICopilotAgent(models.AbstractModel):
             return False
         spec = result["query"]
         # IDs and raw record samples must never be automatically interpreted as business metrics.
-        groups = spec.get("group_by") or []
+        groups = result.get("chart_dimensions") or spec.get("group_by") or []
         if not groups:
             return False
         label_fields = groups
-        metrics = spec.get("aggregates") or ["__count"]
+        metrics = result.get("chart_measures") or spec.get("aggregates") or ["__count"]
         metrics = [key for key in metrics if all(isinstance(r.get(key), (int, float)) and
                    not isinstance(r.get(key), bool) for r in result["rows"])]
         if not metrics:
@@ -187,7 +208,8 @@ class AICopilotAgent(models.AbstractModel):
                 "integer_values": metrics[0] == "__count" or metrics[0].endswith(":count_distinct"),
                 "truncated": len(result["rows"]) > 30 or result["truncated"],
                 "data": {"labels": [" / ".join(label(r.get(k)) for k in label_fields) for r in chart_rows],
-                         "datasets": [{"label": result["labels"][key], "data": [r[key] for r in chart_rows]} for key in metrics[:1]]}}
+                         "datasets": [{"label": result["labels"][key] + (" · " + result["chart_unit"] if result.get("chart_unit") else ""),
+                                       "data": [r[key] for r in chart_rows]} for key in metrics[:1]]}}
 
     def _agent_dispatch(self, name, arguments, results, conversation, provider, llm_model):
         engine = self.env["ai.copilot.query"]
@@ -212,6 +234,8 @@ class AICopilotAgent(models.AbstractModel):
             return engine.describe_model(**arguments)
         if name == "business_context":
             return engine.business_context()
+        if name == "metric_definitions":
+            return engine.metric_definitions()
         if name == "research_public_web":
             if len([r for r in results if r.get("kind") == "web"]) >= 2:
                 raise ValidationError("Public research budget reached; ask a follow-up.")
@@ -219,7 +243,13 @@ class AICopilotAgent(models.AbstractModel):
             result = self._research_public_web(**arguments, source_offset=offset)
             results.append(result)
             return result
-        if name == "compare_customer_sets":
+        if name == "financial_report":
+            result = engine.financial_report(arguments)
+        elif name == "data_freshness":
+            result = engine.data_freshness(arguments)
+        elif name == "live_shopify":
+            result = engine.live_shopify(arguments)
+        elif name == "compare_customer_sets":
             result = engine.compare_customer_sets(arguments)
         elif name == "analyze_baskets":
             result = engine.analyze_baskets(arguments)
@@ -301,6 +331,7 @@ class AICopilotAgent(models.AbstractModel):
             for call in calls:
                 if stream:
                     status = {"research_public_web": "Researching public sources...",
+                              "live_shopify": "Reading live Shopify data...",
                               "request_clarification": "Clarifying your question..."}.get(call.get("name"), "Checking saved Odoo data...")
                     yield {"type": "status", "status": status}
                 try:
@@ -472,7 +503,13 @@ class AICopilotAgent(models.AbstractModel):
         export_cap = max(1, settings.max_export_rows_csv if file_type == "csv" else settings.max_export_rows_xlsx)
         spec["limit"] = min(50000, export_cap, int(spec.get("limit") or export_cap))
         engine = self.env["ai.copilot.query"]
-        if spec.get("analysis_type") == "customer_sets":
+        if spec.get("analysis_type") == "financial":
+            result = engine.financial_report(spec, export=True)
+        elif spec.get("analysis_type") == "freshness":
+            result = engine.data_freshness(spec, export=True)
+        elif spec.get("analysis_type") == "live_shopify":
+            result = engine.live_shopify(spec, export=True)
+        elif spec.get("analysis_type") == "customer_sets":
             result = engine.compare_customer_sets(spec, export=True)
         elif spec.get("analysis_type") == "baskets":
             result = engine.analyze_baskets(spec, export=True)

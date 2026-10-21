@@ -52,8 +52,10 @@
                                     <details t-if="block.provenance" class="tl-ai-source">
                                         <summary><i class="fa fa-database" aria-hidden="true"/> Sources &amp; filters <span>[<t t-esc="block.provenance.source_id"/>] · <t t-esc="block.provenance.model_label"/></span></summary>
                                         <dl>
-                                            <dt>Odoo source</dt><dd><t t-esc="block.provenance.model_label"/> (<t t-esc="block.provenance.model"/>)</dd>
-                                            <dt>Queried at</dt><dd><t t-esc="block.provenance.queried_at"/> UTC · saved data</dd>
+                                            <dt>Source</dt><dd><t t-esc="block.provenance.model_label"/> (<t t-esc="block.provenance.model"/>)</dd>
+                                            <dt>Queried at</dt><dd><t t-esc="block.provenance.queried_at"/> UTC · <t t-esc="block.provenance.source_kind === 'live_shopify' ? 'live Shopify API' : 'saved Odoo data'"/></dd>
+                                            <dt t-if="block.provenance.metric_definition">Definition</dt><dd t-if="block.provenance.metric_definition"><t t-esc="block.provenance.metric_definition.definition"/></dd>
+                                            <dt t-if="block.provenance.freshness">Freshness</dt><dd t-if="block.provenance.freshness"><t t-if="block.provenance.freshness.latest_visible_change_utc">Latest visible saved change: <t t-esc="block.provenance.freshness.latest_visible_change_utc"/> UTC. </t><t t-if="block.provenance.freshness.read_completed_utc">Live read completed: <t t-esc="block.provenance.freshness.read_completed_utc"/> UTC. </t><t t-esc="block.provenance.freshness.note"/></dd>
                                             <dt>Companies</dt><dd><t t-esc="sourceCompanies(block.provenance)"/></dd>
                                             <dt>Measures / fields</dt><dd><t t-esc="sourceFields(block.provenance, block.provenance.fields)"/></dd>
                                             <dt t-if="block.provenance.group_by.length">Grouped by</dt><dd t-if="block.provenance.group_by.length"><t t-esc="sourceFields(block.provenance, block.provenance.group_by)"/></dd>

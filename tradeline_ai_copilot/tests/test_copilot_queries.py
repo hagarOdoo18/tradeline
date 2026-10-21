@@ -3,6 +3,8 @@ import io
 import zipfile
 import json
 import time
+from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
@@ -65,6 +67,139 @@ class TestCopilotQueries(TransactionCase):
 
     def _spec(self, **kwargs):
         return dict({"model": "res.partner", "domain": [["id", "in", self.partners.ids]], "fields": ["name", "color"]}, **kwargs)
+
+    def _financial_fixture(self):
+        self.user.groups_id |= self.env.ref("account.group_account_manager")
+        accounts = {}
+        for code, category in [("99801", "income"), ("99802", "expense_direct_cost"), ("99803", "asset_current"), ("99804", "asset_receivable")]:
+            accounts[category] = self.env["account.account"].create({"name": "QA " + category, "code": code,
+                "account_type": category, "company_ids": [(6, 0, self.company.ids)], "reconcile": category == "asset_receivable"})
+        journal = self.env["account.journal"].create({"name": "QA financial definitions", "code": "QAF", "type": "general", "company_id": self.company.id})
+        moves = self.env["account.move"]
+        for account, balance in [(accounts["income"], -1000), (accounts["income"], 200), (accounts["expense_direct_cost"], 600)]:
+            move = self.env["account.move"].with_company(self.company).create({"date": "2026-10-01", "journal_id": journal.id,
+                "line_ids": [(0, 0, {"name": "QA metric", "account_id": account.id, "debit": max(balance, 0), "credit": max(-balance, 0)}),
+                             (0, 0, {"name": "QA counterpart", "account_id": accounts["asset_current"].id, "credit": max(balance, 0), "debit": max(-balance, 0)})]})
+            move.action_post()
+            moves |= move
+        for name in ["account.move", "account.move.line", "account.account"]:
+            self.service._check_model_access(name)[1].write({"enabled": True, "allow_groupby": True, "allow_export": True, "allowed_fields_csv": False})
+        return accounts, moves
+
+    def test_financial_ledger_signs_missing_cost_and_export(self):
+        accounts, moves = self._financial_fixture()
+        before = moves.read(["state", "write_date"])
+        spec = {"metric": "ledger_gross_margin", "date_from": "2026-10-01", "date_to": "2026-10-01", "domain": [["move_id", "in", moves.ids]]}
+        result = self.query.financial_report(spec)
+        row = result["rows"][0]
+        self.assertEqual((row["revenue"], row["cogs"], row["gross_profit"], row["margin_pct"]), (800, 600, 200, 25))
+        self.assertIn("Not net profit", result["provenance"]["scope"])
+        self.assertTrue(self.service.export_from_query_meta(result["query"], "xlsx")["file_id"])
+        missing = self.query.financial_report(dict(spec, domain=[["move_id", "in", moves[:2].ids]]))["rows"][0]
+        self.assertIsNone(missing["gross_profit"])
+        self.assertIsNone(missing["margin_pct"])
+        self.assertEqual(before, moves.read(["state", "write_date"]))
+
+    def test_invoice_definition_uses_headers_discounts_refunds_and_invoice_date(self):
+        accounts, unused = self._financial_fixture()
+        journal = self.env["account.journal"].create({"name": "QA invoices", "code": "QAI", "type": "sale", "company_id": self.company.id})
+        self.partners[0].with_company(self.company).property_account_receivable_id = accounts["asset_receivable"]
+        invoices = self.env["account.move"]
+        for move_type, amount, discount in [("out_invoice", 1000, 10), ("out_refund", 200, 0)]:
+            invoice = self.env["account.move"].with_company(self.company).create({"move_type": move_type, "invoice_date": "2026-10-02", "date": "2026-10-03",
+                "partner_id": self.partners[0].id, "journal_id": journal.id, "invoice_line_ids": [(0, 0,
+                    {"name": "QA discounted sale", "account_id": accounts["income"].id, "quantity": 1, "price_unit": amount, "discount": discount, "tax_ids": [(5, 0, 0)]})]})
+            invoice.action_post()
+            invoices |= invoice
+        result = self.query.financial_report({"metric": "invoice_net_revenue", "date_from": "2026-10-02", "date_to": "2026-10-02",
+            "domain": [["id", "in", invoices.ids]], "grain": "day"})
+        self.assertEqual(result["rows"][0]["net_revenue"], 700)
+        self.assertEqual(result["rows"][0]["document_count"], 2)
+        self.assertEqual(result["provenance"]["metric_definition"]["date_field"], "invoice_date")
+
+    def test_financial_policy_and_source_freshness(self):
+        before = self.partners.read(["write_date", "color"])
+        result = self.query.data_freshness({"model": "res.partner", "domain": [["id", "in", self.partners.ids]], "date_field": "create_date"})
+        self.assertEqual(result["rows"][0]["records"], 2)
+        self.assertIn("not proof", result["provenance"]["scope"])
+        self.assertEqual(before, self.partners.read(["write_date", "color"]))
+        self.policy.allowed_fields_csv = "name"
+        with self.assertRaises(ValidationError):
+            self.query.data_freshness({"model": "res.partner", "date_field": "create_date"})
+        for dates in [("bad", "2026-10-01"), ("2026-10-02", "2026-10-01")]:
+            with self.assertRaises(ValidationError):
+                self.query._report_dates(dict(zip(("date_from", "date_to"), dates)))
+
+    def _live_shopify_fixture(self):
+        instance = SimpleNamespace(id=91, name="QA Store", shop_name="copilot-qa.myshopify.com", version="2026-10",
+            company_id=self.company, access_token="fake-private-shopify-key", token_expiry=datetime.now() + timedelta(days=1), order_last_synced=False)
+        class InstanceSet:
+            def __len__(self): return 1
+            def filtered(self, predicate): return self if predicate(instance) else []
+            def __getattr__(self, key): return getattr(instance, key)
+        connection = {"currentAppInstallation": {"accessScopes": [{"handle": "read_orders"}]},
+                      "shop": {"name": "QA Store", "ianaTimezone": "Africa/Cairo", "currencyCode": "EGP"}}
+        def order(key, total="114.00", tax="14.00", refund="0.00", **kwargs):
+            return {"id": str(key), "name": "#" + str(key), "createdAt": "2026-10-20T22:30:00Z", "updatedAt": "2026-10-21T01:00:00Z",
+                "cancelledAt": None, "test": False, "displayFinancialStatus": "PAID", "displayFulfillmentStatus": "UNFULFILLED",
+                **{k: {"shopMoney": {"amount": a, "currencyCode": "EGP"}} for k, a in zip(
+                    ["currentTotalPriceSet", "currentTotalTaxSet", "totalRefundedSet"], [total, tax, refund])}, **kwargs}
+        return instance, InstanceSet(), connection, order
+
+    def test_live_shopify_pagination_timezone_currency_status_and_no_writes(self):
+        instance, instances, connection, order = self._live_shopify_fixture()
+        pages = [(connection, "2026-10"), ({"orders": {"nodes": [order(1, refund="20")], "pageInfo": {"hasNextPage": True, "endCursor": "next"}}}, "2026-10"),
+                 ({"orders": {"nodes": [order(2, test=True)], "pageInfo": {"hasNextPage": False, "endCursor": "end"}}}, "2026-10")]
+        with patch.object(type(self.query), "_shopify_instances", return_value=instances), \
+             patch.object(type(self.query), "_analysis_model", return_value=(self.env["res.partner"], self.policy)), \
+             patch.object(type(self.query), "_shopify_transport", side_effect=pages) as transport:
+            result = self.query.live_shopify({"operation": "orders_summary", "date_from": "2026-10-21", "date_to": "2026-10-21", "test_orders": "no"})
+        row = result["rows"][0]
+        self.assertEqual((row["orders"], row["current_order_value"], row["lifetime_refunded"]), (1, 114, 20))
+        self.assertIn("+03:00", transport.call_args.args[2]["filter"])
+        self.assertEqual(result["analysis"]["sources"][0]["complete_orders_read"], 2)
+        self.assertEqual(result["provenance"]["source_kind"], "live_shopify")
+        self.assertNotIn(instance.access_token, json.dumps(result))
+        with self.assertRaises(AccessError):
+            self.query._shopify_instances()
+
+    def test_live_shopify_refuses_partial_old_scope_and_arbitrary_requests(self):
+        instance, instances, connection, order = self._live_shopify_fixture()
+        with patch.object(type(self.query), "_shopify_instances", return_value=instances), \
+             patch.object(type(self.query), "_shopify_transport", return_value=(connection, "2026-10")), self.assertRaisesRegex(ValidationError, "read_all_orders"):
+            self.query.live_shopify({"operation": "orders_summary", "date_from": "2020-01-01", "date_to": "2020-01-02"})
+        partial = ({"orders": {"nodes": [order(1)], "pageInfo": {"hasNextPage": True, "endCursor": None}}}, "2026-10")
+        with patch.object(type(self.query), "_shopify_instances", return_value=instances), \
+             patch.object(type(self.query), "_shopify_transport", side_effect=[(connection, "2026-10"), partial]), self.assertRaisesRegex(ValidationError, "pagination"):
+            self.query.live_shopify({"operation": "orders_summary", "date_from": "2026-10-21", "date_to": "2026-10-21"})
+        from odoo.addons.tradeline_ai_copilot.models.ai_copilot_shopify import CONNECTION_QUERY
+        for host in ["http://127.0.0.1", "valid.myshopify.com.evil.test", "user@valid.myshopify.com", "valid.myshopify.com/path"]:
+            instance.shop_name = host
+            with self.assertRaises(ValidationError):
+                self.query._shopify_transport(instance, CONNECTION_QUERY, {}, time.monotonic() + 25)
+        with self.assertRaises(AccessError):
+            self.query._shopify_transport(instance, "mutation { deleteEverything }", {}, time.monotonic() + 25)
+
+    def test_shopify_transport_redacts_errors_blocks_redirects_and_never_refreshes(self):
+        instance, unused, connection, unused_order = self._live_shopify_fixture()
+        from odoo.addons.tradeline_ai_copilot.models.ai_copilot_shopify import CONNECTION_QUERY
+        with patch("odoo.addons.tradeline_ai_copilot.models.ai_copilot_shopify.requests.post") as post:
+            post.return_value.status_code = 200
+            post.return_value.headers = {"X-Shopify-API-Version": "2026-10"}
+            post.return_value.iter_content.return_value = [json.dumps({"data": connection}).encode()]
+            result, version = self.query._shopify_transport(instance, CONNECTION_QUERY, {}, time.monotonic() + 25)
+            self.assertEqual(result, connection)
+            self.assertFalse(post.call_args.kwargs["allow_redirects"])
+            self.assertTrue(post.return_value.close.called)
+            post.return_value.status_code = 302
+            with self.assertRaises(ValidationError) as error:
+                self.query._shopify_transport(instance, CONNECTION_QUERY, {}, time.monotonic() + 25)
+            self.assertNotIn(instance.access_token, str(error.exception))
+            post.reset_mock()
+            instance.token_expiry = datetime.now() - timedelta(seconds=1)
+            with self.assertRaisesRegex(ValidationError, "expired"):
+                self.query._shopify_transport(instance, CONNECTION_QUERY, {}, time.monotonic() + 25)
+            post.assert_not_called()
 
     def test_company_record_rules_and_current_user(self):
         result = self.query.execute_query(self._spec())
@@ -381,7 +516,8 @@ class TestCopilotQueries(TransactionCase):
         prompt = self.service._agent_system_prompt()
         self.assertIn("cannot see, save or modify unsaved forms", prompt)
         self.assertEqual({tool["name"] for tool in self.service._agent_tools()}, {
-            "request_clarification", "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets"})
+            "request_clarification", "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets",
+            "metric_definitions", "financial_report", "data_freshness"})
 
     def test_source_metadata_describes_executed_query_not_model_prose(self):
         result = self.query.execute_query(self._spec(group_by=["company_id"], aggregates=["color:sum"], limit=1))

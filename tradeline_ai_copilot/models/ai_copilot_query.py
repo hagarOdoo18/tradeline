@@ -249,6 +249,7 @@ class AICopilotQuery(models.AbstractModel):
                       "limit": limit, "returned_rows": len(rows), "truncated": len(raw) > limit,
                       "active_test": bool(self.env.context.get("active_test", True)),
                       "scope": "Saved records visible to your Odoo user; active record rules and branch restrictions apply."}
+        provenance["freshness"] = {"mode": "Saved Odoo records", "note": "Query time is not source sync time. Use data_freshness for saved modification / business-date watermarks; upstream completeness is not certified."}
         return {"query": spec, "columns": columns, "labels": labels, "rows": rows,
                 "row_count": len(rows), "truncated": len(raw) > limit, "cells_truncated": cells_truncated, "units": units,
                 "source": name, "limit": limit, "provenance": provenance}

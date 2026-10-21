@@ -434,6 +434,8 @@ class AICopilotService(models.AbstractModel):
             if field_type in ("binary", "html"):
                 continue
             lowered = field_name.lower()
+            if model_name == "shopify.configuration" and lowered in {"con_endpoint", "consumer_key", "consumer_secret", "access_token", "order_api_key"}:
+                continue
             if any(token in lowered for token in deny_patterns):
                 continue
             if lowered in {"message_ids", "message_follower_ids", "activity_ids"}:
@@ -821,6 +823,8 @@ class AICopilotService(models.AbstractModel):
                 "Coverage": "Limited result" if provenance["truncated"] else "All matching rows/groups returned",
                 "Analysis sources and coverage": json.dumps(provenance.get("analysis_sources", []), ensure_ascii=False),
                 "Scope and limitations": provenance.get("scope", ""),
+                "Metric definition": json.dumps(provenance.get("metric_definition", {}), ensure_ascii=False),
+                "Data freshness": json.dumps(provenance.get("freshness", {}), ensure_ascii=False),
             })
         meta_row = 0
         for key, value in metadata.items():

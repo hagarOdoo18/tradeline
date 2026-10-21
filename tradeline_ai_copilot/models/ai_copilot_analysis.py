@@ -267,4 +267,5 @@ class CopilotAnalysis(models.AbstractModel):
                 continue
         return {"datasets": available, "guidance": "Use customer_sets for complete set differences, not subtraction of limited previews or sum of distinct counts. "
                 "Use analyze_baskets for same-invoice bundles. Declare source/date overlap and unmapped identity coverage. "
-                "For handset cohorts inspect product categories and exclude accessories/services; preserve user scope across follow-ups."}
+                "For handset cohorts inspect product categories and exclude accessories/services; preserve user scope across follow-ups.",
+                "financial_metrics": self.metric_definitions(), "shopify": self._shopify_context()}
