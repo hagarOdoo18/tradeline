@@ -33,8 +33,27 @@ class AICopilotQuery(models.AbstractModel):
         safe = set(self._service()._safe_fields_for_model(name))
         if policy.allowed_fields_csv:
             safe &= {f.strip() for f in policy.allowed_fields_csv.split(",") if f.strip()}
+        def stored_or_delegated(key):
+            field = model._fields[key]
+            if field.store or key == "display_name":
+                return True
+            # Delegated _inherits fields live on a parent table. Keep ordinary
+            # computed fields excluded; field groups and the model policy apply.
+            if not field.inherited or not field.related:
+                return False
+            path = field.related.split(".") if isinstance(field.related, str) else field.related
+            owner = model
+            for index, part in enumerate(path):
+                if part not in owner._fields:
+                    return False
+                field = owner._fields[part]
+                if index < len(path) - 1:
+                    if field.type != "many2one":
+                        return False
+                    owner = self.env[field.comodel_name]
+            return field.store
         return {key: value for key, value in model.fields_get(list(safe)).items()
-                if key in safe and (model._fields[key].store or key == "display_name")
+                if key in safe and stored_or_delegated(key)
                 and value.get("type") not in {"one2many", "many2many", "properties", "json"}}
 
     def _field_path(self, model_name, path):
@@ -128,8 +147,12 @@ class AICopilotQuery(models.AbstractModel):
 
     @api.model
     def execute_query(self, spec, export=False):
-        if not isinstance(spec, dict) or set(spec) - {"model", "domain", "fields", "group_by", "aggregates", "order", "limit", "title", "chart"}:
+        if not isinstance(spec, dict) or set(spec) - {"model", "domain", "fields", "group_by", "aggregates", "order", "limit", "title", "chart", "include_archived"}:
             raise ValidationError("Unsupported query specification.")
+        if "include_archived" in spec and type(spec["include_archived"]) is not bool:
+            raise ValidationError("include_archived must be a boolean.")
+        if spec.get("include_archived"):
+            self = self.with_context(active_test=False)
         name = spec.get("model")
         model, policy = self._model(name)
         if export and not policy.allow_export:
@@ -159,7 +182,8 @@ class AICopilotQuery(models.AbstractModel):
                 field, separator, operation = aggregate.partition(":")
                 if field not in meta or not separator or operation not in self.AGGREGATES or not model._fields[field].store:
                     raise AccessError("Aggregation field or operation is unavailable.")
-                if operation != "count_distinct" and meta[field]["type"] not in {"integer", "float", "monetary"}:
+                temporal_extreme = operation in {"min", "max"} and meta[field]["type"] in {"date", "datetime"}
+                if operation != "count_distinct" and not temporal_extreme and meta[field]["type"] not in {"integer", "float", "monetary"}:
                     raise ValidationError("This aggregation requires a numeric field.")
             # read_group aliases cannot represent two aggregates of the same field.
             sources = [v.split(":")[0] for v in aggregates if v != "__count"]

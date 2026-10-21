@@ -22,7 +22,7 @@ class AICopilotAgent(models.AbstractModel):
             return {"name": name, "description": description, "input_schema": {
                 "type": "object", "properties": properties, "required": required, "additionalProperties": False}}
         tools = [
-            tool("request_clarification", "Ask a concise question when a material part of the user's scope is ambiguous (metric, dates, product family, channel). This ends the current reply without running further tools. Ask only for missing decisions; do not state unverified business figures. Optional choices are suggested replies, never filters applied automatically.",
+            tool("request_clarification", "Ask ONE concise, batched question only for genuinely unresolved business decisions. Discover named products in the catalogue BEFORE asking what they mean. Ordinary product-unit questions can use all available saved history with that basis stated. Do not ask again for decisions already answered. This ends the current reply. Optional choices are suggested replies, never automatic filters.",
                  {"question": {"type": "string", "maxLength": 700},
                   "choices": {"type": "array", "maxItems": 4, "items": {"type": "string", "maxLength": 160}}}, ["question"]),
             tool("search_models", "Discover enabled business models by English technical name, label or installed module name. Only readable models are returned. Use an empty keyword to browse, or try sale, stock, account, purchase, pos, partner or a custom module name. Each page returns up to 60 matches; use offset 60, 120, etc to continue. An empty page ends the search. Never assume a custom model exists.",
@@ -35,6 +35,7 @@ class AICopilotAgent(models.AbstractModel):
                   "group_by": {"type": "array", "maxItems": 3, "items": {"type": "string"}},
                   "aggregates": {"type": "array", "maxItems": 12, "items": {"type": "string"}},
                   "order": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                  "include_archived": {"type": "boolean", "description": "Include archived records when checking historical coverage; access rules still apply."},
                   "title": {"type": "string", "description": "Short business title including the period and measure."},
                   "chart": {"type": "string", "enum": ["bar", "line", "doughnut", "none"]}}, ["model", "domain"]),
         ]
@@ -42,6 +43,12 @@ class AICopilotAgent(models.AbstractModel):
             "domain": {"type": "array", "items": {}}, "key_field": {"type": "string"},
             "resolve_legacy_links": {"type": "boolean"}, "resolve_legacy_identifiers": {"type": "boolean"}}, "required": ["model", "domain", "key_field"], "additionalProperties": False}
         tools += [
+            tool("search_products", "Resolve a named product or product family using the actual Odoo catalogue BEFORE asking the user to explain it. Searches names/codes, including ARCHIVED variants for historical purchases. Returns IDs, categories and units; inspect accessories versus the requested product scope. Do not assume Duo means dual-SIM. Never total a truncated catalogue selection.",
+                 {"search": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}, ["search"]),
+            tool("product_sales_units", "Canonical product quantity report after catalogue resolution. Uses quantity, unit conversions, posted invoices less credit notes, and completed POS with no invoice link to avoid double counting. Imported legacy invoice units remain separate, with archive watermarks and unmapped text candidates; never claim certified lifetime history. Missing/failed sources are unavailable, never zero. Omit both dates for all available saved records. Select only the user's intended product IDs, including archived variants. legacy_search checks unmapped archive descriptions for possible missed matches. No sales orders, Shopify imports or current stock are added.",
+                 {"product_ids": {"type": "array", "minItems": 1, "maxItems": 500, "items": {"type": "integer"}},
+                  "date_from": {"type": "string"}, "date_to": {"type": "string"}, "legacy_search": {"type": "string"},
+                  "title": {"type": "string"}, "chart": {"type": "string", "enum": ["bar", "none"]}}, ["product_ids"]),
             tool("metric_definitions", "Read the versioned revenue / gross-margin definitions and limitations. Use before interpreting financial questions; never guess profit from current product cost.", {}, []),
             tool("financial_report", "Canonical deterministic financial report with exact dates, refunds, taxes and currency definitions. invoice_net_revenue = posted invoices less credit notes, ex tax, by invoice date. ledger_gross_margin = posted income minus direct-cost accounts by accounting date; not net profit and missing cost postings give no margin. Extra domain filters use the metric's source model. Each company/currency stays separate. Do not add legacy / POS / Shopify to these totals.",
                  {"metric": {"type": "string", "enum": ["invoice_net_revenue", "ledger_gross_margin"]},
@@ -85,6 +92,14 @@ class AICopilotAgent(models.AbstractModel):
             "If genuinely blocked, name the exact failed step and give verified partial findings without implying the full task is complete. "
             "Lead with the finding, distinguish observations from hypotheses, and recommend one useful next analysis. Suggestions are proposals, never executed actions. "
             "Use business_context to understand legacy/current sources, compare_customer_sets for buyer/non-buyer cohorts, and analyze_baskets for bundles. "
+            "For a named product, first use search_products to inspect the real catalogue, including archived variants, before asking what its name means. "
+            "Use product_sales_units for how many / how much of a physical product we have sold, unless the user specifies a monetary metric or a different sales basis. "
+            "For this ordinary unit question, default an omitted period to all available saved records and state that basis; do not block on dates. "
+            "A catalogue product called iPhone Duo is a named product, not an invitation to ask about dual-SIM phones. Resolve names from data, not general knowledge. "
+            "If a real ambiguity remains after discovery, ask one short question combining only the remaining decisions. Never repeat answered questions or a three-turn clarification checklist. "
+            "Keep all variants the user requested; do not silently exclude demo, refurbished, e-models or other grades. Categories distinguish handsets from accessories when handset units are requested. "
+            "When source_checks_complete is false, lead with verified partial counts and the exact unavailable source, never a complete total. "
+            "A zero legacy match means no matching IMPORTED records; it does not prove no historic sales. State the visible archive window and relevant history gaps once. "
             "Use metric_definitions / financial_report for net invoice revenue and posted-ledger gross margin; disclose the chosen basis, exact period, tax/refund treatment, currency and cost coverage. "
             "Never call estimated/current product-cost margins historical realized gross profit, or gross profit net profit. Missing posted COGS means margin is unavailable, not 100%%. "
             "Use data_freshness for saved-source watermarks; queried_at is not sync time. Unknown / old watermark is not proof the source is complete or stale. "
@@ -95,7 +110,7 @@ class AICopilotAgent(models.AbstractModel):
             "Live Shopify is store-wide administrator access, not Odoo branch-scoped order access; label it. Respect explicit filters; never silently exclude cancelled / test orders or products globally. "
             "Preserve dates, filters and customer/product definitions across follow-ups unless the user changes them. Reuse previous query definitions, but refresh the evidence. "
             "Derive scope from the current request and confirmed follow-ups; never turn an earlier example's product exclusions into a global rule. "
-            "When a missing metric, date range, product-family boundary or channel would materially change the answer, use request_clarification before publishing figures. "
+            "Clarify materially ambiguous financial definitions or genuinely competing catalogue families; ordinary product-unit questions use the explicit defaults above. "
             "For clear requests investigate directly; do not ask the user to decide schema names or technical query details. "
             "Never match old numeric IDs to current IDs or guess customer links from names. Unresolved exclusion identities make non-buyer candidates provisional, not proven non-buyers. "
             "For legacy/current cohorts enable both legacy resolution flags: identifiers can exist even when partner links are empty. Use the server-side resolver; never retrieve raw phones/national IDs for manual matching. "
@@ -258,6 +273,10 @@ class AICopilotAgent(models.AbstractModel):
             return result
         if name == "financial_report":
             result = engine.financial_report(arguments)
+        elif name == "search_products":
+            result = engine.search_products(**arguments)
+        elif name == "product_sales_units":
+            result = engine.product_sales_units(arguments)
         elif name == "data_freshness":
             result = engine.data_freshness(arguments)
         elif name == "live_shopify":
@@ -270,7 +289,7 @@ class AICopilotAgent(models.AbstractModel):
             result = engine.execute_query(arguments)
         else:
             raise AccessError("Only approved read-only tools are available.")
-        result["title"] = str(arguments.get("title") or "Query results")[:160]
+        result["title"] = str(arguments.get("title") or result.get("title") or "Query results")[:160]
         result["result_id"] = len(results)
         result["source_id"] = "S%s" % (1 + len([r for r in results if r.get("kind") not in {"web", "clarification"}]))
         result["provenance"]["source_id"] = result["source_id"]
@@ -288,7 +307,7 @@ class AICopilotAgent(models.AbstractModel):
         preview["provider_preview_rows"] = len(preview["rows"])
         preview["preview_is_complete"] = len(preview["rows"]) == result["row_count"] and not result["truncated"]
         preview["execution_budget"] = {"standard_evidence_slots_remaining": max(0, 8 - len(results)),
-            "note": "Two additional result slots are reserved for customer comparisons, basket analysis or canonical financial reports. Prioritize the requested calculation over further previews."}
+            "note": "Two additional result slots are reserved for customer comparisons, basket analysis, product units or canonical financial reports. Prioritize the requested calculation over further previews."}
         return preview
 
     def _agent_loop(self, prompt, conversation, provider, llm_model):
@@ -299,11 +318,19 @@ class AICopilotAgent(models.AbstractModel):
             except StopIteration as finished:
                 return finished.value
 
+    def _agent_call_key(self, call):
+        # Only an actual successful retry of the same request clears its warning.
+        # A successful unrelated query must never hide a missing source.
+        arguments = call.get("input")
+        if isinstance(arguments, dict):
+            arguments = {k: v for k, v in arguments.items() if k not in {"title", "chart", "order", "limit"}}
+        return json.dumps([call.get("name"), arguments], sort_keys=True, default=str)
+
     def _agent_loop_events(self, prompt, conversation, provider, llm_model, stream=True):
         settings = self.get_settings()
         messages = self._agent_history(prompt, conversation)
         tools = self._agent_tools()
-        results, failures = [], []
+        results, failures, pending_failures = [], [], {}
         deadline = time.monotonic() + min(90, max(15, settings.timeout_seconds or 45))
         round_limit = min(8, max(1, settings.max_tool_rounds or 6))
         completion_retry = False
@@ -356,11 +383,11 @@ class AICopilotAgent(models.AbstractModel):
                 if (provider == "claude" and payload.get("stop_reason") == "max_tokens") or (
                         provider == "openai" and payload["choices"][0].get("finish_reason") == "length"):
                     failures.append("The response reached its length limit. Ask a narrower follow-up for more detail.")
-                return text or "No answer was returned. Please narrow the question.", results, failures
+                return text or "No answer was returned. Please narrow the question.", results, failures + list(pending_failures.values())
             tool_results = []
             # Resolve scope first even if a provider bundles a question with data calls.
             calls.sort(key=lambda call: 0 if call.get("name") == "request_clarification" else
-                       1 if call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report"} else 2)
+                       1 if call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report", "product_sales_units"} else 2)
             for call in calls:
                 if stream:
                     status = {"research_public_web": "Researching public sources...",
@@ -368,16 +395,17 @@ class AICopilotAgent(models.AbstractModel):
                               "request_clarification": "Clarifying your question..."}.get(call.get("name"), "Checking saved Odoo data...")
                     yield {"type": "status", "status": status}
                 try:
-                    computed_report = call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report"}
+                    computed_report = call.get("name") in {"compare_customer_sets", "analyze_baskets", "financial_report", "product_sales_units"}
                     result_limit = 10 if computed_report else 8
                     if len(tool_results) >= 5 or len(results) >= result_limit or time.monotonic() >= deadline:
                         raise ValidationError("Investigation budget reached; narrow the question.")
                     with self.env.cr.savepoint():
                         data = self._agent_dispatch(call["name"], call.get("input"), results, conversation, provider, llm_model)
                     if isinstance(data, dict) and data.get("kind") == "clarification":
-                        return data["question"], results, failures
+                        return data["question"], results, failures + list(pending_failures.values())
                     output = json.dumps(data, default=str)
                     error = False
+                    pending_failures.pop(self._agent_call_key(call), None)
                 except (AccessError, ValidationError, UserError) as exc:
                     output = json.dumps({"error": str(exc)[:500]})
                     error = True
@@ -389,12 +417,16 @@ class AICopilotAgent(models.AbstractModel):
                     error = True
                 tool_results.append({"type": "tool_result", "tool_use_id": call["id"], "content": output, "is_error": error})
                 if error:
-                    failures.append("A query could not be completed. The answer may cover only part of your request.")
+                    arguments = call.get("input") or {}
+                    source = arguments.get("model") if isinstance(arguments, dict) else None
+                    pending_failures[self._agent_call_key(call)] = (
+                        "The %s check could not be completed. Results from that check are unavailable, not zero."
+                        % (source or call.get("name") or "requested data"))
                 if provider == "openai":
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
             if provider == "claude":
                 messages.append({"role": "user", "content": tool_results})
-        return "The investigation reached its time or query limit. Review the results below and ask a more specific follow-up.", results, failures
+        return "The investigation reached its time or query limit. Review the results below and ask a more specific follow-up.", results, failures + list(pending_failures.values())
 
     def generate_response(self, prompt, conversation=None, context_payload=None, provider=None, llm_model=None):
         self._assert_internal_user()
@@ -482,6 +514,10 @@ class AICopilotAgent(models.AbstractModel):
                            "queried_at": research["queried_at"], "scope": research["scope"]})
         wants_csv, wants_xlsx = self._parse_export_intent(prompt)
         for result in results:
+            if result["query"].get("analysis_type") == "product_units":
+                unavailable = [c["model"] for c in result["analysis"]["sources"] if c["status"] != "ok"]
+                if unavailable:
+                    blocks.append({"type": "warning", "content": "Incomplete sales coverage: %s could not be checked. No complete total is established." % ", ".join(unavailable)})
             chart = self._agent_chart(result, result["query"].get("chart"), result["title"])
             blocks.append({"type": "table", "title": result["title"], "columns": result["columns"],
                 "chart": chart if settings.enable_charts else False,
@@ -540,6 +576,8 @@ class AICopilotAgent(models.AbstractModel):
         engine = self.env["ai.copilot.query"]
         if spec.get("analysis_type") == "financial":
             result = engine.financial_report(spec, export=True)
+        elif spec.get("analysis_type") == "product_units":
+            result = engine.product_sales_units(spec, export=True)
         elif spec.get("analysis_type") == "freshness":
             result = engine.data_freshness(spec, export=True)
         elif spec.get("analysis_type") == "live_shopify":

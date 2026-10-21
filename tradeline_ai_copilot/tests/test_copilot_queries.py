@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import requests
 
+from odoo import fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 from odoo.addons.tradeline_ai_copilot.models.provider_stream import collect_provider_stream
@@ -519,7 +520,7 @@ class TestCopilotQueries(TransactionCase):
         self.assertIn("cannot see, save or modify unsaved forms", prompt)
         self.assertEqual({tool["name"] for tool in self.service._agent_tools()}, {
             "request_clarification", "search_models", "describe_model", "query_data", "business_context", "compare_customer_sets", "analyze_baskets",
-            "metric_definitions", "financial_report", "data_freshness"})
+            "metric_definitions", "financial_report", "data_freshness", "search_products", "product_sales_units"})
 
     def test_source_metadata_describes_executed_query_not_model_prose(self):
         result = self.query.execute_query(self._spec(group_by=["company_id"], aggregates=["color:sum"], limit=1))
@@ -909,3 +910,132 @@ class TestCopilotQueries(TransactionCase):
         final = events[-1]["response"]
         self.assertEqual(final["blocks"], [{"type": "text", "content": "Which upgrade and purchase period should I use?"}])
         self.assertTrue(response.closed)
+
+    def _product_units_fixture(self):
+        accounts, unused = self._financial_fixture()
+        products = self.env["product.product"].create([
+            {"name": "Copilot Duo handset", "uom_id": self.env.ref("uom.product_uom_unit").id},
+            {"name": "Copilot Duo previous handset", "uom_id": self.env.ref("uom.product_uom_unit").id}])
+        journal = self.env["account.journal"].create({"name": "QA product units", "code": "QAU", "type": "sale", "company_id": self.company.id})
+        self.partners[0].with_company(self.company).property_account_receivable_id = accounts["asset_receivable"]
+        moves = self.env["account.move"]
+        for move_type, product, quantity, posted in [("out_invoice", products[0], 5, True),
+                ("out_invoice", products[1], 4, True), ("out_refund", products[0], 2, True),
+                ("out_invoice", products[0], 100, False)]:
+            move = self.env["account.move"].with_company(self.company).create({"move_type": move_type,
+                "invoice_date": "2026-10-02", "date": "2026-10-03", "partner_id": self.partners[0].id, "journal_id": journal.id,
+                "invoice_line_ids": [(0, 0, {"name": product.name, "product_id": product.id,
+                    "product_uom_id": product.uom_id.id, "account_id": accounts["income"].id,
+                    "quantity": quantity, "price_unit": 100, "tax_ids": [(5, 0, 0)]})]})
+            if posted:
+                move.action_post()
+            moves |= move
+        products[1].active = False
+        for name in ["product.product", "uom.uom", "account.move", "account.move.line"]:
+            self.service._check_model_access(name)[1].write({"enabled": True, "allow_groupby": True,
+                "allow_export": True, "allowed_fields_csv": False})
+        return products, moves
+
+    def test_product_catalogue_includes_archived_variants_and_respects_policy(self):
+        products, moves = self._product_units_fixture()
+        result = self.query.search_products("Copilot Duo")
+        self.assertEqual({r["id"] for r in result["rows"]}, set(products.ids))
+        self.assertFalse(result["provenance"]["active_test"])
+        self.assertIn("categ_id", result["columns"])
+        self.assertNotIn("qty_available", self.query._readable_fields("product.product"))
+        self.service._check_model_access("product.product")[1].allowed_fields_csv = "id,name"
+        with self.assertRaises(AccessError):
+            self.query.search_products("Copilot Duo")
+
+    def test_date_min_max_are_valid_and_date_sums_are_rejected(self):
+        for operation in ["min", "max"]:
+            result = self.query.execute_query(self._spec(aggregates=["create_date:" + operation]))
+            self.assertTrue(result["rows"][0]["create_date:" + operation])
+        with self.assertRaises(ValidationError):
+            self.query.execute_query(self._spec(aggregates=["create_date:sum"]))
+
+    def test_product_units_use_quantities_refunds_archived_and_pos_deduplication(self):
+        products, moves = self._product_units_fixture()
+        before = moves.read(["state", "write_date"])
+        original = type(self.query)._unit_source
+        checked = []
+        def source(engine, name, domain, quantity, groups, export):
+            if name == "pos.order.line":
+                checked.extend(domain)
+                return [{"product_id": (products[0].id, products[0].name), "qty": 3, "__count": 1}]
+            return original(engine, name, domain, quantity, groups, export)
+        # POS may be absent in minimal Odoo installations.
+        if "pos.order.line" not in self.env:
+            self.skipTest("POS addon is optional")
+        with patch.object(type(self.query), "_unit_source", source):
+            result = self.query.product_sales_units({"product_ids": products.ids,
+                "date_from": "2026-10-02", "date_to": "2026-10-02", "legacy_search": "Copilot Duo"})
+        self.assertEqual(result["rows"][0]["net_units"], 7)
+        self.assertEqual(result["analysis"]["current_net_units"], 10)
+        self.assertIn(("order_id.account_move", "=", False), checked)
+        self.assertIn(("order_id.date_order", "<", "2026-10-03 00:00:00"), checked)
+        self.assertFalse(result["analysis"]["lifetime_history_complete"])
+        self.assertEqual(before, moves.read(["state", "write_date"]))
+        chart = self.service._agent_chart(result, "bar", "Source counts")
+        self.assertEqual(chart["data"]["datasets"][0]["data"][:2], [7, 3])
+        self.assertTrue(self.service.export_from_query_meta(result["query"], "xlsx")["file_id"])
+
+    def test_product_unit_report_applies_invoice_header_rules(self):
+        products, moves = self._product_units_fixture()
+        self.env["ir.rule"].create({"name": "QA hide prior handset invoice", "model_id": self.env["ir.model"]._get_id("account.move"),
+            "domain_force": str([("id", "!=", moves[1].id)])})
+        result = self.query.product_sales_units({"product_ids": products.ids})
+        self.assertEqual(result["rows"][0]["net_units"], 3)
+
+    def test_unavailable_sales_source_is_never_reported_as_zero(self):
+        products, moves = self._product_units_fixture()
+        original = type(self.query)._unit_source
+        def source(engine, name, *args):
+            if name == "pos.order.line":
+                raise AccessError("QA blocked POS")
+            return original(engine, name, *args)
+        with patch.object(type(self.query), "_unit_source", source):
+            result = self.query.product_sales_units({"product_ids": products.ids})
+        self.assertIsNone(result["analysis"]["current_net_units"])
+        self.assertFalse(result["analysis"]["source_checks_complete"])
+        self.assertFalse(any(r["channel"].startswith("Completed POS") for r in result["rows"]))
+        self.assertEqual(result["analysis"]["sources"][1]["status"], "unavailable")
+
+    def test_product_units_keep_legacy_separate_and_flag_unmapped_candidates(self):
+        products, unused = self._product_units_fixture()
+        invoices = self._legacy_analysis_fixture()
+        lines = self.env["legacy.invoice.line"].search([("invoice_id", "in", invoices.ids)])
+        lines[0].write({"product_id": products[0].id, "uom_id": products[0].uom_id.id, "quantity": 6})
+        lines[1].write({"product_id": products[0].id, "uom_id": products[0].uom_id.id, "quantity": 2})
+        invoices[1].invoice_type = "out_refund"
+        lines[2].name = "Copilot Duo unmapped handset"
+        for name in ["legacy.invoice", "legacy.invoice.line"]:
+            self.service._check_model_access(name)[1].write({"enabled": True, "allow_groupby": True, "allow_export": True})
+        result = self.query.product_sales_units({"product_ids": products.ids, "legacy_search": "Copilot Duo"})
+        self.assertEqual(result["analysis"]["legacy_net_units"], 4)
+        self.assertEqual(result["analysis"]["sources"][2]["unmapped_text_candidate_lines"], 1)
+        self.assertEqual(result["analysis"]["sources"][2]["visible_archive_window"]["first_date"], fields.Date.to_date("2026-01-01"))
+        self.assertFalse(result["analysis"]["lifetime_history_complete"])
+
+    def test_recovered_identical_tool_error_clears_only_its_warning(self):
+        spec = self._spec(aggregates=["__count"])
+        def call(name, arguments, key):
+            return {"content": [{"type": "tool_use", "id": key, "name": name, "input": arguments}]}
+        original = type(self.query).execute_query
+        count = 0
+        def flaky(engine, values, *args, **kwargs):
+            nonlocal count
+            count += 1
+            if count == 1:
+                raise ValidationError("Temporary read failure")
+            return original(engine, values, *args, **kwargs)
+        replies = [call("query_data", spec, "a"), call("query_data", dict(spec, title="Retried"), "b"),
+            {"content": [{"type": "text", "text": "There are 2 records [S1]."}]}]
+        with patch.object(type(self.query), "execute_query", flaky), patch.object(type(self.service), "_agent_request", side_effect=replies):
+            result = self.service.generate_response("Count saved contacts", provider="claude")
+        self.assertFalse(any(b["type"] == "warning" for b in result["blocks"]))
+        count = 0
+        replies[1] = call("query_data", dict(spec, domain=[["id", "=", self.partners[0].id]]), "b")
+        with patch.object(type(self.query), "execute_query", flaky), patch.object(type(self.service), "_agent_request", side_effect=replies):
+            result = self.service.generate_response("Count saved contacts", provider="claude")
+        self.assertTrue(any("unavailable, not zero" in b.get("content", "") for b in result["blocks"]))

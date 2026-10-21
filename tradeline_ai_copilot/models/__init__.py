@@ -10,6 +10,7 @@ from . import ai_copilot_query
 from . import ai_copilot_analysis
 from . import ai_copilot_identity
 from . import ai_copilot_metrics
+from . import ai_copilot_sales
 from . import ai_copilot_shopify
 from . import ai_copilot_agent
 from . import ai_copilot_research

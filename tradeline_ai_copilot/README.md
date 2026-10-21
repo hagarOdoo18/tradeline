@@ -281,6 +281,25 @@ motion, and an accessible data table accompany charts.
 
 ## Validation
 
+Product quantity questions resolve the actual catalogue first with
+`search_products`, including archived variants and delegated stored template
+fields (names, categories and units). Ordinary product-unit questions default to
+all available saved records when no period is supplied; genuinely competing
+catalogue interpretations still require one concise clarification.
+
+`product_sales_units` uses posted customer invoice quantities minus credit notes,
+plus completed POS orders without an invoice link. Quantities are converted to a
+common readable unit category. Imported legacy totals stay separate; visible
+archive dates and unmapped description candidates are reported, and missing
+sources are unavailable rather than zero. No lifetime completeness or migration
+deduplication is implied. The same definition is rechecked for exports. Sales
+orders and Shopify order values are not added to this unit measure.
+
+Date/datetime minimum and maximum aggregates are supported; sums/averages of
+dates remain invalid. A successfully repeated identical tool request clears its
+transient warning. Success on an unrelated scope cannot clear an unresolved
+source failure.
+
 The Odoo tests in `tests/` exercise permission and company boundaries, unsafe
 queries, field-policy enforcement, grouped totals, limits, grouped Excel export,
 spreadsheet formulas, provider protocols/failures, follow-up context, and chat
