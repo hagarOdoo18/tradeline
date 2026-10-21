@@ -144,7 +144,8 @@ class CopilotProductSales(models.AbstractModel):
                         with self._budget():
                             marks = header.read_group(header_domain,
                                 ["first_date:min(invoice_date)", "last_date:max(invoice_date)"], [], lazy=False)
-                        detail["visible_archive_window"] = {k: marks[0].get(k) for k in ("first_date", "last_date")} if marks else {}
+                        detail["visible_archive_window"] = {k: fields.Date.to_string(marks[0].get(k))
+                            if marks[0].get(k) else None for k in ("first_date", "last_date")} if marks else {}
                         if term.strip():
                             # Unmapped text hits are candidates, never silently treated as handset sales or as zero.
                             candidate_domain = [("product_id", "=", False), ("name", "ilike", term.strip()),

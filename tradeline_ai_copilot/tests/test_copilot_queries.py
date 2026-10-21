@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import requests
 
-from odoo import fields
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 from odoo.addons.tradeline_ai_copilot.models.provider_stream import collect_provider_stream
@@ -1015,7 +1014,8 @@ class TestCopilotQueries(TransactionCase):
         result = self.query.product_sales_units({"product_ids": products.ids, "legacy_search": "Copilot Duo"})
         self.assertEqual(result["analysis"]["legacy_net_units"], 4)
         self.assertEqual(result["analysis"]["sources"][2]["unmapped_text_candidate_lines"], 1)
-        self.assertEqual(result["analysis"]["sources"][2]["visible_archive_window"]["first_date"], fields.Date.to_date("2026-01-01"))
+        self.assertEqual(result["analysis"]["sources"][2]["visible_archive_window"]["first_date"], "2026-01-01")
+        self.assertTrue(self.service.export_from_query_meta(result["query"], "xlsx")["file_id"])
         self.assertFalse(result["analysis"]["lifetime_history_complete"])
         # Product status must not override normal archive-document visibility.
         invoices[0].copy({"source_id": 999001, "active": False,
@@ -1052,7 +1052,7 @@ class TestCopilotQueries(TransactionCase):
         self._legacy_analysis_fixture()
         self.user.groups_id |= self.env.ref("point_of_sale.group_pos_user")
         payloads = [{"content": [{"type": "tool_use", "id": "units", "name": "product_sales_units",
-            "input": {"product_ids": products.ids, "legacy_search": "Copilot Duo"}}]},
+            "input": {"product_ids": products.ids, "legacy_search": "Copilot Duo", "chart": "bar"}}]},
             {"content": [{"type": "text", "text": "There are 7 net invoice units in saved records [S1]."}]}]
         def stream(*args, **kwargs):
             if False:
@@ -1060,11 +1060,13 @@ class TestCopilotQueries(TransactionCase):
             return payloads.pop(0)
         with patch.object(type(self.service), "_agent_request_stream", stream):
             events = list(self.env["ai.copilot.ui"].with_user(self.user).with_context(
-                allowed_company_ids=self.company.ids)._chat_stream({"message": "How much Copilot Duo have we sold?", "provider": "claude"}))
+                allowed_company_ids=self.company.ids)._chat_stream({"message": "How much Copilot Duo have we sold? Show a chart and export Excel.", "provider": "claude"}))
         complete = events[-1]
         self.assertEqual(complete["type"], "complete")
         saved = self.env["ai.copilot.message"].browse(complete["response"]["message_id"])
         table = next(b for b in saved.response_json if b["type"] == "table")
         self.assertEqual(table["analysis"]["sources"][2]["visible_archive_window"]["first_date"], "2026-01-01")
         self.assertEqual(table["rows"][0]["net_units"], 7)
+        self.assertEqual(table["chart"]["data"]["datasets"][0]["data"][0], 7)
+        self.assertTrue(any(b["type"] == "download" for b in saved.response_json))
         self.assertFalse(any(b["type"] == "warning" for b in saved.response_json))
