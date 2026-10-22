@@ -853,10 +853,22 @@ class SaleOrderSync(models.TransientModel):
                         new_lines.invalidate_recordset(
                             ['price_unit', 'discount'])
                         new_lines.sudo()._compute_amount()
-                    # validate the delivery and create + post the invoice.
-                    # Never raises: a step that fails is logged and the
-                    # order stays imported and confirmed.
-                    so._shopify_deliver_and_invoice()
+                    # Check min-qty document_type rules for the order's
+                    # products.  If ALL storable products match a rule with
+                    # document_type='invoice', proceed with delivery and
+                    # invoicing.  If ANY product's rule says 'sale_order'
+                    # (the default), stop at the confirmed sale order.
+                    storable_products = so.order_line.mapped(
+                        'product_id').filtered(
+                        lambda p: p.type != 'service')
+                    doc_type = self.env[
+                        'shopify.min.qty']._resolve_document_type(
+                        instance, storable_products)
+                    if doc_type == 'invoice':
+                        # validate the delivery and create + post the
+                        # invoice.  Never raises: a step that fails is
+                        # logged and the order stays imported and confirmed.
+                        so._shopify_deliver_and_invoice()
                     # notify the branch the order was created at
                     so._shopify_notify_branch()
             except Exception as error:
