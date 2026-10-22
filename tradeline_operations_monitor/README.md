@@ -21,6 +21,7 @@ the stock import/valuation workflows and is disabled when first installed.
 | Excel import failed or stopped progressing | Immediate failure signal; age-based stalled-progress check |
 | Failed outgoing mail / executive report | Critical persisted failure |
 | Operational alert queued too long | Age-based warning/critical signal |
+| Temporary SMTP rejection | Up to three automatic retries, after 5, 15 and 60 minutes |
 | Monitor/scheduler stopped | External heartbeat expires; authenticated HTTP health becomes 503 after 3 minutes |
 
 Live conditions need two consecutive checks by default. Explicit persisted
@@ -87,6 +88,43 @@ explicit truncation notice); the original log contains the full message.
 Deleted/inaccessible logs are reported as unavailable. Viewing the message
 respects connector log permissions. Original messages are not copied to alert
 emails or the public health/heartbeat responses.
+
+## Temporary email failures
+
+New outgoing mail failures with an explicit temporary SMTP rejection (for
+example `SMTPDataError: (451, b'4.3.0 ...')`) are scheduled for up to three
+automatic retries. Delays are **5, 15, and 60 minutes after each failure**;
+the one-minute retry cron returns due emails to Odoo's normal email queue
+and triggers that queue. Scheduler availability can add delay. The same
+email is reused, including its original recipients, content and attachments.
+Successful delivery retains Odoo's normal notification updates and automatic
+deletion behavior.
+
+Permanent rejections, authentication/TLS failures, unknown errors, ambiguous
+timeouts/disconnects, recipient-refusal dictionaries and partial deliveries
+require manual review. Mixed generic/partner recipient groups also require
+review because earlier recipients may already have received the email.
+The retry job locks due rows with `SKIP LOCKED`, never sends SMTP itself,
+and never replays canceled/sent emails or unscheduled historical failures.
+The health check remains read-only; the dedicated retry cron runs even if
+monitor notifications are disabled. Disable **Operations: Retry Temporary
+Email Failures** to pause retries. Odoo's normal SMTP delivery guarantees
+still apply; a lost connection after acceptance can require human review.
+
+Mail incidents show an administrator-only **Email Delivery Error** section
+with the actual saved SMTP error, current retry status, next retry time and
+an **Open Original Email** link. Errors are plain text, limited to 8,000
+characters with an explicit truncation notice. New incident evidence keeps
+an error snapshot even if Odoo later auto-deletes the successfully sent
+email. Older incidents read the referenced email when it still exists.
+SMTP errors are excluded from notification emails, heartbeat and health
+responses. A disappeared email alone does not prove delivery: check the
+original document's recipient status. Incidents remain latched until an
+administrator verifies delivery and marks them reviewed/resolved.
+
+Upgrade `tradeline_operations_monitor` to **18.0.1.1.0** to install the new
+fields, error display and retry cron. Existing failed emails are not
+automatically replayed on upgrade.
 
 The probes run with a two-second SQL timeout and 100ms lock timeout each,
 without taking business row locks. They read status/timestamps and relevant

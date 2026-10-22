@@ -16,6 +16,8 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError, ValidationError
 from odoo.tools import html2plaintext
 
+from .mail_retry import RETRY_MINUTES, smtp_excerpt
+
 _logger = logging.getLogger(__name__)
 EMAIL = re.compile(r'^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$')
 LEVEL = {'healthy': 0, 'warning': 1, 'critical': 2}
@@ -26,6 +28,8 @@ CRITICAL_CRONS = (
     'shopify_odoo_connector.ir_cron_retry_shopify_order_events',
     'import_stock_quant_excel.ir_cron_process_stock_import',
     'tradeline_operations_monitor.cron_send_operations_alerts',
+    'tradeline_operations_monitor.cron_retry_temporary_mail',
+    'mail.ir_cron_mail_scheduler_action',
 )
 
 
@@ -263,7 +267,7 @@ class OperationsMonitor(models.Model):
             if not cron:
                 expected = (xmlid.startswith('shopify_odoo_connector.') and 'job.cron' in self.env.registry
                             or xmlid.startswith('import_stock_quant_excel.') and 'import.stock.quant.wizard' in self.env.registry
-                            or xmlid.startswith('tradeline_operations_monitor.'))
+                            or xmlid.startswith(('tradeline_operations_monitor.', 'mail.')))
                 if expected:
                     observations.append(signal('crons:' + xmlid, 'Critical scheduled action is missing', xmlid,
                         'Restore the scheduled action from its module and review why it was removed.', 'critical'))
@@ -359,13 +363,16 @@ class OperationsMonitor(models.Model):
         observations.extend(self._age_signal('mail:alert_queue', 'Alert email delivery is delayed',
             pending.create_date, now, 'Check Operations: Deliver Alert Emails and the outgoing mail server.'))
         failed = self.env['mail.mail'].sudo().with_context(prefetch_fields=False).search([
-            ('state', '=', 'exception'), ('write_date', '>=', now - timedelta(hours=1)),
+            ('state', '=', 'exception'), '|',
+            ('write_date', '>=', now - timedelta(hours=1)), ('operations_retry_next_at', '!=', False),
         ], order='write_date desc,id desc', limit=1)
         if failed:
-            observations.append(signal('mail:failed', 'An outgoing email could not be sent',
+            observations.append(dict(signal('mail:failed', 'An outgoing email could not be sent',
                 'Mail record %s failed. Operational or executive messages may be affected.' % failed.id,
                 'Check outgoing mail errors and the configured SMTP server.', 'critical', latched=True,
-                version='%s:%s' % (failed.id, failed.write_date)))
+                version='%s:%s' % (failed.id, failed.write_date)),
+                source_mail_id=failed.id,
+                mail_failure_reason=smtp_excerpt(failed.failure_reason or failed.operations_last_smtp_error)))
         if 'tradeline.executive.report.history' in self.env.registry:
             failed = self.env['tradeline.executive.report.history'].sudo().search([
                 ('state', '=', 'failed'), ('write_date', '>=', now - timedelta(days=1)),
@@ -447,6 +454,7 @@ class OperationsMonitor(models.Model):
         monitors = self.sudo().with_context(active_test=False).search([])
         mails = self.env['mail.mail'].sudo().search([
             ('operations_monitor_id', 'in', monitors.ids), ('state', '=', 'outgoing'),
+            '|', ('scheduled_date', '=', False), ('scheduled_date', '<=', fields.Datetime.now()),
         ], order='id', limit=10)
         if mails:
             mails.send(raise_exception=False)
@@ -483,6 +491,12 @@ class OperationsIncident(models.Model):
     evidence_version = fields.Char()
     source_log_excerpt = fields.Text(string='Shopify Log Message', compute='_compute_source_log')
     source_log_url = fields.Char(string='Source Log', compute='_compute_source_log')
+    source_mail_id = fields.Integer(readonly=True, groups='base.group_system')
+    mail_failure_reason = fields.Text(readonly=True, groups='base.group_system')
+    source_mail_error = fields.Text(string='SMTP Error', compute='_compute_source_mail', groups='base.group_system')
+    source_mail_url = fields.Char(string='Original Email', compute='_compute_source_mail', groups='base.group_system')
+    source_mail_status = fields.Char(string='Email / Retry Status', compute='_compute_source_mail', groups='base.group_system')
+    source_mail_retry_at = fields.Datetime(string='Next Automatic Retry', compute='_compute_source_mail', groups='base.group_system')
     consecutive_checks = fields.Integer(default=0)
     first_seen_at = fields.Datetime()
     last_seen_at = fields.Datetime()
@@ -491,6 +505,39 @@ class OperationsIncident(models.Model):
     notified_severity = fields.Char()
 
     _sql_constraints = [('incident_code', 'unique(monitor_id, code)', 'An incident code is unique per monitor.')]
+
+    @api.depends('code', 'evidence_version', 'source_mail_id', 'mail_failure_reason')
+    def _compute_source_mail(self):
+        Mail = self.env['mail.mail']
+        allowed = self.env.user.has_group('base.group_system') and Mail.has_access('read')
+        for incident in self:
+            incident.source_mail_error = False
+            incident.source_mail_url = False
+            incident.source_mail_status = False
+            incident.source_mail_retry_at = False
+            if incident.code != 'mail:failed' or not allowed:
+                continue
+            # Older incidents already encode the mail ID in their evidence.
+            version_id = (incident.evidence_version or '').split(':', 1)[0]
+            mail_id = incident.source_mail_id
+            if not mail_id and len(version_id) <= 10 and version_id.isascii() and version_id.isdigit():
+                mail_id = int(version_id)
+            if not mail_id or not 0 < mail_id <= 2147483647:
+                continue
+            mail = Mail.search([('id', '=', mail_id)], limit=1)
+            incident.source_mail_error = incident.mail_failure_reason
+            if mail:
+                if not incident.source_mail_error:
+                    incident.source_mail_error = smtp_excerpt(mail.failure_reason or mail.operations_last_smtp_error)
+                incident.source_mail_url = '/odoo/mail.mail/%s' % mail.id
+                incident.source_mail_retry_at = mail.operations_retry_next_at if mail.state == 'exception' else False
+                incident.source_mail_status = '%s. Automatic retries used: %s/%s. %s' % (
+                    dict(mail._fields['state'].selection).get(mail.state, mail.state),
+                    mail.operations_retry_count, len(RETRY_MINUTES),
+                    (mail.operations_retry_note or 'Manual review required.')
+                    if mail.state in ('exception', 'outgoing') else '')
+            else:
+                incident.source_mail_status = 'Email record no longer available; check delivery on the original document.'
 
     @api.depends('code', 'evidence_version')
     def _compute_source_log(self):

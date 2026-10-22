@@ -104,6 +104,13 @@
                                options="{'website_path': True}" invisible="not source_log_url"/>
                     </group>
                     <group string="What To Do"><field name="action" nolabel="1"/></group>
+                    <group string="Email Delivery Error" invisible="not source_mail_status" groups="base.group_system">
+                        <field name="source_mail_error" nolabel="1" colspan="2"/>
+                        <field name="source_mail_status"/>
+                        <field name="source_mail_retry_at" invisible="not source_mail_retry_at"/>
+                        <field name="source_mail_url" widget="url" text="Open Original Email"
+                               options="{'website_path': True}" invisible="not source_mail_url"/>
+                    </group>
                     <div class="alert alert-info" role="status">
                         Individual job/order/publication errors stay open until reviewed. A healthy cron or a Done batch does not resolve them.
                         Live delays and lock waits recover automatically after a successful healthy check.
