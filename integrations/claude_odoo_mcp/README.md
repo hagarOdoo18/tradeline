@@ -13,7 +13,7 @@ Nothing by default. All of these must permit a request:
 3. An existing Copilot Allowed Model is enabled and explicitly marked **Allow MCP**, with a nonempty **MCP fields** list including `id`.
 4. The ordinary Copilot field restrictions, Odoo model ACLs, field groups and record rules also allow access. Related labels require approval of the related dataset too. Related IDs/labels hidden by record rules are masked with an explicit redaction note; Odoo's normal elevated display-name lookup cannot leak them through the connector.
 
-The bridge uses the user's main company only and states this in `connection_info`. It does not accept user/model-supplied context, company IDs, RPC methods, SQL or Python. It opens a separate PostgreSQL READ ONLY transaction for each tool and always rolls it back. Existing query limits and eight-second SQL budgets apply; arguments are limited to 32 KiB and responses to 512 KiB.
+The bridge uses only companies already assigned to the named Odoo user, retains their main company as default, and lists the complete scope in `connection_info`. Queries can narrow by `company_id`; financial reports keep companies/currencies separate. It does not accept user/model-supplied context, company IDs, RPC methods, SQL or Python. It opens a separate PostgreSQL READ ONLY transaction for each tool and always rolls it back. Existing query limits and eight-second SQL budgets apply; arguments are limited to 32 KiB and responses to 512 KiB.
 
 These protections govern calls **through this connector**. An Odoo API key inherits its user's ordinary Odoo permissions; it is not intrinsically a read-only or MCP-only credential. Use a dedicated restricted user where possible, keep its key private, and revoke it in Odoo to disconnect. Do not put the Administrator's password/key into Claude chat, a shared project or source control.
 
@@ -25,7 +25,7 @@ No automatic exposure of attachments, old AI conversations, passwords, API token
 
 | Tool | Purpose |
 |---|---|
-| `connection_info` | Identity, main-company scope, read-only status and limits |
+| `connection_info` | Identity, assigned-company scope, read-only status and limits |
 | `search_models`, `describe_model` | Discover approved datasets and fields |
 | `query` | Validated filters, grouped measures and bounded detail rows |
 | `search_products` | Actual catalogue names/codes/categories, including archived variants |

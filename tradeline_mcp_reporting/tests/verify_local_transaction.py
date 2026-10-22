@@ -33,8 +33,9 @@ def run(env):
         env.cr.commit()  # Synthetic LOCAL fixtures must be visible to the fresh read-only connection.
         bridge = env["tradeline.mcp.reporting"].with_user(user)
         info = bridge.execute_tool("connection_info", {})
-        assert info["read_only"] and info["company_scope"] == [{"id": user.company_id.id, "name": user.company_id.name}]
-        checks.append("named-user identity and main-company scope")
+        assert info["read_only"] and {c["id"] for c in info["company_scope"]} == set(user.company_ids.ids)
+        assert info["company_scope"][0]["id"] == user.company_id.id
+        checks.append("named-user identity and assigned-company scope")
         result = bridge.execute_tool("query", {"spec": {"model": "res.partner", "domain": [["id", "in", [visible.id, hidden.id]]], "fields": ["id", "name"]}})
         assert [row["id"] for row in result["rows"]] == visible.ids
         checks.append("real record rules exclude the hidden record")

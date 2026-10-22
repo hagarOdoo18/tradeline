@@ -1,4 +1,5 @@
 from odoo.exceptions import AccessError, ValidationError
+from types import SimpleNamespace
 from odoo.tests import TransactionCase, tagged
 
 
@@ -92,3 +93,7 @@ class TestMCPReporting(TransactionCase):
         for method, allowed, required in TOOLS.values():
             if method:
                 self.assertTrue(callable(getattr(self.query, method)))
+
+    def test_company_scope_uses_only_assigned_companies_and_keeps_main_first(self):
+        user = SimpleNamespace(company_id=SimpleNamespace(id=7), company_ids=SimpleNamespace(ids=[9, 7, 3]))
+        self.assertEqual(self.bridge.with_context(allowed_company_ids=[999])._reporting_company_ids(user), [7, 3, 9])
