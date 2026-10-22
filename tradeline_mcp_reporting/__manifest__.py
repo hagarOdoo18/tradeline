@@ -1,6 +1,6 @@
 {
     "name": "Tradeline Read-only MCP Reporting",
-    "version": "18.0.1.0.1",
+    "version": "18.0.1.1.0",
     "summary": "Opt-in, permission-scoped reporting bridge for Claude Desktop",
     "category": "Productivity",
     "author": "Tradeline",

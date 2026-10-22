@@ -93,6 +93,18 @@ class ConnectorTests(unittest.TestCase):
                 OdooReportingClient(self.path).call("connection_info", {})
             self.assertEqual(proxy.call_count, 1)
 
+    def test_citation_links_use_configured_odoo_host(self):
+        common, objects = MagicMock(), MagicMock()
+        common.__enter__.return_value = common
+        objects.__enter__.return_value = objects
+        common.authenticate.return_value = 27
+        objects.execute_kw.return_value = {"citation": {"path": "/tradeline/mcp/source?tool=query",
+            "records": [{"id": 42, "path": "/odoo/res.partner/42"}]}}
+        with patch("odoo_client.ServerProxy", side_effect=[common, objects]):
+            result = OdooReportingClient(self.path).call("query", {"spec": {}})
+        self.assertEqual(result["citation"]["url"], "https://example.odoo.com/tradeline/mcp/source?tool=query")
+        self.assertEqual(result["citation"]["records"][0]["url"], "https://example.odoo.com/odoo/res.partner/42")
+
     def test_sdk_tool_schemas_and_annotations(self):
         class Stub:
             def call(self, name, arguments):
@@ -117,7 +129,7 @@ class ConnectorTests(unittest.TestCase):
                 "--config", str(self.directory / "missing.json")])
             async with Client(params, read_timeout_seconds=30) as client:
                 tools = await client.list_tools()
-                self.assertEqual(len(tools.tools), 11)
+                self.assertEqual(len(tools.tools), 12)
                 response = await client.call_tool("connection_info", {})
                 self.assertTrue(response.is_error)
                 self.assertIn("configuration", str(response.content).lower())

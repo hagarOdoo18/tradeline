@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 from xmlrpc.client import Fault, ProtocolError, SafeTransport, ServerProxy
 
 
-TOOL_NAMES = frozenset({"connection_info", "search_models", "describe_model", "query", "search_products",
+TOOL_NAMES = frozenset({"connection_info", "reporting_coverage", "search_models", "describe_model", "query", "search_products",
     "product_sales_units", "metric_definitions", "financial_report", "data_freshness", "customer_sets", "analyze_baskets"})
 
 
@@ -88,6 +88,15 @@ class OdooReportingClient:
                 raise ReportingError("Odoo returned an unsupported reporting response.")
             if len(json.dumps(result, ensure_ascii=False, allow_nan=False).encode("utf-8")) > 524288:
                 raise ReportingError("Result is too large. Reduce the limit or narrow the scope.")
+            if isinstance(result, dict) and isinstance(result.get("citation"), dict):
+                citation = result["citation"]
+                path = citation.get("path", "")
+                if isinstance(path, str) and path.startswith("/tradeline/mcp/source?"):
+                    citation["url"] = config.url + path
+                for record in citation.get("records", []):
+                    path = record.get("path", "")
+                    if isinstance(path, str) and path.startswith("/odoo/"):
+                        record["url"] = config.url + path
             return result
         except Fault:
             # An Odoo XML-RPC fault contains a full server traceback. Never echo it.

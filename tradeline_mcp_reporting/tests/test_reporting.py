@@ -97,3 +97,68 @@ class TestMCPReporting(TransactionCase):
     def test_company_scope_uses_only_assigned_companies_and_keeps_main_first(self):
         user = SimpleNamespace(company_id=SimpleNamespace(id=7), company_ids=SimpleNamespace(ids=[9, 7, 3]))
         self.assertEqual(self.bridge.with_context(allowed_company_ids=[999])._reporting_company_ids(user), [7, 3, 9])
+
+    def test_business_scope_snapshot_preserves_restrictions_and_excludes_secrets(self):
+        from odoo.addons.tradeline_mcp_reporting.models.scope import scope_manifest, FIELD_DENY, excluded_model
+        manifest = {e["model"]: e for e in scope_manifest(self.env, self.reader)}
+        self.assertIn("name", manifest["res.partner"]["fields"])
+        for name in ["password", "access_token", "consumer_key", "api_key", "national_id", "iban"]:
+            self.assertTrue(FIELD_DENY.search(name), name)
+        self.assertTrue(excluded_model(self.env["ai.copilot.service"], "res.users"))
+        self.policy.enabled = False
+        manifest = {e["model"]: e for e in scope_manifest(self.env, self.reader)}
+        self.assertEqual(manifest["res.partner"]["fields"], [])
+        self.assertEqual(manifest["res.partner"]["reason"], "Existing Copilot model restriction")
+
+    def test_coverage_is_paged_and_does_not_return_record_values(self):
+        bridge = self.bridge.with_context(tradeline_mcp_reporting=True)
+        result = bridge._reporting_coverage(keyword="partner")
+        self.assertTrue(result["installed_module_count"])
+        self.assertLessEqual(len(result["datasets"]), 60)
+        entry = next(e for e in result["datasets"] if e["model"] == "res.partner")
+        self.assertTrue(entry["available"])
+        self.assertNotIn("fields", entry)
+        self.policy.mcp_enabled = False
+        result = bridge._reporting_coverage(keyword="partner")
+        entry = next(e for e in result["datasets"] if e["model"] == "res.partner")
+        self.assertFalse(entry["available"])
+        self.assertIn("Not approved", entry["reason"])
+        with self.assertRaises(ValidationError):
+            bridge._reporting_coverage(offset=True)
+
+    def test_source_citations_preserve_exact_query_and_only_explicit_record_ids(self):
+        from urllib.parse import parse_qs, urlsplit
+        import json
+        args = {"spec": {"model": "res.partner", "domain": [["name", "ilike", "<script>"]], "fields": ["id", "name"]}}
+        result = self.bridge._attach_citation({"source": "res.partner", "provenance": {},
+            "columns": ["id", "name"], "rows": [{"id": 42, "name": "<script>"}],
+            "title": "Partner sample"}, "query", args)
+        # Empty provenance is still a report; use a real provenance key here.
+        result["provenance"]["model"] = "res.partner"
+        result = self.bridge._attach_citation(result, "query", args)
+        params = parse_qs(urlsplit(result["citation"]["path"]).query)
+        self.assertEqual(json.loads(params["arguments"][0]), args)
+        self.assertEqual(result["citation"]["records"], [{"id": 42, "path": "/odoo/res.partner/42"}])
+        result = self.bridge._attach_citation({"source": "res.partner", "provenance": {"model": "res.partner"},
+            "columns": ["name", "__count"], "rows": [{"name": "Sample", "__count": 1}]}, "query", {})
+        self.assertNotIn("records", result["citation"])
+
+    def test_source_receipt_escapes_record_content_and_denies_unavailable_reports(self):
+        from unittest.mock import MagicMock, patch
+        from odoo.addons.tradeline_mcp_reporting.controllers import source
+        fake = MagicMock()
+        fake.env.__getitem__.return_value.execute_tool.return_value = {
+            "title": "<script>alert(1)</script>", "columns": ["name"], "rows": [{"name": "<img src=x onerror=alert(1)>"}]}
+        fake.make_response.side_effect = lambda body, **kwargs: source.http.Response(body, **kwargs)
+        with patch.object(source, "request", fake):
+            response = source.MCPSource().source(tool="query", arguments="{}")
+            body = response.get_data(as_text=True)
+            self.assertNotIn("<script>", body)
+            self.assertNotIn("<img ", body)
+            self.assertIn("&lt;script&gt;", body)
+            self.assertEqual(response.headers["Cache-Control"], "no-store")
+            fake.env.__getitem__.return_value.execute_tool.side_effect = AccessError("Private exception detail")
+            response = source.MCPSource().source(tool="query", arguments="{}")
+            body = response.get_data(as_text=True)
+            self.assertEqual(response.status_code, 403)
+            self.assertNotIn("Private exception detail", body)

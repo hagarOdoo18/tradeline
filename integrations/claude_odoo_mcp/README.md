@@ -1,6 +1,6 @@
 # Claude ↔ Tradeline Odoo reporting
 
-Prepared for an initial **Claude Desktop** installation. This is not deployed or enabled on production, does not install Claude, and contains no real credentials. The existing Odoo chat and its OpenAI/Claude settings are independent.
+Read-only **Claude Desktop** integration. The addon and local connector contain no real credentials. Deployment and explicit scope activation are separate steps; installing this source never grants access automatically. The existing Odoo chat and its OpenAI/Claude settings are independent.
 
 Claude's personal subscription runs the conversation; this connector does not call a language-model API and needs no Anthropic/OpenAI API key. It needs a named Odoo user's Odoo API key, stored locally. Remote web/mobile access is a separate deployment with HTTPS and per-user OAuth, not a public unauthenticated endpoint.
 
@@ -19,13 +19,14 @@ These protections govern calls **through this connector**. An Odoo API key inher
 
 Returned data is sent to Claude/Anthropic for the requested conversation. Local transport does not mean the model processes results only on this PC. Review the account's privacy settings before using business data. Raw connector content and content copied into a conversation have different training treatment under Anthropic's current policy; see the official privacy reference below.
 
-No automatic exposure of attachments, old AI conversations, passwords, API tokens, HR/payroll, bank details, phone numbers or national IDs. A dataset/field deliberately approved by an administrator can become queryable; approving contact identifiers is a substantive expansion. No model/field approval presets are applied automatically.
+There are no default approvals. An administrator can explicitly activate a snapshot of current business datasets using `activate_business_scope` in `tradeline_mcp_reporting/activation.py`. It preserves existing disabled models, field restrictions, ACLs and record rules; excludes credentials, integration internals, attachments, communications, bank identifiers and government identifiers; and writes a configuration rollback snapshot before changing only MCP policy fields. Ordinary business contact fields may be included in that explicitly authorized scope. No future module or field is automatically approved.
 
 ## Reporting tools
 
 | Tool | Purpose |
 |---|---|
 | `connection_info` | Identity, assigned-company scope, read-only status and limits |
+| `reporting_coverage` | Paged installed-module/business-dataset coverage, access restrictions and unavailable-source reasons |
 | `search_models`, `describe_model` | Discover approved datasets and fields |
 | `query` | Validated filters, grouped measures and bounded detail rows |
 | `search_products` | Actual catalogue names/codes/categories, including archived variants |
@@ -35,7 +36,9 @@ No automatic exposure of attachments, old AI conversations, passwords, API token
 | `customer_sets` | Server-side deduplicated include-minus-exclude customer cohorts |
 | `analyze_baskets` | Same-document product pairs, attachment, support and lift |
 
-Every tool is annotated read-only. The database restriction enforces this independently of those hints. The bridge does not save conversations, generated files or query results in Odoo. Claude can use its own chart/artifact features with returned values; feature availability depends on the account. This preparation does not implement file export through MCP. Existing Odoo chat Excel exports remain unchanged.
+Every tool is annotated read-only. The database restriction enforces this independently of those hints. Reports include a source citation linking to an authenticated `/tradeline/mcp/source` receipt with the same tool and arguments. Opening a receipt reruns the read-only report under the signed-in user's current rights and displays values, definitions, filters and coverage. It is not a frozen historical snapshot. Explicit record IDs also receive Odoo form links. Content is escaped, scripts are prohibited and receipts are not cached.
+
+The bridge does not save conversations, generated files or query results in Odoo. Claude can use its own chart, graph, Excel and PowerPoint capabilities with returned values and source notes; feature availability depends on the account. MCP does not disable or replace those features. Existing Odoo chat Excel exports remain unchanged.
 
 Saved Shopify records may be approved like other Odoo datasets. **Live Shopify API calls and the original Odoo 12 system are not connected by this first version.** December-only legacy invoice coverage remains December-only: MCP does not recover missing migration data or make unresolved identities certain. Customer matching needs the specific source/header/contact fields approved; do not enable raw phone/national-ID access merely to make a demo pass.
 
@@ -56,7 +59,7 @@ flowchart LR
 ## Tomorrow's installation
 
 1. Sign into the intended Claude account in the official Claude Desktop app. Check its privacy controls and decide who may use this Odoo connection. No Claude account is needed to run the offline tests.
-2. Review the addon and test it on a suitable copy before production activation. Install only `tradeline_mcp_reporting`; it is not auto-installed and adds no web assets, background jobs, routes or changes to business models. The existing Copilot dependency must be the version containing the current sales/metrics fixes.
+2. Review the addon and test it on a suitable copy before production activation. Install only `tradeline_mcp_reporting`; it is not auto-installed and adds no web assets, background jobs or changes to business models. Its isolated source-receipt GET route requires login and the same MCP access gates. The existing Copilot dependency must be the version containing the current sales/metrics fixes.
 3. In **Tradeline AI → Administration → Settings**, enable **MCP reporting**. In **Allowed Models**, approve only the required datasets and fields. Start with product catalogue/reporting fields, not customer identifiers. Approve required related models such as product category, UOM, document headers, company and currency with minimal readable fields. Use the schema tools to check each dependency; a blocked dependency must remain unavailable, never treated as zero.
 4. Assign **MCP Reporting User** to the intended named Odoo user (Administrator can be explicitly assigned if required). Prefer a dedicated reporting account with reviewed business permissions. Generate its Odoo API key directly in Odoo; do not send the key in chat.
 5. Install Python 3.11+ on the PC if needed. In this directory run:
