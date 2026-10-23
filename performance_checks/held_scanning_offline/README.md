@@ -1,0 +1,1 @@
+This directory preserves the proposed scanning/offline changes for separate review. Nothing here is imported or registered as an Odoo asset. Do not apply scanning-offline.patch as part of the loading/Excel performance release. Existing production-style scanning remains active on stage.

@@ -1,0 +1,447 @@
+diff --git a/pos_serial_validation/static/src/js/navbar.js b/pos_serial_validation/static/src/js/navbar.js
+index 541fe0e..09cc024 100644
+--- a/pos_serial_validation/static/src/js/navbar.js
++++ b/pos_serial_validation/static/src/js/navbar.js
+@@ -71,7 +71,9 @@ patch(Navbar.prototype, {
+             return;
+         }
+ 
+-        const searchWord = (this.pos.searchProductWord || "").trim();
++        // A scanner's Enter can arrive before Input's 500ms model debounce.
++        const input = event.currentTarget || this._lotSerialSearchInputEl;
++        const searchWord = (input?.value ?? this.pos.searchProductWord ?? "").trim();
+         if (!searchWord) {
+             return;
+         }
+@@ -84,6 +86,13 @@ patch(Navbar.prototype, {
+         event.preventDefault();
+         event.stopPropagation();
+ 
+-        await addExactLotSerialMatch(searchWord, { skipMinLength: true });
++        const handled = await addExactLotSerialMatch(searchWord, { skipMinLength: true });
++        if (handled && input) {
++            // Replace the pending debounced input value as well as the model,
++            // otherwise it can restore the just-scanned serial after the add.
++            input.value = "";
++            input.dispatchEvent(new Event("input", { bubbles: true }));
++            this.pos.searchProductWord = "";
++        }
+     },
+ });
+diff --git a/pos_serial_validation/static/src/js/product_screen.js b/pos_serial_validation/static/src/js/product_screen.js
+index bd7175e..b128915 100644
+--- a/pos_serial_validation/static/src/js/product_screen.js
++++ b/pos_serial_validation/static/src/js/product_screen.js
+@@ -3,6 +3,9 @@
+ import { ProductScreen } from "@point_of_sale/app/screens/product_screen/product_screen";
+ import { patch } from "@web/core/utils/patch";
+ import { onWillUnmount, useEffect, useState } from "@odoo/owl";
++import { _t } from "@web/core/l10n/translation";
++import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
++import { ConnectionLostError } from "@web/core/network/rpc";
+ 
+ const LIVE_SEARCH_DELAY_MS = 250;
+ const MIN_QUERY_LENGTH = 3;
+@@ -112,12 +115,25 @@ patch(ProductScreen.prototype, {
+             };
+         }
+ 
+-        const response = await this.pos.data.call(
+-            "stock.lot",
+-            "search_pos_products",
+-            [normalizedQuery, this.pos.config.id],
+-            { limit: RESULT_LIMIT }
+-        );
++        // An already loaded register can resolve exact serials without RPC.
++        // Do not turn server access/validation errors into an offline fallback.
++        if (this.pos.data.network.offline) {
++            return this._getCachedLotSerialMatches(normalizedQuery);
++        }
++        let response;
++        try {
++            response = await this.pos.data.call(
++                "stock.lot",
++                "search_pos_products",
++                [normalizedQuery, this.pos.config.id],
++                { limit: RESULT_LIMIT }
++            );
++        } catch (error) {
++            if (!(error instanceof ConnectionLostError)) {
++                throw error;
++            }
++            return this._getCachedLotSerialMatches(normalizedQuery);
++        }
+         const matches = response?.products || [];
+         const productIds = matches.map((item) => item.product_id);
+         const missingProductIds = productIds.filter(
+@@ -151,6 +167,32 @@ patch(ProductScreen.prototype, {
+         };
+     },
+ 
++    _getCachedLotSerialMatches(query) {
++        const normalizedQuery = query.toLowerCase();
++        const matches = [];
++        const matchedLotsByProductId = {};
++        const products = [];
++        for (const lot of this.pos.models["stock.lot"]?.filter(
++            (lot) => (lot.name || "").toLowerCase() === normalizedQuery
++        ) || []) {
++            const product = lot.product_id;
++            // Use only loaded, unambiguous serial stock. Current stock/location
++            // and sold-state validation still happens on the server at sync.
++            if (product?.tracking !== "serial" || lot.product_qty !== 1) {
++                continue;
++            }
++            matches.push({ product_id: product.id, matched_lots: [lot.name] });
++            matchedLotsByProductId[product.id] = [lot.name];
++            products.push(product);
++        }
++        return {
++            matches,
++            matchedLotsByProductId,
++            productIds: products.map((product) => product.id),
++            products,
++        };
++    },
++
+     async _performLotSerialSearch(query, requestToken) {
+         try {
+             const results = await this._fetchLotSerialMatches(query);
+@@ -256,12 +298,40 @@ patch(ProductScreen.prototype, {
+     },
+ 
+     async _addLotSerialMatchToCurrentOrder(exactMatch) {
+-        await this.pos.addLineToCurrentOrder(
+-            { product_id: exactMatch.product },
+-            { code: this._buildLotSerialCode(exactMatch.lotName) },
+-            exactMatch.product.needToConfigure()
++        const { product, lotName } = exactMatch;
++        const pending = this.pos._pendingLotSerialAdds ||= new Set();
++        const key = JSON.stringify([product.id, lotName]);
++        // Native merging retains pack lots on zero-quantity lines too.
++        const alreadyUsed = product.tracking === "serial" && (
++            pending.has(key) || this.pos.models["pos.order"].some((order) =>
++                !order.finalized && order.get_orderlines().some((line) =>
++                    line.product_id.id === product.id && line.qty >= 0 &&
++                    !line.refunded_orderline_id &&
++                    line.pack_lot_ids.some((lot) => lot.lot_name === lotName)
++                )
++            )
+         );
+-        this.numberBuffer.reset();
++        if (alreadyUsed) {
++            this.dialog.add(AlertDialog, {
++                title: _t("Serial already in an open order"),
++                body: _t('Serial "%s" is already in an open order. Each serial can only be added once.', lotName),
++            });
++            this.numberBuffer.reset();
++            return;
++        }
++        // Reserve before awaiting native configuration so overlapping Enter,
++        // click and scanner events cannot both pass the duplicate check.
++        pending.add(key);
++        try {
++            await this.pos.addLineToCurrentOrder(
++                { product_id: product },
++                { code: this._buildLotSerialCode(lotName) },
++                product.needToConfigure()
++            );
++            this.numberBuffer.reset();
++        } finally {
++            pending.delete(key);
++        }
+     },
+ 
+     async _resolveSingleExactLotSerialMatch(searchWord, options = {}) {
+@@ -394,6 +464,18 @@ patch(ProductScreen.prototype, {
+                 await this._addLotSerialMatchToCurrentOrder(exactMatch);
+                 return;
+             }
++            if (this.pos.data.network.offline && this.pos.models["stock.lot"]?.some(
++                (lot) => (lot.name || "").toLowerCase() === barcode.toLowerCase() &&
++                    lot.product_id?.tracking === "serial"
++            )) {
++                // A known but ambiguous/unavailable cached serial must not
++                // fall through to another scanner patch which selects the first lot.
++                this.dialog.add(AlertDialog, {
++                    title: _t("Serial unavailable offline"),
++                    body: _t("This serial cannot be resolved safely from the loaded stock. Reconnect before adding it."),
++                });
++                return;
++            }
+         }
+ 
+         return await super._barcodeProductAction(...arguments);
+diff --git a/pos_serial_validation/tests/serial_search.test.mjs b/pos_serial_validation/tests/serial_search.test.mjs
+new file mode 100644
+index 0000000..7a61724
+--- /dev/null
++++ b/pos_serial_validation/tests/serial_search.test.mjs
+@@ -0,0 +1,267 @@
++// Run: node --experimental-vm-modules --test pos_serial_validation/tests/serial_search.test.mjs
++// Exercises the shipped screen patch without a browser or database.
++import { readFile } from 'node:fs/promises';
++import { SourceTextModule } from 'node:vm';
++import assert from 'node:assert/strict';
++import { test } from 'node:test';
++
++const source = await readFile(new URL('../static/src/js/product_screen.js', import.meta.url), 'utf8');
++const modules = {
++    '@point_of_sale/app/screens/product_screen/product_screen': `export class ProductScreen {
++        setup() {} async _barcodeProductAction() { this.nativeScans++; }
++        async addProductToOrder() { this.nativeClicks++; }
++        async onPressEnterKey() { this.nativeEnters++; }
++    }`,
++    '@web/core/utils/patch': `export function patch(target, extension) {
++        const previous = Object.create(Object.getPrototypeOf(target));
++        Object.defineProperties(previous, Object.getOwnPropertyDescriptors(target));
++        Object.setPrototypeOf(extension, previous);
++        Object.defineProperties(target, Object.getOwnPropertyDescriptors(extension));
++    }`,
++    '@odoo/owl': 'export const onWillUnmount = () => {}; export const useEffect = () => {}; export const useState = x => x;',
++    '@point_of_sale/app/navbar/navbar': 'export class Navbar { setup() {} }',
++    '@web/core/l10n/translation': `export const _t = (text, ...args) => args.reduce((s, a) => s.replace('%s', a), text);`,
++    '@web/core/confirmation_dialog/confirmation_dialog': 'export class AlertDialog {}',
++    '@web/core/network/rpc': 'export class ConnectionLostError extends Error {}',
++};
++const linked = new Map(Object.entries(modules).map(([name, text]) => [name, new SourceTextModule(text)]));
++const module = new SourceTextModule(source);
++await module.link(name => { assert.ok(linked.has(name), name); return linked.get(name); });
++await module.evaluate();
++const { ProductScreen } = linked.get('@point_of_sale/app/screens/product_screen/product_screen').namespace;
++const { ConnectionLostError } = linked.get('@web/core/network/rpc').namespace;
++const navbarSource = await readFile(new URL('../static/src/js/navbar.js', import.meta.url), 'utf8');
++// Navbar lifecycle registration is irrelevant to the event-handler contract.
++const navbarOwl = new SourceTextModule('export const onMounted = () => {}; export const onPatched = () => {}; export const onWillUnmount = () => {};');
++const navbarModule = new SourceTextModule(navbarSource);
++await navbarModule.link(name => name === '@odoo/owl' ? navbarOwl : linked.get(name));
++await navbarModule.evaluate();
++const { Navbar } = linked.get('@point_of_sale/app/navbar/navbar').namespace;
++
++function fixture({ offline = false, tracking = 'serial', orders = [], lots } = {}) {
++    const screen = new ProductScreen();
++    screen.nativeScans = screen.nativeClicks = screen.nativeEnters = 0;
++    const product = { id: 42, tracking, needToConfigure: () => false };
++    const lines = [];
++    const current = { finalized: false, get_orderlines: () => lines };
++    const events = { added: 0, rpc: 0, alerts: [], resets: 0 };
++    screen.dialog = { add: (_dialog, props) => events.alerts.push(props) };
++    screen.numberBuffer = { reset: () => events.resets++ };
++    screen.pos = {
++        config: { id: 67, enable_product_bar_lot_serial_search: true },
++        models: {
++            'pos.order': [current, ...orders],
++            'stock.lot': lots || [{ name: 'SER-1', product_id: product, product_qty: 1 }],
++            'product.product': { get: id => id === product.id ? product : undefined },
++        },
++        data: { network: { offline }, call: async () => {
++            events.rpc++;
++            return { products: [{ product_id: 42, matched_lots: ['SER-1'] }] };
++        } },
++        addLineToCurrentOrder: async (_values, options) => {
++            events.added++;
++            lines.push({ product_id: product, qty: 1, pack_lot_ids: [{ lot_name: options.code.code }] });
++        },
++        searchProductWord: 'SER-1',
++    };
++    screen.setup();
++    return { screen, product, lines, events, exact: { product, lotName: 'SER-1' } };
++}
++
++test('exact serial adds once; repeat is handled without native fallback', async () => {
++    const f = fixture();
++    assert.equal(await f.screen._tryAddLotSerialSearchMatch('SER-1'), true);
++    assert.equal(await f.screen._tryAddLotSerialSearchMatch('SER-1'), true);
++    assert.equal(f.events.added, 1);
++    assert.equal(f.events.alerts.length, 1);
++    assert.match(f.events.alerts[0].body, /SER-1/);
++    assert.equal(f.screen.pos.searchProductWord, '');
++});
++
++test('simultaneous Enter/click/scan cannot insert a serial twice', async () => {
++    const f = fixture();
++    let release;
++    const nativeAdd = f.screen.pos.addLineToCurrentOrder;
++    f.screen.pos.addLineToCurrentOrder = async (...args) => {
++        await new Promise(resolve => { release = resolve; });
++        return nativeAdd(...args);
++    };
++    const first = f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.alerts.length, 1);
++    release(); await first;
++    assert.equal(f.events.added, 1);
++    assert.equal(f.screen.pos._pendingLotSerialAdds.size, 0);
++});
++
++test('failed configuration releases pending serial', async () => {
++    const f = fixture();
++    const nativeAdd = f.screen.pos.addLineToCurrentOrder;
++    f.screen.pos.addLineToCurrentOrder = async () => { throw new Error('configuration failed'); };
++    await assert.rejects(f.screen._addLotSerialMatchToCurrentOrder(f.exact));
++    assert.equal(f.screen.pos._pendingLotSerialAdds.size, 0);
++    f.screen.pos.addLineToCurrentOrder = nativeAdd;
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.added, 1);
++});
++
++test('cancelled configuration can be retried without a false duplicate', async () => {
++    const f = fixture();
++    const nativeAdd = f.screen.pos.addLineToCurrentOrder;
++    f.screen.pos.addLineToCurrentOrder = async () => undefined;
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    f.screen.pos.addLineToCurrentOrder = nativeAdd;
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.added, 1);
++    assert.equal(f.events.alerts.length, 0);
++});
++
++test('different serials on a merged product line remain allowed', async () => {
++    const f = fixture();
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    await f.screen._addLotSerialMatchToCurrentOrder({ product: f.product, lotName: 'SER-2' });
++    assert.equal(f.events.added, 2);
++    assert.equal(f.events.alerts.length, 0);
++});
++
++test('serial already on another open order is blocked', async () => {
++    const f = fixture();
++    f.screen.pos.models['pos.order'].push({ finalized: false, get_orderlines: () => [
++        { product_id: f.product, qty: 2, pack_lot_ids: [{ lot_name: 'SER-1' }, { lot_name: 'SER-2' }] },
++    ] });
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.added, 0);
++    assert.equal(f.events.alerts.length, 1);
++});
++
++for (const [name, options] of Object.entries({
++    'finalized order': { finalized: true, qty: 1 },
++    'negative return line': { qty: -1 },
++    'linked refund line': { qty: 1, refunded_orderline_id: { id: 9 } },
++    'different product': { qty: 1, differentProduct: true },
++})) {
++    test(`${name} does not block a valid new sale`, async () => {
++        const f = fixture();
++        f.screen.pos.models['pos.order'].push({ finalized: options.finalized || false,
++            get_orderlines: () => [{ product_id: options.differentProduct ? { id: 99 } : f.product,
++                qty: options.qty, refunded_orderline_id: options.refunded_orderline_id,
++                pack_lot_ids: [{ lot_name: 'SER-1' }] }] });
++        await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++        assert.equal(f.events.added, 1);
++    });
++}
++
++test('lot-tracked product retains repeated lot quantities', async () => {
++    const f = fixture({ tracking: 'lot' });
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.added, 2);
++});
++
++test('zero-quantity serial line still reserves its pack lot before native merging', async () => {
++    const f = fixture();
++    f.lines.push({ product_id: f.product, qty: 0, pack_lot_ids: [{ lot_name: 'SER-1' }] });
++    await f.screen._addLotSerialMatchToCurrentOrder(f.exact);
++    assert.equal(f.events.added, 0);
++    assert.equal(f.events.alerts.length, 1);
++});
++
++test('offline exact lookup uses loaded stock and makes no RPC', async () => {
++    const f = fixture({ offline: true });
++    await f.screen._tryAddLotSerialSearchMatch(' ser-1 ');
++    await f.screen._tryAddLotSerialSearchMatch('SER-1');
++    assert.equal(f.events.added, 1);
++    assert.equal(f.events.rpc, 0);
++    assert.equal(f.events.alerts.length, 1);
++});
++
++test('connection loss falls back to cached serial; server errors do not', async () => {
++    const f = fixture();
++    f.screen.pos.data.call = async () => { throw new ConnectionLostError(); };
++    assert.equal((await f.screen._fetchLotSerialMatches('SER-1')).matches.length, 1);
++    f.screen.pos.data.call = async () => { throw new Error('Access denied'); };
++    await assert.rejects(f.screen._fetchLotSerialMatches('SER-1'), /Access denied/);
++});
++
++test('offline unknown, partial, empty or unavailable serial does not auto-add', async () => {
++    const f = fixture({ offline: true });
++    for (const query of ['UNKNOWN', 'SER', '']) {
++        assert.equal(await f.screen._resolveSingleExactLotSerialMatch(query), null);
++    }
++    for (const quantity of [0, -1, 2]) {
++        f.screen.pos.models['stock.lot'][0].product_qty = quantity;
++        assert.equal(await f.screen._resolveSingleExactLotSerialMatch('SER-1'), null);
++    }
++    assert.equal(f.events.added, 0);
++});
++
++test('offline ambiguous serial shared by products does not auto-resolve', async () => {
++    const f = fixture({ offline: true });
++    f.screen.pos.models['stock.lot'].push({ name: 'SER-1', product_id: { id: 99, tracking: 'serial' }, product_qty: 1 });
++    f.screen.pos.models['product.product'].get = id => f.screen.pos.models['stock.lot'].find(lot => lot.product_id.id === id).product_id;
++    assert.equal(await f.screen._resolveSingleExactLotSerialMatch('SER-1'), null);
++});
++
++test('scanner, click and Enter all use duplicate guard', async () => {
++    const f = fixture();
++    await f.screen._barcodeProductAction({ base_code: 'SER-1', code: 'SER-1' });
++    f.screen.pos.searchProductWord = 'SER-1';
++    await f.screen.addProductToOrder(f.product);
++    f.screen.pos.searchProductWord = 'SER-1';
++    await f.screen.onPressEnterKey();
++    assert.equal(f.events.added, 1);
++    assert.equal(f.events.alerts.length, 2);
++    assert.equal(f.screen.nativeClicks + f.screen.nativeScans + f.screen.nativeEnters, 0);
++});
++
++test('normal barcode still uses native scanner path', async () => {
++    const f = fixture();
++    f.screen.pos.data.call = async () => ({ products: [] });
++    await f.screen._barcodeProductAction({ base_code: 'PLAIN-BARCODE' });
++    assert.equal(f.screen.nativeScans, 1);
++    assert.equal(f.events.added, 0);
++});
++
++test('offline unsafe cached serial never falls through to another scanner patch', async () => {
++    const f = fixture({ offline: true });
++    f.screen.pos.models['stock.lot'][0].product_qty = 2;
++    await f.screen._barcodeProductAction({ base_code: 'SER-1' });
++    assert.equal(f.screen.nativeScans, 0);
++    assert.equal(f.events.added, 0);
++    assert.equal(f.events.alerts.length, 1);
++});
++
++test('rapid scanner Enter uses visible input before the model debounce', async () => {
++    const navbar = new Navbar();
++    const queries = [];
++    const events = [];
++    const input = { value: ' SER-NEW ', dispatchEvent: event => events.push(event.type) };
++    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
++        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'SER-OLD',
++        _addExactLotSerialSearchMatch: async query => { queries.push(query); return true; } };
++    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: input,
++        preventDefault() {}, stopPropagation() {} });
++    assert.deepEqual(queries, ['SER-NEW']);
++    assert.deepEqual(events, ['input']);
++    assert.equal(input.value, '');
++    assert.equal(navbar.pos.searchProductWord, '');
++});
++
++test('an empty input never submits an older debounced serial', async () => {
++    const navbar = new Navbar();
++    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
++        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'SER-OLD',
++        _addExactLotSerialSearchMatch: async () => { assert.fail('stale serial submitted'); } };
++    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: { value: '' } });
++});
++
++test('unknown serial keeps input intact for correction', async () => {
++    const navbar = new Navbar();
++    const input = { value: 'UNKNOWN', dispatchEvent: () => assert.fail('input cleared') };
++    navbar.pos = { config: { enable_product_bar_lot_serial_search: true },
++        mainScreen: { component: { name: 'ProductScreen' } }, searchProductWord: 'UNKNOWN',
++        _addExactLotSerialSearchMatch: async () => false };
++    await navbar._onLotSerialSearchKeydown({ key: 'Enter', currentTarget: input,
++        preventDefault() {}, stopPropagation() {} });
++    assert.equal(input.value, 'UNKNOWN');
++});
