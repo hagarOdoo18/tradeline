@@ -2,7 +2,7 @@
 {
     "name": "Tradeline AI BI Copilot",
     "summary": "Strategic reporting chat with legacy cohorts, basket analysis and cited web research",
-    "version": "18.0.3.4.0",
+    "version": "18.0.3.4.1",
     "category": "Productivity",
     "author": "Tradeline",
     "license": "LGPL-3",

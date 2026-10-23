@@ -150,3 +150,10 @@ otherwise the database probe is reported unavailable, not falsely healthy.
 Tests simulate slow/failed probes, a blocking chain, partial Done-batch errors,
 rejected orders, stalled imports, confirmation/escalation/reminders/recovery,
 manual failure review, maintenance, authenticated health, and mail isolation.
+
+## App menu visibility
+
+The app and all its submenus are visible only to the built-in Administrator
+account (`base.user_admin`), including in developer mode. Other Settings
+administrators do not see the app. Existing model/API permissions and scheduled
+operations are unchanged.
