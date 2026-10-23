@@ -18,7 +18,7 @@ class AppleStockReportWizard(models.TransientModel):
         self.ensure_one()
 
         output = BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        workbook = xlsxwriter.Workbook(output, {'constant_memory': True})
         sheet = workbook.add_worksheet('Apple Stock Quant Sheet')
 
         header_format = workbook.add_format({
@@ -65,9 +65,15 @@ class AppleStockReportWizard(models.TransientModel):
             domain += [('location_id', 'in',  self.location_ids.ids)]
 
 
+        # Retain the original first quant and row order for branch metadata.
+        # Read quantities once, rather than search again per product/location.
         quants = self.env['stock.quant'].search(domain).sorted(
             key=lambda q: (q.sudo().product_id.id, q.location_id.id)
         )
+        quantities = {}
+        for quant in quants:
+            key = (quant.sudo().product_id.id, quant.location_id.id)
+            quantities[key] = quantities.get(key, 0.0) + quant.quantity
 
         row = 1
         processed_keys = set()
@@ -82,12 +88,7 @@ class AppleStockReportWizard(models.TransientModel):
             if key in processed_keys:
                 continue
 
-            same_quants = self.env['stock.quant'].search([
-                ('product_id', '=', quant.sudo().product_id.id),
-                ('location_id', '=', quant.location_id.id),('company_id','=',self.env.company.id)
-            ])
-
-            quantity = sum(same_quants.mapped('quantity'))
+            quantity = quantities[(key[0], key[1])]
 
             processed_keys.add(key)
 

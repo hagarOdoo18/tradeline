@@ -90,13 +90,33 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
             raise UserError(_("No invoices found for the selected criteria."))
 
         output = io.BytesIO()
-        workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+        # Rows are written in order; stream worksheet XML to temporary files.
+        workbook = xlsxwriter.Workbook(output, {'constant_memory': True})
         sheet = workbook.add_worksheet("Invoice Move Lines")
         sheet.set_column(0,40,30)
         header_format = workbook.add_format({'bold': True, 'bg_color': '#D9E1F2'})
         currency_format = workbook.add_format({'num_format': '#,##0.00'})
         row = 0
-        invoices = []
+        invoices = set()
+        # Request-local, bounded caches: repeated lines share invoice metadata.
+        # Keep the original record/environment and helpers, including access rules.
+        payments_cache, lots_cache, credits_cache = {}, {}, {}
+
+        def cached_invoice_value(cache, invoice, loader):
+            if invoice.id not in cache:
+                if len(cache) >= 1000:
+                    cache.clear()
+                cache[invoice.id] = loader()
+            return cache[invoice.id]
+
+        def invoice_payments(invoice):
+            return cached_invoice_value(payments_cache, invoice, invoice._get_reconciled_payments)
+
+        def invoice_lots(invoice):
+            return cached_invoice_value(lots_cache, invoice, invoice._get_invoiced_lot_values)
+
+        def invoice_credit(invoice):
+            return cached_invoice_value(credits_cache, invoice, lambda: self.get_credit_note(invoice))
 
         if self.env.user.has_group('export_invoice_move_line.group_export_invoice_move_line_admin'):
             headers = ['Date','Branch','Ref','Credit','Opportunity','Customer Name','Customer Mobile','Customer Phone','Customer type',
@@ -109,10 +129,10 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
             row += 1
             for line in invoice_lines:
                 if self.payment_journal_ids:
-                    if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped("journal_id").ids:
+                    if self.payment_journal_ids.ids not in invoice_payments(line.move_id).mapped("journal_id").ids:
                         continue
 
-                payments = line.move_id._get_reconciled_payments()
+                payments = invoice_payments(line.move_id)
                 amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
@@ -127,8 +147,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 total =  line.move_id.amount_total
                 amount_total_signed =  line.move_id.amount_total_signed
                 amount_untaxed_signed =  line.move_id.amount_untaxed_signed
-                credit = self.get_credit_note(line.move_id)
-                list_lots =line.move_id._get_invoiced_lot_values()
+                credit = invoice_credit(line.move_id)
+                list_lots =invoice_lots(line.move_id)
                 serials =''
                 for dic_lots in list_lots:
                     if dic_lots['product_name'] in[ line.product_id.display_name,line.product_id.name]:
@@ -167,7 +187,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 30, line.product_point or '')
                 sheet.write(row, 31, line.move_id.channel_id.name or '')
                 sheet.write(row, 32, line.move_id.currency_id.name or '')
-                invoices.append(line.move_id.id)
+                invoices.add(line.move_id.id)
                 row += 1
         elif self.env.user.has_group('export_invoice_move_line.group_export_invoice_move_line_manager'):
             headers = ['Date', 'Branch', 'Ref', 'Credit', 'Opportunity', 'Customer Name', 'Customer Mobile',
@@ -184,10 +204,10 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
 
             for line in invoice_lines:
                 if self.payment_journal_ids:
-                    if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped(
+                    if self.payment_journal_ids.ids not in invoice_payments(line.move_id).mapped(
                             "journal_id").ids:
                         continue
-                payments = line.move_id._get_reconciled_payments()
+                payments = invoice_payments(line.move_id)
                 amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
@@ -203,8 +223,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 cost = line.sudo().product_id.standard_price
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
-                credit = self.get_credit_note(line.move_id)
-                list_lots = line.move_id._get_invoiced_lot_values()
+                credit = invoice_credit(line.move_id)
+                list_lots = invoice_lots(line.move_id)
                 serials = ''
                 for dic_lots in list_lots:
                     if dic_lots['product_name'] == line.product_id.display_name:
@@ -243,7 +263,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 29, line.product_id.vendor_id.name or '')
                 sheet.write(row, 30, line.move_id.channel_id.name or '')
                 sheet.write(row, 31, line.move_id.currency_id.name or '')
-                invoices.append(line.move_id.id)
+                invoices.add(line.move_id.id)
 
                 row += 1
         elif self.env.user.has_group('export_invoice_move_line.group_export_invoice_move_line_accounting'):
@@ -261,10 +281,10 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
 
             for line in invoice_lines:
                 if self.payment_journal_ids:
-                    if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped(
+                    if self.payment_journal_ids.ids not in invoice_payments(line.move_id).mapped(
                             "journal_id").ids:
                         continue
-                payments = line.move_id._get_reconciled_payments()
+                payments = invoice_payments(line.move_id)
                 amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
@@ -281,8 +301,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
 
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
-                credit = self.get_credit_note(line.move_id)
-                list_lots = line.move_id._get_invoiced_lot_values()
+                credit = invoice_credit(line.move_id)
+                list_lots = invoice_lots(line.move_id)
                 serials = ''
                 for dic_lots in list_lots:
                     if dic_lots['product_name'] == line.product_id.display_name:
@@ -327,7 +347,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 35, line.product_id.vendor_id.name or '')
                 sheet.write(row, 36, line.move_id.channel_id.name or '')
                 sheet.write(row, 37, line.move_id.currency_id.name or '')
-                invoices.append(line.move_id.id)
+                invoices.add(line.move_id.id)
 
                 row += 1
         else:
@@ -344,10 +364,10 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
 
             for line in invoice_lines:
                 if self.payment_journal_ids:
-                    if self.payment_journal_ids.ids not in line.move_id._get_reconciled_payments().mapped(
+                    if self.payment_journal_ids.ids not in invoice_payments(line.move_id).mapped(
                             "journal_id").ids:
                         continue
-                payments = line.move_id._get_reconciled_payments()
+                payments = invoice_payments(line.move_id)
                 amount = ''
                 if payments:
                     payment_journals = ", ".join(payments.mapped("journal_id.name"))
@@ -362,8 +382,8 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 total = line.move_id.amount_total
                 amount_total_signed = line.move_id.amount_total_signed
                 amount_untaxed_signed = line.move_id.amount_untaxed_signed
-                credit = self.get_credit_note(line.move_id)
-                list_lots = line.move_id._get_invoiced_lot_values()
+                credit = invoice_credit(line.move_id)
+                list_lots = invoice_lots(line.move_id)
                 serials = ''
                 for dic_lots in list_lots:
                     if dic_lots['product_name'] == line.product_id.display_name:
@@ -399,7 +419,7 @@ class ExportInvoiceMoveLineWizard(models.TransientModel):
                 sheet.write(row, 27, line.product_point or '')
                 sheet.write(row, 28, line.move_id.channel_id.name or '')
                 sheet.write(row, 29, line.move_id.currency_id.name or '')
-                invoices.append(line.move_id.id)
+                invoices.add(line.move_id.id)
                 row += 1
 
 
