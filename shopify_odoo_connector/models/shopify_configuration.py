@@ -249,7 +249,7 @@ class ShopifyConfiguration(models.Model):
              "no tax lines of its own.")
     active = fields.Boolean(string='Active', default=True, help='Active or not')
     gift_card_count = fields.Integer('Gift Cards',
-                                     compute='_compute_gift_card_count',
+                                     compute='_compute_customer_count',
                                      help='Count of gift card.')
     is_exporting = fields.Boolean(string='Is Exporting',
                                   help='Will be True while exporting records')
@@ -331,6 +331,13 @@ class ShopifyConfiguration(models.Model):
 
     def _compute_customer_count(self):
         """Method to compute count of data that synced with shopify."""
+        # Count in SQL instead of fetching every log ID into the worker cache.
+        log_counts = {
+            instance.id: count
+            for instance, count in self.env['log.message']._read_group(
+                [('shopify_instance_id', 'in', self.filtered(lambda rec: rec.id).ids)],
+                ['shopify_instance_id'], ['__count'])
+        }
         for shopify in self:
             shopify.customer_count = self.env['res.partner'].search_count(
                 [('shopify_sync_ids.instance_id', '=', shopify.id)])
@@ -338,7 +345,8 @@ class ShopifyConfiguration(models.Model):
                 [('shopify_sync_ids.instance_id', '=', shopify.id)])
             shopify.order_count = self.env['sale.order'].search_count(
                 [('shopify_sync_ids.instance_id', '=', shopify.id)])
-            shopify.log_message_count = len(shopify.log_message_ids)
+            shopify.log_message_count = (log_counts.get(shopify.id, 0)
+                                         if shopify.id else len(shopify.log_message_ids))
             shopify.collection_count = self.env[
                 'shopify.collection'].search_count(
                 [('shopify_instance_id', '=', shopify.id)])
@@ -348,22 +356,8 @@ class ShopifyConfiguration(models.Model):
                  ('gift_card', '=', True)])
 
     def _compute_gift_card_count(self):
-        """Method to compute count of data that synced with shopify."""
-        for shopify in self:
-            shopify.customer_count = self.env['res.partner'].search_count(
-                [('shopify_sync_ids.instance_id', '=', shopify.id)])
-            shopify.product_count = self.env['product.template'].search_count(
-                [('shopify_sync_ids.instance_id', '=', shopify.id)])
-            shopify.order_count = self.env['sale.order'].search_count(
-                [('shopify_sync_ids.instance_id', '=', shopify.id)])
-            shopify.log_message_count = len(shopify.log_message_ids)
-            shopify.collection_count = self.env[
-                'shopify.collection'].search_count(
-                [('shopify_instance_id', '=', shopify.id)])
-            shopify.gift_card_count = self.env[
-                'product.template'].search_count(
-                ['&', ('shopify_sync_ids.instance_id', '=', shopify.id),
-                 ('gift_card', '=', True)])
+        """Compatibility entry point; all counters share a single compute."""
+        self._compute_customer_count()
 
     def _compute_kanban_dashboard(self):
         """Method to compute data for shopify kanban dashboard."""
@@ -452,13 +446,14 @@ class ShopifyConfiguration(models.Model):
            dictionary:returns dictionary of action type.
         """
         self.ensure_one()
-        if len(self.log_message_ids) > 0:
+        domain = [('shopify_instance_id', '=', self.id)]
+        if self.env['log.message'].search(domain, limit=1):
             return {
                 'name': 'Shopify Log Messages',
                 'type': 'ir.actions.act_window',
                 'res_model': 'log.message',
                 'view_mode': 'list,form',
-                'domain': [('id', 'in', self.log_message_ids.ids)],
+                'domain': domain,
                 'context': dict(self._context, create=False)
             }
         else:

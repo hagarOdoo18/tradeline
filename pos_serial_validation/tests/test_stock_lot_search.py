@@ -1,7 +1,64 @@
+from unittest.mock import patch
+
+from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
 
 class TestStockLotSearch(TransactionCase):
+    def _order_values(self, lot, qty=1):
+        return {'lines': [(0, 0, {
+            'product_id': lot.product_id.id, 'qty': qty,
+            'pack_lot_ids': [(0, 0, {'lot_name': lot.name})],
+        })]}
+
+    def test_serial_scan_validation_contract(self):
+        for lot, config, valid in [
+            (self.exact_serial, self.pos_config, True),
+            (self.returned_serial, self.pos_config, True),
+            (self.sold_serial, self.pos_config, False),
+            (self.zero_qty_lot, self.pos_config, False),
+            (self.exact_serial, self.alt_pos_config, False),
+        ]:
+            with self.subTest(serial=lot.name, pos=config.name):
+                self.assertEqual(self.StockLot.validate_serial_for_pos(
+                    lot.name, lot.product_id.id, config.id)['valid'], valid)
+        self.assertFalse(self.StockLot.validate_serial_for_pos(
+            'MISSING-QA-SERIAL', self.serial_product.id, self.pos_config.id)['valid'])
+
+    def test_order_serials_accept_valid_and_returned_but_reject_sold_and_duplicates(self):
+        Order = self.env['pos.order']
+        with patch.object(type(Order), '_get_pos_config_from_order', return_value=self.pos_config):
+            Order._validate_order_serials(self._order_values(self.exact_serial))
+            Order._validate_order_serials(self._order_values(self.returned_serial))
+            for values in [self._order_values(self.sold_serial),
+                           self._order_values(self.zero_qty_lot),
+                           self._order_values(self.exact_serial, qty=2)]:
+                with self.assertRaises(UserError):
+                    Order._validate_order_serials(values)
+            duplicate = self._order_values(self.exact_serial)
+            duplicate['lines'] *= 2
+            with self.assertRaises(UserError):
+                Order._validate_order_serials(duplicate)
+
+    def test_order_serials_keep_location_and_refund_contract(self):
+        Order = self.env['pos.order']
+        with patch.object(type(Order), '_get_pos_config_from_order', return_value=self.alt_pos_config):
+            with self.assertRaises(UserError):
+                Order._validate_order_serials(self._order_values(self.exact_serial))
+            # A negative refund line may use a sold/historical serial.
+            Order._validate_order_serials(self._order_values(self.sold_serial, qty=-1))
+
+    def test_serial_sale_return_history_and_resale_contract(self):
+        lot = self.exact_serial
+        lot.action_mark_sold()
+        self.assertEqual(lot.serial_status, 'sold')
+        lot.action_mark_returned()
+        self.assertEqual(lot.serial_status, 'returned')
+        self.assertEqual(lot.return_count, 1)
+        self.assertEqual(set(lot.serial_history_ids.mapped('operation')), {'sale', 'return'})
+        self.assertTrue(self.StockLot.validate_serial_for_pos(
+            lot.name, lot.product_id.id, self.pos_config.id)['valid'])
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -112,7 +169,27 @@ class TestStockLotSearch(TransactionCase):
             cls.duplicate_product_b, cls.stock_location, 1.0, lot_id=cls.duplicate_lot_b
         )
 
-        cls.second_company = cls.env["res.company"].create({"name": "POS Search Company 2"})
+        # Reuse another company on restored databases with legacy NOT NULL
+        # columns that are no longer ORM fields; do not change their schema.
+        cls.second_company = cls.env['res.company'].search([
+            ('id', '!=', cls.company.id),
+        ], limit=1)
+        if not cls.second_company:
+            # Hosted contact rules require company details, even for test companies.
+            partner_values = {
+                'name': 'POS Search Company 2', 'is_company': True,
+                'vat': 'QA-POS-FOREIGN-COMPANY-2',
+            }
+            if 'mobile_type' in cls.env['res.partner']._fields:
+                partner_values.update({
+                    'company_type': 'company', 'mobile_type': 'foreigner',
+                    'mobile': 'QA-POS-SEARCH-COMPANY-2',
+                    'company_size': 'small', 'company_device': 1,
+                })
+            partner = cls.env['res.partner'].with_context(no_vat_validation=True).create(partner_values)
+            cls.second_company = cls.env["res.company"].create({
+                "name": "POS Search Company 2", "partner_id": partner.id,
+            })
         cls.second_company_location = cls.StockLocation.create(
             {
                 "name": "Company 2 Stock",
