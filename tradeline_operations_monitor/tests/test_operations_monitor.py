@@ -285,3 +285,27 @@ class TestOperationsMonitor(TransactionCase):
             'database:idle:105', 'database:idle:106'})
         self.assertTrue(all(item['severity'] == 'critical' for item in observations))
         self.assertIn('stock_quant', observations[-1]['details'])
+
+    def test_app_menus_only_visible_to_builtin_administrator(self):
+        administrator = self.env.ref('base.user_admin')
+        other_admin = new_test_user(self.env(context=dict(self.env.context, no_reset_password=True)),
+                                    login='ops_other_administrator', groups='base.group_system')
+        other_admin.groups_id = administrator.groups_id
+        root = self.env.ref('tradeline_operations_monitor.menu_operations_root')
+        menus = self.env['ir.ui.menu']
+        app_ids = set(menus.with_context(**{'ir.ui.menu.full_list': True}).search([
+            ('id', 'child_of', root.id),
+        ]).ids)
+        for debug in (False, True):
+            with self.subTest(debug=debug):
+                admin_menus = menus.with_user(administrator)
+                other_menus = menus.with_user(other_admin)
+                self.assertTrue(app_ids <= admin_menus._visible_menu_ids(debug=debug))
+                self.assertFalse(app_ids & other_menus._visible_menu_ids(debug=debug))
+                self.assertTrue(app_ids <= admin_menus._visible_menu_ids(debug=debug))
+                self.assertFalse(app_ids & set(other_menus.load_menus(debug)))
+                self.assertIn(self.env.ref('base.menu_administration').id,
+                              other_menus._visible_menu_ids(debug=debug))
+
+        other_admin.groups_id = self.env.ref('base.group_user')
+        self.assertFalse(app_ids & menus.with_user(other_admin)._visible_menu_ids())

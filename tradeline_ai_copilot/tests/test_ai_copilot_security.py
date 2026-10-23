@@ -104,3 +104,26 @@ class TestAICopilotSecurity(TransactionCase):
         config = self.env["ai.copilot.ui"].with_user(administrator).bootstrap()
         self.assertIn(config["provider"], {"claude", "openai"})
 
+    def test_app_menus_only_visible_to_builtin_administrator(self):
+        administrator = self.env.ref("base.user_admin")
+        root = self.env.ref("tradeline_ai_copilot.menu_tradeline_ai_root")
+        menus = self.env["ir.ui.menu"]
+        app_ids = set(menus.with_context(**{"ir.ui.menu.full_list": True}).search([
+            ("id", "child_of", root.id),
+        ]).ids)
+        # A second Settings administrator with identical groups must stay hidden,
+        # even when both users share Odoo's core group-based menu cache.
+        self.internal_user.groups_id = administrator.groups_id
+        for debug in (False, True):
+            with self.subTest(debug=debug):
+                admin_menus = menus.with_user(administrator)
+                other_menus = menus.with_user(self.internal_user)
+                self.assertTrue(app_ids <= admin_menus._visible_menu_ids(debug=debug))
+                self.assertFalse(app_ids & other_menus._visible_menu_ids(debug=debug))
+                self.assertTrue(app_ids <= admin_menus._visible_menu_ids(debug=debug))
+                self.assertFalse(app_ids & set(other_menus.load_menus(debug)))
+                self.assertIn(self.env.ref("base.menu_administration").id,
+                              other_menus._visible_menu_ids(debug=debug))
+
+        self.internal_user.groups_id = self.env.ref("tradeline_ai_copilot.group_ai_copilot_user")
+        self.assertFalse(app_ids & menus.with_user(self.internal_user)._visible_menu_ids())

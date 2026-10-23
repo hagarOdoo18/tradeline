@@ -322,3 +322,10 @@ unsaved invoices/orders: open/resize/close, multiline input and form shortcuts,
 stream while typing in the underlying field, complete while closed, Stop, chart
 rendering and Excel download. Verify unchanged business record counts, values,
 states, lines and write dates, and no business `web_save`/write/workflow requests.
+
+## App menu visibility
+
+The app and all its submenus are visible only to the built-in Administrator
+account (`base.user_admin`), including in developer mode. Other Settings
+administrators do not see the app. Existing model/API permissions and scheduled
+operations are unchanged.
