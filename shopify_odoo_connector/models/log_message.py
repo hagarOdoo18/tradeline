@@ -37,4 +37,5 @@ class LogMessage(models.Model):
                         help='The model name that related to the log message')
     shopify_instance_id = fields.Many2one('shopify.configuration',
                                           string='Shopify Instance',
+                                          index=True,
                                           help='Choose the Shopify instance')

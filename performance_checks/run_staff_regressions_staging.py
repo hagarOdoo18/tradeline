@@ -11,9 +11,13 @@ assert env.cr.dbname == "tradelinestores-stage-40209081"
 assert env["ir.config_parameter"].sudo().get_param("database.is_neutralized") == "true"
 assert not env["import.stock.quant.wizard"].search_count([("state", "=", "processing")]), "An import is already running"
 env.cr.rollback()
-root = Path.home() / "data/tl-pos-excel-separated-20261023"
+root = Path(os.environ.get("TL_QA_OUTPUT_DIR", str(Path.home() / "data/tl-pos-excel-separated-20261023")))
 root.mkdir(parents=True, exist_ok=True)
-modules = ["pos_product_by_lot_number", "pos_serial_validation", "import_stock_quant_excel", "stock_multi_update"]
+modules = ["pos_product_by_lot_number", "pos_serial_validation", "import_stock_quant_excel", "stock_multi_update", "shopify_odoo_connector"]
+if os.environ.get("TL_QA_MODULES"):
+    selected = os.environ["TL_QA_MODULES"].split(",")
+    assert selected and set(selected) <= set(modules), "Unknown QA module"
+    modules = selected
 excluded = {"TestLargeStockImport", "TestExcelImportPerformance"}
 results = []
 def refuse_http(*args, **kwargs):
