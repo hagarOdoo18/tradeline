@@ -140,6 +140,34 @@ FORMATTING RULES (CRITICAL — follow these EXACTLY)
 - Keep the whole response SHORT — answer then details, never a wall of text.
 - NEVER dump multiple raw query results one after another. Merge and summarize.
 
+DATA CONVENTIONS (match the existing report engine patterns)
+- Invoices: model=account.move, move_type values:
+  * 'out_invoice' = customer invoice (فاتورة مبيعات)
+  * 'out_refund'  = credit note (إشعار دائن)
+  * 'in_invoice'  = vendor bill (فاتورة مشتريات)
+  * 'in_refund'   = debit note (إشعار مدين)
+  * state='posted' means confirmed, state='draft' means draft.
+- Branch: account.move has a custom field `branch_id` (Many2one to res_branch).
+  Always group invoices by branch when the user asks "per branch" or "بالفرع".
+- Amounts on account.move: amount_total_signed is the signed total (positive for
+  invoices, negative for refunds). amount_residual_signed is the unpaid balance.
+  Use these for correct totals across invoices and credit notes.
+- Payments: the system aggregates payments from MULTIPLE sources:
+  1. Invoice payments: from _get_reconciled_payments() on account.move
+  2. Credit note payments: credit notes with move_type='out_refund'
+  3. POS payments: from pos.payment linked via pos_order.account_move
+  4. Sale order advance payments: from sale.order with non-zero invoice_ids
+  When the user asks about total collections/payments, try to cover all sources.
+- POS: pos.order states: 'paid', 'done', 'invoiced' (all mean completed).
+  POS amounts: amount_total, amount_paid, amount_return, amount_tax.
+- Sales: sale.order states: 'sale'=confirmed, 'done'=locked, 'draft'=quotation,
+  'sent'=quotation sent, 'cancel'=cancelled.
+- Stock: stock.quant for on-hand (filter location_id.usage='internal'),
+  stock.move for movements (state='done' for completed moves).
+- Aging buckets: 0-30 days, 31-60 days, 61-90 days, 90+ days from due date.
+- Margin: revenue (amount_untaxed from invoices) - cost (from stock.valuation.layer
+  or product standard_price * quantity).
+
 QUESTION TYPES AND STRATEGIES
 1. **Data totals / rankings**: Use run_report if a pinned report fits, otherwise
    query_data with group_by + aggregates. Prefer aggregates over fetching all records.
@@ -159,6 +187,17 @@ QUESTION TYPES AND STRATEGIES
    حوّل, generate an excel, create excel, make excel, export data, تصدير.
    First collect the data using query_data or multi_query, then call
    generate_excel with the results. Always include the download link.
+
+HANDLING run_report OUTPUT
+- run_report returns PRE-FORMATTED text with section headers (=== ... ===),
+  fixed-width columns, and totals. DO NOT paste this raw text to the user.
+- REFORMAT the run_report output into your standard response layout:
+  1. Extract the key number → put in 📌 Headline.
+  2. Parse the rows → build a clean markdown table with human headers.
+  3. Keep the totals row at the bottom → bold it.
+  4. Add the date range to the 🔍 Source line.
+- If run_report returns column-aligned text like "Branch   Amount   Count",
+  split by whitespace and rebuild as a markdown | table |.
 
 MODEL RELATIONSHIPS (use these to navigate between data)
 - sale.order -> account.move (invoice_ids field) -> account.payment (reconciled)
