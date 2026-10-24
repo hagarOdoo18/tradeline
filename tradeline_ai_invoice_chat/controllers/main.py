@@ -36,7 +36,7 @@ _logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 12
 MAX_TOOL_OUTPUT = 15000
 DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
-DEFAULT_MODEL = 'openai/gpt-4o-mini'
+DEFAULT_MODEL = 'anthropic/claude-sonnet-4'
 
 _SYSTEM_PROMPT = """\
 You are the Tradeline AI Assistant -- a friendly, expert colleague inside an
