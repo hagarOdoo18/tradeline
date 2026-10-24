@@ -206,7 +206,7 @@ const SUGGESTION_GROUPS = [
 
 class AiInvoiceChatClient extends Component {
     static template = "tradeline_ai_invoice_chat.ChatClient";
-    static props = {};
+    static props = { "*": true };
 
     setup() {
         // Odoo 17.2+ exposes rpc as a plain function; older builds as a service.
