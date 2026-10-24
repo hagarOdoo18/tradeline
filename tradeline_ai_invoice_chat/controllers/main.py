@@ -23,6 +23,7 @@ import base64
 import io
 import json
 import logging
+import os
 import urllib.request
 import urllib.error
 from datetime import date
@@ -34,8 +35,8 @@ _logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 12
 MAX_TOOL_OUTPUT = 15000
-DEFAULT_BASE_URL = 'https://api.openai.com/v1'
-DEFAULT_MODEL = 'gpt-4o-mini'
+DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1'
+DEFAULT_MODEL = 'llama-3.3-70b-versatile'
 
 _SYSTEM_PROMPT = """\
 You are the Tradeline AI Assistant -- a friendly, expert colleague inside an
@@ -602,8 +603,9 @@ class AiInvoiceChatController(http.Controller):
 
         trace = []
         reply = None
-        api_key = env['ir.config_parameter'].sudo().get_param(
+        api_key = (env['ir.config_parameter'].sudo().get_param(
             'ai_invoice_chat.openai_key', '')
+            or os.environ.get('GROQ_API_KEY', ''))
 
         if api_key:
             reply = self._run_agent(session, message, api_key, trace)
