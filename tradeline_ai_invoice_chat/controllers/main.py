@@ -35,8 +35,8 @@ _logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 12
 MAX_TOOL_OUTPUT = 15000
-DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1'
-DEFAULT_MODEL = 'llama-3.3-70b-versatile'
+DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1'
+DEFAULT_MODEL = 'openai/gpt-4o-mini'
 
 _SYSTEM_PROMPT = """\
 You are the Tradeline AI Assistant -- a friendly, expert colleague inside an
@@ -605,6 +605,7 @@ class AiInvoiceChatController(http.Controller):
         reply = None
         api_key = (env['ir.config_parameter'].sudo().get_param(
             'ai_invoice_chat.openai_key', '')
+            or os.environ.get('OPENROUTER_API_KEY', '')
             or os.environ.get('GROQ_API_KEY', ''))
 
         if api_key:
@@ -948,27 +949,37 @@ class AiInvoiceChatController(http.Controller):
         }
         if tools:
             body['tools'] = tools
-            body['parallel_tool_calls'] = True
             body['tool_choice'] = 'auto'
+            # parallel_tool_calls: only for OpenAI-native endpoints
+            if 'openai.com' in base_url:
+                body['parallel_tool_calls'] = True
 
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + api_key,
+        }
+        # OpenRouter requires extra headers
+        if 'openrouter.ai' in base_url:
+            headers['HTTP-Referer'] = 'https://tradelinestores-stage-40209081.dev.odoo.com'
+            headers['X-Title'] = 'Tradeline AI Assistant'
         req = urllib.request.Request(
             base_url + '/chat/completions',
             data=json.dumps(body).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + api_key,
-            },
+            headers=headers,
             method='POST',
         )
+        _logger.info('AI request -> %s/chat/completions model=%s tools=%s',
+                     base_url, model, bool(tools))
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 payload = json.loads(resp.read().decode('utf-8'))
+                _logger.info('AI response OK, usage=%s', payload.get('usage'))
                 return payload['choices'][0]['message']
         except urllib.error.HTTPError as http_err:
             detail = http_err.read().decode('utf-8', errors='replace')
-            _logger.warning('AI provider HTTP %s: %s', http_err.code, detail[:800])
+            _logger.error('AI provider HTTP %s: %s', http_err.code, detail[:1500])
         except Exception as exc:
-            _logger.warning('AI provider call failed: %s', exc)
+            _logger.error('AI provider call failed: %s', exc)
         return None
 
     def _plain_messages(self, session, current_message, data_context):
