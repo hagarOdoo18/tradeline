@@ -296,6 +296,18 @@
     font-size: 12.5px;
 }
 
+.o_ai_link {
+    color: #017e84;
+    text-decoration: none;
+    font-weight: 600;
+    border-bottom: 1px dashed #017e84;
+    transition: color 0.15s, border-color 0.15s;
+}
+.o_ai_link:hover {
+    color: #015d61;
+    border-bottom-style: solid;
+}
+
 /* ---- Typing indicator ---- */
 .o_ai_typing {
     display: flex;

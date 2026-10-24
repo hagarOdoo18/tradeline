@@ -29,9 +29,12 @@ function escapeHtml(text) {
         .replace(/>/g, "&gt;");
 }
 
-/** Inline markdown: **bold**, *italic*, `code`. Input must already be escaped. */
+/** Inline markdown: **bold**, *italic*, `code`, [links](url). Input must already be escaped. */
 function inlineFormat(text) {
     return text
+        // markdown links: [text](url) -> clickable <a>
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
+            '<a href="$2" target="_blank" class="o_ai_link">$1</a>')
         .replace(/`([^`]+)`/g, '<code class="o_ai_inline_code">$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
         .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,!?؟،])/g, "$1<em>$2</em>");
