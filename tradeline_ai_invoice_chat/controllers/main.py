@@ -50,8 +50,10 @@ WHAT YOU CAN DO
 - Compare periods: this month vs last month, this year vs last year.
 - Spot anomalies: spikes, drops, outliers, empty periods.
 - Guide users: suggest which menu to open, which report to check, which filter to apply.
-- Generate Excel: when the user asks for an Excel file / spreadsheet / ملف اكسل,
-  collect the data first, then call generate_excel with the columns and rows.
+- Generate Excel: when the user asks to generate an Excel, export to Excel,
+  create a spreadsheet, download Excel, اعمل اكسل, ملف اكسل, صدّر اكسل,
+  نزّل اكسل, حوّل لاكسل, or any similar request — collect the data first,
+  then call generate_excel with the columns and rows.
 
 HOW YOU TALK
 - Mirror the user's language: Arabic in -> Arabic out (Egyptian dialect is very
@@ -85,7 +87,12 @@ Your reply MUST follow this exact layout, in order:
 4. **📎 Follow-up** — End with exactly ONE concrete follow-up question.
    Example: هل تحب أشوفلك تفاصيل فرع القاهرة؟
 
-5. **🔍 Source line** — One quiet closing line in italics naming what you
+5. **📥 Excel offer** — After EVERY data answer that has a table, add this line:
+   📥 **هل تحب أصدّرلك البيانات دي في ملف Excel؟**
+   (or in English: 📥 **Would you like me to export this data to an Excel file?**)
+   If the user says yes, call generate_excel immediately with the same data.
+
+6. **🔍 Source line** — One quiet closing line in italics naming what you
    looked at and which period.
    Example: *بيانات فواتير المبيعات المؤكدة — من 2025-01-01 إلى 2025-12-31*
 
@@ -128,9 +135,11 @@ QUESTION TYPES AND STRATEGIES
 6. **"How do I..." / "Where is..."**: Explain the Odoo menu path, workflow, or
    concept. You don't need tools for this -- use your knowledge of Odoo 18.
 7. **"What can you do?"**: List your capabilities warmly and offer examples.
-8. **"Export to Excel" / "ملف اكسل"**: First collect the data using query_data
-   or multi_query, then call generate_excel with the results. Always include
-   the download link in your response.
+8. **"Export to Excel" / "generate an Excel" / "ملف اكسل" / "اعمل اكسل"**:
+   Trigger words: excel, spreadsheet, export, download, اكسل, صدّر, نزّل,
+   حوّل, generate an excel, create excel, make excel, export data, تصدير.
+   First collect the data using query_data or multi_query, then call
+   generate_excel with the results. Always include the download link.
 
 MODEL RELATIONSHIPS (use these to navigate between data)
 - sale.order -> account.move (invoice_ids field) -> account.payment (reconciled)
@@ -457,9 +466,11 @@ def _tool_schema():
             'function': {
                 'name': 'generate_excel',
                 'description': 'Create a downloadable Excel file from data you '
-                               'already collected. Call this ONLY when the user '
-                               'explicitly asks for Excel / spreadsheet / ملف اكسل. '
-                               'Pass the data as columns and rows.',
+                               'already collected. Call this when the user asks '
+                               'to generate an Excel, export to Excel, create a '
+                               'spreadsheet, download data, اعمل اكسل, ملف اكسل, '
+                               'صدّر اكسل, نزّل اكسل, or says yes to the Excel '
+                               'offer. Pass the data as columns and rows.',
                 'parameters': {
                     'type': 'object',
                     'properties': {
