@@ -667,7 +667,7 @@ class AiInvoiceChatController(http.Controller):
                      'currency_id, company_id, team_id, order_line')
         parts.append('  sale.order.line: order_id, product_id, product_uom_qty, '
                      'price_unit, price_subtotal, price_total, discount, '
-                     'salesman_id, product_template_id')
+                     'salesman_id, state, company_id, currency_id')
         parts.append('  account.move: name, partner_id, invoice_date, '
                      'invoice_date_due, amount_total, amount_residual, '
                      'amount_untaxed, amount_tax, state, move_type, '
