@@ -129,6 +129,38 @@ DOMAIN_CATALOG = [
         ('res.users', 'Users'),
         ('res.currency', 'Currencies'),
     ]),
+    ('Maintenance', [
+        ('maintenance.request', 'Maintenance requests'),
+        ('maintenance.equipment', 'Equipment'),
+        ('maintenance.equipment.category', 'Equipment categories'),
+    ]),
+    ('Fleet', [
+        ('fleet.vehicle', 'Vehicles'),
+        ('fleet.vehicle.log.fuel', 'Fuel logs'),
+        ('fleet.vehicle.log.services', 'Service logs'),
+        ('fleet.vehicle.log.contract', 'Vehicle contracts'),
+    ]),
+    ('Approvals', [
+        ('approval.request', 'Approval requests'),
+        ('approval.category', 'Approval categories'),
+    ]),
+    ('Quality', [
+        ('quality.check', 'Quality checks'),
+        ('quality.alert', 'Quality alerts'),
+        ('quality.point', 'Quality control points'),
+    ]),
+    ('Repair', [
+        ('repair.order', 'Repair orders'),
+    ]),
+    ('Lunch', [
+        ('lunch.order', 'Lunch orders'),
+        ('lunch.product', 'Lunch products'),
+        ('lunch.supplier', 'Lunch vendors'),
+    ]),
+    ('Events', [
+        ('event.event', 'Events'),
+        ('event.registration', 'Event registrations'),
+    ]),
 ]
 
 

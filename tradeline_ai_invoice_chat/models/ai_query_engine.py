@@ -371,3 +371,206 @@ class AiDataQueryEngine(models.AbstractModel):
             'order': order,
             'limit': limit,
         })
+
+    # ------------------------------------------------------------------
+    # NEW TOOLS: get_field_values, count_records, search_by_name
+    # ------------------------------------------------------------------
+    def get_field_values(self, model_name, field_name, domain=None, limit=50):
+        """Return distinct values of *field_name* on *model_name*.
+
+        Uses read_group to get unique values efficiently. Returns a
+        plain-text list the AI can use to build precise domain filters.
+        """
+        Schema = self.env['ai.data.schema']
+        model_name = (model_name or '').strip()
+        field_name = (field_name or '').strip()
+
+        allowed, message = Schema.is_model_allowed(model_name)
+        if not allowed:
+            return 'CANNOT READ THIS: %s' % message
+
+        fields_meta = Schema.get_readable_fields(model_name)
+        if not fields_meta:
+            return "No readable fields on '%s'." % model_name
+
+        base = self._base_field(field_name)
+        if base not in fields_meta:
+            return ("Field '%s' does not exist on %s. "
+                    "Call describe_model first." % (field_name, model_name))
+
+        fdef = fields_meta[base]
+        ftype = fdef.get('type')
+        limit = max(1, min(int(limit or 50), 200))
+
+        # For selection fields, return the defined options directly
+        if ftype == 'selection':
+            sel = fdef.get('selection') or []
+            lines = ['=== Possible values of %s.%s (selection) ===' % (model_name, base)]
+            for item in sel:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    lines.append('  %s = %s' % (item[0], item[1]))
+            return '\n'.join(lines) if len(lines) > 1 else 'No selection values defined.'
+
+        # For other fields, use read_group to get distinct values
+        Model = self.env[model_name]
+        clean_domain = []
+        if domain:
+            try:
+                clean_domain = self._validate_domain(domain, fields_meta, model_name)
+            except Exception:
+                clean_domain = []
+
+        # Add filter to exclude empty values
+        if ftype in ('char', 'text', 'html'):
+            clean_domain = clean_domain + [(base, '!=', False), (base, '!=', '')]
+        elif ftype != 'boolean':
+            clean_domain = clean_domain + [(base, '!=', False)]
+
+        try:
+            groups = Model.read_group(
+                clean_domain, [base], [base],
+                limit=limit, orderby='%s_count desc' % base if ftype not in ('date', 'datetime') else base,
+                lazy=False,
+            )
+        except Exception:
+            # Fallback: try _read_group (Odoo 18)
+            try:
+                groups = Model._read_group(
+                    clean_domain, groupby=[base], aggregates=['__count'],
+                    limit=limit)
+                lines = ['=== Distinct values of %s.%s (%d shown) ===' % (
+                    model_name, base, len(groups))]
+                for tup in groups:
+                    val = tup[0]
+                    count = tup[1] if len(tup) > 1 else ''
+                    lines.append('  %s  (%s records)' % (_fmt(val), _fmt(count)))
+                return '\n'.join(lines)
+            except Exception as exc:
+                return 'Could not retrieve values: %s' % exc
+
+        lines = ['=== Distinct values of %s.%s (%d shown) ===' % (
+            model_name, base, len(groups))]
+        for group in groups:
+            val = group.get(base)
+            count = group.get('%s_count' % base, group.get('__count', ''))
+            lines.append('  %s  (%s records)' % (_fmt(val), _fmt(count)))
+        if not groups:
+            lines.append('  (no values found)')
+        return '\n'.join(lines)
+
+    def count_records(self, model_name, domain=None):
+        """Fast record count without fetching data."""
+        Schema = self.env['ai.data.schema']
+        model_name = (model_name or '').strip()
+
+        allowed, message = Schema.is_model_allowed(model_name)
+        if not allowed:
+            return 'CANNOT READ THIS: %s' % message
+
+        fields_meta = Schema.get_readable_fields(model_name)
+        clean_domain = []
+        if domain:
+            try:
+                clean_domain = self._validate_domain(domain, fields_meta, model_name)
+            except Exception as exc:
+                return 'INVALID DOMAIN: %s' % exc
+
+        try:
+            total = self.env[model_name].search_count(clean_domain)
+        except AccessError as err:
+            return 'NO ACCESS: %s' % (err.args[0] if err.args else err)
+        except Exception as exc:
+            return 'COUNT ERROR: %s' % exc
+
+        return '%s has %s record(s) matching the given domain.' % (
+            model_name, '{:,}'.format(total))
+
+    def search_by_name(self, model_name, name, limit=10):
+        """Find records by name / reference / display_name.
+
+        Returns a compact table with id, display_name, and a few
+        key fields so the AI can identify the right record.
+        """
+        Schema = self.env['ai.data.schema']
+        model_name = (model_name or '').strip()
+        name = (name or '').strip()
+
+        if not name:
+            return 'Please provide a name or reference to search for.'
+
+        allowed, message = Schema.is_model_allowed(model_name)
+        if not allowed:
+            return 'CANNOT READ THIS: %s' % message
+
+        fields_meta = Schema.get_readable_fields(model_name)
+        if not fields_meta:
+            return "No readable fields on '%s'." % model_name
+
+        limit = max(1, min(int(limit or 10), 50))
+        Model = self.env[model_name]
+
+        # Build an OR domain searching across likely name fields
+        search_fields = []
+        for fname in ('name', 'display_name', 'ref', 'default_code',
+                      'x_name', 'x_studio_name', 'complete_name',
+                      'partner_name', 'number'):
+            if fname in fields_meta:
+                search_fields.append(fname)
+
+        if not search_fields:
+            # Last resort: use name_search
+            try:
+                results = Model.name_search(name, limit=limit)
+                if not results:
+                    return "No records in %s matching '%s'." % (model_name, name)
+                lines = ['=== Search results for "%s" in %s ===' % (name, model_name)]
+                for rec_id, rec_name in results:
+                    lines.append('  [%d] %s' % (rec_id, rec_name))
+                return '\n'.join(lines)
+            except Exception as exc:
+                return 'SEARCH ERROR: %s' % exc
+
+        # Build OR domain
+        domain_parts = []
+        for fname in search_fields:
+            domain_parts.append((fname, 'ilike', name))
+        if len(domain_parts) > 1:
+            domain = ['|'] * (len(domain_parts) - 1) + domain_parts
+        else:
+            domain = domain_parts
+
+        # Pick useful display columns
+        display_cols = ['display_name']
+        extras = ['state', 'partner_id', 'date', 'date_order', 'invoice_date',
+                  'amount_total', 'amount_untaxed', 'product_id', 'quantity',
+                  'categ_id', 'company_id', 'branch_id', 'email', 'phone',
+                  'default_code', 'list_price', 'standard_price']
+        for col in extras:
+            if col in fields_meta and col not in display_cols:
+                display_cols.append(col)
+            if len(display_cols) >= 8:
+                break
+
+        try:
+            records = Model.search_read(domain, display_cols, limit=limit)
+        except AccessError as err:
+            return 'NO ACCESS: %s' % (err.args[0] if err.args else err)
+        except Exception as exc:
+            return 'SEARCH ERROR: %s' % exc
+
+        if not records:
+            return "No records in %s matching '%s'." % (model_name, name)
+
+        # Format as table
+        cols_with_id = ['id'] + display_cols
+        headers = ['ID'] + [fields_meta.get(c, {}).get('string', c) for c in display_cols]
+        rows = []
+        for rec in records:
+            row = [str(rec.get('id', ''))]
+            for col in display_cols:
+                row.append(_fmt(rec.get(col)))
+            rows.append(row)
+
+        title = '=== Search results for "%s" in %s (%d found) ===' % (
+            name, model_name, len(records))
+        return _table(headers, rows, title)

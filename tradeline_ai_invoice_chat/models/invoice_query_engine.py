@@ -57,7 +57,14 @@ _KW_POS       = ['pos', 'point of sale', 'cashier', 'session', 'كاشير',
 _KW_HR        = ['employee', 'headcount', 'department', 'payroll', 'payslip',
                  'attendance', 'موظف', 'الموظفين', 'الأقسام', 'الاقسام',
                  'الرواتب', 'راتب', 'قسيمة', 'الحضور']
-
+_KW_AGING     = ['aging', 'ageing', 'age analysis', 'age bucket', '30 60 90',
+                 'تقادم', 'أعمار الديون', 'اعمار الديون', 'تحليل العمر']
+_KW_MARGIN    = ['margin', 'profit', 'cost', 'markup', 'profitability',
+                 'هامش', 'ربح', 'أرباح', 'تكلفة', 'الربحية', 'هامش الربح']
+_KW_TREND     = ['trend', 'month over month', 'monthly', 'growth',
+                 'اتجاه', 'شهري', 'نمو', 'مقارنة شهرية', 'تطور']
+_KW_COLLECT   = ['collection rate', 'collection', 'payment rate',
+                 'نسبة التحصيل', 'معدل التحصيل', 'تحصيل']
 
 
 def _contains(text, keywords):
@@ -268,6 +275,15 @@ class InvoiceQueryEngine(models.AbstractModel):
         if (_contains(message, _KW_PAID) or _contains(message, _KW_SUMMARY)) \
                 and not other_domain:
             parts.append(self._report_paid_summary(date_from, date_to))
+
+        if _contains(message, _KW_AGING):
+            parts.append(self._report_aging_analysis())
+        if _contains(message, _KW_MARGIN) and not other_domain:
+            parts.append(self._report_profit_margins(date_from, date_to))
+        if _contains(message, _KW_TREND) and not other_domain:
+            parts.append(self._report_sales_trend())
+        if _contains(message, _KW_COLLECT) and not other_domain:
+            parts.append(self._report_collection_rate_trend())
 
         if _contains(message, _KW_DATE) and not parts:
             parts.append(self._report_date_range(date_from, date_to))
@@ -863,6 +879,190 @@ class InvoiceQueryEngine(models.AbstractModel):
         )
         return '=== Headcount by Department ===\n' + body
 
+    # ------------------------------------------------------------------
+    # NEW: Aging analysis (30/60/90 day buckets)
+    # ------------------------------------------------------------------
+    def _report_aging_analysis(self):
+        """Receivable aging in 30-day buckets."""
+        cr = self.env.cr
+        today_str = str(date.today())
+        cr.execute("""
+            SELECT
+                CASE
+                    WHEN invoice_date_due >= %(today)s THEN 'Current (not due)'
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 1  AND 30  THEN '1-30 days'
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 31 AND 60  THEN '31-60 days'
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 61 AND 90  THEN '61-90 days'
+                    ELSE '90+ days'
+                END                              AS bucket,
+                COUNT(*)                         AS inv_count,
+                SUM(amount_residual_signed)       AS balance
+            FROM account_move
+            WHERE move_type   = 'out_invoice'
+              AND state       = 'posted'
+              AND amount_residual_signed > 1
+            GROUP BY 1
+            ORDER BY MIN(
+                CASE
+                    WHEN invoice_date_due >= %(today)s THEN 0
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 1  AND 30  THEN 1
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 31 AND 60  THEN 2
+                    WHEN %(today)s::date - invoice_date_due BETWEEN 61 AND 90  THEN 3
+                    ELSE 4
+                END
+            )
+        """, {'today': today_str})
+        rows = cr.fetchall()
+        if not rows:
+            return '=== Aging Analysis ===\nNo open receivables.'
+        lines = ['=== Receivable Aging Analysis ===',
+                 '{:<22} {:>8} {:>16}'.format('Bucket', 'Count', 'Balance')]
+        lines.append('-' * 50)
+        total_balance = 0.0
+        for bucket, cnt, bal in rows:
+            bal = float(bal or 0)
+            total_balance += bal
+            lines.append('{:<22} {:>8} {:>16,.2f}'.format(bucket, cnt, bal))
+        lines.append('-' * 50)
+        lines.append('{:<22} {:>8} {:>16,.2f}'.format('TOTAL', '', total_balance))
+        return '\n'.join(lines)
+
+    # ------------------------------------------------------------------
+    # NEW: Profit margins
+    # ------------------------------------------------------------------
+    def _report_profit_margins(self, date_from, date_to):
+        """Gross profit margin on sales invoices."""
+        cr = self.env.cr
+        cr.execute("""
+            SELECT
+                COUNT(DISTINCT am.id)                              AS inv_count,
+                COALESCE(SUM(aml.price_subtotal), 0)               AS revenue,
+                COALESCE(SUM(
+                    CASE WHEN pp.id IS NOT NULL
+                         THEN aml.quantity * COALESCE(
+                              (SELECT svl.unit_cost
+                               FROM stock_valuation_layer svl
+                               WHERE svl.product_id = pp.id
+                               ORDER BY svl.create_date DESC
+                               LIMIT 1),
+                              pt.standard_price)
+                         ELSE 0
+                    END
+                ), 0)                                              AS cost
+            FROM account_move_line aml
+            JOIN account_move am ON am.id = aml.move_id
+            LEFT JOIN product_product pp ON pp.id = aml.product_id
+            LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            WHERE am.move_type    = 'out_invoice'
+              AND am.state        = 'posted'
+              AND aml.display_type = 'product'
+              AND am.invoice_date >= %s
+              AND am.invoice_date <= %s
+        """, (date_from, date_to))
+        row = cr.fetchone()
+        if not row or not row[1]:
+            return ('=== Profit Margin (' + date_from + ' -> ' + date_to + ') ===\n'
+                    'No invoice line data for this period.')
+        inv_count, revenue, cost = row
+        revenue = float(revenue)
+        cost = float(cost)
+        profit = revenue - cost
+        margin = (profit / revenue * 100) if revenue else 0
+        return (
+            '=== Profit Margin Analysis (' + date_from + ' -> ' + date_to + ') ===\n'
+            'Invoices         : ' + str(inv_count) + '\n'
+            'Revenue          : ' + '{:,.2f}'.format(revenue) + '\n'
+            'Est. Cost (COGS) : ' + '{:,.2f}'.format(cost) + '\n'
+            'Gross Profit     : ' + '{:,.2f}'.format(profit) + '\n'
+            'Gross Margin     : ' + '{:.1f}%'.format(margin) + '\n'
+            'Note: cost is estimated from stock valuation layers or standard price.'
+        )
+
+    # ------------------------------------------------------------------
+    # NEW: Sales trend (month-over-month, last 12 months)
+    # ------------------------------------------------------------------
+    def _report_sales_trend(self):
+        """Month-over-month sales invoice totals for the last 12 months."""
+        cr = self.env.cr
+        today = date.today()
+        start = date(today.year - 1, today.month, 1)
+        cr.execute("""
+            SELECT
+                TO_CHAR(invoice_date, 'YYYY-MM')   AS month,
+                COUNT(*)                           AS inv_count,
+                SUM(amount_total_signed)            AS total
+            FROM account_move
+            WHERE move_type    = 'out_invoice'
+              AND state        = 'posted'
+              AND invoice_date >= %s
+              AND invoice_date <= %s
+            GROUP BY 1
+            ORDER BY 1
+        """, (str(start), str(today)))
+        rows = cr.fetchall()
+        if not rows:
+            return '=== Sales Trend ===\nNo invoices in the last 12 months.'
+        lines = ['=== Monthly Sales Trend (last 12 months) ===',
+                 '{:<10} {:>8} {:>16} {:>10}'.format(
+                     'Month', 'Count', 'Total', 'Change')]
+        lines.append('-' * 50)
+        prev_total = None
+        for month_val, cnt, total in rows:
+            total = float(total or 0)
+            if prev_total is not None and prev_total != 0:
+                change = (total - prev_total) / prev_total * 100
+                change_str = '{:+.1f}%'.format(change)
+            else:
+                change_str = '-'
+            lines.append('{:<10} {:>8} {:>16,.2f} {:>10}'.format(
+                month_val, cnt, total, change_str))
+            prev_total = total
+        return '\n'.join(lines)
+
+    # ------------------------------------------------------------------
+    # NEW: Collection rate trend (monthly)
+    # ------------------------------------------------------------------
+    def _report_collection_rate_trend(self):
+        """Monthly collection rate: paid / invoiced for the last 12 months."""
+        cr = self.env.cr
+        today = date.today()
+        start = date(today.year - 1, today.month, 1)
+        cr.execute("""
+            SELECT
+                TO_CHAR(invoice_date, 'YYYY-MM')    AS month,
+                COUNT(*)                            AS inv_count,
+                COALESCE(SUM(amount_total_signed), 0) AS invoiced,
+                COALESCE(SUM(amount_total_signed - amount_residual_signed), 0) AS collected
+            FROM account_move
+            WHERE move_type    = 'out_invoice'
+              AND state        = 'posted'
+              AND invoice_date >= %s
+              AND invoice_date <= %s
+            GROUP BY 1
+            ORDER BY 1
+        """, (str(start), str(today)))
+        rows = cr.fetchall()
+        if not rows:
+            return '=== Collection Rate ===\nNo invoices in the last 12 months.'
+        lines = ['=== Monthly Collection Rate (last 12 months) ===',
+                 '{:<10} {:>8} {:>16} {:>16} {:>8}'.format(
+                     'Month', 'Count', 'Invoiced', 'Collected', 'Rate')]
+        lines.append('-' * 65)
+        total_inv = total_col = 0.0
+        for month_val, cnt, invoiced, collected in rows:
+            invoiced = float(invoiced or 0)
+            collected = float(collected or 0)
+            total_inv += invoiced
+            total_col += collected
+            rate = (collected / invoiced * 100) if invoiced else 0
+            lines.append('{:<10} {:>8} {:>16,.2f} {:>16,.2f} {:>7.1f}%'.format(
+                month_val, cnt, invoiced, collected, rate))
+        overall_rate = (total_col / total_inv * 100) if total_inv else 0
+        lines.append('-' * 65)
+        lines.append('{:<10} {:>8} {:>16,.2f} {:>16,.2f} {:>7.1f}%'.format(
+            'TOTAL', '', total_inv, total_col, overall_rate))
+        return '\n'.join(lines)
+
 
 # ---------------------------------------------------------------------------
 # Catalog of pinned reports exposed to the AI (`run_report` tool) and used by
@@ -921,5 +1121,21 @@ REPORT_CATALOG = {
     'hr_headcount': {
         'label': 'Employee headcount per department',
         'method': '_report_hr_headcount', 'dates': False, 'limit': False,
+    },
+    'aging_analysis': {
+        'label': 'Receivable aging in 30/60/90 day buckets',
+        'method': '_report_aging_analysis', 'dates': False, 'limit': False,
+    },
+    'profit_margins': {
+        'label': 'Gross profit margin on sales invoices',
+        'method': '_report_profit_margins', 'dates': True, 'limit': False,
+    },
+    'sales_trend': {
+        'label': 'Month-over-month sales invoice trend (12 months)',
+        'method': '_report_sales_trend', 'dates': False, 'limit': False,
+    },
+    'collection_rate_trend': {
+        'label': 'Monthly collection rate trend (12 months)',
+        'method': '_report_collection_rate_trend', 'dates': False, 'limit': False,
     },
 }

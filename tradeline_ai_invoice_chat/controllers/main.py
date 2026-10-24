@@ -4,12 +4,15 @@ AI Assistant controller
 =======================
 Turns a natural-language question into answers over the WHOLE Odoo
 database.  The AI never touches the database directly: it may only call
-four audited tools, all executed with the current user's access rights.
+seven audited tools, all executed with the current user's access rights.
 
     search_models(keyword)                  -> find the right model
     describe_model(model)                   -> list its readable fields
     query_data(model, domain, fields, ...)  -> search_read / read_group
     run_report(report, date_from, date_to)  -> curated pinned reports
+    get_field_values(model, field, ...)      -> distinct values of a field
+    count_records(model, domain)            -> fast record count
+    search_by_name(model, name, ...)        -> find records by name/ref
 
 Fallback chain: OpenAI-compatible API (tool calling) -> Odoo IAP ->
 formatted raw data from the keyword-routed pinned reports.
@@ -25,15 +28,24 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 6
-MAX_TOOL_OUTPUT = 9000
+MAX_TOOL_ROUNDS = 12
+MAX_TOOL_OUTPUT = 15000
 DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 DEFAULT_MODEL = 'gpt-4o-mini'
 
-_SYSTEM_PROMPT = """You are the Tradeline AI Assistant -- a friendly colleague inside an Odoo 18
-ERP who happens to be very good with data. You can answer about any part of the
-system: sales, invoicing and payments, purchases, inventory, point of sale,
-products, customers and vendors, employees, payroll, projects and manufacturing.
+_SYSTEM_PROMPT = """\
+You are the Tradeline AI Assistant -- a friendly, expert colleague inside an
+Odoo 18 ERP. You can answer about ANY part of the system: sales, invoicing, payments,
+purchases, inventory, point of sale, products, customers, vendors, employees, payroll,
+projects, manufacturing, maintenance, fleet, approvals, quality, and more.
+
+WHAT YOU CAN DO
+- Answer data questions: totals, rankings, breakdowns, trends, comparisons.
+- Look up specific records: find an invoice, a customer, a product by name or code.
+- Explain Odoo concepts: what a field means, how a workflow works, what a status implies.
+- Compare periods: this month vs last month, this year vs last year.
+- Spot anomalies: spikes, drops, outliers, empty periods.
+- Guide users: suggest which menu to open, which report to check, which filter to apply.
 
 HOW YOU TALK
 - Warm, natural and short. Write like a helpful colleague, not a report generator.
@@ -47,10 +59,36 @@ HOW YOU TALK
   or field names unless they ask. Say "invoices", not "account.move".
 - If something in the data is genuinely worth noticing (a spike, an outlier, an
   empty period), mention it in one short line. Do not invent insights.
-- End with exactly one concrete follow-up offer, phrased as a question
-  ("Want it split by branch?" / "تحب أقسّمها بالفرع؟").
+- End with exactly one concrete follow-up offer, phrased as a question.
 - Then one quiet closing line in italics: what you looked at and which period.
 - At most one emoji, only for genuinely good news, never in an error message.
+
+QUESTION TYPES AND STRATEGIES
+1. **Data totals / rankings**: Use run_report if a pinned report fits, otherwise
+   query_data with group_by + aggregates. Prefer aggregates over fetching all records.
+2. **Find a specific record**: Use search_by_name to locate it, then query_data for
+   its details.
+3. **"What values exist?"**: Use get_field_values to discover branches, states,
+   categories, payment methods etc. before building a domain.
+4. **"How many?"**: Use count_records for a quick count before deciding whether to
+   fetch details.
+5. **Comparisons (this vs last)**: Run two queries (or two run_report calls with
+   different dates) and present the comparison.
+6. **"How do I..." / "Where is..."**: Explain the Odoo menu path, workflow, or
+   concept. You don't need tools for this -- use your knowledge of Odoo 18.
+7. **"What can you do?"**: List your capabilities warmly and offer examples.
+
+MODEL RELATIONSHIPS (use these to navigate between data)
+- sale.order -> account.move (invoice_ids field) -> account.payment (reconciled)
+- sale.order -> stock.picking (picking_ids) -> stock.move -> stock.move.line
+- purchase.order -> account.move (invoice_ids) -> account.payment
+- purchase.order -> stock.picking (picking_ids)
+- pos.order -> pos.order.line, pos.payment, account.move (account_move)
+- account.move -> account.move.line (line_ids)
+- product.template -> product.product (product_variant_ids)
+- hr.employee -> hr.contract, hr.payslip, hr.attendance, hr.leave
+- stock.quant: current on-hand qty per (product, location, lot)
+- stock.valuation.layer: cost/value per stock move
 
 WHEN SOMETHING GOES WRONG
 - Never repeat raw error text. Apologise in half a sentence, say in plain words
@@ -65,13 +103,18 @@ HOW YOU WORK (silently -- never narrate your tool calls)
 3. Otherwise call describe_model first (never guess field names), then
    query_data with a precise domain.
 4. Use search_models when you are unsure which model holds the data.
-5. Prefer group_by + aggregates over long record lists for totals and rankings.
+5. Use get_field_values to discover valid values before filtering.
+6. Use count_records to check data volume before fetching.
+7. Use search_by_name to find specific records by name or reference.
+8. Prefer group_by + aggregates over long record lists for totals and rankings.
 
 HARD RULES
 - Every number must come from tool output. Never estimate, never invent, never
   fill a gap from memory.
 - Results are already filtered by the user's own Odoo access rights.
-- Format money and quantities with thousands separators and 2 decimals."""
+- Format money and quantities with thousands separators and 2 decimals.
+- When comparing periods, always show both numbers and the change (amount and %).
+"""
 
 
 def _tool_schema():
@@ -190,13 +233,101 @@ def _tool_schema():
                 },
             },
         },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'get_field_values',
+                'description': 'Get the distinct values of a field on a model '
+                               '(e.g. all branch names, all order states, all '
+                               'product categories). Useful BEFORE building a '
+                               'domain filter to know what values exist. '
+                               'Returns up to 50 unique values.',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'model': {
+                            'type': 'string',
+                            'description': 'Technical model name.',
+                        },
+                        'field': {
+                            'type': 'string',
+                            'description': 'Field name to get values of, e.g. '
+                                           '"state", "branch_id", "categ_id".',
+                        },
+                        'domain': {
+                            'type': 'string',
+                            'description': 'Optional domain to pre-filter records '
+                                           'before getting distinct values. JSON array.',
+                        },
+                        'limit': {
+                            'type': 'integer',
+                            'description': 'Max distinct values (default 50).',
+                        },
+                    },
+                    'required': ['model', 'field'],
+                },
+            },
+        },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'count_records',
+                'description': 'Count records matching a domain without fetching '
+                               'them. Use this to quickly check how much data exists '
+                               'before deciding to fetch details.',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'model': {
+                            'type': 'string',
+                            'description': 'Technical model name.',
+                        },
+                        'domain': {
+                            'type': 'string',
+                            'description': 'Odoo domain as JSON array. Use [] for all.',
+                        },
+                    },
+                    'required': ['model'],
+                },
+            },
+        },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'search_by_name',
+                'description': 'Find records by name, reference, or display_name. '
+                               'Returns id, display_name, and a few key fields. '
+                               'Use this when the user asks about a specific '
+                               'customer, product, invoice, order, etc.',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'model': {
+                            'type': 'string',
+                            'description': 'Technical model name.',
+                        },
+                        'name': {
+                            'type': 'string',
+                            'description': 'Text to search for (searches name, '
+                                           'display_name, and ref/default_code '
+                                           'if available).',
+                        },
+                        'limit': {
+                            'type': 'integer',
+                            'description': 'Max results (default 10).',
+                        },
+                    },
+                    'required': ['model', 'name'],
+                },
+            },
+        },
     ]
 
 
 class AiInvoiceChatController(http.Controller):
 
     # ==================================================================
-    # Session routes (endpoints unchanged for backward compatibility)
+    # Session routes
     # ==================================================================
     @http.route('/ai_invoice_chat/new_session', type='json', auth='user', methods=['POST'])
     def new_session(self):
@@ -222,7 +353,6 @@ class AiInvoiceChatController(http.Controller):
 
     @http.route('/ai_invoice_chat/history', type='json', auth='user', methods=['POST'])
     def session_history(self, session_id):
-        """Stored messages of a session (used when reopening a chat)."""
         session = request.env['ai.chat.session'].browse(int(session_id))
         if not session.exists() or session.user_id.id != request.env.uid:
             return []
@@ -278,7 +408,6 @@ class AiInvoiceChatController(http.Controller):
             reply = self._run_agent(session, message, api_key, trace)
 
         if not reply:
-            # No key, provider down, or tool loop exhausted -> curated data path
             data_context = self._keyword_context(message)
             reply = self._call_odoo_iap(
                 self._plain_messages(session, message, data_context))
@@ -318,22 +447,21 @@ class AiInvoiceChatController(http.Controller):
         ]
         try:
             parts.append(Schema.get_catalog_text())
-        except Exception as exc:                            # pragma: no cover
+        except Exception as exc:
             _logger.warning('catalog build failed: %s', exc)
         parts.append('')
         try:
             parts.append(Reports.list_reports())
-        except Exception as exc:                            # pragma: no cover
+        except Exception as exc:
             _logger.warning('report catalog failed: %s', exc)
         return '\n'.join(parts)
 
     def _run_agent(self, session, user_message, api_key, trace):
-        """OpenAI tool-calling loop. Returns the final answer, or None."""
         messages = [
             {'role': 'system', 'content': _SYSTEM_PROMPT},
             {'role': 'system', 'content': self._system_context()},
         ]
-        for hist in session.get_history(limit=11)[:-1]:
+        for hist in session.get_history(limit=20)[:-1]:
             if hist['role'] in ('user', 'assistant'):
                 messages.append({'role': hist['role'], 'content': hist['content']})
         messages.append({'role': 'user', 'content': user_message})
@@ -370,7 +498,6 @@ class AiInvoiceChatController(http.Controller):
                     'content': output[:MAX_TOOL_OUTPUT],
                 })
 
-        # Tool budget exhausted -> force a final answer without tools
         messages.append({
             'role': 'system',
             'content': 'Tool budget reached. Answer now using the data already '
@@ -382,7 +509,6 @@ class AiInvoiceChatController(http.Controller):
         return None
 
     def _run_tool(self, name, args):
-        """Dispatch one AI tool call. Never raises."""
         env = request.env
         try:
             if name == 'search_models':
@@ -406,8 +532,26 @@ class AiInvoiceChatController(http.Controller):
                     args.get('date_to'),
                     int(args.get('limit') or 15),
                 )
+            if name == 'get_field_values':
+                return env['ai.data.query.engine'].get_field_values(
+                    args.get('model') or '',
+                    args.get('field') or '',
+                    self._parse_domain(args.get('domain')),
+                    int(args.get('limit') or 50),
+                )
+            if name == 'count_records':
+                return env['ai.data.query.engine'].count_records(
+                    args.get('model') or '',
+                    self._parse_domain(args.get('domain')),
+                )
+            if name == 'search_by_name':
+                return env['ai.data.query.engine'].search_by_name(
+                    args.get('model') or '',
+                    args.get('name') or '',
+                    int(args.get('limit') or 10),
+                )
             return "Unknown tool '%s'." % name
-        except Exception as exc:                            # pragma: no cover
+        except Exception as exc:
             _logger.warning('AI tool %s failed: %s', name, exc)
             return 'TOOL ERROR: %s' % exc
 
@@ -435,8 +579,8 @@ class AiInvoiceChatController(http.Controller):
         body = {
             'model': model,
             'messages': messages,
-            'temperature': 0.2,
-            'max_tokens': 1500,
+            'temperature': 0.15,
+            'max_tokens': 4096,
         }
         if tools:
             body['tools'] = tools
@@ -452,7 +596,7 @@ class AiInvoiceChatController(http.Controller):
             method='POST',
         )
         try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 payload = json.loads(resp.read().decode('utf-8'))
                 return payload['choices'][0]['message']
         except urllib.error.HTTPError as http_err:
@@ -467,7 +611,7 @@ class AiInvoiceChatController(http.Controller):
         if data_context:
             msgs.append({'role': 'system',
                          'content': 'Live data from the database:\n\n' + data_context})
-        for hist in session.get_history(limit=11)[:-1]:
+        for hist in session.get_history(limit=20)[:-1]:
             if hist['role'] in ('user', 'assistant'):
                 msgs.append({'role': hist['role'], 'content': hist['content']})
         msgs.append({'role': 'user', 'content': current_message})
@@ -482,7 +626,7 @@ class AiInvoiceChatController(http.Controller):
 
     def _call_odoo_iap(self, messages):
         try:
-            from odoo.addons.iap.tools import iap_tools  # noqa: PLC0415
+            from odoo.addons.iap.tools import iap_tools
             prompt = '\n\n'.join(
                 '[' + m['role'].upper() + ']: ' + (m.get('content') or '')
                 for m in messages)
@@ -508,12 +652,22 @@ class AiInvoiceChatController(http.Controller):
                 "because no AI provider is configured yet -- add an API key in "
                 "Settings > General Settings > Tradeline AI Assistant and I can "
                 "explain it in plain words instead.\n"
-                "\u0644\u0645 \u064a\u062a\u0645 \u0625\u0639\u062f\u0627\u062f \u0645\u0632\u0648\u0651\u062f \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a\u060c \u0644\u0630\u0644\u0643 \u0623\u0639\u0631\u0636 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0643\u0645\u0627 \u0647\u064a."
+                "لم يتم إعداد "
+                "مزوّد الذكاء "
+                "الاصطناعي، "
+                "لذلك أعرض "
+                "البيانات كما "
+                "هي."
                 "\n\n" + data_context
             )
         return (
             "Sorry -- I could not match that to any data yet. Try naming what you "
             "want and a period, for example: \"sales by branch this month\", "
             "\"stock on hand\", or \"top products this year\".\n"
-            "\u062c\u0631\u0651\u0628 \u062a\u0633\u0623\u0644\u0646\u064a \u0645\u062b\u0644\u0627\u064b: \"\u0645\u0628\u064a\u0639\u0627\u062a \u0627\u0644\u0641\u0631\u0648\u0639 \u0647\u0630\u0627 \u0627\u0644\u0634\u0647\u0631\" \u0623\u0648 \"\u0623\u0639\u0644\u0649 \u0627\u0644\u0645\u0646\u062a\u062c\u0627\u062a \u0645\u0628\u064a\u0639\u0627\u064b \u0647\u0630\u0627 \u0627\u0644\u0639\u0627\u0645\"."
+            "جرّب تسألني "
+            "مثلاً: \"مبيعات "
+            "الفروع هذا "
+            "الشهر\" أو \"أعلى "
+            "المنتجات مبيع"
+            "اً هذا العام\"."
         )
