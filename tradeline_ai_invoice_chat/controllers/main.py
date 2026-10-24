@@ -913,12 +913,14 @@ class AiInvoiceChatController(http.Controller):
             'res_model': 'ai.chat.session',
             'public': False,
         })
-        download_url = '/web/content/%d/%s' % (attachment.id, filename)
+        base = request.httprequest.url_root.rstrip('/')
+        download_url = '%s/web/content/%d/%s' % (base, attachment.id, filename)
 
-        return ('Excel file created: [%s](%s)\n'
+        return ('Excel file created: [📥 %s](%s)\n'
                 'Tell the user: تم إنشاء ملف Excel — اضغط على الرابط لتحميله.\n'
-                'Include this download link in your response as a clickable '
-                'markdown link.' % (filename, download_url))
+                'IMPORTANT: Include this EXACT download link in your response '
+                'as a clickable markdown link: [📥 %s](%s)'
+                % (filename, download_url, filename, download_url))
 
     @staticmethod
     def _parse_domain(raw):
