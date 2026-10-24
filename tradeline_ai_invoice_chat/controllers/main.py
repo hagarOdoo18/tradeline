@@ -4,19 +4,23 @@ AI Assistant controller
 =======================
 Turns a natural-language question into answers over the WHOLE Odoo
 database.  The AI never touches the database directly: it may only call
-seven audited tools, all executed with the current user's access rights.
+nine audited tools, all executed with the current user's access rights.
 
     search_models(keyword)                  -> find the right model
     describe_model(model)                   -> list its readable fields
     query_data(model, domain, fields, ...)  -> search_read / read_group
+    multi_query(queries)                    -> run multiple queries at once
     run_report(report, date_from, date_to)  -> curated pinned reports
     get_field_values(model, field, ...)      -> distinct values of a field
     count_records(model, domain)            -> fast record count
     search_by_name(model, name, ...)        -> find records by name/ref
+    generate_excel(title, columns, rows)    -> create downloadable Excel file
 
 Fallback chain: OpenAI-compatible API (tool calling) -> Odoo IAP ->
 formatted raw data from the keyword-routed pinned reports.
 """
+import base64
+import io
 import json
 import logging
 import urllib.request
@@ -46,22 +50,69 @@ WHAT YOU CAN DO
 - Compare periods: this month vs last month, this year vs last year.
 - Spot anomalies: spikes, drops, outliers, empty periods.
 - Guide users: suggest which menu to open, which report to check, which filter to apply.
+- Generate Excel: when the user asks for an Excel file / spreadsheet / ملف اكسل,
+  collect the data first, then call generate_excel with the columns and rows.
 
 HOW YOU TALK
-- Warm, natural and short. Write like a helpful colleague, not a report generator.
 - Mirror the user's language: Arabic in -> Arabic out (Egyptian dialect is very
   welcome), English in -> English out. Keep numbers and dates in Latin digits.
-- Open with the answer itself -- the headline number or a one-line verdict --
-  then the details.
-- Show breakdowns as a compact markdown table (| Column | Column |), about 10
-  rows max, and say "top 10 out of 43" when you trim.
 - Never paste raw tool output at the user, and never show model names, domains
   or field names unless they ask. Say "invoices", not "account.move".
-- If something in the data is genuinely worth noticing (a spike, an outlier, an
-  empty period), mention it in one short line. Do not invent insights.
-- End with exactly one concrete follow-up offer, phrased as a question.
-- Then one quiet closing line in italics: what you looked at and which period.
-- At most one emoji, only for genuinely good news, never in an error message.
+
+RESPONSE FORMAT (follow this structure for EVERY data answer)
+Your reply MUST follow this exact layout, in order:
+
+1. **📌 Headline** — One bold opening line with the key number or verdict.
+   Example: **إجمالي المبيعات هذا الشهر: 1,250,000.00 جنيه**
+
+2. **📊 Breakdown table** — A clean markdown table with:
+   - Right-aligned numbers with thousands separators and 2 decimals.
+   - Column headers in bold.
+   - Maximum 10 rows; if trimmed say "(أعلى 10 من 43)" or "(top 10 of 43)".
+   - Always include a **Total / الإجمالي** row at the bottom when showing amounts.
+   Example:
+   | الفرع | عدد الفواتير | الإجمالي |
+   |:------|:-----------:|----------:|
+   | القاهرة | 45 | 520,000.00 |
+   | الإسكندرية | 32 | 380,000.00 |
+   | **الإجمالي** | **77** | **900,000.00** |
+
+3. **💡 Insight** (optional) — If the data shows something genuinely notable
+   (a spike, a drop, an outlier, a zero period), mention it in one short line.
+   Do NOT invent insights. Skip this section entirely if nothing stands out.
+   Example: 💡 فرع أسيوط لم يسجل أي فواتير هذا الشهر.
+
+4. **📎 Follow-up** — End with exactly ONE concrete follow-up question.
+   Example: هل تحب أشوفلك تفاصيل فرع القاهرة؟
+
+5. **🔍 Source line** — One quiet closing line in italics naming what you
+   looked at and which period.
+   Example: *بيانات فواتير المبيعات المؤكدة — من 2025-01-01 إلى 2025-12-31*
+
+COMPARISON FORMAT (when comparing two periods or groups)
+- Show BOTH periods side-by-side in one table.
+- Add a **التغيير / Change** column with amount AND percentage.
+- Use ▲ for increase, ▼ for decrease, ● for no change.
+  Example:
+  | البيان | الشهر الحالي | الشهر السابق | التغيير |
+  |:-------|:-----------:|:-----------:|---------:|
+  | المبيعات | 500,000 | 420,000 | ▲ 80,000 (+19.0%) |
+
+SINGLE RECORD LOOKUP FORMAT (when finding a specific record)
+- Show key fields as a short list, not a table:
+  📌 **فاتورة INV/2025/0042**
+  - العميل: شركة النور
+  - التاريخ: 2025-03-15
+  - الإجمالي: 125,000.00 جنيه
+  - الحالة: مدفوعة ✅
+
+FORMATTING RULES
+- Format money: thousands separator, 2 decimals (1,250,000.00).
+- Format quantities: thousands separator, no decimals (1,250).
+- Format percentages: 1 decimal (19.0%).
+- Bold the most important number in the headline.
+- At most one emoji per section header, never in error messages.
+- Keep the whole response SHORT — answer then details, never a wall of text.
 
 QUESTION TYPES AND STRATEGIES
 1. **Data totals / rankings**: Use run_report if a pinned report fits, otherwise
@@ -77,6 +128,9 @@ QUESTION TYPES AND STRATEGIES
 6. **"How do I..." / "Where is..."**: Explain the Odoo menu path, workflow, or
    concept. You don't need tools for this -- use your knowledge of Odoo 18.
 7. **"What can you do?"**: List your capabilities warmly and offer examples.
+8. **"Export to Excel" / "ملف اكسل"**: First collect the data using query_data
+   or multi_query, then call generate_excel with the results. Always include
+   the download link in your response.
 
 MODEL RELATIONSHIPS (use these to navigate between data)
 - sale.order -> account.move (invoice_ids field) -> account.payment (reconciled)
@@ -97,23 +151,37 @@ WHEN SOMETHING GOES WRONG
 - If you truly cannot tell what they mean, ask one short question rather than
   guessing.
 
+SPEED RULES (critical for fast answers)
+- For the common models listed in "COMMON MODEL FIELDS" in the context,
+  you ALREADY know the field names. DO NOT call describe_model for them.
+  Go straight to query_data or multi_query.
+- When a question needs data from 2+ models (e.g. POS + Sales), use
+  multi_query to run ALL queries in ONE call instead of calling query_data
+  multiple times. This is MUCH faster.
+- Only call describe_model for models NOT in the common fields list.
+
 HOW YOU WORK (silently -- never narrate your tool calls)
 1. Decide which data answers the question.
 2. If a pinned report fits, call run_report -- it is pre-audited and fast.
-3. Otherwise call describe_model first (never guess field names), then
-   query_data with a precise domain.
-4. Use search_models when you are unsure which model holds the data.
-5. Use get_field_values to discover valid values before filtering.
-6. Use count_records to check data volume before fetching.
-7. Use search_by_name to find specific records by name or reference.
-8. Prefer group_by + aggregates over long record lists for totals and rankings.
+3. For common models (see context), skip describe_model and go straight
+   to query_data or multi_query.
+4. For uncommon models, call describe_model first, then query_data.
+5. When you need data from multiple models, use multi_query to batch them.
+6. Use search_models when you are unsure which model holds the data.
+7. Use get_field_values to discover valid values before filtering.
+8. Use count_records to check data volume before fetching.
+9. Use search_by_name to find specific records by name or reference.
+10. Prefer group_by + aggregates over long record lists for totals and rankings.
 
 HARD RULES
 - Every number must come from tool output. Never estimate, never invent, never
   fill a gap from memory.
 - Results are already filtered by the user's own Odoo access rights.
-- Format money and quantities with thousands separators and 2 decimals.
-- When comparing periods, always show both numbers and the change (amount and %).
+- ALWAYS follow the RESPONSE FORMAT above. Every data answer must have:
+  headline, table (if applicable), follow-up question, and source line.
+- When comparing periods, always use the COMPARISON FORMAT with ▲▼● arrows.
+- When looking up a single record, use the SINGLE RECORD LOOKUP FORMAT.
+- Never send a plain paragraph of numbers — always use a table or a list.
 """
 
 
@@ -321,6 +389,105 @@ def _tool_schema():
                 },
             },
         },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'multi_query',
+                'description': 'Run 2-5 data queries in ONE call. MUCH faster than '
+                               'calling query_data multiple times. Use this whenever '
+                               'you need data from more than one model or more than '
+                               'one slice of the same model (e.g. POS sales + SO sales, '
+                               'or current month + previous month).',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'queries': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'object',
+                                'properties': {
+                                    'label': {
+                                        'type': 'string',
+                                        'description': 'Short label, e.g. "SO sales" '
+                                                       'or "POS this month".',
+                                    },
+                                    'model': {
+                                        'type': 'string',
+                                        'description': 'Technical model name.',
+                                    },
+                                    'domain': {
+                                        'type': 'string',
+                                        'description': 'Odoo domain as JSON array.',
+                                    },
+                                    'fields': {
+                                        'type': 'array',
+                                        'items': {'type': 'string'},
+                                        'description': 'Columns for record list.',
+                                    },
+                                    'group_by': {
+                                        'type': 'array',
+                                        'items': {'type': 'string'},
+                                        'description': 'Fields to group by.',
+                                    },
+                                    'aggregates': {
+                                        'type': 'array',
+                                        'items': {'type': 'string'},
+                                        'description': 'Measures like "amount_total:sum".',
+                                    },
+                                    'order': {
+                                        'type': 'string',
+                                        'description': 'Sort clause.',
+                                    },
+                                    'limit': {
+                                        'type': 'integer',
+                                        'description': 'Max rows (default 50).',
+                                    },
+                                },
+                                'required': ['label', 'model'],
+                            },
+                            'description': 'Array of 2-5 queries to run at once.',
+                        },
+                    },
+                    'required': ['queries'],
+                },
+            },
+        },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'generate_excel',
+                'description': 'Create a downloadable Excel file from data you '
+                               'already collected. Call this ONLY when the user '
+                               'explicitly asks for Excel / spreadsheet / ملف اكسل. '
+                               'Pass the data as columns and rows.',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'title': {
+                            'type': 'string',
+                            'description': 'Sheet name / report title, e.g. '
+                                           '"Sales by Product Q1 2025".',
+                        },
+                        'columns': {
+                            'type': 'array',
+                            'items': {'type': 'string'},
+                            'description': 'Column headers in order, e.g. '
+                                           '["Product", "Qty", "Total"].',
+                        },
+                        'rows': {
+                            'type': 'array',
+                            'items': {
+                                'type': 'array',
+                                'items': {},
+                            },
+                            'description': 'Data rows as arrays matching columns '
+                                           'order, e.g. [["Widget",10,5000], ...].',
+                        },
+                    },
+                    'required': ['title', 'columns', 'rows'],
+                },
+            },
+        },
     ]
 
 
@@ -454,6 +621,44 @@ class AiInvoiceChatController(http.Controller):
             parts.append(Reports.list_reports())
         except Exception as exc:
             _logger.warning('report catalog failed: %s', exc)
+
+        # Pre-loaded common model fields so the LLM can skip describe_model
+        parts.append('')
+        parts.append('COMMON MODEL FIELDS (skip describe_model for these):')
+        parts.append('  sale.order: name, partner_id, user_id, date_order, '
+                     'amount_total, amount_untaxed, amount_tax, state, '
+                     'currency_id, company_id, team_id, order_line')
+        parts.append('  sale.order.line: order_id, product_id, product_uom_qty, '
+                     'price_unit, price_subtotal, price_total, discount, '
+                     'salesman_id, product_template_id')
+        parts.append('  account.move: name, partner_id, invoice_date, '
+                     'invoice_date_due, amount_total, amount_residual, '
+                     'amount_untaxed, amount_tax, state, move_type, '
+                     'payment_state, currency_id, company_id, invoice_user_id')
+        parts.append('  account.move.line: move_id, product_id, quantity, '
+                     'price_unit, price_subtotal, price_total, discount, '
+                     'account_id, partner_id, debit, credit, balance')
+        parts.append('  pos.order: name, partner_id, user_id, date_order, '
+                     'amount_total, amount_paid, amount_return, amount_tax, '
+                     'state, session_id, company_id, config_id, lines, '
+                     'payment_ids, employee_id')
+        parts.append('  pos.order.line: order_id, product_id, qty, '
+                     'price_unit, price_subtotal, price_subtotal_incl, '
+                     'discount, product_uom_id')
+        parts.append('  pos.payment: pos_order_id, amount, payment_date, '
+                     'payment_method_id, session_id')
+        parts.append('  product.product: name, default_code, barcode, '
+                     'list_price, standard_price, categ_id, type, active, '
+                     'product_tmpl_id, qty_available, virtual_available')
+        parts.append('  product.template: name, default_code, list_price, '
+                     'standard_price, categ_id, type, active, '
+                     'attribute_line_ids, product_variant_ids')
+        parts.append('  res.partner: name, email, phone, mobile, city, '
+                     'country_id, company_id, customer_rank, supplier_rank, '
+                     'total_invoiced, credit, debit')
+        parts.append('  stock.quant: product_id, location_id, quantity, '
+                     'reserved_quantity, lot_id, company_id')
+
         return '\n'.join(parts)
 
     def _run_agent(self, session, user_message, api_key, trace):
@@ -467,6 +672,7 @@ class AiInvoiceChatController(http.Controller):
         messages.append({'role': 'user', 'content': user_message})
 
         tools = _tool_schema()
+        desc_cache = {}  # cache describe_model results per model name
         for _round in range(MAX_TOOL_ROUNDS):
             msg = self._openai_request(messages, api_key, tools)
             if msg is None:
@@ -489,7 +695,7 @@ class AiInvoiceChatController(http.Controller):
                     args = {}
                 if not isinstance(args, dict):
                     args = {}
-                output = self._run_tool(name, args)
+                output = self._run_tool(name, args, desc_cache)
                 trace.append({'tool': name, 'args': args, 'output': output[:4000]})
                 messages.append({
                     'role': 'tool',
@@ -508,13 +714,19 @@ class AiInvoiceChatController(http.Controller):
             return (msg.get('content') or '').strip() or None
         return None
 
-    def _run_tool(self, name, args):
+    def _run_tool(self, name, args, desc_cache=None):
         env = request.env
         try:
             if name == 'search_models':
                 return env['ai.data.schema'].search_models(args.get('keyword') or '')
             if name == 'describe_model':
-                return env['ai.data.schema'].describe_model(args.get('model') or '')
+                model_name = args.get('model') or ''
+                if desc_cache is not None and model_name in desc_cache:
+                    return desc_cache[model_name]
+                result = env['ai.data.schema'].describe_model(model_name)
+                if desc_cache is not None:
+                    desc_cache[model_name] = result
+                return result
             if name == 'query_data':
                 return env['ai.data.query.engine'].run_query({
                     'model': args.get('model'),
@@ -550,10 +762,126 @@ class AiInvoiceChatController(http.Controller):
                     args.get('name') or '',
                     int(args.get('limit') or 10),
                 )
+            if name == 'multi_query':
+                queries = args.get('queries') or []
+                results = []
+                qe = env['ai.data.query.engine']
+                for idx, q in enumerate(queries[:5]):
+                    label = q.get('label') or ('Query %d' % (idx + 1))
+                    try:
+                        out = qe.run_query({
+                            'model': q.get('model'),
+                            'domain': self._parse_domain(q.get('domain')),
+                            'fields': q.get('fields') or [],
+                            'group_by': q.get('group_by') or [],
+                            'aggregates': q.get('aggregates') or [],
+                            'order': q.get('order') or '',
+                            'limit': q.get('limit'),
+                        })
+                    except Exception as exc:
+                        out = 'ERROR: %s' % exc
+                    results.append('--- %s ---\n%s' % (label, out))
+                return '\n\n'.join(results)
+            if name == 'generate_excel':
+                return self._generate_excel(
+                    args.get('title') or 'Report',
+                    args.get('columns') or [],
+                    args.get('rows') or [],
+                )
             return "Unknown tool '%s'." % name
         except Exception as exc:
             _logger.warning('AI tool %s failed: %s', name, exc)
             return 'TOOL ERROR: %s' % exc
+
+    def _generate_excel(self, title, columns, rows):
+        """Build an .xlsx in memory, save as ir.attachment, return download URL."""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+        except ImportError:
+            return ('Excel generation unavailable — openpyxl not installed. '
+                    'Present the data as a markdown table instead.')
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = (title or 'Report')[:31]  # Excel sheet name max 31 chars
+
+        # ---- styles ----
+        header_font = Font(name='Calibri', bold=True, size=12, color='FFFFFF')
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4',
+                                  fill_type='solid')
+        header_align = Alignment(horizontal='center', vertical='center',
+                                 wrap_text=True)
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin'),
+        )
+        num_align = Alignment(horizontal='right', vertical='center')
+
+        # ---- title row ----
+        ws.merge_cells(start_row=1, start_column=1,
+                       end_row=1, end_column=max(len(columns), 1))
+        title_cell = ws.cell(row=1, column=1, value=title)
+        title_cell.font = Font(name='Calibri', bold=True, size=14,
+                               color='1F4E79')
+        title_cell.alignment = Alignment(horizontal='center')
+        ws.row_dimensions[1].height = 30
+
+        # ---- headers ----
+        for col_idx, col_name in enumerate(columns, 1):
+            cell = ws.cell(row=3, column=col_idx, value=col_name)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+        # ---- data rows ----
+        for row_idx, row_data in enumerate(rows, 4):
+            if not isinstance(row_data, (list, tuple)):
+                row_data = [row_data]
+            for col_idx, value in enumerate(row_data, 1):
+                cell = ws.cell(row=row_idx, column=col_idx, value=value)
+                cell.border = thin_border
+                if isinstance(value, (int, float)):
+                    cell.alignment = num_align
+                    cell.number_format = '#,##0.00' if isinstance(value, float) else '#,##0'
+
+        # ---- auto-width ----
+        for col_idx in range(1, len(columns) + 1):
+            max_len = 0
+            col_letter = openpyxl.utils.get_column_letter(col_idx)
+            for row in ws.iter_rows(min_row=3, max_row=ws.max_row,
+                                    min_col=col_idx, max_col=col_idx):
+                for cell in row:
+                    if cell.value:
+                        max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 4, 40)
+
+        # ---- save to bytes ----
+        buf = io.BytesIO()
+        wb.save(buf)
+        file_data = buf.getvalue()
+        buf.close()
+
+        # ---- create ir.attachment ----
+        safe_name = ''.join(c if c.isalnum() or c in ' _-' else '_'
+                            for c in title)[:50]
+        filename = '%s.xlsx' % safe_name
+        attachment = request.env['ir.attachment'].sudo().create({
+            'name': filename,
+            'type': 'binary',
+            'datas': base64.b64encode(file_data).decode(),
+            'mimetype': 'application/vnd.openxmlformats-officedocument'
+                        '.spreadsheetml.sheet',
+            'res_model': 'ai.chat.session',
+            'public': False,
+        })
+        download_url = '/web/content/%d/%s' % (attachment.id, filename)
+
+        return ('Excel file created: [%s](%s)\n'
+                'Tell the user: تم إنشاء ملف Excel — اضغط على الرابط لتحميله.\n'
+                'Include this download link in your response as a clickable '
+                'markdown link.' % (filename, download_url))
 
     @staticmethod
     def _parse_domain(raw):
@@ -584,6 +912,7 @@ class AiInvoiceChatController(http.Controller):
         }
         if tools:
             body['tools'] = tools
+            body['parallel_tool_calls'] = True
             body['tool_choice'] = 'auto'
 
         req = urllib.request.Request(
