@@ -8,6 +8,9 @@ class MCPSettings(models.Model):
     enable_mcp_reporting = fields.Boolean(
         string="Enable MCP reporting", default=False, groups="base.group_system",
         help="Disabled by default. Also requires the MCP Reporting User group and explicit model/field approval.")
+    enable_mcp_remote = fields.Boolean(
+        string="Enable hosted Claude connector", default=False, groups="base.group_system",
+        help="Allow account-level HTTPS MCP connections after explicit Odoo sign-in and consent. Reporting permissions still apply.")
 
 
 class MCPModelPolicy(models.Model):
@@ -27,6 +30,11 @@ class MCPModelPolicy(models.Model):
 
 class MCPServicePolicy(models.AbstractModel):
     _inherit = "ai.copilot.service"
+
+    def _is_model_denied(self, model_name):
+        # OAuth state is authentication metadata, never a reporting dataset,
+        # even if a catalogue refresh creates new model policies.
+        return model_name.startswith("tradeline.mcp.") or super()._is_model_denied(model_name)
 
     def _mcp_policy(self, name):
         policy = self.env["ai.copilot.allowed.model"].sudo().search([

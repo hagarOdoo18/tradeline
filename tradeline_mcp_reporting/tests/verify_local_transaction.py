@@ -42,6 +42,28 @@ def run(env):
         fresh = bridge.execute_tool("data_freshness", {"spec": {"model": "res.partner", "domain": [["id", "=", visible.id]], "date_field": "write_date"}})
         assert fresh["rows"][0]["records"] == 1
         checks.append("date/freshness JSON serialization")
+        def inspect_snapshot(report, tool, arguments):
+            report.env.cr.execute("SHOW transaction_read_only")
+            readonly = report.env.cr.fetchone()[0]
+            report.env.cr.execute("SHOW transaction_isolation")
+            isolation = report.env.cr.fetchone()[0]
+            return {"readonly": readonly, "isolation": isolation}
+
+        with patch.object(type(bridge), "_dispatch", inspect_snapshot):
+            snapshot = bridge.execute_tool("repeat_customers", {"spec": {}})
+            assert snapshot == {"readonly": "on", "isolation": "repeatable read"}
+        checks.append("repeat-customer scans use a real read-only repeatable-read snapshot and bounded lock")
+        def fixed_repeat_calculation(call, spec, progress):
+            result = call("query", {"spec": {"model": "res.partner", "domain": [["id", "in", [visible.id, hidden.id]]],
+                "fields": ["id", "name"], "limit": 500}})
+            assert [row["id"] for row in result["rows"]] == visible.ids
+            return {"company": {"id": env.company.id}, "definition": "Synthetic adapter check",
+                    "limitations": ["Reads span multiple requests. Synthetic placeholder."]}
+
+        with patch("odoo.addons.tradeline_mcp_reporting.models.repeat_adapter.run_report", fixed_repeat_calculation):
+            result = bridge.execute_tool("repeat_customers", {"spec": {}})
+            assert "read-only" in result["read_snapshot"] and result["limitations"] == []
+        checks.append("native repeat adapter uses real ORM record rules and clean read-only cache batches")
         before = visible.read(["name", "write_date"])[0]
 
         def unexpected_write(report, tool, arguments):

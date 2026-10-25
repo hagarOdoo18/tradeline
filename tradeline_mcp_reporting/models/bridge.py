@@ -25,6 +25,9 @@ TOOLS = {
     "data_freshness": ("data_freshness", {"spec"}, {"spec"}),
     "customer_sets": ("compare_customer_sets", {"spec"}, {"spec"}),
     "analyze_baskets": ("analyze_baskets", {"spec"}, {"spec"}),
+    "search_legacy_products": (None, {"search", "source_db", "limit"}, {"search", "source_db"}),
+    "legacy_product_sales_units": (None, {"spec"}, {"spec"}),
+    "repeat_customers": (None, {"spec"}, {"spec"}),
 }
 
 
@@ -66,8 +69,14 @@ class MCPReportingBridge(models.AbstractModel):
         # back. Even an unexpected write in a custom model fails at PostgreSQL.
         try:
             with self.env.registry.cursor() as cr:
-                cr.execute("SET TRANSACTION READ ONLY")
+                cr.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY" if tool == "repeat_customers" else "SET TRANSACTION READ ONLY")
                 cr.execute("SET LOCAL statement_timeout = '8000ms'")
+                if tool == "repeat_customers":
+                    # At most one large phone scan across all Odoo workers.
+                    # Transaction-scoped lock automatically releases on rollback.
+                    cr.execute("SELECT pg_try_advisory_xact_lock(827141, 1)")
+                    if not cr.fetchone()[0]:
+                        raise UserError("A complete repeat-customer scan is already running. Retry shortly.")
                 try:
                     clean = api.Environment(cr, self.env.uid, {}, su=False)
                     user = clean.user
@@ -91,10 +100,25 @@ class MCPReportingBridge(models.AbstractModel):
             raise UserError("Reporting could not complete within the read-only database safeguards. Narrow the request or ask the administrator to review it.") from exc
 
     def _dispatch(self, tool, arguments):
+        if tool in {"search_legacy_products", "legacy_product_sales_units"}:
+            from .legacy_reports import search_legacy_products, legacy_product_sales_units, LegacyReportError
+            try:
+                method = search_legacy_products if tool == "search_legacy_products" else legacy_product_sales_units
+                return method(lambda name, args: self._dispatch(name, args), **arguments)
+            except LegacyReportError as exc:
+                raise ValidationError(str(exc)) from None
+        if tool == "repeat_customers":
+            from .repeat_adapter import repeat_report
+            from .repeat_customers import RepeatReportError
+            try:
+                return repeat_report(self, arguments["spec"])
+            except RepeatReportError as exc:
+                raise ValidationError(str(exc)) from None
         if tool == "reporting_coverage":
             return self._reporting_coverage(**arguments)
         if tool == "connection_info":
             return {"schema_version": 1, "read_only": True, "user": self.env.user.name,
+                    "user_id": self.env.uid, "superuser": False,
                     "company_scope": [{"id": c.id, "name": c.name} for c in self.env.companies],
                     "queried_at_utc": fields.Datetime.to_string(fields.Datetime.now()),
                     "scope": "Only explicitly MCP-approved models/fields, within this Odoo user's ACLs and record rules. All assigned companies; main company retained as default. Filter company_id for a narrower business scope.",
@@ -124,7 +148,7 @@ class MCPReportingBridge(models.AbstractModel):
                 "external_sources": {"original_odoo12": "Not connected", "live_shopify_api": "Not connected; saved Odoo Shopify datasets only"}}
 
     def _attach_citation(self, result, tool, arguments):
-        if not isinstance(result, dict) or not (result.get("provenance") or tool == "metric_definitions"):
+        if not isinstance(result, dict) or not (result.get("provenance") or tool in {"metric_definitions", "legacy_product_sales_units", "search_legacy_products"}):
             return result
         encoded = urlencode({"tool": tool, "arguments": json.dumps(arguments, separators=(",", ":"), default=json_default)})
         citation = {"label": result.get("title") or result.get("source") or "Odoo reporting definitions",

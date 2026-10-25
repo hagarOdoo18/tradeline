@@ -8,6 +8,7 @@
             <xpath expr="//field[@name='enable_history']/ancestor::group[1]" position="after">
                 <group string="External MCP reporting" groups="base.group_system">
                     <field name="enable_mcp_reporting"/>
+                    <field name="enable_mcp_remote" invisible="not enable_mcp_reporting"/>
                     <label for="enable_mcp_reporting" string="Also approve datasets/fields in Allowed Models and assign MCP Reporting User explicitly."/>
                 </group>
             </xpath>

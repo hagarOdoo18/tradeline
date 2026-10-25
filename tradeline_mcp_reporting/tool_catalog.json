@@ -1,0 +1,418 @@
+[
+  {
+    "name": "connection_info",
+    "description": "Confirm identity, current company scope, read-only status and coverage limits. Call first.",
+    "inputSchema": {
+      "properties": {},
+      "title": "connection_infoArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "connection_infoDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "reporting_coverage",
+    "description": "Audit business dataset coverage across installed modules, including legacy/custom modules. Returns available/unapproved/restricted status with reasons and next_offset. Availability is not proof of records or complete history. No business records or secrets are returned.",
+    "inputSchema": {
+      "properties": {
+        "keyword": {
+          "default": "",
+          "title": "Keyword",
+          "type": "string"
+        },
+        "offset": {
+          "default": 0,
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
+      "title": "reporting_coverageArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "reporting_coverageDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search_models",
+    "description": "Discover approved readable datasets by business word/model name; pages of up to 60. Empty is valid and means no approved visible match.",
+    "inputSchema": {
+      "properties": {
+        "keyword": {
+          "default": "",
+          "title": "Keyword",
+          "type": "string"
+        },
+        "offset": {
+          "default": 0,
+          "title": "Offset",
+          "type": "integer"
+        }
+      },
+      "title": "search_modelsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "properties": {
+        "result": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Result",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "search_modelsOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "describe_model",
+    "description": "Return only approved readable fields, types, selection values and relationships for one discovered dataset.",
+    "inputSchema": {
+      "properties": {
+        "model": {
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "title": "describe_modelArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "describe_modelDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "query",
+    "description": "Validated saved-data query: model; domain=[[field,operator,value],...] (Odoo prefix &,|,! supported); fields OR group_by+aggregates; limit<=500; order; include_archived boolean; title. Aggregates field:sum/avg/min/max/count_distinct or __count; date groups date_field:month/day/year. Get field names from describe_model. No SQL, methods, context, writes or code. Returns rows, filters, timestamp and truncation flags.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "queryArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "queryDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search_products",
+    "description": "Resolve actual product names/codes/categories, including archived variants. Inspect matches and select product IDs; do not confuse accessories with the requested handset family. Never silently decide a user-requested variant exclusion.",
+    "inputSchema": {
+      "properties": {
+        "search": {
+          "title": "Search",
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "search"
+      ],
+      "title": "search_productsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "search_productsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "product_sales_units",
+    "description": "Net unit report: product_ids=[catalogue IDs], legacy_search=product phrase; optionally BOTH date_from/date_to YYYY-MM-DD, title, limit. Posted invoices less credit notes plus completed uninvoiced POS, with legacy separate. Returns source availability, unmapped candidates and archive window. Omitted dates mean all available saved records, never certified lifetime history.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "product_sales_unitsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "product_sales_unitsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "search_legacy_products",
+    "description": "Find original historical product IDs and names in legacy invoice lines, including products without current mappings. First discover source_db in saved legacy records. Inspect candidates to exclude accessories; narrow truncated discovery. Never use original IDs as current catalogue IDs.",
+    "inputSchema": {
+      "properties": {
+        "search": {
+          "title": "Search",
+          "type": "string"
+        },
+        "source_db": {
+          "title": "Source Db",
+          "type": "string"
+        },
+        "limit": {
+          "default": 100,
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "search",
+        "source_db"
+      ],
+      "title": "search_legacy_productsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "search_legacy_productsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "legacy_product_sales_units",
+    "description": "Historical source-aware units: source_db and source_product_ids required, optional BOTH date_from/date_to, grain=total/month, company_ids, title. Includes unmapped current products; invoices less credits, grouped by saved unit. Keep legacy/current separate. Replaces mapped-only legacy subtotal; never add monthly summaries. No catalogue/contact changes.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "legacy_product_sales_unitsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "legacy_product_sales_unitsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "metric_definitions",
+    "description": "Read canonical definitions and limitations for invoice net revenue and posted-ledger gross margin.",
+    "inputSchema": {
+      "properties": {},
+      "title": "metric_definitionsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "metric_definitionsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "financial_report",
+    "description": "Canonical financial report: metric=invoice_net_revenue or ledger_gross_margin; date_from/date_to YYYY-MM-DD required; grain=total/day/month; optional domain, limit, title. Keeps company currencies separate, returns definition and coverage. Missing COGS is not proof of profit.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "financial_reportArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "financial_reportDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "data_freshness",
+    "description": "Saved-source watermarks: model, optional domain and date_field (readable stored date/datetime), limit, title. Returns earliest/latest business dates and latest saved modification. Query time and modification time do not certify upstream sync or gap-free history.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "data_freshnessArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "data_freshnessDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "customer_sets",
+    "description": "Complete server-side customer set difference: include=[{model,domain,key_field,resolve_legacy_links?,resolve_legacy_identifiers?}], exclude=[same]; up to 4 sources per side; optional show_customers, include_names, limit, title. Typical keys partner_id for invoice lines, order_id.partner_id for POS lines, order_id for legacy order lines. Use positive completed-purchase filters. Cover current invoices, POS and visible legacy evidence; don't subtract limited previews. Unresolved exclusions make candidates provisional. Identifiers need explicit field approval; never match names or cross-database numeric IDs.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "customer_setsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "customer_setsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "analyze_baskets",
+    "description": "Same-document bundle analysis: model=line dataset, transaction_field=move_id/invoice_id/order_id, product_field=product_id, domain=positive completed purchase filters; optional limit,title. Returns product pairs, support, directional attachment and lift, with mapping/size/coverage limits. Association is not causation; verify margin and stock separately.",
+    "inputSchema": {
+      "properties": {
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "title": "analyze_basketsArguments",
+      "type": "object"
+    },
+    "outputSchema": {
+      "additionalProperties": true,
+      "title": "analyze_basketsDictOutput",
+      "type": "object"
+    },
+    "annotations": {
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  }
+]
