@@ -68,8 +68,8 @@ class ResPartnerInherit(models.Model):
                 raise ValidationError(_("Tax ID is mandatory for company contacts."))
             # if not partner.company_size:
             #     raise ValidationError(_("Employees is mandatory for company contacts."))
-            if not partner.company_device or partner.company_device <= 0:
-                raise ValidationError(_("Devices must be greater than 0 for company contacts."))
+            # if not partner.company_device or partner.company_device <= 0:
+            #     raise ValidationError(_("Devices must be greater than 0 for company contacts."))
         
     @api.constrains('mobile')
     def unique_mobile_id(self):
