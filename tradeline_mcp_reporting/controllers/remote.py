@@ -6,7 +6,7 @@ from urllib.parse import urlencode, urlsplit
 from odoo import http, tools
 from odoo.http import request
 from odoo.exceptions import AccessError, UserError, ValidationError
-from ..oauth_utils import SCOPE, canonical_url
+from ..oauth_utils import SCOPE, CLAUDE_CALLBACKS, canonical_url
 from ..protocol import handle_message
 
 
@@ -171,7 +171,7 @@ class MCPRemote(http.Controller):
                 <button name="decision" value="approve">Allow read-only reporting</button><button name="decision" value="deny">Cancel</button></form>
                 <p>You can revoke this connection at <a href="/tradeline/mcp/connections">Odoo → Reporting connections</a>.</p></body></html>''' % (
                     escape(request.env.user.name), escape(companies), escape(urlsplit(params["redirect_uri"]).hostname), escape(client.client_name), inputs)
-            return request.make_response(html, headers=consent_headers())
+            return request.make_response(html, headers=consent_headers(allow_claude_callback=True))
         except (AccessError, ValueError, TypeError):
             return request.make_response("This reporting sign-in is invalid, disabled, or unavailable to this user. Restart the connection from Claude.", status=400, headers=consent_headers())
 
@@ -211,7 +211,13 @@ class MCPRemote(http.Controller):
         return request.make_response(content, headers=consent_headers())
 
 
-def consent_headers():
+def consent_headers(allow_claude_callback=False):
+    # Chrome/Safari apply form-action to the POST's 303 redirect too. Only the
+    # already allowlisted Claude callback may receive the authorization response.
+    # The disconnect/error pages retain self-only form submission.
+    form_action = "'self'"
+    if allow_claude_callback:
+        form_action += " " + " ".join(sorted(CLAUDE_CALLBACKS))
     return [("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store"),
             ("Referrer-Policy", "no-referrer"), ("X-Content-Type-Options", "nosniff"),
-            ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")]
+            ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action %s; frame-ancestors 'none'" % form_action)]

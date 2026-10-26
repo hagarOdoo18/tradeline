@@ -95,7 +95,7 @@ live Shopify API connection or a connection to the original Odoo 12 server.
 1. Review only this addon change against the latest production revision. Do not
    push the dirty primary checkout or unrelated connector experiments.
 2. Verify a current Odoo.sh backup and choose one deployment window. Deploy this
-   addon version `18.0.1.2.0` and upgrade only `tradeline_mcp_reporting`.
+   addon version `18.0.1.2.1` and upgrade only `tradeline_mcp_reporting`.
 3. Leave existing Copilot settings/model approvals unchanged. Confirm that the
    named Administrator already has **MCP Reporting User** and the intended
    company access. Do not grant UID 1 or assign additional business permissions.
@@ -147,3 +147,21 @@ release was the automatic daily backup at **2026-10-25 19:05:38 UTC** for revisi
 
 Reference: [Anthropic custom connector setup](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp)
 and [MCP authorization requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization).
+
+## Browser callback correction — 26 October 2026
+
+Chrome submitted the human's consent but blocked its 303 redirect because the
+consent page had `form-action 'self'`. Odoo created unconsumed authorization codes,
+while Claude remained unconnected. The HTTP integration test did not exercise
+browser Content Security Policy enforcement.
+
+Version 18.0.1.2.1 allows the existing exact `CLAUDE_CALLBACKS` allowlist in the
+approval page's form-action policy. Disconnect and error pages stay self-only;
+CSRF, callback URI validation, PKCE, company/model/field rules and grant lifetimes
+are unchanged. No wildcard hosts or broad HTTPS exceptions are added.
+
+The failure was reproduced with a synthetic local Chrome form (POST reached the
+server but its callback was never reached); adding only the intended callback
+allowed the redirect. All 26 MCP tests passed, including assertions for the narrow
+callback policy and unchanged self-only policy elsewhere. See
+[MDN's form-action redirect behavior](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/form-action).

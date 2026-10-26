@@ -169,6 +169,11 @@ class TestHostedMCP(TransactionCase):
             self.assertNotIn("<script>", body)
             self.assertIn("&lt;script&gt;", body)
             self.assertIn("frame-ancestors 'none'", response.headers["Content-Security-Policy"])
+            self.assertIn("form-action 'self' https://claude.ai/api/mcp/auth_callback;", response.headers["Content-Security-Policy"])
+            self.assertNotIn("*", response.headers["Content-Security-Policy"])
             self.assertIn('name="csrf_token"', body)
         self.assertTrue(remote.MCPRemote.authorize.original_routing["csrf"])
         self.assertTrue(remote.MCPRemote.connections.original_routing["csrf"])
+        ordinary = dict(remote.consent_headers())["Content-Security-Policy"]
+        self.assertIn("form-action 'self';", ordinary)
+        self.assertNotIn("claude.ai", ordinary)
