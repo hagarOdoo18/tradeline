@@ -11,6 +11,9 @@ class MCPSettings(models.Model):
     enable_mcp_remote = fields.Boolean(
         string="Enable hosted Claude connector", default=False, groups="base.group_system",
         help="Allow account-level HTTPS MCP connections after explicit Odoo sign-in and consent. Reporting permissions still apply.")
+    enable_mcp_live_shopify = fields.Boolean(
+        string="Allow live Shopify order reporting in MCP", default=False, groups="base.group_system",
+        help="Separate opt-in for existing Odoo administrators. Reads accessible Shopify stores using existing credentials; store-wide order access, not Odoo branch-scoped access. No imports, syncs, writes or token refresh.")
 
 
 class MCPModelPolicy(models.Model):

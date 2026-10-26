@@ -53,6 +53,10 @@ def run(env):
             snapshot = bridge.execute_tool("repeat_customers", {"spec": {}})
             assert snapshot == {"readonly": "on", "isolation": "repeatable read"}
         checks.append("repeat-customer scans use a real read-only repeatable-read snapshot and bounded lock")
+        with patch.object(type(bridge), "_dispatch", inspect_snapshot):
+            snapshot = bridge.execute_tool("live_shopify", {"spec": {"operation": "connection"}})
+            assert snapshot["readonly"] == "on"
+        checks.append("live Shopify dispatch retains the real read-only PostgreSQL boundary")
         def fixed_repeat_calculation(call, spec, progress):
             result = call("query", {"spec": {"model": "res.partner", "domain": [["id", "in", [visible.id, hidden.id]]],
                 "fields": ["id", "name"], "limit": 500}})

@@ -105,7 +105,7 @@ def run(env):
 
         result = rpc("initialize", {"protocolVersion": "2025-11-25", "clientInfo": {"name": "local QA", "version": "1"}, "capabilities": {}})
         assert result["result"]["capabilities"] == {"tools": {}}
-        assert len(rpc("tools/list")["result"]["tools"]) == 15
+        assert len(rpc("tools/list")["result"]["tools"]) == 16
         response = session.post(resource, json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=headers, timeout=30)
         assert response.status_code == 202
         info = rpc("tools/call", {"name": "connection_info"})["result"]["structuredContent"]
@@ -118,7 +118,7 @@ def run(env):
         blocked = rpc("tools/call", {"name": "query", "arguments": {"spec": {"model": "res.partner", "fields": ["phone"]}}})
         assert blocked["result"]["isError"]
         assert rpc("tools/call", {"name": "write", "arguments": {}})["error"]["code"] == -32602
-        checks.append("MCP handshake and 15 tools; real PostgreSQL query respects record/field permissions and citations")
+        checks.append("MCP handshake and 16 tools; real PostgreSQL query respects record/field permissions and citations")
         bad_origin = session.post(resource, json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
             headers=dict(headers, Origin="https://evil.invalid"), timeout=30)
         assert bad_origin.status_code == 403

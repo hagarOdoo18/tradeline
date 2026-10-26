@@ -28,6 +28,7 @@ TOOLS = {
     "search_legacy_products": (None, {"search", "source_db", "limit"}, {"search", "source_db"}),
     "legacy_product_sales_units": (None, {"spec"}, {"spec"}),
     "repeat_customers": (None, {"spec"}, {"spec"}),
+    "live_shopify": (None, {"spec"}, {"spec"}),
 }
 
 
@@ -100,6 +101,8 @@ class MCPReportingBridge(models.AbstractModel):
             raise UserError("Reporting could not complete within the read-only database safeguards. Narrow the request or ask the administrator to review it.") from exc
 
     def _dispatch(self, tool, arguments):
+        if tool == "live_shopify":
+            return self._live_shopify(arguments["spec"])
         if tool in {"search_legacy_products", "legacy_product_sales_units"}:
             from .legacy_reports import search_legacy_products, legacy_product_sales_units, LegacyReportError
             try:
@@ -122,8 +125,9 @@ class MCPReportingBridge(models.AbstractModel):
                     "company_scope": [{"id": c.id, "name": c.name} for c in self.env.companies],
                     "queried_at_utc": fields.Datetime.to_string(fields.Datetime.now()),
                     "scope": "Only explicitly MCP-approved models/fields, within this Odoo user's ACLs and record rules. All assigned companies; main company retained as default. Filter company_id for a narrower business scope.",
+                    "live_shopify_enabled": self._live_shopify_enabled(),
                     "limitations": ["No raw SQL, arbitrary RPC, business changes, chat history, credentials or attachments.",
-                                    "No live Shopify API or original Odoo 12 connection. Approved imported/saved datasets only.",
+                                    "Live Shopify order reads require a separate administrator opt-in and successful live connection check. Saved Odoo Shopify data is separate. No original Odoo 12 connection.",
                                     "A query timestamp does not prove source completeness. Check data_freshness before historic claims."]}
         method = TOOLS[tool][0]
         return getattr(self.env["ai.copilot.query"], method)(**arguments)
@@ -145,7 +149,9 @@ class MCPReportingBridge(models.AbstractModel):
                 "matching_datasets": len(matches), "offset": offset, "datasets": matches[offset:offset + 60],
                 "next_offset": offset + 60 if offset + 60 < len(matches) else None,
                 "scope_note": "A module can contribute several datasets or only UI/technical functionality. Available means approved and readable, not populated or historically complete. Discover fields before querying.",
-                "external_sources": {"original_odoo12": "Not connected", "live_shopify_api": "Not connected; saved Odoo Shopify datasets only"}}
+                "external_sources": {"original_odoo12": "Not connected", "live_shopify_api":
+                    "Enabled for fixed live order tools; verify connection/scopes first" if self._live_shopify_enabled()
+                    else "Disabled; saved Odoo Shopify datasets only"}}
 
     def _attach_citation(self, result, tool, arguments):
         if not isinstance(result, dict) or not (result.get("provenance") or tool in {"metric_definitions", "legacy_product_sales_units", "search_legacy_products"}):

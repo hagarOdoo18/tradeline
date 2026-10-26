@@ -137,7 +137,7 @@ class TestHostedMCP(TransactionCase):
         result, status = handle_message({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, call, "https://tradelinestores.odoo.com")
         self.assertEqual(status, 200)
         names = {t["name"] for t in result["result"]["tools"]}
-        self.assertEqual(len(names), 15)
+        self.assertEqual(len(names), 16)
         self.assertNotIn("write", names)
         from ..models.bridge import TOOLS
         self.assertEqual(names, set(TOOLS))

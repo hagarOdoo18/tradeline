@@ -1,5 +1,56 @@
 # Odoo-hosted Claude reporting
 
+**One production rollout authorized by the user on 26 October 2026.** The user
+subsequently asked to push the prepared release and test the integration live.
+This supersedes the earlier deployment hold for version 18.0.1.3.0 only. Deploy
+only this MCP addon, enable its fixed live Shopify reader for the existing named
+Administrator reporting account, and verify the live Claude account connection.
+Avoid further pushes/restarts after this rollout without another instruction.
+
+## Release 18.0.1.3.0 — authorized for deployment; verify live status separately
+
+Requested on 26 October: prepare live Shopify for the hosted connector and wait
+for the user's explicit deployment instruction. Production remains 18.0.1.2.1.
+The pending release adds a sixteenth tool, `live_shopify`, reusing the existing
+Copilot fixed GraphQL order reader. No other addon implementation is changed.
+
+- Separately disabled by default: **Allow live Shopify order reporting in MCP**.
+  Requires the existing MCP group, an existing Odoo administrator, existing internal
+  Shopify model policy, normal instance/company ACLs and existing valid credentials.
+- `stores` exposes only accessible instance ID/name/company metadata. `connection`
+  verifies live API access. `orders_summary` / `orders` read dated order cohorts.
+- Existing Shopify configuration remains unavailable to generic MCP queries.
+  Only the fixed reader uses the internal policy context, without sudo or a change
+  of user/company. Tokens stay server-side. No sync/import, writes, refresh, arbitrary
+  GraphQL, URL input, new scopes, customer details, products or inventory access.
+- At most 2,000 orders and 25 seconds per live report; incomplete pagination, missing
+  older-order scope, expired credentials, API failures or truncated results refuse
+  totals. Order-created dates use the store timezone. All cancellation/test statuses
+  stay included unless explicitly filtered. Current order value is tax-inclusive
+  and is not recognized revenue or gross margin.
+- Exact live queries receive Odoo source receipts and fetch timestamps. Opening a
+  receipt makes another live read and can produce different values.
+
+After a future authorized deployment: upgrade **only** this addon to 18.0.1.3.0,
+review/enable the new flag, refresh Claude's tool catalogue, approve the new
+read-only external tool if prompted, and verify each accessible store's connection
+and paid/unfulfilled last-seven-day report. Existing OAuth account connection is
+retained; a changed grant/expiry can still require reconnecting. Do not call this
+live in production before those checks pass. Shopify scopes are documented at
+https://shopify.dev/docs/api/admin-graphql/latest/queries/orders and
+https://shopify.dev/docs/api/admin-graphql/latest/objects/order.
+
+Local QA on 26 October: **118 tests passed, zero failures/errors** (Copilot plus
+MCP, including six new Shopify boundary tests). Read-only verification of the
+real local PostgreSQL boundary also passed **nine integration checks**, including
+the new live-tool dispatch and rejection of unexpected writes. Read-only verification of the
+existing production Copilot Shopify reader also succeeded without deployment:
+TradelineStores, Cairo timezone, existing `read_orders`; `read_all_orders` absent.
+For orders created 20–26 October it read all 19 orders and found 15 currently
+PAID/UNFULFILLED at 10:40:49 UTC. This validates the existing store credentials,
+not the still-undeployed remote MCP path. The configured 2025-10 API version was
+served by Shopify as 2026-01; the reader records that actual version.
+
 Prepared and tested on 25 October 2026. The user explicitly authorized the
 necessary production deployment and testing on that date. This release contains
 only the MCP addon changes on top of production `a7c407c2`; subsequent production
@@ -61,7 +112,7 @@ business write tool, arbitrary RPC/model method, Python or SQL input is exposed.
 
 ## Reporting
 
-Fifteen fixed tools cover discovery, explicit field schemas, filtered/grouped
+The deployed fifteen fixed tools cover discovery, explicit field schemas, filtered/grouped
 queries, current and source-aware legacy units, financial definitions, freshness,
 customer cohorts, baskets and phone-based repeat customers. Existing model/field
 approvals remain prerequisites; the new endpoint grants no additional business
@@ -87,8 +138,9 @@ permissions. They include query time and filters; they are not immutable snapsho
 Claude retains its own chart/Excel/PowerPoint features. Assets should carry the
 returned definitions, period, company/currency, source links and coverage limits.
 
-Saved Shopify-related Odoo data is available where approved. This does not add a
-live Shopify API connection or a connection to the original Odoo 12 server.
+The deployed release provides saved Shopify-related Odoo data where approved.
+The pending local release adds the separately gated live order reader described
+above. Neither release connects to the original Odoo 12 server.
 
 ## Controlled deployment, only after approval
 

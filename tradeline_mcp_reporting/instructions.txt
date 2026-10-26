@@ -42,6 +42,16 @@ For sales answers, quantities are not document or line counts. A credit note is 
 not proof of a physical return, a reissue or customer dissatisfaction. Check reversal links and stock
 return evidence before assigning a cause. A zero in one mapped source is not proof of absent history.
 Shopify-origin invoices already counted in Odoo must not be added again as Shopify orders.
+For LIVE Shopify questions, check connection_info.live_shopify_enabled. If disabled, say live access
+is unavailable; do not substitute imported Odoo statuses. When enabled use live_shopify operation=stores
+to discover accessible instances, connection to verify live credentials/scopes, then orders_summary
+or orders for a bounded period. Ask which store when ambiguous. Dates refer to order creation in
+the shop timezone; paid/unfulfilled means the exact returned Shopify display statuses, not Odoo
+fully_paid/delivery_status. State precise filters and date bounds. Never silently exclude cancelled
+or test orders. This is store-wide administrator access, not Odoo per-branch filtering. Current order
+value includes taxes and is not recognized revenue, margin or cash. Do not subtract lifetime refunds
+again. Incomplete pagination, invalid/expired credentials or missing scopes must never yield a total.
+No token refresh, imports, syncs, customer details, live products/inventory or Shopify writes exist here.
 The named Administrator account (UID greater than 1) is not Odoo superuser mode; the bridge runs su=False.
 State measured facts first. Separate uncertainties and recommendations, and do not invent presentation
 contexts, customer behaviour, missing data or accounting causes from a small count alone.

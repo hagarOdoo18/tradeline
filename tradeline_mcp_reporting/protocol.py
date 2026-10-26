@@ -9,6 +9,25 @@ CATALOG.append({"name": "repeat_customers", "description": "Complete phone-ident
     "inputSchema": {"type": "object", "properties": {"spec": {"type": "object"}}, "required": ["spec"], "additionalProperties": False},
     "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}})
 INSTRUCTIONS = (ROOT / "instructions.txt").read_text(encoding="utf-8")
+CATALOG.append({
+    "name": "live_shopify",
+    "description": "Separately enabled, administrator-only LIVE Shopify order reader using existing store credentials. Start operation=stores, then connection with instance_id; report orders_summary or orders with exact date_from/date_to (order CREATED dates in shop timezone). Optional financial_status, fulfillment_status, cancelled/test_orders (any/yes/no), grain total/day/month, limit up to 500. All statuses are included unless explicitly filtered. Fixed GraphQL reads only, no sync/import/refresh/mutations, customer details, products or inventory. Store-wide access is not Odoo branch-scoped. Complete bounded pagination (2000 orders max); failures are unavailable, not zero. Current tax-inclusive order value is not recognized revenue or margin; do not add it to Odoo invoices.",
+    "inputSchema": {"type": "object", "properties": {"spec": {
+        "type": "object", "properties": {
+            "operation": {"type": "string", "enum": ["stores", "connection", "orders_summary", "orders"]},
+            "instance_id": {"type": "integer", "minimum": 1},
+            "date_from": {"type": "string", "format": "date"},
+            "date_to": {"type": "string", "format": "date"},
+            "financial_status": {"type": "string", "enum": ["any", "paid", "pending", "authorized", "partially_paid", "partially_refunded", "refunded", "voided"]},
+            "fulfillment_status": {"type": "string", "enum": ["any", "fulfilled", "unfulfilled", "partial"]},
+            "cancelled": {"type": "string", "enum": ["any", "yes", "no"]},
+            "test_orders": {"type": "string", "enum": ["any", "yes", "no"]},
+            "grain": {"type": "string", "enum": ["total", "day", "month"]},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+            "title": {"type": "string"}}, "additionalProperties": False}},
+        "required": ["spec"], "additionalProperties": False},
+    "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                    "idempotentHint": True, "openWorldHint": True}})
 VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 
 
@@ -47,7 +66,7 @@ def handle_message(message, call, base):
         if not isinstance(requested, str) or not isinstance(params.get("clientInfo"), dict) or not isinstance(params.get("capabilities"), dict):
             return error(ident, -32602, "Initialization requires protocolVersion, clientInfo and capabilities."), 200
         result = {"protocolVersion": requested if requested in VERSIONS else "2025-11-25",
-            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.4.0"},
+            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.5.0"},
             "capabilities": {"tools": {}}, "instructions": INSTRUCTIONS}
     elif method == "ping":
         result = {}
