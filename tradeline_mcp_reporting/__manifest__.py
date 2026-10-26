@@ -1,6 +1,6 @@
 {
     "name": "Tradeline Read-only MCP Reporting",
-    "version": "18.0.1.3.0",
+    "version": "18.0.1.3.1",
     "summary": "Read-only Odoo reporting for Claude Desktop, web and mobile",
     "category": "Productivity",
     "author": "Tradeline",

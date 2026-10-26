@@ -151,6 +151,14 @@ class TestHostedMCP(TransactionCase):
         self.assertEqual(handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}, call, "")[1], 202)
         self.assertEqual(handle_message([], call, "")[1], 400)
 
+    def test_evidence_policy_is_in_initialization_and_lazy_tool_descriptions(self):
+        response, _ = handle_message({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "clientInfo": {}, "capabilities": {}}}, MagicMock(), "")
+        self.assertIn("answer_contract", response["result"]["instructions"])
+        self.assertIn("false premise", response["result"]["instructions"])
+        for tool in CATALOG:
+            self.assertIn("answer_contract", tool["description"])
+
     def test_consent_and_mcp_controller_security(self):
         from ..controllers import remote
         fake = MagicMock()

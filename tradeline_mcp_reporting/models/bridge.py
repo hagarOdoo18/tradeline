@@ -8,6 +8,7 @@ from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools.json import json_default
 from .scope import scope_manifest
+from ..answer_contract import with_answer_contract
 
 
 # Only these known reporting methods can cross the boundary. Never dispatch a
@@ -90,6 +91,7 @@ class MCPReportingBridge(models.AbstractModel):
                     bridge._assert_mcp_access()  # Recheck gates inside the snapshot.
                     result = bridge._dispatch(tool, arguments)
                     result = bridge._attach_citation(result, tool, arguments)
+                    result = with_answer_contract(result, tool)
                     payload = json.loads(json.dumps(result, default=json_default, allow_nan=False))
                     if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > 524288:
                         raise ValidationError("Result exceeds 512 KiB. Narrow the query or reduce its limit.")

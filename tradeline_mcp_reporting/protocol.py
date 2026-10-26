@@ -28,6 +28,8 @@ CATALOG.append({
         "required": ["spec"], "additionalProperties": False},
     "annotations": {"readOnlyHint": True, "destructiveHint": False,
                     "idempotentHint": True, "openWorldHint": True}})
+for tool in CATALOG:
+    tool["description"] += " Follow the returned answer_contract: lead with verified facts, respect not_established limits, and cite the source. Labels such as 'likely' do not justify unsupported commentary."
 VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 
 
@@ -66,7 +68,7 @@ def handle_message(message, call, base):
         if not isinstance(requested, str) or not isinstance(params.get("clientInfo"), dict) or not isinstance(params.get("capabilities"), dict):
             return error(ident, -32602, "Initialization requires protocolVersion, clientInfo and capabilities."), 200
         result = {"protocolVersion": requested if requested in VERSIONS else "2025-11-25",
-            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.5.0"},
+            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.5.1"},
             "capabilities": {"tools": {}}, "instructions": INSTRUCTIONS}
     elif method == "ping":
         result = {}

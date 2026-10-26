@@ -38,7 +38,9 @@ def run(env):
         checks.append("named-user identity and assigned-company scope")
         result = bridge.execute_tool("query", {"spec": {"model": "res.partner", "domain": [["id", "in", [visible.id, hidden.id]]], "fields": ["id", "name"]}})
         assert [row["id"] for row in result["rows"]] == visible.ids
+        assert result["answer_contract"]["version"] == 1 and "tool=query" in result["citation"]["path"]
         checks.append("real record rules exclude the hidden record")
+        checks.append("evidence contract attached without replacing visible rows or citations")
         fresh = bridge.execute_tool("data_freshness", {"spec": {"model": "res.partner", "domain": [["id", "=", visible.id]], "date_field": "write_date"}})
         assert fresh["rows"][0]["records"] == 1
         checks.append("date/freshness JSON serialization")
@@ -51,7 +53,8 @@ def run(env):
 
         with patch.object(type(bridge), "_dispatch", inspect_snapshot):
             snapshot = bridge.execute_tool("repeat_customers", {"spec": {}})
-            assert snapshot == {"readonly": "on", "isolation": "repeatable read"}
+            assert snapshot["readonly"] == "on" and snapshot["isolation"] == "repeatable read"
+            assert snapshot["answer_contract"]["version"] == 1
         checks.append("repeat-customer scans use a real read-only repeatable-read snapshot and bounded lock")
         with patch.object(type(bridge), "_dispatch", inspect_snapshot):
             snapshot = bridge.execute_tool("live_shopify", {"spec": {"operation": "connection"}})
