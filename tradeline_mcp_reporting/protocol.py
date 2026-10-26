@@ -29,7 +29,7 @@ CATALOG.append({
     "annotations": {"readOnlyHint": True, "destructiveHint": False,
                     "idempotentHint": True, "openWorldHint": True}})
 for tool in CATALOG:
-    tool["description"] += " Follow the returned answer_contract: lead with verified facts, respect not_established limits, and cite the source. Labels such as 'likely' do not justify unsupported commentary."
+    tool["description"] += " Use the returned verified_summary when present, check answer_contract limits, and cite the source. Never invent causes or label unsupported claims 'likely'."
 VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 
 

@@ -3,7 +3,7 @@
 Only fixed numeric fields feed derived facts. Record text is never promoted to
 instructions. This guides the external model; it cannot intercept its final prose.
 """
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
@@ -118,11 +118,88 @@ def _shopify_facts(data):
         "read_window_utc": data.get("provenance", {}).get("freshness", {})}
 
 
+def _verified_summary(tool, facts):
+    """Build an optional answer from checked values, never record names or titles."""
+    if tool == "repeat_customers":
+        annual = facts.get("annual", [])
+        if not annual:
+            return None
+        pieces = []
+        for row in annual:
+            share = row["repeat_share_percent"]
+            coverage = row["matching_event_coverage_percent"]
+            pieces.append(
+                f"{row['period_from']} to {row['period_to']}: {row['repeat_phone_identities']:,} "
+                f"repeat phone identities out of {row['distinct_phone_identities']:,} "
+                f"({share:.2f}% of identified buyers). "
+                f"Phone matching covered {row['matched_purchase_events']:,} of "
+                f"{row['purchase_events']:,} purchase events ({coverage:.2f}%)."
+                if share is not None and coverage is not None else
+                f"{row['period_from']} to {row['period_to']}: {row['repeat_phone_identities']:,} "
+                f"repeat phone identities out of {row['distinct_phone_identities']:,}; "
+                "a percentage with a zero denominator is unavailable."
+            )
+        if "present_in_all_selected_years" in facts:
+            pieces.append(f"{facts['present_in_all_selected_years']:,} phone identities purchased in every selected year.")
+            pieces.append("Those cross-year buyers may also qualify as within-year repeat buyers; "
+                          "the overlap alone does not identify which ones.")
+        pieces.append("A repeat identity has purchases on at least two different dates in the same year. "
+                      "A phone identity is not a verified person; missing or conflicting phones are excluded.")
+        if facts.get("same_calendar_window") is False:
+            pieces.append("The periods cover different calendar windows; compare matching windows before interpreting a change. "
+                          "The difference alone does not establish a real change in customer behaviour. "
+                          "A shorter window does not necessarily produce a lower repeat share: the number of "
+                          "identified buyers in the denominator can also change. The direction and size of any "
+                          "time-window effect on the repeat percentage are not measured.")
+        pieces.append("These figures do not establish why customers returned, upgrade cycles, or gap-free migrated history.")
+        return " ".join(pieces)
+    if tool == "live_shopify" and facts:
+        # Validate strings before including source-derived values in any prose.
+        start = date.fromisoformat(facts["date_from"])
+        end = date.fromisoformat(facts["date_to"])
+        if start > end:
+            raise ValueError("Invalid Shopify dates")
+        zone = facts.get("timezone")
+        if not isinstance(zone, str) or not zone or len(zone) > 64 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_+-" for c in zone):
+            raise ValueError("Invalid timezone")
+        filters = facts.get("status_filters")
+        if not isinstance(filters, dict):
+            raise ValueError("Missing status filters")
+        allowed = {"financial_status": {"any", "paid", "pending", "authorized", "partially_paid", "partially_refunded", "refunded", "voided"},
+                   "fulfillment_status": {"any", "fulfilled", "unfulfilled", "partial"},
+                   "cancelled": {"any", "yes", "no"}, "test_orders": {"any", "yes", "no"}}
+        if set(filters) != set(allowed) or any(filters[k] not in allowed[k] for k in allowed):
+            raise ValueError("Invalid status filters")
+        totals = []
+        for row in facts["totals_by_currency"]:
+            currency = row["currency"]
+            if len(currency) != 3 or not currency.isascii() or not currency.isalpha() or not currency.isupper():
+                raise ValueError("Invalid currency")
+            totals.append(f"{currency} {row['current_order_value']:,.2f} ({row['orders']:,} orders)")
+        value = "; ".join(totals) if totals else "no qualifying orders; no currency total is available"
+        freshness = facts.get("read_window_utc", {})
+        timestamp = freshness.get("read_completed_utc") if isinstance(freshness, dict) else None
+        if timestamp:
+            parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            if parsed.tzinfo and parsed.utcoffset() != timedelta(0):
+                raise ValueError("Read timestamp is not UTC")
+            timestamp = parsed.strftime("%Y-%m-%d %H:%M:%S")
+        read_time = f" Read completed {timestamp} UTC." if timestamp else " Read time is unavailable."
+        return (f"{facts['qualifying_orders']:,} qualifying orders out of {facts['orders_checked']:,} checked; "
+                f"current order value: {value}. Created {start.isoformat()} to {end.isoformat()} "
+                f"in {zone}; financial status {filters['financial_status']}, fulfillment status "
+                f"{filters['fulfillment_status']}, cancelled {filters['cancelled']}, test orders "
+                f"{filters['test_orders']}.{read_time} Values are tax-inclusive current order values, "
+                "not recognized revenue or margin. Equal aggregates do not establish unchanged orders or shipments.")
+    return None
+
+
 LIMITS = {
     "repeat_customers": [
         "Annual counts and overlap do not establish loyalty, upgrade cycles, retention trends or reasons for repeat behaviour.",
+        "A cross-year buyer is neither automatically included in nor excluded from a within-year repeat group; the groups can overlap.",
         "A two-document versus two-date gap does not establish split invoices or accessory visits; refund effects have not been measured.",
-        "Unequal calendar windows are not a like-for-like comparison. Do not predict a year-end increase or assign a measurement effect's direction/size.",
+        "Unequal calendar windows are not a like-for-like comparison. Do not predict a year-end increase or assign a measurement effect's direction/size; a shorter window does not necessarily lower a repeat percentage because its denominator can also change.",
         "Use read_snapshot exactly: a consistent snapshot at query time does not reconstruct the database as it existed at a historical cutoff.",
     ],
     "live_shopify": [
@@ -164,5 +241,13 @@ def with_answer_contract(data, tool):
             # Keep the original evidence for diagnosis, but do not bless a total.
             contract["computed_facts"] = {}
             contract["result_scope"] = "inconsistent or incomplete evidence; do not publish a headline total"
+        if contract["computed_facts"]:
+            try:
+                summary = _verified_summary(tool, contract["computed_facts"])
+                if summary:
+                    contract["verified_summary"] = summary
+            except (KeyError, TypeError, ValueError, InvalidOperation, OverflowError):
+                # Context can be absent without invalidating independently reconciled figures.
+                contract["summary_unavailable"] = "Required context is missing or invalid; use original evidence and state uncertainty."
     # This first key is visible even to clients that lazily load tool results.
     return {"answer_contract": contract, **{k: v for k, v in data.items() if k != "answer_contract"}}

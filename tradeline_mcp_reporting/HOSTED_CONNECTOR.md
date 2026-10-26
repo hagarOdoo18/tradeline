@@ -202,9 +202,40 @@ and [MCP authorization requirements](https://modelcontextprotocol.io/specificati
 
 ## Prepared evidence-first reporting update — 27 October 2026
 
+### Follow-up after live evaluation
+
+The deployed 18.0.1.3.1 release still produced unsupported commentary in an
+actual Claude repeat-customer answer, despite correctly returning the counts.
+Version **18.0.1.3.2** adds a deterministic
+`verified_summary` built from validated report values and explicit scope, with
+no promotion of record text to instructions. It distinguishes the cross-year
+overlap from within-year repeat groups, and explicitly states when the effect
+of unequal reporting windows is unmeasured. Incomplete or malformed context
+does not become a verified summary. No access or business-data behavior was
+expanded.
+
+A full isolated Odoo run passed 139 tests and 10 real local PostgreSQL checks;
+the updated calculation tests passed again after the final wording change.
+Synthetic Claude replays are recorded separately and are not live deployment
+verification. Early replays still produced unsupported prose, demonstrating that
+extra guidance and a deterministic summary cannot guarantee the model's final
+answer. After the overlap and window caveats were strengthened, the last
+synthetic replay correctly distinguished the customer groups and declined to
+explain the cause; it still used ambiguous "real change" wording. The MCP
+server cannot intercept or enforce the final answer generated
+inside the Claude application. A subsequent wording change explicitly warns
+that unequal-period differences alone do not prove a change in behaviour.
+The user subsequently authorized deployment when ready, with read-only testing.
+In a further synthetic replay Claude still asserted that a shorter window would
+lower the repeat share while also saying its effect was unknown. The summary
+now explains that the denominator may also change. The next synthetic replay
+reported the figures correctly and did not claim a directional window effect.
+This replay used simulated evidence in a user message, not a live tool result;
+post-deployment checks must separately assess Claude and the returned sources.
+
 **The user authorized one production push of version 18.0.1.3.1 on 27 October
-2026, followed by read-only live verification. No further deployment is
-authorized after that push.** The deployment base is version 18.0.1.3.0.
+2026, followed by read-only live verification.** That deployment's base was
+version 18.0.1.3.0.
 
 The fixed reporting bridge attaches an `answer_contract` to dictionary tool
 responses, shared by hosted Claude clients and the existing RPC/stdio client.
