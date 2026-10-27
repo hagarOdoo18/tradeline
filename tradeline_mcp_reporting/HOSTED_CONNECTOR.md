@@ -202,6 +202,23 @@ and [MCP authorization requirements](https://modelcontextprotocol.io/specificati
 
 ## Prepared evidence-first reporting update — 27 October 2026
 
+### Follow-up interpretation fixes — 18.0.1.3.3
+
+Live 18.0.1.3.2 testing reconciled the repeat and Shopify figures and their
+sources, but Claude still called missing-year identities new customers and
+attributed repeat-count growth to the buyer base. Subsequent synthetic tests
+also exposed an unsupported estimate based on squared matching coverage.
+The follow-up makes these limits explicit in the deterministic summary,
+initialization instructions and the selected tool's description. The latter
+is available to clients that load tools lazily without rereading initialization.
+Group intersections are unknown unless measured; independent phone matching is
+neither established nor ruled out. These changes add no queries or permissions.
+
+The isolated combined Odoo suite passed 139 tests, including the returned tool
+catalogue. A controlled synthetic replay correctly handled acquisition,
+causality, unmeasured coverage effects and unknown overlap. Such replays are
+not substitutes for fresh deployed tool-use tests.
+
 ### Follow-up after live evaluation
 
 The deployed 18.0.1.3.1 release still produced unsupported commentary in an

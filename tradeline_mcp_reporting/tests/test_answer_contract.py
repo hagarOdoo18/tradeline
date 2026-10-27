@@ -55,7 +55,7 @@ class TestAnswerContract(BaseCase):
     def test_repeat_verified_summary_carries_numbers_and_limits_without_causes(self):
         result = contract(repeat(), "repeat_customers")["answer_contract"]
         summary = result["verified_summary"]
-        for expected in ["30 repeat phone identities", "20 repeat phone identities", "25 phone identities", "95.00%", "93.33%", "different calendar windows", "does not establish a real change", "does not necessarily produce a lower repeat share", "direction and size", "may also qualify", "not a verified person"]:
+        for expected in ["30 repeat phone identities", "20 repeat phone identities", "25 phone identities", "95.00%", "93.33%", "different calendar windows", "does not establish a real change", "does not necessarily produce a lower repeat share", "direction and size", "may or may not overlap", "not necessarily a new customer", "one caused the other", "neither established nor ruled out", "not a verified person"]:
             self.assertIn(expected, summary)
         self.assertNotIn("split invoice", summary)
         self.assertNotIn("upgrade cycle causes", summary)

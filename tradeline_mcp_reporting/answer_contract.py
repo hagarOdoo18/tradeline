@@ -141,8 +141,10 @@ def _verified_summary(tool, facts):
             )
         if "present_in_all_selected_years" in facts:
             pieces.append(f"{facts['present_in_all_selected_years']:,} phone identities purchased in every selected year.")
-            pieces.append("Those cross-year buyers may also qualify as within-year repeat buyers; "
-                          "the overlap alone does not identify which ones.")
+            pieces.append("Cross-year and within-year buyer groups may or may not overlap; "
+                          "the report does not establish their intersection or identify its members.")
+            pieces.append("An identity absent from a selected year is not necessarily a new customer: "
+                          "they may have purchased outside the selected years or be missing from the records.")
         pieces.append("A repeat identity has purchases on at least two different dates in the same year. "
                       "A phone identity is not a verified person; missing or conflicting phones are excluded.")
         if facts.get("same_calendar_window") is False:
@@ -151,7 +153,10 @@ def _verified_summary(tool, facts):
                           "A shorter window does not necessarily produce a lower repeat share: the number of "
                           "identified buyers in the denominator can also change. The direction and size of any "
                           "time-window effect on the repeat percentage are not measured.")
-        pieces.append("These figures do not establish why customers returned, upgrade cycles, or gap-free migrated history.")
+        pieces.append("Changes in buyer and repeat counts alone do not establish why either changed or that one caused the other. "
+                      "Matching coverage percentages do not measure their effect on buyer or repeat counts; "
+                      "independent matching is neither established nor ruled out; do not estimate that effect using it as an assumption. "
+                      "These figures do not establish why customers returned, upgrade cycles, or gap-free migrated history.")
         return " ".join(pieces)
     if tool == "live_shopify" and facts:
         # Validate strings before including source-derived values in any prose.
@@ -197,7 +202,10 @@ def _verified_summary(tool, facts):
 LIMITS = {
     "repeat_customers": [
         "Annual counts and overlap do not establish loyalty, upgrade cycles, retention trends or reasons for repeat behaviour.",
-        "A cross-year buyer is neither automatically included in nor excluded from a within-year repeat group; the groups can overlap.",
+        "A cross-year buyer is neither automatically included in nor excluded from a within-year repeat group; the groups may or may not overlap unless the intersection is measured.",
+        "A buyer absent from one selected year is not necessarily a new customer; earlier, external or missing purchases are possible.",
+        "Do not attribute repeat-buyer growth solely to buyer-base growth, infer motives or claim the available history begins at the selected start date without separate evidence.",
+        "Coverage percentages alone do not quantify bias or establish or disprove independent matching. Do not invent a coverage-effect estimate or its direction.",
         "A two-document versus two-date gap does not establish split invoices or accessory visits; refund effects have not been measured.",
         "Unequal calendar windows are not a like-for-like comparison. Do not predict a year-end increase or assign a measurement effect's direction/size; a shorter window does not necessarily lower a repeat percentage because its denominator can also change.",
         "Use read_snapshot exactly: a consistent snapshot at query time does not reconstruct the database as it existed at a historical cutoff.",

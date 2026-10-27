@@ -158,6 +158,13 @@ class TestHostedMCP(TransactionCase):
         self.assertIn("false premise", response["result"]["instructions"])
         for tool in CATALOG:
             self.assertIn("answer_contract", tool["description"])
+        # Lazy-loading clients can see the selected tool without reinitializing.
+        # Keep the interpretation limits in that same tool definition.
+        listed, _ = handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, MagicMock(), "")
+        repeat = next(t for t in listed["result"]["tools"] if t["name"] == "repeat_customers")
+        for distinction in ["not necessarily a new customer", "solely to buyer-base growth",
+                            "establish or disprove independent matching", "may or may not overlap"]:
+            self.assertIn(distinction, repeat["description"])
 
     def test_consent_and_mcp_controller_security(self):
         from ..controllers import remote

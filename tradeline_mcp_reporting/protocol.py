@@ -2,6 +2,7 @@
 import copy
 import json
 from pathlib import Path
+from .answer_contract import LIMITS
 
 ROOT = Path(__file__).parent
 CATALOG = json.loads((ROOT / "tool_catalog.json").read_text(encoding="utf-8"))
@@ -30,6 +31,8 @@ CATALOG.append({
                     "idempotentHint": True, "openWorldHint": True}})
 for tool in CATALOG:
     tool["description"] += " Use the returned verified_summary when present, check answer_contract limits, and cite the source. Never invent causes or label unsupported claims 'likely'."
+    if tool["name"] in LIMITS:
+        tool["description"] += " Reporting limits for interpreting this tool: " + " ".join(LIMITS[tool["name"]])
 VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
 
 
@@ -68,7 +71,7 @@ def handle_message(message, call, base):
         if not isinstance(requested, str) or not isinstance(params.get("clientInfo"), dict) or not isinstance(params.get("capabilities"), dict):
             return error(ident, -32602, "Initialization requires protocolVersion, clientInfo and capabilities."), 200
         result = {"protocolVersion": requested if requested in VERSIONS else "2025-11-25",
-            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.5.1"},
+            "serverInfo": {"name": "Tradeline Odoo reporting", "version": "0.5.2"},
             "capabilities": {"tools": {}}, "instructions": INSTRUCTIONS}
     elif method == "ping":
         result = {}
