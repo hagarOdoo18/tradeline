@@ -707,7 +707,7 @@ class TestEtaReliability(TransactionCase):
 
     def test_untaxed_discounted_eta_lines_match_posted_accounting_amounts(self):
         egp = self.env.ref('base.EGP'); egp.active = True
-        metadata = {'e_invoicing_code': 'EG-test-discount', 'code_type': 'EGS', 'ar_description': 'Test description'}
+        metadata = {'e_invoicing_code': 'EG-test-discount', 'code_type': 'egs', 'ar_description': 'Test description'}
         product = self.env['product.product'].create({'name': 'ETA discount test product',
             **{key: value for key, value in metadata.items() if key in self.env['product.product']._fields}})
         eta_uom = self.env['eta.uom'].search([('code', '=', 'D41')], limit=1)
