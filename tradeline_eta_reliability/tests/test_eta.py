@@ -6,10 +6,12 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from odoo import Command, fields
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
+from odoo.tests.common import new_test_user
 
 from ..models.client import EtaClient, EtaError
+from ..models.eta_monitoring import error_details
 
 
 @tagged('post_install', '-at_install')
@@ -405,3 +407,130 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(caught.exception.retry_after, 121)
         self.assertEqual(client.session.request.call_count, 1)
         self.assertEqual(client.session.request.call_args.kwargs['timeout'], (5, 25))
+
+    def test_invoice_log_explains_each_validation_leaf_without_http_or_writes(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        job.write({'state': 'blocked', 'last_error': 'ETA rejected: ' + json.dumps({
+            'error': {'code': 'ValidationError', 'message': 'Validation failed', 'details': [
+                {'code': 'CF313', 'target': 'dateTimeIssued', 'message': 'Issue date outside permitted range'},
+                {'code': 'CF305', 'target': 'receiver.id', 'message': 'Receiver ID not registered'}]}})})
+        before = (move.invoice_date, move.amount_total, move.write_date, job.write_date, job.state)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Log performed HTTP')):
+            self.assertIn('CF313 / dateTimeIssued', job.reason_summary)
+            self.assertIn('CF305 / receiver.id', job.reason_summary)
+            self.assertNotIn('Validation failed', job.reason_summary)
+            self.assertIn('Keep the original invoice date', job.required_action)
+            self.assertIn('customer ID', job.required_action)
+            self.assertTrue(job.needs_attention)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.write_date, job.write_date, job.state))
+
+    def test_invoice_log_recovers_leaf_errors_from_truncated_json(self):
+        raw = 'ETA rejected: {"error":{"code":"ValidationError","details":[' + json.dumps({
+            'code': 'SF307', 'target': 'receiver.id', 'message': 'Receiver ID length invalid'}) + ',{"code":"CF313"'
+        detail, codes = error_details(raw)
+        self.assertIn('SF307 / receiver.id: Receiver ID length invalid', detail)
+        self.assertEqual(codes, {'ValidationError', 'SF307', 'CF313'})
+        job = self.invoice().eta_job_ids
+        job.write({'state': 'invalid', 'last_error': raw})
+        self.assertIn('customer ID', job.required_action)
+        self.assertNotIn('tax calculation', job.required_action)
+        self.assertIn('Keep the original invoice date', job.required_action)
+
+    def test_invoice_log_attention_filters_match_live_states_and_attempt_age(self):
+        jobs = self.env['tradeline.eta.job']
+        queued, accepted, unknown, blocked, approved, reviewed = [self.invoice().eta_job_ids for _ in range(6)]
+        now = fields.Datetime.now()
+        old = now - timedelta(hours=2)
+        all_jobs = queued | accepted | unknown | blocked | approved | reviewed
+        self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id IN %s', [old, tuple(all_jobs.ids)])
+        all_jobs.invalidate_recordset(['create_date'])
+        accepted.write({'state': 'accepted', 'attempted_at': now})
+        unknown.state = 'unknown'
+        blocked.state = 'blocked'
+        approved.state = 'valid'
+        reviewed.write({'state': 'valid', 'last_error': 'ETA issue date differs from the original invoice date.'})
+        expected = queued | unknown | blocked | reviewed
+        base = [('id', 'in', all_jobs.ids)]
+        self.assertEqual(set(jobs.search(base + [('needs_attention', '=', True)]).ids), set(expected.ids))
+        self.assertEqual(set(jobs.search(base + [('needs_attention', '!=', False)]).ids), set(expected.ids))
+        self.assertEqual(set(jobs.search(base + [('needs_attention', '=', False)]).ids), {accepted.id, approved.id})
+        self.assertEqual(set(all_jobs.filtered('needs_attention').ids), set(expected.ids))
+        self.assertLess(accepted.waiting_minutes, 2)
+        accepted.attempted_at = now - timedelta(minutes=20)
+        self.assertTrue(accepted.needs_attention)
+        self.assertIn(accepted, jobs.search(base + [('needs_attention', '=', True)]))
+        self.assertIn('Do not automatically cancel or resend', reviewed.required_action)
+
+    def test_invoice_log_distinguishes_disabled_overdue_and_active_worker(self):
+        job = self.invoice().eta_job_ids
+        cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue')
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        cron.write({'active': False, 'failure_count': 0})
+        job._compute_monitoring()
+        self.assertIn('disabled', job.reason_summary)
+        job.last_error = 'ETA temporarily unavailable'
+        self.assertIn('Restore the ETA scheduled worker', job.required_action)
+        cron.write({'active': True, 'nextcall': fields.Datetime.now() - timedelta(minutes=10)})
+        job.last_error = False
+        job._compute_monitoring()
+        self.assertIn('overdue', job.reason_summary)
+        cron.nextcall = fields.Datetime.now() + timedelta(minutes=1)
+        job._compute_monitoring()
+        self.assertIn('Waiting in the automatic submission queue', job.reason_summary)
+
+    def test_invoice_log_keeps_uncertain_outcomes_and_product_fixes_distinct(self):
+        job = self.invoice().eta_job_ids
+        job.write({'state': 'unknown', 'last_error': 'Read timed out after submission'})
+        self.assertIn('Read timed out', job.reason_summary)
+        self.assertIn('do not blindly resend', job.required_action)
+        job.write({'state': 'invalid', 'last_error': 'CV302: itemCode is not active'})
+        self.assertIn('ETA-approved EGS/GS1', job.required_action)
+        job.write({'state': 'invalid', 'last_error': 'DS301: duplicate document'})
+        self.assertIn('referenced original ETA receipt', job.required_action)
+
+    def test_invoice_log_navigation_and_incident_drilldown(self):
+        job = self.invoice().eta_job_ids
+        self.assertEqual(job.action_open_invoice()['res_id'], job.move_id.id)
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor = monitor or self.env['tradeline.operations.monitor'].create({})
+        self.assertEqual(monitor.action_eta_invoice_log()['res_model'], 'tradeline.eta.job')
+        for code, state in [('eta:rejected', 'blocked'), ('eta:stalled', 'unknown')]:
+            incident = self.env['tradeline.operations.incident'].search([('monitor_id', '=', monitor.id), ('code', '=', code)])
+            incident = incident or self.env['tradeline.operations.incident'].create({
+                'monitor_id': monitor.id, 'code': code, 'title': 'ETA test incident',
+                'severity': 'warning', 'details': 'Test', 'action': 'Review'})
+            job.state = state
+            self.assertTrue(incident.is_eta_incident)
+            action = incident.action_eta_invoice_log()
+            self.assertEqual(action['context'], {})
+            self.assertIn(job, self.env['tradeline.eta.job'].search(action['domain']))
+
+    def test_invoice_log_accounting_access_respects_selected_company(self):
+        job = self.invoice().eta_job_ids
+        partner_values = {'name': 'ETA log other company', 'is_company': True, 'vat': '999999999'}
+        # The full hosted stack requires size/device data on company contacts.
+        # These are rollback-only fixtures; no taxpayer document is submitted.
+        for name, value in [('company_size', 'small'), ('company_device', 1)]:
+            if name in self.env['res.partner']._fields:
+                partner_values[name] = value
+        company_partner = self.env['res.partner'].with_context(no_vat_validation=True).create(partner_values)
+        company_b = self.env['res.company'].create({'name': 'ETA log other company',
+            'partner_id': company_partner.id,
+            'activity_code_id': self.company.activity_code_id.id,
+            'type_code_id': self.company.type_code_id.id,
+            'sub_type_code_id': self.company.sub_type_code_id.id})
+        journal_b = self.env['account.journal'].with_company(company_b).create({
+            'name': 'ETA log other sales', 'code': 'ELB', 'type': 'sale', 'company_id': company_b.id})
+        move_b = self.env['account.move'].with_company(company_b).create({
+            'move_type': 'out_invoice', 'journal_id': journal_b.id, 'company_id': company_b.id})
+        other_job = self.env['tradeline.eta.job'].create({'move_id': move_b.id, 'state': 'blocked'})
+        user = new_test_user(self.env, login='eta_log_manager', groups='account.group_account_manager',
+            company_id=self.company.id, company_ids=[Command.set((self.company | company_b).ids)])
+        visible = self.env['tradeline.eta.job'].with_user(user).with_context(allowed_company_ids=self.company.ids)
+        self.assertEqual(visible.search([('id', 'in', (job | other_job).ids)]), job.with_user(user))
+        self.assertTrue(visible.browse(job.id).reason_summary)
+        with self.assertRaises(AccessError):
+            visible.browse(other_job.id).action_open_invoice()
+        with self.assertRaises(AccessError):
+            self.env['tradeline.operations.monitor'].with_user(user).action_eta_invoice_log()
