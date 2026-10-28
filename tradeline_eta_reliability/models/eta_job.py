@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import psycopg2
 import requests
@@ -91,7 +91,11 @@ class EtaJob(models.Model):
             native.write({'state': 'sent', 'error': False, 'blocking_level': False})
         elif status in ('Invalid', 'Rejected', 'Cancelled'):
             native.write({'error': _('ETA reports %s. Review ETA Submission Jobs.', status), 'blocking_level': 'error'})
-            self.last_error = _('ETA reports %s. Correct the document; it will not be resent automatically.', status)
+            details = data.get('validationResults')
+            reason = (json.dumps(details, ensure_ascii=False)[:4000] if details else
+                      _('ETA reports %s. Correct the document; it will not be resent automatically.', status))
+            self.last_error = reason
+            move.e_invoice_issue = reason
 
     def _refresh(self, client):
         self.ensure_one()
@@ -112,7 +116,14 @@ class EtaJob(models.Model):
             return
         # A lost response is not proof of failure. Never POST again automatically.
         # Search by internal ID around the actual attempt; historical jobs stay held.
-        start = (self.attempted_at or self.create_date) - timedelta(days=1)
+        original = json.loads(self.payload)['documents'][0] if self.payload else None
+        issued = None
+        if original and not self.attempted_at:
+            try:
+                issued = datetime.fromisoformat(original.get('dateTimeIssued', '').replace('Z', '+00:00')).replace(tzinfo=None)
+            except ValueError:
+                pass
+        start = (self.attempted_at or issued or self.create_date) - timedelta(days=1)
         stop = min(fields.Datetime.now(), start + timedelta(days=29))
         data = client.request('GET', '/api/v1.0/documents/search', params={
             'submissionDateFrom': start.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -120,13 +131,16 @@ class EtaJob(models.Model):
             'internalID': move.name, 'direction': 'Sent', 'pageSize': 100,
         })
         matches = [r for r in data.get('result', []) if r.get('internalId') == move.name]
-        if len(matches) == 1 and self.attempted_at:
+        continuation = data.get('metadata', {}).get('continuationToken')
+        if continuation not in (None, 'EndofResultSet'):
+            self._delay('ETA returned multiple pages for this internal ID. Review is required.', seconds=900, state='unknown')
+            return
+        if len(matches) == 1 and original:
             # Match the actual signed request, not merely a reused internal ID.
             raw = client.request('GET', '/api/v1.0/documents/%s/raw' % matches[0]['uuid'])
             document = raw.get('document')
             if isinstance(document, str):
                 document = json.loads(document)
-            original = json.loads(self.payload)['documents'][0] if self.payload else None
             if document == original:
                 self._apply_remote(raw)
                 return
@@ -248,13 +262,21 @@ class EtaJob(models.Model):
                 ('eta_submission_pending', '=', True), ('e_invoice_uuid', '=', False),
                 ('eta_job_ids', '=', False),
             ], limit=200, order='id')
-            moves._eta_enqueue()
+            moves._eta_enqueue(reconcile=True)
             pending_status = self.env['account.move'].sudo().search([
                 ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
                 ('e_invoice_status', '=', 'Submitted'), ('e_invoice_uuid', '!=', False),
                 ('eta_job_ids', '=', False),
             ], limit=200, order='e_invoice_date, id')
             pending_status._eta_enqueue()
+            legacy_recent = self.env['account.move'].sudo().search([
+                ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
+                ('e_invoice_status', 'in', ('Draft', 'Error')), ('e_invoice_uuid', '=', False),
+                ('invoice_date', '>=', fields.Date.today() - timedelta(days=7)),
+                ('eta_job_ids', '=', False),
+            ], limit=100, order='invoice_date, id')
+            # Old code has no durable request/outcome ledger. Reconcile first.
+            legacy_recent._eta_enqueue(reconcile=True)
             self.env.cr.commit()
             states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'unknown', 'accepted']
             jobs = self.sudo().search([('state', 'in', states), '|', ('next_attempt', '=', False),

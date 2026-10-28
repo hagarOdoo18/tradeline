@@ -94,6 +94,25 @@ class TestEtaReliability(TransactionCase):
             move.eta_job_ids._apply_remote({'uuid': 'wrong', 'internalId': 'different-invoice', 'status': 'Valid'})
         self.assertFalse(move.e_invoice_uuid)
 
+    def test_native_dispatcher_does_not_send_a_second_copy(self):
+        move = self.invoice()
+        eta = self.env.ref('l10n_eg_edi_eta.edi_eg_eta')
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Native dispatcher sent HTTP')):
+            result = eta._l10n_eg_edi_post_invoice(move)
+        self.assertEqual(result[move]['blocking_level'], 'info')
+        self.assertEqual(len(move.eta_job_ids), 1)
+
+    def test_verified_valid_status_clears_only_matching_native_error(self):
+        move = self.invoice()
+        eta = self.env.ref('l10n_eg_edi_eta.edi_eg_eta')
+        native = self.env['account.edi.document'].create({'move_id': move.id, 'edi_format_id': eta.id,
+            'state': 'to_send', 'error': 'Missing native signing payload', 'blocking_level': 'error'})
+        move.eta_job_ids._apply_remote({'uuid': 'verified-uuid', 'internalId': move.name, 'status': 'Valid',
+            'submissionUUID': 'verified-submission', 'document': json.dumps({'internalID': move.name})})
+        self.assertEqual(native.state, 'sent')
+        self.assertFalse(native.error)
+        self.assertEqual(move.l10n_eg_uuid, 'verified-uuid')
+
     def test_invalid_remains_visible_and_not_queued(self):
         move = self.invoice()
         move.eta_job_ids._apply_remote({'uuid': 'eta-uuid', 'internalId': move.name, 'status': 'Invalid'})
