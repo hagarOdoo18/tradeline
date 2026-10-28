@@ -116,6 +116,8 @@ class AccountMove(models.Model):
         if result.get('status') != 'Invalid':
             job._apply_remote(result)
             return
+        if 'DS301' in json.dumps(result.get('validationResults') or {}):
+            raise UserError(_('ETA identifies this as a duplicate. Reconcile the referenced original document before any corrected submission.'))
         original = result.get('document')
         if isinstance(original, str):
             try:
