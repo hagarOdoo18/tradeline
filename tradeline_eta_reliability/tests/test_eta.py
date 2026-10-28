@@ -50,6 +50,24 @@ class TestEtaReliability(TransactionCase):
         due = self.env['tradeline.eta.job']._due_jobs('all')
         self.assertEqual([job.state for job in due[:3]], ['queued', 'accepted', 'unknown'])
 
+    def test_monitor_detects_wrong_database_activation(self):
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        if not monitor:
+            monitor = self.env['tradeline.operations.monitor'].create({})
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').active = True
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', 'different-database')
+        self.assertIn('eta:scheduler', [s['code'] for s in monitor._probe_crons(fields.Datetime.now())])
+
+    def test_monitor_detects_a_queue_that_never_started(self):
+        job = self.invoice().eta_job_ids
+        self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id=%s',
+                            [fields.Datetime.now() - timedelta(minutes=30), job.id])
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        if not monitor:
+            monitor = self.env['tradeline.operations.monitor'].create({})
+        self.assertEqual(job.failures, 0)
+        self.assertIn('eta:stalled', [s['code'] for s in monitor._probe_crons(fields.Datetime.now())])
+
     def test_signer_does_not_commit_and_has_timeout(self):
         move = self.invoice()
         move.e_invoice_canonical = 'canonical'

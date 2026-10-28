@@ -10,7 +10,8 @@ class OperationsMonitor(models.Model):
     def _probe_crons(self, now):
         observations = super()._probe_crons(now)
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
-        if not cron or not cron.active or cron.failure_count:
+        enabled_database = self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database')
+        if not cron or not cron.active or cron.failure_count or enabled_database != self.env.cr.dbname:
             observations.append(signal('eta:scheduler', 'Automatic ETA processing is unavailable',
                 'The reliable ETA queue is missing, disabled or failing.',
                 'Review ETA Submission Jobs and its scheduled action.', 'critical'))
@@ -20,8 +21,7 @@ class OperationsMonitor(models.Model):
                 'Review the scheduler and database locks.', 'critical'))
         jobs = self.env['tradeline.eta.job'].sudo()
         stalled = jobs.search_count([('state', 'in', ['queued', 'unknown', 'accepted']),
-                                     ('create_date', '<', now - timedelta(minutes=15)),
-                                     '|', ('failures', '>', 0), ('state', '=', 'unknown')])
+                                     ('create_date', '<', now - timedelta(minutes=15))])
         if stalled:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,
