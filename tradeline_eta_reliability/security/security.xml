@@ -1,0 +1,7 @@
+<odoo>
+    <record id="eta_job_company_rule" model="ir.rule">
+        <field name="name">ETA jobs: allowed companies</field>
+        <field name="model_id" ref="model_tradeline_eta_job"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>
