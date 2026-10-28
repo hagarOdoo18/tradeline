@@ -368,6 +368,21 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.e_invoice_uuid, 'invalid-old')
         self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
 
+    def test_duplicate_rejection_requires_original_receipt_reconciliation_before_correction(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'duplicate-old', 'e_invoice_status': 'Invalid'})
+        client = MagicMock()
+        client.request.return_value = {'uuid': 'duplicate-old', 'internalId': move.name,
+            'status': 'Invalid', 'validationResults': {'errorCode': 'DS301'},
+            'document': {'internalID': move.name, 'receiver': {'id': 'old'}}}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                patch.object(type(move), '_eta_correction_document', return_value={
+                    'internalID': move.name, 'receiver': {'id': 'changed'}}):
+            with self.assertRaisesRegex(UserError, 'duplicate'):
+                move.action_send_electronic_invoice()
+        self.assertEqual(move.e_invoice_uuid, 'duplicate-old')
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET'])
+
     def test_previously_invalid_but_now_valid_document_is_refreshed_only(self):
         move = self.invoice()
         move.write({'e_invoice_uuid': 'same-uuid', 'e_invoice_status': 'Invalid'})
