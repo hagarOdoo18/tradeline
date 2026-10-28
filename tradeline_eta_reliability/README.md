@@ -73,3 +73,7 @@ confirms that the old document is Invalid and every leaf validation error is
 4043 (signature digest mismatch). The prior government receipt is archived.
 Other unchanged rejections and duplicate documents remain held. Signing and POST
 still happen only through the durable worker; date treatment is approved separately.
+
+For EGP lines with no nonzero tax rate, ETA line totals use the existing posted
+line amount. This preserves discounts lost by the legacy zero-tax serializer
+without modifying invoice dates, accounting amounts or journal entries.
