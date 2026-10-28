@@ -508,7 +508,15 @@ class TestEtaReliability(TransactionCase):
 
     def test_invoice_log_accounting_access_respects_selected_company(self):
         job = self.invoice().eta_job_ids
+        partner_values = {'name': 'ETA log other company', 'is_company': True, 'vat': '999999999'}
+        # The full hosted stack requires size/device data on company contacts.
+        # These are rollback-only fixtures; no taxpayer document is submitted.
+        for name, value in [('company_size', 'small'), ('company_device', 1)]:
+            if name in self.env['res.partner']._fields:
+                partner_values[name] = value
+        company_partner = self.env['res.partner'].with_context(no_vat_validation=True).create(partner_values)
         company_b = self.env['res.company'].create({'name': 'ETA log other company',
+            'partner_id': company_partner.id,
             'activity_code_id': self.company.activity_code_id.id,
             'type_code_id': self.company.type_code_id.id,
             'sub_type_code_id': self.company.sub_type_code_id.id})
