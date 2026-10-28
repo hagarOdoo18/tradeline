@@ -4,16 +4,16 @@
         <field name="model">tradeline.eta.job</field>
         <field name="arch" type="xml">
             <list create="0" delete="0" decoration-danger="state in ('blocked', 'invalid')" decoration-warning="state == 'unknown'">
-                <field name="move_id"/>
+                <field name="move_id" string="Invoice"/>
                 <field name="company_id" groups="base.group_multi_company"/>
-                <field name="state"/>
+                <field name="state" string="Status"/>
                 <field name="reason_summary" class="text-wrap"/>
                 <field name="required_action" class="text-wrap"/>
-                <field name="waiting_minutes" optional="show"/>
+                <field name="waiting_minutes" string="Waiting (min)" optional="show"/>
                 <field name="invoice_date" optional="hide"/>
                 <field name="customer_id" optional="hide"/>
                 <field name="attempts" optional="hide"/>
-                <field name="next_attempt" optional="show"/>
+                <field name="next_attempt" string="Next check / retry" optional="show"/>
                 <field name="checked_at" optional="hide"/>
                 <field name="create_date" string="Queued on" optional="hide"/>
                 <field name="write_date" string="Last updated" optional="hide"/>
@@ -36,7 +36,7 @@
                         <field name="required_action" nolabel="1" colspan="2"/>
                     </group>
                     <group>
-                        <field name="move_id"/><field name="company_id"/><field name="state"/>
+                        <field name="move_id" string="Invoice"/><field name="company_id"/><field name="state" string="Status"/>
                         <field name="invoice_date"/><field name="customer_id"/><field name="waiting_minutes"/>
                         <field name="create_date" string="Queued on"/><field name="write_date" string="Last updated"/>
                         <field name="attempts"/><field name="next_attempt"/><field name="attempted_at"/>
@@ -52,7 +52,7 @@
         <field name="model">tradeline.eta.job</field>
         <field name="arch" type="xml">
             <search>
-                <field name="move_id"/>
+                <field name="move_id" string="Invoice"/>
                 <field name="customer_id"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="last_error" string="ETA message"/>
