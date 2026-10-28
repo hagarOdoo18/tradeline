@@ -1,10 +1,13 @@
 import ast
+import base64
+import binascii
 import hashlib
 import json
 from datetime import datetime, time
 
 import pytz
 import requests
+from asn1crypto import cms
 
 from odoo import fields, models, _
 from odoo.exceptions import AccessError, UserError
@@ -66,6 +69,29 @@ class AccountMove(models.Model):
     def _eta_correction_document(self):
         self.ensure_one()
         return self.with_company(self.company_id).action_generate_eta_json()[0]
+
+    def generate_canonical_manual(self, invoice_params):
+        # Use Odoo's ETA serializer: JSON string escaping is part of the signed
+        # bytes, including quotation marks in inch sizes and control characters.
+        return self.env['l10n_eg_edi.thumb.drive']._serialize_for_signing(invoice_params)
+
+    def _eta_validate_signature_digest(self, signature):
+        """Check binding to these bytes; ETA still validates certificate and RSA signature."""
+        self.ensure_one()
+        try:
+            data = cms.ContentInfo.load(base64.b64decode(''.join(signature.split()), validate=True), strict=True)
+            if data['content_type'].native != 'signed_data':
+                raise ValueError('Expected CMS SignedData')
+            signers = data['content']['signer_infos']
+            if len(signers) != 1 or signers[0]['digest_algorithm']['algorithm'].native != 'sha256':
+                raise ValueError('Expected one SHA256 signer')
+            digests = [attribute['values'][0].native for attribute in signers[0]['signed_attrs']
+                       if attribute['type'].native == 'message_digest']
+            if digests != [hashlib.sha256(self.e_invoice_canonical.encode('utf-8')).digest()]:
+                raise ValueError('Document digest mismatch')
+        except (ValueError, TypeError, KeyError, IndexError, binascii.Error, AttributeError) as exc:
+            raise UserError(_('The signing service returned an invalid signature or a digest that does not match this document. Nothing was sent to ETA; signing will be retried.')) from exc
+        return True
 
     def _get_eta_invoice_lines(self):
         lines, discount, sales, total = super()._get_eta_invoice_lines()
@@ -210,6 +236,7 @@ class AccountMove(models.Model):
                 raise UserError(_('The ETA signer did not return a signature (HTTP %s).', result.status_code))
         except requests.RequestException as exc:
             raise UserError(_('The ETA signer is unavailable; the queue will retry.')) from exc
+        self._eta_validate_signature_digest(result.text.strip())
         self.static_signature = result.text.strip()
         return self.static_signature
 
