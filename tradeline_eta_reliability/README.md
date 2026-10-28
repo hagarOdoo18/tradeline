@@ -77,3 +77,9 @@ still happen only through the durable worker; date treatment is approved separat
 For EGP lines with no nonzero tax rate, ETA line totals use the existing posted
 line amount. This preserves discounts lost by the legacy zero-tax serializer
 without modifying invoice dates, accounting amounts or journal entries.
+
+Canonical signing reuses Odoo's ETA JSON serializer so quotation marks, backslashes
+and control characters retain their JSON escaping. The signing response's CMS
+SHA256 message-digest attribute must match those exact canonical UTF-8 bytes
+before the worker can send it. ETA remains responsible for certificate and
+cryptographic signature validation.

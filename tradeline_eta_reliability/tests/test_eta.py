@@ -1,4 +1,7 @@
 import json
+import base64
+import hashlib
+from asn1crypto import cms
 from contextlib import ExitStack
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -108,7 +111,8 @@ class TestEtaReliability(TransactionCase):
         move = self.invoice()
         move.e_invoice_canonical = 'canonical'
         with patch('odoo.addons.tradeline_eta_reliability.models.account_move.requests.get',
-                   return_value=SimpleNamespace(status_code=200, text='signed')) as http:
+                   return_value=SimpleNamespace(status_code=200, text='signed')) as http, \
+                patch.object(type(move), '_eta_validate_signature_digest', return_value=True):
             with patch.object(type(self.env.cr), 'commit', side_effect=AssertionError('Signer committed')):
                 self.assertEqual(move.get_signature_value(), 'signed')
         self.assertEqual(http.call_args.kwargs['timeout'], (5, 25))
@@ -740,3 +744,58 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(total, move.amount_total)
         self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_untaxed,
                   move.amount_tax, tuple(move.line_ids.mapped('balance'))))
+
+    def test_eta_canonical_preserves_json_escapes_and_numeric_representation(self):
+        move = self.invoice()
+        doc = {'description': 'Tablet 10.2"', 'receiver': {'name': 'A\\B\nC'},
+               'lines': [{'quantity': 1.0, 'netTotal': 0.0}], 'internalID': 'ABC'}
+        expected = (r'"DESCRIPTION""Tablet 10.2\"""RECEIVER""NAME""A\\B\nC"'
+                    '"LINES""LINES""QUANTITY""1.0""NETTOTAL""0.0""INTERNALID""ABC"')
+        self.assertEqual(move.generate_canonical_manual(doc), expected)
+
+    def test_quote_description_preparation_keeps_fiscal_text_and_signs_escaped_bytes(self):
+        move = self.invoice(); job = move.eta_job_ids
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.state)
+        description = 'Tablet 10.2"'
+        with patch.object(type(move), '_get_eta_invoice_lines', return_value=([{'description': description}], 0, 100, 100)), \
+                patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
+                patch.object(type(move), '_get_eta_tax_totals', return_value=[]), \
+                patch.object(type(move), 'inv_type', '', create=True), \
+                patch.object(type(move), 'reference_number', '', create=True), \
+                patch.object(type(move), 'get_signature_value', return_value='test-signature'), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Preparation performed HTTP')):
+            job._prepare()
+        self.assertEqual(json.loads(job.payload)['documents'][0]['invoiceLines'][0]['description'], description)
+        self.assertIn(r'"DESCRIPTION""Tablet 10.2\""', move.e_invoice_canonical)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.state))
+
+    def test_cms_message_digest_must_match_the_document_before_transport(self):
+        move = self.invoice(); move.e_invoice_canonical = '"DOCUMENT""test"'
+        def signature(digest):
+            value = cms.ContentInfo({'content_type': 'signed_data', 'content': {
+                'version': 'v3', 'digest_algorithms': [{'algorithm': 'sha256'}],
+                'encap_content_info': {'content_type': 'data'}, 'signer_infos': [{
+                    'version': 'v3', 'sid': {'subject_key_identifier': b'test-key'},
+                    'digest_algorithm': {'algorithm': 'sha256'},
+                    'signed_attrs': [{'type': 'message_digest', 'values': [digest]}],
+                    'signature_algorithm': {'algorithm': 'rsassa_pkcs1v15'}, 'signature': b'test-only'}]}})
+            return base64.b64encode(value.dump()).decode()
+        matching = signature(hashlib.sha256(move.e_invoice_canonical.encode()).digest())
+        self.assertTrue(move._eta_validate_signature_digest(matching))
+        for rejected in (signature(b'0' * 32), 'not base64'):
+            with self.assertRaisesRegex(UserError, 'does not match'):
+                move._eta_validate_signature_digest(rejected)
+
+    def test_invalid_signing_response_is_stopped_before_eta_post_or_attempt_marker(self):
+        move = self.invoice(); job = move.eta_job_ids; client = MagicMock()
+        def generate():
+            move.write({'e_invoice_json': str({'internalID': move.name}),
+                        'e_invoice_canonical': '"INTERNALID""%s"' % move.name})
+        with patch.object(type(move), 'action_generate_eta_json', side_effect=generate), \
+                patch('odoo.addons.tradeline_eta_reliability.models.account_move.requests.get',
+                      return_value=SimpleNamespace(status_code=200, text='not-base64')):
+            with self.assertRaisesRegex(UserError, 'Nothing was sent'):
+                job._submit(client)
+        client.request.assert_not_called()
+        self.assertFalse(job.attempted_at or job.payload)
+        self.assertEqual(job.attempts, 0)
