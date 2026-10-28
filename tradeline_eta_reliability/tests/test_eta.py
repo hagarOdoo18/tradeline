@@ -68,6 +68,27 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(job.failures, 0)
         self.assertIn('eta:stalled', [s['code'] for s in monitor._probe_crons(fields.Datetime.now())])
 
+    def test_eta_alert_resolves_after_scheduler_recovers_but_not_after_failed_probe(self):
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        if not monitor:
+            monitor = self.env['tradeline.operations.monitor'].create({})
+        now = fields.Datetime.now()
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').active = True
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.enabled_database', 'different-database')
+        observations = [s for s in monitor._probe_crons(now) if s['code'] == 'eta:scheduler']
+        monitor._reconcile(observations, {'crons'}, now)
+        incident = monitor.incident_ids.filtered(lambda i: i.code == 'eta:scheduler')
+        self.assertTrue(incident)
+        monitor._reconcile([], set(), now)
+        self.assertNotEqual(incident.state, 'resolved')
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').write({'nextcall': now, 'failure_count': 0})
+        self.assertFalse([s for s in monitor._probe_crons(now) if s['code'] == 'eta:scheduler'])
+        monitor._reconcile([], {'crons'}, now)
+        self.assertEqual(incident.state, 'resolved')
+
     def test_signer_does_not_commit_and_has_timeout(self):
         move = self.invoice()
         move.e_invoice_canonical = 'canonical'

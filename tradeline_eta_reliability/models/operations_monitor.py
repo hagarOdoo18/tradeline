@@ -7,6 +7,13 @@ from odoo.addons.tradeline_operations_monitor.models.operations_monitor import s
 class OperationsMonitor(models.Model):
     _inherit = 'tradeline.operations.monitor'
 
+    def _reconcile(self, observations, completed, now):
+        # ETA observations belong to the cron probe. Resolve them only when
+        # that probe completed successfully, including existing eta:* incidents.
+        if 'crons' in completed:
+            completed = set(completed) | {'eta'}
+        return super()._reconcile(observations, completed, now)
+
     def _probe_crons(self, now):
         observations = super()._probe_crons(now)
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
