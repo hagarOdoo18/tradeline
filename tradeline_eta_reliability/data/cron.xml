@@ -1,0 +1,19 @@
+<odoo>
+    <data noupdate="1">
+        <record id="egyptian_electronic_invoice.ir_cron_document_posted_sync" model="ir.cron">
+            <field name="active" eval="False"/>
+        </record>
+        <record id="egyptian_electronic_invoice.ir_cron_document_update_status_sync" model="ir.cron">
+            <field name="active" eval="False"/>
+        </record>
+        <record id="cron_eta_queue" model="ir.cron">
+            <field name="name">ETA: process reliable submission queue</field>
+            <field name="model_id" ref="model_tradeline_eta_job"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_process('all')</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="False"/>
+        </record>
+    </data>
+</odoo>
