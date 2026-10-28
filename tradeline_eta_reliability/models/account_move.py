@@ -1,3 +1,7 @@
+import ast
+import hashlib
+import json
+
 import requests
 
 from odoo import fields, models, _
@@ -22,8 +26,19 @@ class AccountMove(models.Model):
                 continue
             job = Job.search([('move_id', '=', move.id)], limit=1)
             if not job:
-                Job.create({'move_id': move.id, 'state': 'accepted' if move.e_invoice_uuid else
-                            'unknown' if reconcile or move.e_invoice_sent else 'queued'})
+                values = {'move_id': move.id, 'state': 'accepted' if move.e_invoice_uuid else
+                          'unknown' if reconcile or move.e_invoice_sent else 'queued'}
+                if values['state'] == 'unknown' and move.e_invoice_json:
+                    try:
+                        document = ast.literal_eval(move.e_invoice_json)
+                        if isinstance(document, bytes):
+                            document = ast.literal_eval(document.decode())
+                        if isinstance(document, dict):
+                            payload = json.dumps({'documents': [document]}, ensure_ascii=False, separators=(',', ':'))
+                            values.update(payload=payload, payload_hash=hashlib.sha256(payload.encode()).hexdigest())
+                    except (ValueError, SyntaxError, TypeError):
+                        pass
+                Job.create(values)
             elif move.e_invoice_uuid and job.state not in ('valid', 'invalid', 'blocked'):
                 job.write({'state': 'accepted'})
 
