@@ -214,6 +214,48 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.e_invoice_uuid, 'accepted-1')
         self.assertEqual(job.submission_uuid, 'submission-1')
         self.assertFalse(move.eta_submission_pending)
+        self.assertEqual(move.e_invoice_date, job.attempted_at)
+
+    def test_corrected_invalid_document_queues_without_posting_or_losing_history(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'invalid-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
+        client = MagicMock()
+        client.request.return_value = {'uuid': 'invalid-old', 'internalId': move.name, 'status': 'Invalid',
+            'document': {'internalID': move.name, 'receiver': {'id': 'old-id'}, 'totalAmount': 100}}
+        corrected = {'internalID': move.name, 'receiver': {'id': 'corrected-id'}, 'totalAmount': 100}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client):
+            with patch.object(type(move), '_eta_correction_document', return_value=corrected):
+                move.action_send_electronic_invoice()
+        self.assertFalse(move.e_invoice_uuid)
+        self.assertEqual(move.eta_job_ids.state, 'queued')
+        self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
+        self.assertTrue(self.env['ir.attachment'].search_count([
+            ('res_model', '=', 'account.move'), ('res_id', '=', move.id), ('name', '=', 'ETA_rejected_invalid-old.json')]))
+        self.assertEqual(move.amount_total, 100)
+
+    def test_unchanged_invalid_document_cannot_be_resent(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'invalid-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
+        client = MagicMock()
+        original = {'internalID': move.name, 'totalAmount': 100, 'dateTimeIssued': '2026-01-01T00:00:00Z'}
+        client.request.return_value = {'uuid': 'invalid-old', 'internalId': move.name, 'status': 'Invalid', 'document': original}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client):
+            with patch.object(type(move), '_eta_correction_document', return_value=dict(original, dateTimeIssued='2026-10-28T00:00:00Z')):
+                with self.assertRaises(UserError):
+                    move.action_send_electronic_invoice()
+        self.assertEqual(move.e_invoice_uuid, 'invalid-old')
+        self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
+
+    def test_previously_invalid_but_now_valid_document_is_refreshed_only(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'same-uuid', 'e_invoice_status': 'Invalid'})
+        client = MagicMock()
+        client.request.return_value = {'uuid': 'same-uuid', 'internalId': move.name, 'status': 'Valid'}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client):
+            move.action_send_electronic_invoice()
+        self.assertEqual(move.e_invoice_uuid, 'same-uuid')
+        self.assertEqual(move.e_invoice_status, 'Valid')
+        self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
 
     def test_timeout_and_throttling_are_bounded(self):
         client = EtaClient(self.company)
