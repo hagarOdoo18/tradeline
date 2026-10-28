@@ -227,6 +227,16 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(job.state, 'accepted')
         self.assertEqual(client.request.call_count, 1)
 
+    def test_stored_creation_time_is_retained_only_on_the_invoice_cairo_date(self):
+        move = self.invoice(invoice_date=date(2026, 7, 15))
+        for created, expected in (
+                ('2026-07-14 21:30:00', '2026-07-14T21:30:00Z'),
+                ('2026-07-15 18:45:00', '2026-07-15T18:45:00Z'),
+                ('2026-07-16 12:00:00', '2026-07-14T21:00:00Z')):
+            self.env.cr.execute('UPDATE account_move SET create_date=%s WHERE id=%s', [created, move.id])
+            move.invalidate_recordset(['create_date'])
+            self.assertEqual(move._eta_issue_timestamp(), expected)
+
     def test_previously_prepared_wrong_issue_date_cannot_be_transmitted(self):
         move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=1))
         job = move.eta_job_ids

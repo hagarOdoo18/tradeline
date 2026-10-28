@@ -80,6 +80,12 @@ class AccountMove(models.Model):
         """Represent the Egyptian invoice date in the UTC timestamp ETA requires."""
         self.ensure_one()
         cairo = pytz.timezone('Africa/Cairo')
+        if self.create_date:
+            created = pytz.utc.localize(self.create_date)
+            if created.astimezone(cairo).date() == self.invoice_date:
+                # Retain the stored issue-time evidence when it belongs to the
+                # invoice's date; midnight would age a late-night invoice by hours.
+                return created.strftime('%Y-%m-%dT%H:%M:%SZ')
         midnight = datetime.combine(self.invoice_date, time.min)
         try:
             issued = cairo.localize(midnight, is_dst=None)
