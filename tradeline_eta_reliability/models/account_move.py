@@ -79,6 +79,12 @@ class AccountMove(models.Model):
     def _eta_issue_timestamp(self):
         """Represent the Egyptian invoice date in the UTC timestamp ETA requires."""
         self.ensure_one()
+        job = self.eta_job_ids.sudo()
+        if job and job.issue_date_policy == 'current':
+            job._effective_issue_date()  # Require the recorded approval.
+            if not job.current_issue_datetime:
+                raise UserError(_('The queue must prepare the approved ETA issue time before generating this document.'))
+            return job.current_issue_datetime.strftime('%Y-%m-%dT%H:%M:%SZ')
         cairo = pytz.timezone('Africa/Cairo')
         if self.create_date:
             created = pytz.utc.localize(self.create_date)

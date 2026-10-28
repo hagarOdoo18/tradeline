@@ -28,6 +28,7 @@
             <form create="0" delete="0" edit="0">
                 <header>
                     <button name="action_open_invoice" type="object" string="Open invoice" class="btn-primary"/>
+                    <button name="action_approve_current_issue_date" type="object" string="Approve current ETA issue date" groups="account.group_account_manager,base.group_system" invisible="state not in ('queued', 'blocked')"/>
                     <button name="action_recheck" type="object" string="Refresh / retry unsent documents"/>
                 </header>
                 <sheet>
@@ -43,6 +44,13 @@
                         <field name="checked_at"/><field name="submission_uuid"/><field name="payload_hash"/>
                     </group>
                     <group string="Original ETA / processing message"><field name="last_error" nolabel="1"/></group>
+                    <group string="ETA issue date treatment">
+                        <field name="issue_date_policy"/>
+                        <field name="current_issue_datetime"/>
+                        <field name="issue_date_approved_by"/>
+                        <field name="issue_date_approved_at"/>
+                        <field name="issue_date_approval_note"/>
+                    </group>
                 </sheet>
             </form>
         </field>
