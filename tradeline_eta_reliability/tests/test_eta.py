@@ -1,4 +1,5 @@
 import json
+from contextlib import ExitStack
 from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -703,3 +704,39 @@ class TestEtaReliability(TransactionCase):
         self.assertIn('Issue date', reason)
         _, signature_codes = error_details("{'errorCode': '4043', 'error': 'Digest mismatch'}")
         self.assertIn('4043', signature_codes)
+
+    def test_untaxed_discounted_eta_lines_match_posted_accounting_amounts(self):
+        egp = self.env.ref('base.EGP'); egp.active = True
+        metadata = {'e_invoicing_code': 'EG-test-discount', 'code_type': 'EGS', 'ar_description': 'Test description'}
+        product = self.env['product.product'].create({'name': 'ETA discount test product',
+            **{key: value for key, value in metadata.items() if key in self.env['product.product']._fields}})
+        eta_uom = self.env['eta.uom'].search([('code', '=', 'D41')], limit=1)
+        if not eta_uom:
+            eta_uom = self.env['eta.uom'].create({'name': 'Each', 'code': 'D41'})
+        product.uom_id.eta_uom_id = eta_uom
+        move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'partner_id': self.partner.id, 'currency_id': egp.id, 'invoice_date': fields.Date.today(),
+            'invoice_line_ids': [Command.create({'product_id': product.id, 'account_id': self.income.id,
+                'quantity': 2, 'price_unit': 1250, 'discount': 10, 'tax_ids': [Command.clear()]}),
+                Command.create({'product_id': product.id, 'account_id': self.income.id,
+                'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
+        move.action_post()
+        before = (move.invoice_date, move.amount_total, move.amount_untaxed,
+                  move.amount_tax, tuple(move.line_ids.mapped('balance')))
+        with ExitStack() as stack:
+            stack.enter_context(patch('requests.sessions.Session.request', side_effect=AssertionError('Serialization performed HTTP')))
+            # The minimal QA stack lacks optional product master extensions;
+            # supply their metadata while exercising the real line serializer.
+            for key, value in metadata.items():
+                if key not in product._fields:
+                    stack.enter_context(patch.object(type(product), key, value, create=True))
+            lines, discount, sales, total = move._get_eta_invoice_lines()
+        self.assertEqual(lines[0]['salesTotal'], 2500)
+        self.assertEqual(lines[0]['netTotal'], 2250)
+        self.assertEqual(lines[0]['total'], 2250)
+        self.assertEqual(discount, 250)
+        self.assertEqual(sales, 2600)
+        self.assertEqual(total, 2350)
+        self.assertEqual(total, move.amount_total)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_untaxed,
+                  move.amount_tax, tuple(move.line_ids.mapped('balance'))))
