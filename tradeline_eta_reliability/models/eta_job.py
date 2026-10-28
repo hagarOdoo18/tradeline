@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import requests
@@ -62,6 +62,16 @@ class EtaJob(models.Model):
             raise EtaError('ETA did not return a recognized document status.')
         values = {'e_invoice_uuid': uuid, 'e_invoice_status': status,
                   'e_invoice_sent': True, 'eta_submission_pending': False}
+        if not move.e_invoice_date:
+            received = data.get('dateTimeReceived')
+            try:
+                received = datetime.fromisoformat(received.replace('Z', '+00:00')) if received else None
+                if received and received.tzinfo:
+                    received = received.astimezone(timezone.utc).replace(tzinfo=None)
+            except (ValueError, TypeError):
+                received = None
+            if received or self.attempted_at:
+                values['e_invoice_date'] = received or self.attempted_at
         if data.get('longId'):
             values['e_invoice_long_id'] = data['longId']
         move.write(values)
@@ -81,6 +91,7 @@ class EtaJob(models.Model):
             if isinstance(document, dict):
                 attachment = self.env['ir.attachment'].create({
                     'name': 'ETA_%s.json' % uuid, 'res_model': 'account.move', 'res_id': move.id,
+                    'company_id': move.company_id.id,
                     'mimetype': 'application/json', 'raw': json.dumps({'request': document, 'response': {
                         'l10n_eg_uuid': uuid, 'l10n_eg_long_id': data.get('longId'),
                         'l10n_eg_internal_id': move.name,
@@ -221,6 +232,7 @@ class EtaJob(models.Model):
         with self.env.registry.cursor() as cr:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
             job = env[self._name].sudo().browse(job_id)
+            job = job.with_company(job.company_id)
             cr.execute('SELECT pg_try_advisory_lock(741180, %s)', [job_id])
             if not cr.fetchone()[0]:
                 return

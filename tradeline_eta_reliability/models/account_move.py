@@ -5,7 +5,9 @@ import json
 import requests
 
 from odoo import fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
+
+from .client import EtaClient, EtaError
 
 
 class AccountMove(models.Model):
@@ -51,11 +53,63 @@ class AccountMove(models.Model):
         if any(m.state != 'posted' or m.move_type not in ('out_invoice', 'out_refund') for m in self):
             raise UserError(_('Only posted customer invoices and credit notes can be queued for ETA.'))
         self.check_access('write')
+        for move in self.filtered(lambda m: m.e_invoice_uuid and m.e_invoice_status == 'Invalid'):
+            move._eta_queue_corrected_document()
         self._eta_enqueue(reconcile=True)
         return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
             'title': _('ETA submission queued'),
             'message': _('Existing ETA IDs will be checked before any submission.'), 'type': 'info',
         }}
+
+    def _eta_correction_document(self):
+        self.ensure_one()
+        return self.with_company(self.company_id).action_generate_eta_json()[0]
+
+    def _eta_queue_corrected_document(self):
+        """Explicit owner action; an unchanged or still-accepted document is never resent."""
+        self.ensure_one()
+        if not self.env.is_superuser() and not self.env.user.has_group('account.group_account_manager'):
+            raise AccessError(_('An accounting manager must approve a corrected ETA submission.'))
+        self._eta_enqueue()
+        job = self.eta_job_ids.sudo().with_company(self.company_id)
+        client = EtaClient(self.company_id.sudo())
+        try:
+            result = client.request('GET', '/api/v1.0/documents/%s/raw' % self.e_invoice_uuid)
+        except (EtaError, requests.RequestException) as exc:
+            raise UserError(_('ETA could not confirm the previous document status. Nothing was resubmitted.')) from exc
+        finally:
+            client.close()
+        if result.get('uuid') != self.e_invoice_uuid or result.get('internalId') != self.name:
+            raise UserError(_('ETA returned a different document. Review its identity before resubmitting.'))
+        if result.get('status') != 'Invalid':
+            job._apply_remote(result)
+            return
+        original = result.get('document')
+        if isinstance(original, str):
+            try:
+                original = json.loads(original)
+            except ValueError:
+                original = None
+        if not isinstance(original, dict):
+            raise UserError(_('The rejected document could not be verified. Nothing was resubmitted.'))
+        corrected = self._eta_correction_document()
+        def content(document):
+            return {key: value for key, value in document.items() if key not in ('dateTimeIssued', 'signatures')}
+        if content(original) == content(corrected):
+            raise UserError(_('Correct the rejected customer, product or tax details first. Changing the issue date alone cannot retry this document.'))
+        # Keep the old government document and UUID before queuing a corrected
+        # version. No signing or submission HTTP call occurs in this transaction.
+        self.env['ir.attachment'].sudo().create({
+            'name': 'ETA_rejected_%s.json' % self.e_invoice_uuid,
+            'res_model': self._name, 'res_id': self.id, 'company_id': self.company_id.id,
+            'mimetype': 'application/json', 'raw': json.dumps(result, ensure_ascii=False).encode(),
+        })
+        self.write({'e_invoice_uuid': False, 'e_invoice_long_id': False, 'e_invoice_date': False,
+                    'e_invoice_sent': False, 'e_invoice_status': 'Draft', 'eta_submission_pending': True,
+                    'l10n_eg_eta_json_doc_id': False, 'invoice_signed': False})
+        job.write({'state': 'queued', 'payload': False, 'attempted_at': False, 'submission_uuid': False,
+                   'next_attempt': False, 'safe_to_retry': False, 'first_submission_candidate': False,
+                   'last_error': False, 'failures': 0})
 
     def action_update_electronic_invoice_status(self):
         self.check_access('write')

@@ -18,7 +18,7 @@
         <field name="model">tradeline.eta.job</field>
         <field name="arch" type="xml">
             <form create="0" delete="0" edit="0">
-                <header><button name="action_recheck" type="object" string="Recheck / retry corrected data" class="btn-primary"/></header>
+                <header><button name="action_recheck" type="object" string="Refresh / retry unsent documents" class="btn-primary"/></header>
                 <sheet>
                     <group>
                         <field name="move_id"/><field name="company_id"/><field name="state"/>
