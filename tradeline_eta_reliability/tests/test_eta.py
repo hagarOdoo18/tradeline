@@ -237,6 +237,22 @@ class TestEtaReliability(TransactionCase):
         self.assertFalse(move.eta_submission_pending)
         self.assertEqual(move.e_invoice_date, job.attempted_at)
 
+    def test_submission_validation_details_remain_actionable_without_automatic_resend(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        job.payload = json.dumps({'documents': [{'internalID': move.name}]})
+        client = MagicMock()
+        client.request.return_value = {'acceptedDocuments': [], 'rejectedDocuments': [{
+            'internalId': move.name, 'error': {'code': '1', 'message': 'Validation failed',
+                'details': [{'target': 'itemCode', 'message': 'Code is not approved'}]}}]}
+        with patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        self.assertEqual(job.state, 'blocked')
+        self.assertIn('itemCode', job.last_error)
+        self.assertIn('Code is not approved', move.e_invoice_issue)
+        self.assertNotIn(job, self.env['tradeline.eta.job']._due_jobs('all'))
+        self.assertEqual(move.amount_total, 100)
+
     def test_corrected_invalid_document_queues_without_posting_or_losing_history(self):
         move = self.invoice()
         move.write({'e_invoice_uuid': 'invalid-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
