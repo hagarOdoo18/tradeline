@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
+import pytz
 import requests
 
 from odoo import api, fields, models, _
@@ -120,7 +121,8 @@ class EtaJob(models.Model):
                 if len(matches) != 1:
                     raise EtaError('ETA submission does not contain the expected document.')
                 data = dict(matches[0], submissionUUID=self.submission_uuid)
-                if data.get('status') == 'Valid' and not move.l10n_eg_eta_json_doc_id:
+                if (data.get('status') in ('Invalid', 'Rejected', 'Cancelled')
+                        or data.get('status') == 'Valid' and not move.l10n_eg_eta_json_doc_id):
                     data = client.request('GET', '/api/v1.0/documents/%s/raw' % move.e_invoice_uuid)
             else:
                 data = client.request('GET', '/api/v1.0/documents/%s/raw' % move.e_invoice_uuid)
@@ -195,7 +197,12 @@ class EtaJob(models.Model):
         if not self.payload:
             self._prepare()
         document = json.loads(self.payload)['documents'][0]
-        if str(document.get('dateTimeIssued', ''))[:10] != str(move.invoice_date):
+        try:
+            issued = datetime.fromisoformat(document.get('dateTimeIssued', '').replace('Z', '+00:00'))
+        except (ValueError, TypeError, AttributeError):
+            issued = None
+        if (not issued or not issued.tzinfo
+                or issued.astimezone(pytz.timezone('Africa/Cairo')).date() != move.invoice_date):
             raise UserError(_('The prepared ETA issue date differs from the invoice date. Review and regenerate the document before submitting.'))
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.
@@ -275,10 +282,22 @@ class EtaJob(models.Model):
     @api.model
     def _due_jobs(self, kind):
         states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'accepted', 'unknown']
-        groups = [self.sudo().search([('state', '=', state), '|', ('next_attempt', '=', False),
-                                      ('next_attempt', '<=', fields.Datetime.now())],
-                                    order='next_attempt ASC NULLS FIRST, id', limit=15 if state == 'unknown' else 40)
-                  for state in states]
+        groups = []
+        for state in states:
+            domain = [('state', '=', state), '|', ('next_attempt', '=', False),
+                      ('next_attempt', '<=', fields.Datetime.now())]
+            if state == 'queued':
+                oldest = self.sudo().search(domain, order='next_attempt ASC NULLS FIRST, id', limit=20)
+                newest = self.sudo().search(domain, order='create_date desc, id desc', limit=20)
+                ids = []
+                for index in range(max(len(oldest), len(newest))):
+                    for batch in (newest, oldest):
+                        if index < len(batch) and batch[index].id not in ids:
+                            ids.append(batch[index].id)
+                groups.append(self.sudo().browse(ids))
+            else:
+                groups.append(self.sudo().search(domain, order='next_attempt ASC NULLS FIRST, id',
+                                                limit=15 if state == 'unknown' else 40))
         # A historical reconciliation backlog must not starve today's submissions
         # or accepted-document validation, even when every API call is slow.
         return [group[index] for index in range(max((len(g) for g in groups), default=0))

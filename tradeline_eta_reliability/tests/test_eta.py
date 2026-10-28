@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -49,6 +49,18 @@ class TestEtaReliability(TransactionCase):
             self.invoice().eta_job_ids.write({'state': state, 'next_attempt': False})
         due = self.env['tradeline.eta.job']._due_jobs('all')
         self.assertEqual([job.state for job in due[:3]], ['queued', 'accepted', 'unknown'])
+
+    def test_fresh_and_old_queued_invoices_both_progress_during_recovery(self):
+        self.env['tradeline.eta.job'].sudo().search([('state', '=', 'queued')]).write({
+            'next_attempt': fields.Datetime.now() + timedelta(days=1)})
+        older = self.invoice().eta_job_ids
+        fresh = self.invoice().eta_job_ids
+        self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id=%s',
+                            [fields.Datetime.now() - timedelta(days=2), older.id])
+        due = self.env['tradeline.eta.job']._due_jobs('submit')
+        self.assertEqual([job for job in due if job.state == 'queued'][:2], [fresh, older])
+        self.assertEqual(sum(job.id == fresh.id for job in due), 1)
+        self.assertEqual(sum(job.id == older.id for job in due), 1)
 
     def test_monitor_detects_wrong_database_activation(self):
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
@@ -185,6 +197,22 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.eta_job_ids.state, 'invalid')
         self.assertTrue(move.eta_job_ids.last_error)
 
+    def test_async_rejection_fetches_field_details_before_becoming_terminal(self):
+        move = self.invoice()
+        move.e_invoice_uuid = 'eta-invalid'
+        job = move.eta_job_ids
+        job.submission_uuid = 'eta-submission'
+        client = MagicMock()
+        client.request.side_effect = [
+            {'documentSummary': [{'uuid': 'eta-invalid', 'internalId': move.name, 'status': 'Invalid'}]},
+            {'uuid': 'eta-invalid', 'internalId': move.name, 'status': 'Invalid',
+             'validationResults': {'errorCode': 'NI310', 'propertyName': 'receiverId', 'error': 'Invalid customer ID'}}]
+        job._refresh(client)
+        self.assertEqual(job.state, 'invalid')
+        self.assertIn('NI310', job.last_error)
+        self.assertIn('receiverId', move.e_invoice_issue)
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET', 'GET'])
+
     def test_old_invoice_is_blocked_without_rewriting_date(self):
         old = fields.Date.today() - timedelta(days=30)
         move = self.invoice(invoice_date=old)
@@ -193,7 +221,7 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.invoice_date, old)
 
     def test_generated_document_and_canonical_use_invoice_date_instead_of_submission_day(self):
-        issued = fields.Date.today() - timedelta(days=1)
+        issued = date(2026, 7, 15)
         move = self.invoice(invoice_date=issued)
         with patch.object(type(move), '_get_eta_invoice_lines', return_value=([], 0, 100, 100)), \
                 patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
@@ -202,10 +230,40 @@ class TestEtaReliability(TransactionCase):
                 patch.object(type(move), 'reference_number', '', create=True), \
                 patch('requests.sessions.Session.request', side_effect=AssertionError('Generation performed HTTP')):
             document, _environment = move.action_generate_eta_json()
-        expected = str(issued) + 'T00:00:00Z'
+        expected = '2026-07-14T21:00:00Z'
         self.assertEqual(document['dateTimeIssued'], expected)
         self.assertIn('"DATETIMEISSUED""%s"' % expected, move.e_invoice_canonical)
         self.assertEqual(move.invoice_date, issued)
+
+    def test_cairo_issue_dates_cover_winter_summer_and_clock_changes(self):
+        for issued, expected in (
+                (date(2026, 1, 15), '2026-01-14T22:00:00Z'),
+                (date(2026, 7, 15), '2026-07-14T21:00:00Z'),
+                (date(2026, 4, 24), '2026-04-23T22:00:00Z'),
+                (date(2026, 10, 30), '2026-10-29T22:00:00Z')):
+            self.assertEqual(self.invoice(invoice_date=issued)._eta_issue_timestamp(), expected)
+
+    def test_valid_cairo_date_can_have_previous_utc_date(self):
+        move = self.invoice(invoice_date=date(2026, 7, 15))
+        job = move.eta_job_ids
+        job.payload = json.dumps({'documents': [{'internalID': move.name,
+            'dateTimeIssued': '2026-07-14T21:00:00Z'}]})
+        client = MagicMock()
+        client.request.return_value = {'acceptedDocuments': [{'uuid': 'cairo-date', 'internalId': move.name}]}
+        with patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        self.assertEqual(job.state, 'accepted')
+        self.assertEqual(client.request.call_count, 1)
+
+    def test_stored_creation_time_is_retained_only_on_the_invoice_cairo_date(self):
+        move = self.invoice(invoice_date=date(2026, 7, 15))
+        for created, expected in (
+                ('2026-07-14 21:30:00', '2026-07-14T21:30:00Z'),
+                ('2026-07-15 18:45:00', '2026-07-15T18:45:00Z'),
+                ('2026-07-16 12:00:00', '2026-07-14T21:00:00Z')):
+            self.env.cr.execute('UPDATE account_move SET create_date=%s WHERE id=%s', [created, move.id])
+            move.invalidate_recordset(['create_date'])
+            self.assertEqual(move._eta_issue_timestamp(), expected)
 
     def test_previously_prepared_wrong_issue_date_cannot_be_transmitted(self):
         move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=1))
@@ -309,6 +367,21 @@ class TestEtaReliability(TransactionCase):
                     move.action_send_electronic_invoice()
         self.assertEqual(move.e_invoice_uuid, 'invalid-old')
         self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
+
+    def test_duplicate_rejection_requires_original_receipt_reconciliation_before_correction(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'duplicate-old', 'e_invoice_status': 'Invalid'})
+        client = MagicMock()
+        client.request.return_value = {'uuid': 'duplicate-old', 'internalId': move.name,
+            'status': 'Invalid', 'validationResults': {'errorCode': 'DS301'},
+            'document': {'internalID': move.name, 'receiver': {'id': 'old'}}}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                patch.object(type(move), '_eta_correction_document', return_value={
+                    'internalID': move.name, 'receiver': {'id': 'changed'}}):
+            with self.assertRaisesRegex(UserError, 'duplicate'):
+                move.action_send_electronic_invoice()
+        self.assertEqual(move.e_invoice_uuid, 'duplicate-old')
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET'])
 
     def test_previously_invalid_but_now_valid_document_is_refreshed_only(self):
         move = self.invoice()
