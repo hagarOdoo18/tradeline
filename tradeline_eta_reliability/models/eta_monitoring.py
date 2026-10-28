@@ -87,7 +87,7 @@ class EtaJobMonitoring(models.Model):
         return domain if bool(value) == (operator == '=') else ['!'] + expression.normalize_domain(domain)
 
     @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
-                 'move_id.e_invoice_date', 'move_id.e_invoice_issue')
+                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy')
     def _compute_monitoring(self):
         now = fields.Datetime.now()
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
@@ -109,7 +109,9 @@ class EtaJobMonitoring(models.Model):
             lower = detail.lower()
             actions = []
             if 'CF313' in codes or 'outside the configured eta submission window' in lower:
-                actions.append(_('Finance must arrange the approved ETA late-submission route. Keep the original invoice date.'))
+                actions.append(_('Current ETA issue-date treatment is approved. Correct any remaining reported errors before retrying.')
+                               if job.issue_date_policy == 'current' else
+                               _('Finance must arrange the approved ETA late-submission route. Keep the original invoice date.'))
             if 'DS301' in codes or 'duplicate' in lower:
                 actions.append(_('Reconcile the referenced original ETA receipt before considering another submission.'))
             if (any(code.startswith('NI') for code in codes) or codes.intersection({'SF307', 'CF305'})
