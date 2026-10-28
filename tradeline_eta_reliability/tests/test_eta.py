@@ -652,3 +652,11 @@ class TestEtaReliability(TransactionCase):
         self.assertIn('issue-date treatment is approved', job.required_action)
         self.assertIn('customer ID', job.required_action)
         self.assertNotIn('Finance must arrange', job.required_action)
+
+    def test_current_eta_date_refuses_an_ambiguous_local_invoice_number(self):
+        job = self.invoice().eta_job_ids
+        with patch.object(type(self.env['account.move']), 'search_count', return_value=2):
+            with self.assertRaisesRegex(UserError, 'not unique'):
+                job.action_approve_current_issue_date()
+        self.assertEqual(job.issue_date_policy, 'invoice')
+        self.assertFalse(job.issue_date_approved_at)
