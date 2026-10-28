@@ -2,7 +2,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 import requests
@@ -62,6 +62,16 @@ class EtaJob(models.Model):
             raise EtaError('ETA did not return a recognized document status.')
         values = {'e_invoice_uuid': uuid, 'e_invoice_status': status,
                   'e_invoice_sent': True, 'eta_submission_pending': False}
+        if not move.e_invoice_date:
+            received = data.get('dateTimeReceived')
+            try:
+                received = datetime.fromisoformat(received.replace('Z', '+00:00')) if received else None
+                if received and received.tzinfo:
+                    received = received.astimezone(timezone.utc).replace(tzinfo=None)
+            except (ValueError, TypeError):
+                received = None
+            if received or self.attempted_at:
+                values['e_invoice_date'] = received or self.attempted_at
         if data.get('longId'):
             values['e_invoice_long_id'] = data['longId']
         move.write(values)

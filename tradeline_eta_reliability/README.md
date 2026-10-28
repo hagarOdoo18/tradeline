@@ -29,6 +29,11 @@ database name. A staging copy retains a mismatched name and cannot submit.
 Existing uncertain
 historical documents must be reconciled before being enrolled for submission.
 Invalid documents are not automatically resubmitted, renumbered or cancelled.
+After correcting source data, an accounting manager can use the invoice's
+existing Submit action. The authority must still report Invalid, and the
+document must have changed beyond its date/signature. The rejected document is
+retained as a company-owned attachment before a corrected version enters the
+durable queue. Accepted documents are refreshed rather than resent.
 
 Validation: run Odoo with `--test-tags=/tradeline_eta_reliability` in an isolated
 database. Transport is mocked; tests never submit a taxpayer document.
