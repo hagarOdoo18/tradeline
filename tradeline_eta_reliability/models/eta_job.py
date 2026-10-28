@@ -30,6 +30,7 @@ class EtaJob(models.Model):
     attempts = fields.Integer(readonly=True)
     failures = fields.Integer(readonly=True)
     safe_to_retry = fields.Boolean(readonly=True)
+    first_submission_candidate = fields.Boolean(readonly=True)
     next_attempt = fields.Datetime(index=True, readonly=True)
     attempted_at = fields.Datetime(readonly=True)
     checked_at = fields.Datetime(readonly=True)
@@ -123,8 +124,10 @@ class EtaJob(models.Model):
                 issued = datetime.fromisoformat(original.get('dateTimeIssued', '').replace('Z', '+00:00')).replace(tzinfo=None)
             except ValueError:
                 pass
-        start = (self.attempted_at or issued or self.create_date) - timedelta(days=1)
-        stop = min(fields.Datetime.now(), start + timedelta(days=29))
+        earliest = min(self.create_date, datetime.combine(move.invoice_date, datetime.min.time())) if move.invoice_date else self.create_date
+        start = (self.attempted_at or issued or earliest) - timedelta(days=1)
+        scan_end = fields.Datetime.now()
+        stop = min(scan_end, start + timedelta(days=29))
         data = client.request('GET', '/api/v1.0/documents/search', params={
             'submissionDateFrom': start.strftime('%Y-%m-%dT%H:%M:%S'),
             'submissionDateTo': stop.strftime('%Y-%m-%dT%H:%M:%S'),
@@ -134,6 +137,14 @@ class EtaJob(models.Model):
         continuation = data.get('metadata', {}).get('continuationToken')
         if continuation not in (None, 'EndofResultSet'):
             self._delay('ETA returned multiple pages for this internal ID. Review is required.', seconds=900, state='unknown')
+            return
+        if (not matches and continuation == 'EndofResultSet' and self.first_submission_candidate
+                and not self.attempted_at and stop == scan_end):
+            # The original signer committed its payload before POST. A recent
+            # document with neither payload nor native/custom receipt is a first
+            # submission only after ETA confirms this internal ID is absent.
+            self.write({'state': 'queued', 'next_attempt': False, 'last_error': False,
+                        'first_submission_candidate': False, 'checked_at': fields.Datetime.now()})
             return
         if len(matches) == 1 and original:
             # Match the actual signed request, not merely a reused internal ID.

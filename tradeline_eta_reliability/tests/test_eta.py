@@ -74,6 +74,26 @@ class TestEtaReliability(TransactionCase):
         self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
         self.assertFalse(move.e_invoice_uuid)
 
+    def test_unattempted_legacy_document_requires_authoritative_absence(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        job.write({'state': 'unknown', 'first_submission_candidate': True})
+        client = MagicMock()
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        job._refresh(client)
+        self.assertEqual(job.state, 'queued')
+        self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
+
+    def test_lost_response_is_not_treated_as_an_unattempted_document(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        job.write({'state': 'unknown', 'first_submission_candidate': True,
+                   'attempted_at': fields.Datetime.now()})
+        client = MagicMock()
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        job._refresh(client)
+        self.assertEqual(job.state, 'unknown')
+
     def test_unknown_does_not_match_reused_internal_id(self):
         move = self.invoice()
         job = move.eta_job_ids
