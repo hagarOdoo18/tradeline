@@ -1025,13 +1025,11 @@ class AccountMoveInherit(models.Model):
 		"""
 		res = super(AccountMoveInherit, self).post()
 		self._check_old_e_invoice_data()
-		auto_validate_documents = self.env['ir.config_parameter'].sudo().get_param(
-			'egyptian_electronic_invoice.auto_validate_documents')
-		if auto_validate_documents:
-			ready_documents = self.filtered(lambda l: l.move_type in ('out_invoice', 'out_refund') and
-			                                          l.state == 'posted' and not l.valid_flag)
-			if ready_documents:
-				ready_documents.action_send_electronic_invoice()
+
+		ready_documents = self.filtered(lambda l: l.move_type in ('out_invoice', 'out_refund') and
+												  l.state == 'posted' and not l.valid_flag)
+		if ready_documents:
+			ready_documents.action_send_electronic_invoice()
 		return res
 	
 	def button_draft(self):
