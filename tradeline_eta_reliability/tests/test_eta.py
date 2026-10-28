@@ -644,3 +644,11 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(job.state, 'accepted')
         self.assertGreater(job.current_issue_datetime, old_time + timedelta(days=1))
         self.assertEqual(move.invoice_date, fields.Date.today() - timedelta(days=45))
+
+    def test_current_eta_date_log_keeps_other_errors_visible(self):
+        job = self.invoice().eta_job_ids
+        job.action_approve_current_issue_date()
+        job.write({'state': 'blocked', 'last_error': 'CF313 / dateTimeIssued; CF305 / receiver ID required'})
+        self.assertIn('issue-date treatment is approved', job.required_action)
+        self.assertIn('customer ID', job.required_action)
+        self.assertNotIn('Finance must arrange', job.required_action)
