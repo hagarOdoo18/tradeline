@@ -1,11 +1,26 @@
 from datetime import timedelta
 
-from odoo import models
+from odoo import api, fields, models
+from odoo.osv import expression
 from odoo.addons.tradeline_operations_monitor.models.operations_monitor import signal
 
 
 class OperationsMonitor(models.Model):
     _inherit = 'tradeline.operations.monitor'
+
+    eta_attention_count = fields.Integer(
+        string='ETA invoices needing attention', compute='_compute_eta_attention_count',
+        help='Invoices visible in your selected companies. Open the log to see every invoice and its reason.')
+
+    def _compute_eta_attention_count(self):
+        jobs = self.env['tradeline.eta.job']
+        count = jobs.search_count(jobs._attention_domain())
+        for monitor in self:
+            monitor.eta_attention_count = count
+
+    def action_eta_invoice_log(self):
+        self._ensure_admin()
+        return self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_invoice_log')
 
     def _reconcile(self, observations, completed, now):
         # ETA observations belong to the cron probe. Resolve them only when
@@ -27,8 +42,8 @@ class OperationsMonitor(models.Model):
                 'The ETA queue has not run on schedule.',
                 'Review the scheduler and database locks.', 'critical'))
         jobs = self.env['tradeline.eta.job'].sudo()
-        stalled = jobs.search_count([('state', 'in', ['queued', 'unknown', 'accepted']),
-                                     ('create_date', '<', now - timedelta(minutes=15))])
+        stalled = jobs.search_count(expression.AND([
+            jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted'])]]))
         if stalled:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,
@@ -39,3 +54,25 @@ class OperationsMonitor(models.Model):
                 '%s ETA jobs have a validation or source-data problem.' % blocked,
                 'Review ETA Submission Jobs and correct the reported document fields.'))
         return observations
+
+
+class OperationsIncident(models.Model):
+    _inherit = 'tradeline.operations.incident'
+
+    is_eta_incident = fields.Boolean(compute='_compute_is_eta_incident')
+
+    @api.depends('code')
+    def _compute_is_eta_incident(self):
+        for incident in self:
+            incident.is_eta_incident = bool((incident.code or '').startswith('eta:'))
+
+    def action_eta_invoice_log(self):
+        self.monitor_id._ensure_admin()
+        self.ensure_one()
+        action = self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_invoice_log')
+        if self.code == 'eta:rejected':
+            action.update(domain=[('state', 'in', ['blocked', 'invalid'])], context={})
+        elif self.code == 'eta:stalled':
+            action.update(domain=[('needs_attention', '=', True),
+                                  ('state', 'in', ['queued', 'unknown', 'accepted'])], context={})
+        return action

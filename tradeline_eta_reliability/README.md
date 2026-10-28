@@ -43,3 +43,18 @@ ETA references:
 - https://sdk.invoicing.eta.gov.eg/einvoicingapi/09-get-submission/
 - https://sdk.invoicing.eta.gov.eg/einvoicingapi/16-search-documents/
 - https://sdk.invoicing.eta.gov.eg/integrationpractices/
+
+Operations Monitor > ETA Invoice Log shows the live status of each submission
+record, with the invoice link, readable ETA reason, next step, waiting time,
+last check and retry time. It defaults to invoices needing attention: held,
+invalid or uncertain outcomes, queued/accepted delays of at least 15 minutes,
+and approved receipts needing issue-date review. Accepted delays start from
+the submission attempt, not the time the job first entered the backlog.
+Clear the filter to include approved and newly queued records. ETA incidents
+also link directly to affected invoices. Selected-company rules still apply.
+
+This is a current per-invoice status log backed by the existing job ledger;
+it is not an append-only history of every state change. Reading it does not
+perform HTTP calls, retry documents or alter accounting data. The original
+ETA message remains available on each row's detail form. Finance arranges
+late-submission approval; original invoice dates stay unchanged.

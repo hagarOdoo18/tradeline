@@ -1,0 +1,42 @@
+<odoo>
+    <record id="operations_monitor_eta_log" model="ir.ui.view">
+        <field name="name">tradeline.operations.monitor.eta.log</field>
+        <field name="model">tradeline.operations.monitor</field>
+        <field name="inherit_id" ref="tradeline_operations_monitor.view_operations_monitor_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/div[1]" position="before">
+                <div class="oe_button_box" name="button_box">
+                    <button name="action_eta_invoice_log" type="object" class="oe_stat_button" icon="fa-file-text-o">
+                        <field name="eta_attention_count" widget="statinfo" string="ETA invoices needing attention"/>
+                    </button>
+                </div>
+            </xpath>
+            <xpath expr="//field[@name='incident_ids']/list" position="inside">
+                <field name="is_eta_incident" column_invisible="True"/>
+                <button name="action_eta_invoice_log" type="object" string="Invoices" icon="fa-file-text-o" invisible="not is_eta_incident"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="operations_incident_eta_log" model="ir.ui.view">
+        <field name="name">tradeline.operations.incident.eta.log</field>
+        <field name="model">tradeline.operations.incident</field>
+        <field name="inherit_id" ref="tradeline_operations_monitor.view_operations_incident_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <field name="is_eta_incident" invisible="1"/>
+                <button name="action_eta_invoice_log" type="object" string="View affected invoices" icon="fa-file-text-o" invisible="not is_eta_incident"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="operations_incident_eta_list" model="ir.ui.view">
+        <field name="name">tradeline.operations.incident.eta.list</field>
+        <field name="model">tradeline.operations.incident</field>
+        <field name="inherit_id" ref="tradeline_operations_monitor.view_operations_incident_list"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <field name="is_eta_incident" column_invisible="True"/>
+                <button name="action_eta_invoice_log" type="object" string="Invoices" icon="fa-file-text-o" invisible="not is_eta_incident"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
