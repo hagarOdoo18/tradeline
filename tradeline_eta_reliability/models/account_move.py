@@ -28,6 +28,10 @@ class AccountMove(models.Model):
             if not job:
                 values = {'move_id': move.id, 'state': 'accepted' if move.e_invoice_uuid else
                           'unknown' if reconcile or move.e_invoice_sent else 'queued'}
+                if values['state'] == 'unknown':
+                    values['first_submission_candidate'] = not any((
+                        move.e_invoice_sent, move.e_invoice_json, move.invoice_signed,
+                        move.l10n_eg_uuid, move.l10n_eg_submission_number, move.l10n_eg_eta_json_doc_id))
                 if values['state'] == 'unknown' and move.e_invoice_json:
                     try:
                         document = ast.literal_eval(move.e_invoice_json)
