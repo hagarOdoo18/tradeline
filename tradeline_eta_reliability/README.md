@@ -56,8 +56,8 @@ also link directly to affected invoices. Selected-company rules still apply.
 This is a current per-invoice status log backed by the existing job ledger;
 it is not an append-only history of every state change. Reading it does not
 perform HTTP calls, retry documents or alter accounting data. The original
-ETA message remains available on each row's detail form. Finance arranges
-late-submission approval; original invoice dates stay unchanged.
+ETA message remains available on each row's detail form. Original invoice dates
+stay unchanged; eligible date holds may use the explicitly approved ETA date treatment.
 
 An accounting manager can explicitly approve the current ETA issue date for a
 queued or blocked document with no accepted/uncertain government receipt. The
@@ -67,3 +67,9 @@ an attachment. JSON and canonical signing use one frozen UTC issue time. A safe
 queued retry prepared on an earlier Cairo date is regenerated before POST.
 Default processing still uses the original invoice date. This approval cannot
 clear an uncertain outcome or overwrite a known ETA receipt.
+
+A manual correction may also regenerate a signature when a fresh ETA response
+confirms that the old document is Invalid and every leaf validation error is
+4043 (signature digest mismatch). The prior government receipt is archived.
+Other unchanged rejections and duplicate documents remain held. Signing and POST
+still happen only through the durable worker; date treatment is approved separately.

@@ -660,3 +660,35 @@ class TestEtaReliability(TransactionCase):
                 job.action_approve_current_issue_date()
         self.assertEqual(job.issue_date_policy, 'invoice')
         self.assertFalse(job.issue_date_approved_at)
+
+    def test_verified_signature_only_rejection_can_be_resigned_without_fiscal_changes(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'signature-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
+        original = {'internalID': move.name, 'totalAmount': 100, 'dateTimeIssued': '2026-01-01T00:00:00Z'}
+        result = {'uuid': 'signature-old', 'internalId': move.name, 'status': 'Invalid', 'document': original,
+                  'validationResults': {'errorCode': 'Err03', 'innerError': [{'errorCode': '4043'}]}}
+        client = MagicMock(); client.request.return_value = result
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                patch.object(type(move), '_eta_correction_document', return_value=original):
+            move.action_send_electronic_invoice()
+        self.assertFalse(move.e_invoice_uuid)
+        self.assertEqual(move.eta_job_ids.state, 'queued')
+        self.assertEqual(move.amount_total, 100)
+        self.assertTrue(self.env['ir.attachment'].search_count([
+            ('res_model', '=', 'account.move'), ('res_id', '=', move.id), ('name', '=', 'ETA_rejected_signature-old.json')]))
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET'])
+
+    def test_signature_rejection_with_another_error_stays_held_if_source_unchanged(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'signature-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
+        original = {'internalID': move.name, 'totalAmount': 100}
+        client = MagicMock()
+        client.request.return_value = {'uuid': 'signature-old', 'internalId': move.name, 'status': 'Invalid',
+            'document': original, 'validationResults': {'steps': [
+                {'errorCode': 'Err03', 'innerError': [{'errorCode': '4043'}]}, {'errorCode': 'NI310'}]}}
+        with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                patch.object(type(move), '_eta_correction_document', return_value=original):
+            with self.assertRaises(UserError):
+                move.action_send_electronic_invoice()
+        self.assertEqual(move.e_invoice_uuid, 'signature-old')
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET'])

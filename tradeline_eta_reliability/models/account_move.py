@@ -135,7 +135,18 @@ class AccountMove(models.Model):
         corrected = self._eta_correction_document()
         def content(document):
             return {key: value for key, value in document.items() if key not in ('dateTimeIssued', 'signatures')}
-        if content(original) == content(corrected):
+        def leaf_codes(node):
+            if isinstance(node, list):
+                return [code for item in node for code in leaf_codes(item)]
+            if isinstance(node, dict):
+                children = [code for value in node.values() if isinstance(value, (dict, list))
+                            for code in leaf_codes(value)]
+                code = node.get('errorCode') or node.get('code')
+                return children or ([str(code)] if code else [])
+            return []
+        rejected_codes = leaf_codes(result.get('validationResults') or {})
+        signature_only = bool(rejected_codes) and set(rejected_codes) == {'4043'}
+        if content(original) == content(corrected) and not signature_only:
             raise UserError(_('Correct the rejected customer, product or tax details first. Changing the issue date alone cannot retry this document.'))
         # Keep the old government document and UUID before queuing a corrected
         # version. No signing or submission HTTP call occurs in this transaction.
