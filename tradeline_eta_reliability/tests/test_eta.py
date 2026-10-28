@@ -692,3 +692,14 @@ class TestEtaReliability(TransactionCase):
                 move.action_send_electronic_invoice()
         self.assertEqual(move.e_invoice_uuid, 'signature-old')
         self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET'])
+
+    def test_invoice_number_4043_is_not_a_signature_error_code(self):
+        message = 'ETA rejected the submission (1). ' + json.dumps({
+            'code': '1', 'target': 'BEVER/2026/4043', 'details': [{
+                'code': 'CF313', 'target': 'dateTimeIssued', 'message': 'Issue date outside the submission window'}]})
+        reason, codes = error_details(message)
+        self.assertIn('CF313', codes)
+        self.assertNotIn('4043', codes)
+        self.assertIn('Issue date', reason)
+        _, signature_codes = error_details("{'errorCode': '4043', 'error': 'Digest mismatch'}")
+        self.assertIn('4043', signature_codes)

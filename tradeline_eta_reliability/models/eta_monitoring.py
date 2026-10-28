@@ -10,8 +10,11 @@ from odoo.osv import expression
 def error_details(message):
     """Unwrap both validationResults and prefixed submission rejection JSON."""
     raw = str(message or '').strip()
-    codes = set(re.findall(r'"(?:errorCode|code)"\s*:\s*"([^"]+)"', raw))
-    codes.update(re.findall(r'\b(?:CF\d+|NI\d+|SF\d+|CV\d+|DS\d+|4043)\b', raw))
+    codes = set(re.findall(r'''["'](?:errorCode|code)["']\s*:\s*["']([^"']+)["']''', raw))
+    codes.update(re.findall(r'\b(?:CF\d+|NI\d+|SF\d+|CV\d+|DS\d+)\b', raw))
+    # An invoice may itself be numbered 4043. Only a code field or the explicit
+    # signer exception prefix identifies the numeric signature error.
+    codes.update(re.findall(r'\b(4043)\s*:\s*Exception\b', raw))
     decoder = json.JSONDecoder()
     try:
         start = raw.index('{')
