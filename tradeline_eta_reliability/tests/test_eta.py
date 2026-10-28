@@ -44,6 +44,12 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(len(move.eta_job_ids), 1)
         self.assertEqual(move.eta_job_ids.state, 'queued')
 
+    def test_historical_backlog_does_not_starve_new_submissions_or_statuses(self):
+        for state in ('queued', 'accepted', 'unknown'):
+            self.invoice().eta_job_ids.write({'state': state, 'next_attempt': False})
+        due = self.env['tradeline.eta.job']._due_jobs('all')
+        self.assertEqual([job.state for job in due[:3]], ['queued', 'accepted', 'unknown'])
+
     def test_signer_does_not_commit_and_has_timeout(self):
         move = self.invoice()
         move.e_invoice_canonical = 'canonical'

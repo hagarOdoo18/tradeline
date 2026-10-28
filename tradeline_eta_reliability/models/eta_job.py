@@ -255,6 +255,18 @@ class EtaJob(models.Model):
                 cr.commit()
 
     @api.model
+    def _due_jobs(self, kind):
+        states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'accepted', 'unknown']
+        groups = [self.sudo().search([('state', '=', state), '|', ('next_attempt', '=', False),
+                                      ('next_attempt', '<=', fields.Datetime.now())],
+                                    order='next_attempt ASC NULLS FIRST, id', limit=15 if state == 'unknown' else 40)
+                  for state in states]
+        # A historical reconciliation backlog must not starve today's submissions
+        # or accepted-document validation, even when every API call is slow.
+        return [group[index] for index in range(max((len(g) for g in groups), default=0))
+                for group in groups if index < len(group)]
+
+    @api.model
     def _cron_process(self, kind='all'):
         # Cron callers own their transaction. Never invoke from an invoice HTTP request.
         enabled_database = self.env['ir.config_parameter'].sudo().get_param(
@@ -289,9 +301,7 @@ class EtaJob(models.Model):
             # Old code has no durable request/outcome ledger. Reconcile first.
             legacy_recent._eta_enqueue(reconcile=True)
             self.env.cr.commit()
-            states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'unknown', 'accepted']
-            jobs = self.sudo().search([('state', 'in', states), '|', ('next_attempt', '=', False),
-                                      ('next_attempt', '<=', fields.Datetime.now())], order='next_attempt ASC NULLS FIRST, id', limit=100)
+            jobs = self._due_jobs(kind)
             for job in jobs:
                 if time.monotonic() - started > 40:
                     break
