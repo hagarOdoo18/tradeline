@@ -76,6 +76,10 @@ class EtaJob(models.Model):
                     or move.e_invoice_uuid or move.e_invoice_sent or move.l10n_eg_uuid
                     or move.l10n_eg_eta_json_doc_id or job.attempted_at and not job.safe_to_retry):
                 raise UserError(_('Only an unsent or explicitly rejected document without an existing ETA receipt can use this action. Reconcile accepted, invalid or uncertain receipts first.'))
+            if self.env['account.move'].sudo().search_count([
+                    ('company_id', '=', move.company_id.id), ('name', '=', move.name),
+                    ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund'))]) != 1:
+                raise UserError(_('The invoice number is not unique within its company. Reconcile it before approving a new ETA document.'))
             approval = _('Current ETA issue date approved. Preserve the original Odoo invoice date and accounting values.')
             history = {'invoice_date': str(move.invoice_date), 'old_payload': job.payload,
                        'old_payload_hash': job.payload_hash, 'old_attempted_at': str(job.attempted_at or ''),
@@ -267,7 +271,7 @@ class EtaJob(models.Model):
             issued = None
         if (not issued or not issued.tzinfo
                 or issued.astimezone(pytz.timezone('Africa/Cairo')).date() != self._effective_issue_date()):
-            raise UserError(_('The prepared ETA issue date differs from the invoice date. Review and regenerate the document before submitting.'))
+            raise UserError(_('The prepared ETA issue date differs from the approved date treatment. Review and regenerate the document before submitting.'))
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.
         client._authorize()
