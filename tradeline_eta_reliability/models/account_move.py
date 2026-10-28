@@ -65,6 +65,15 @@ class AccountMove(models.Model):
         self.ensure_one()
         return self.with_company(self.company_id).action_generate_eta_json()[0]
 
+    def _check_extra_fields(self, invoice_params):
+        invoice_params = super()._check_extra_fields(invoice_params)
+        self.ensure_one()
+        # The legacy generator uses date.today(). Keep the actual invoice date
+        # in both the document and the canonical bytes generated immediately after this hook.
+        if self.invoice_date:
+            invoice_params['dateTimeIssued'] = self.invoice_date.strftime('%Y-%m-%dT00:00:00Z')
+        return invoice_params
+
     def _eta_queue_corrected_document(self):
         """Explicit owner action; an unchanged or still-accepted document is never resent."""
         self.ensure_one()

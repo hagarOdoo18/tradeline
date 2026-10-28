@@ -111,7 +111,7 @@ class TestEtaReliability(TransactionCase):
         move = self.invoice()
         job = move.eta_job_ids
         job.write({'state': 'unknown', 'attempted_at': fields.Datetime.now(),
-                   'payload': json.dumps({'documents': [{'internalID': move.name}]})})
+                   'payload': json.dumps({'documents': [{'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})})
         client = MagicMock()
         client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
         job._refresh(client)
@@ -173,7 +173,7 @@ class TestEtaReliability(TransactionCase):
         native = self.env['account.edi.document'].create({'move_id': move.id, 'edi_format_id': eta.id,
             'state': 'to_send', 'error': 'Missing native signing payload', 'blocking_level': 'error'})
         move.eta_job_ids._apply_remote({'uuid': 'verified-uuid', 'internalId': move.name, 'status': 'Valid',
-            'submissionUUID': 'verified-submission', 'document': json.dumps({'internalID': move.name})})
+            'submissionUUID': 'verified-submission', 'document': json.dumps({'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'})})
         self.assertEqual(native.state, 'sent')
         self.assertFalse(native.error)
         self.assertEqual(move.l10n_eg_uuid, 'verified-uuid')
@@ -192,10 +192,37 @@ class TestEtaReliability(TransactionCase):
             move.eta_job_ids._prepare()
         self.assertEqual(move.invoice_date, old)
 
+    def test_generated_document_and_canonical_use_invoice_date_instead_of_submission_day(self):
+        issued = fields.Date.today() - timedelta(days=1)
+        move = self.invoice(invoice_date=issued)
+        with patch.object(type(move), '_get_eta_invoice_lines', return_value=([], 0, 100, 100)), \
+                patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
+                patch.object(type(move), '_get_eta_tax_totals', return_value=[]), \
+                patch.object(type(move), 'inv_type', '', create=True), \
+                patch.object(type(move), 'reference_number', '', create=True), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Generation performed HTTP')):
+            document, _environment = move.action_generate_eta_json()
+        expected = str(issued) + 'T00:00:00Z'
+        self.assertEqual(document['dateTimeIssued'], expected)
+        self.assertIn('"DATETIMEISSUED""%s"' % expected, move.e_invoice_canonical)
+        self.assertEqual(move.invoice_date, issued)
+
+    def test_previously_prepared_wrong_issue_date_cannot_be_transmitted(self):
+        move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=1))
+        job = move.eta_job_ids
+        job.payload = json.dumps({'documents': [{'internalID': move.name,
+            'dateTimeIssued': str(fields.Date.today()) + 'T00:00:00Z'}]})
+        client = MagicMock()
+        with self.assertRaises(UserError):
+            job._submit(client)
+        client.request.assert_not_called()
+        self.assertFalse(job.attempted_at)
+        self.assertEqual(job.attempts, 0)
+
     def test_ambiguous_post_marker_survives_transport_failure(self):
         move = self.invoice()
         job = move.eta_job_ids
-        job.payload = json.dumps({'documents': [{'internalID': move.name}]})
+        job.payload = json.dumps({'documents': [{'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
         client = MagicMock()
         client.request.side_effect = requests.Timeout()
         with patch.object(self.env.cr, 'commit') as commit:
@@ -212,7 +239,7 @@ class TestEtaReliability(TransactionCase):
     def test_throttled_post_can_retry_without_being_lost(self):
         move = self.invoice()
         job = move.eta_job_ids
-        job.payload = json.dumps({'documents': [{'internalID': move.name}]})
+        job.payload = json.dumps({'documents': [{'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
         client = MagicMock()
         client.request.side_effect = EtaError('ETA returned HTTP 429.', 429, 120)
         with patch.object(self.env.cr, 'commit'):
@@ -224,7 +251,7 @@ class TestEtaReliability(TransactionCase):
     def test_accepted_post_is_saved_with_uuid(self):
         move = self.invoice()
         job = move.eta_job_ids
-        job.payload = json.dumps({'documents': [{'internalID': move.name}]})
+        job.payload = json.dumps({'documents': [{'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
         client = MagicMock()
         client.request.return_value = {'submissionUUID': 'submission-1',
             'acceptedDocuments': [{'uuid': 'accepted-1', 'internalId': move.name, 'longId': 'long-1'}],
@@ -240,7 +267,7 @@ class TestEtaReliability(TransactionCase):
     def test_submission_validation_details_remain_actionable_without_automatic_resend(self):
         move = self.invoice()
         job = move.eta_job_ids
-        job.payload = json.dumps({'documents': [{'internalID': move.name}]})
+        job.payload = json.dumps({'documents': [{'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
         client = MagicMock()
         client.request.return_value = {'acceptedDocuments': [], 'rejectedDocuments': [{
             'internalId': move.name, 'error': {'code': '1', 'message': 'Validation failed',
