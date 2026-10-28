@@ -220,9 +220,12 @@ class EtaJob(models.Model):
         elif rejected:
             error = rejected[0].get('error') or {}
             code = error.get('code') if isinstance(error, dict) else 'Rejected'
+            reason = 'ETA rejected the submission (%s). %s' % (
+                code, json.dumps(error, ensure_ascii=False))
             self.write({'state': 'blocked', 'safe_to_retry': True,
-                        'last_error': 'ETA rejected the submission (%s). Review the source data.' % code})
-            move.write({'e_invoice_status': 'Error', 'eta_submission_pending': False})
+                        'last_error': reason[:4000]})
+            move.write({'e_invoice_status': 'Error', 'eta_submission_pending': False,
+                        'e_invoice_issue': reason[:4000]})
         else:
             self._delay('ETA did not return an unambiguous document result. Reconciliation is required.', state='unknown')
 
