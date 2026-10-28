@@ -1,7 +1,9 @@
 import ast
 import hashlib
 import json
+from datetime import datetime, time
 
+import pytz
 import requests
 
 from odoo import fields, models, _
@@ -71,8 +73,23 @@ class AccountMove(models.Model):
         # The legacy generator uses date.today(). Keep the actual invoice date
         # in both the document and the canonical bytes generated immediately after this hook.
         if self.invoice_date:
-            invoice_params['dateTimeIssued'] = self.invoice_date.strftime('%Y-%m-%dT00:00:00Z')
+            invoice_params['dateTimeIssued'] = self._eta_issue_timestamp()
         return invoice_params
+
+    def _eta_issue_timestamp(self):
+        """Represent the Egyptian invoice date in the UTC timestamp ETA requires."""
+        self.ensure_one()
+        cairo = pytz.timezone('Africa/Cairo')
+        midnight = datetime.combine(self.invoice_date, time.min)
+        try:
+            issued = cairo.localize(midnight, is_dst=None)
+        except pytz.AmbiguousTimeError:
+            issued = cairo.localize(midnight, is_dst=True)
+        except pytz.NonExistentTimeError:
+            # On the spring clock change, this maps forward to the first valid
+            # hour of the same Egyptian date rather than the previous date.
+            issued = cairo.localize(midnight, is_dst=False)
+        return issued.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     def _eta_queue_corrected_document(self):
         """Explicit owner action; an unchanged or still-accepted document is never resent."""

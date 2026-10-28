@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import psycopg2
+import pytz
 import requests
 
 from odoo import api, fields, models, _
@@ -195,7 +196,12 @@ class EtaJob(models.Model):
         if not self.payload:
             self._prepare()
         document = json.loads(self.payload)['documents'][0]
-        if str(document.get('dateTimeIssued', ''))[:10] != str(move.invoice_date):
+        try:
+            issued = datetime.fromisoformat(document.get('dateTimeIssued', '').replace('Z', '+00:00'))
+        except (ValueError, TypeError, AttributeError):
+            issued = None
+        if (not issued or not issued.tzinfo
+                or issued.astimezone(pytz.timezone('Africa/Cairo')).date() != move.invoice_date):
             raise UserError(_('The prepared ETA issue date differs from the invoice date. Review and regenerate the document before submitting.'))
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.

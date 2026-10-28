@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -193,7 +193,7 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.invoice_date, old)
 
     def test_generated_document_and_canonical_use_invoice_date_instead_of_submission_day(self):
-        issued = fields.Date.today() - timedelta(days=1)
+        issued = date(2026, 7, 15)
         move = self.invoice(invoice_date=issued)
         with patch.object(type(move), '_get_eta_invoice_lines', return_value=([], 0, 100, 100)), \
                 patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
@@ -202,10 +202,30 @@ class TestEtaReliability(TransactionCase):
                 patch.object(type(move), 'reference_number', '', create=True), \
                 patch('requests.sessions.Session.request', side_effect=AssertionError('Generation performed HTTP')):
             document, _environment = move.action_generate_eta_json()
-        expected = str(issued) + 'T00:00:00Z'
+        expected = '2026-07-14T21:00:00Z'
         self.assertEqual(document['dateTimeIssued'], expected)
         self.assertIn('"DATETIMEISSUED""%s"' % expected, move.e_invoice_canonical)
         self.assertEqual(move.invoice_date, issued)
+
+    def test_cairo_issue_dates_cover_winter_summer_and_clock_changes(self):
+        for issued, expected in (
+                (date(2026, 1, 15), '2026-01-14T22:00:00Z'),
+                (date(2026, 7, 15), '2026-07-14T21:00:00Z'),
+                (date(2026, 4, 24), '2026-04-23T22:00:00Z'),
+                (date(2026, 10, 30), '2026-10-29T22:00:00Z')):
+            self.assertEqual(self.invoice(invoice_date=issued)._eta_issue_timestamp(), expected)
+
+    def test_valid_cairo_date_can_have_previous_utc_date(self):
+        move = self.invoice(invoice_date=date(2026, 7, 15))
+        job = move.eta_job_ids
+        job.payload = json.dumps({'documents': [{'internalID': move.name,
+            'dateTimeIssued': '2026-07-14T21:00:00Z'}]})
+        client = MagicMock()
+        client.request.return_value = {'acceptedDocuments': [{'uuid': 'cairo-date', 'internalId': move.name}]}
+        with patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        self.assertEqual(job.state, 'accepted')
+        self.assertEqual(client.request.call_count, 1)
 
     def test_previously_prepared_wrong_issue_date_cannot_be_transmitted(self):
         move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=1))
