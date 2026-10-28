@@ -81,6 +81,7 @@ class EtaJob(models.Model):
             if isinstance(document, dict):
                 attachment = self.env['ir.attachment'].create({
                     'name': 'ETA_%s.json' % uuid, 'res_model': 'account.move', 'res_id': move.id,
+                    'company_id': move.company_id.id,
                     'mimetype': 'application/json', 'raw': json.dumps({'request': document, 'response': {
                         'l10n_eg_uuid': uuid, 'l10n_eg_long_id': data.get('longId'),
                         'l10n_eg_internal_id': move.name,
@@ -221,6 +222,7 @@ class EtaJob(models.Model):
         with self.env.registry.cursor() as cr:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
             job = env[self._name].sudo().browse(job_id)
+            job = job.with_company(job.company_id)
             cr.execute('SELECT pg_try_advisory_lock(741180, %s)', [job_id])
             if not cr.fetchone()[0]:
                 return
