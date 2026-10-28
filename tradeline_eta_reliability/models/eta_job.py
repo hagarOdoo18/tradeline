@@ -194,6 +194,9 @@ class EtaJob(models.Model):
             return self._refresh(client)
         if not self.payload:
             self._prepare()
+        document = json.loads(self.payload)['documents'][0]
+        if str(document.get('dateTimeIssued', ''))[:10] != str(move.invoice_date):
+            raise UserError(_('The prepared ETA issue date differs from the invoice date. Review and regenerate the document before submitting.'))
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.
         client._authorize()
