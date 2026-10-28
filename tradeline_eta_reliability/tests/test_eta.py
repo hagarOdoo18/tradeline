@@ -534,3 +534,113 @@ class TestEtaReliability(TransactionCase):
             visible.browse(other_job.id).action_open_invoice()
         with self.assertRaises(AccessError):
             self.env['tradeline.operations.monitor'].with_user(user).action_eta_invoice_log()
+
+    def test_current_eta_date_approval_preserves_invoice_and_archives_previous_attempt(self):
+        old = fields.Date.today() - timedelta(days=45)
+        move = self.invoice(invoice_date=old)
+        job = move.eta_job_ids
+        previous = json.dumps({'documents': [{'dateTimeIssued': str(old) + 'T00:00:00Z'}]})
+        job.write({'state': 'blocked', 'last_error': 'CF313: outside ETA window', 'payload': previous,
+                   'payload_hash': 'previous-hash', 'attempted_at': fields.Datetime.now(), 'safe_to_retry': True})
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.amount_untaxed, move.state)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Approval performed HTTP')):
+            job.action_approve_current_issue_date()
+        self.assertEqual(job.state, 'queued')
+        self.assertEqual(job.issue_date_policy, 'current')
+        self.assertTrue(job.issue_date_approved_by and job.issue_date_approved_at and job.issue_date_approval_note)
+        self.assertFalse(job.payload or job.attempted_at or job.current_issue_datetime)
+        archive = self.env['ir.attachment'].search([('res_model', '=', 'account.move'), ('res_id', '=', move.id),
+            ('name', '=', 'ETA_issue_date_approval_%s.json' % job.id)], limit=1)
+        self.assertEqual(json.loads(archive.raw)['old_payload'], previous)
+        self.assertEqual(archive.company_id, move.company_id)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.amount_untaxed, move.state))
+
+    def test_current_eta_date_never_approves_known_or_uncertain_outcomes(self):
+        for state in ('unknown', 'accepted', 'valid', 'invalid'):
+            job = self.invoice().eta_job_ids
+            job.state = state
+            with self.assertRaises(UserError):
+                job.action_approve_current_issue_date()
+            self.assertEqual(job.issue_date_policy, 'invoice')
+        for values in ({'e_invoice_uuid': 'known'}, {'e_invoice_sent': True}, {'l10n_eg_uuid': 'native-known'}):
+            move = self.invoice()
+            move.write(values)
+            move.eta_job_ids.state = 'blocked'
+            with self.assertRaises(UserError):
+                move.eta_job_ids.action_approve_current_issue_date()
+
+    def test_current_eta_date_cannot_clear_an_ambiguous_attempt(self):
+        job = self.invoice().eta_job_ids
+        job.write({'state': 'blocked', 'attempted_at': fields.Datetime.now(), 'safe_to_retry': False})
+        with self.assertRaises(UserError):
+            job.action_approve_current_issue_date()
+        self.assertEqual(job.issue_date_policy, 'invoice')
+
+    def test_current_eta_date_requires_accounting_approval_and_recorded_evidence(self):
+        job = self.invoice().eta_job_ids
+        user = new_test_user(self.env, login='eta_date_unprivileged', groups='base.group_user',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
+        with self.assertRaises(AccessError):
+            job.with_user(user).action_approve_current_issue_date()
+        job.issue_date_policy = 'current'
+        with self.assertRaises(UserError):
+            job._prepare()
+        self.assertFalse(job.payload or job.attempted_at)
+
+    def test_approved_current_eta_date_is_frozen_for_json_and_canonical(self):
+        issued = fields.Date.today() - timedelta(days=45)
+        move = self.invoice(invoice_date=issued)
+        job = move.eta_job_ids
+        job.action_approve_current_issue_date()
+        job.current_issue_datetime = fields.Datetime.now()
+        expected = job.current_issue_datetime.strftime('%Y-%m-%dT%H:%M:%SZ')
+        with patch.object(type(move), '_get_eta_invoice_lines', return_value=([], 0, 100, 100)), \
+                patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
+                patch.object(type(move), '_get_eta_tax_totals', return_value=[]), \
+                patch.object(type(move), 'inv_type', '', create=True), \
+                patch.object(type(move), 'reference_number', '', create=True), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Generation performed HTTP')):
+            document, _environment = move.action_generate_eta_json()
+        self.assertEqual(document['dateTimeIssued'], expected)
+        self.assertIn('"DATETIMEISSUED""%s"' % expected, move.e_invoice_canonical)
+        self.assertEqual(move.invoice_date, issued)
+
+    def test_approved_current_eta_date_submits_old_invoice_without_financial_changes(self):
+        move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=45))
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.amount_untaxed, move.state)
+        job = move.eta_job_ids
+        job.action_approve_current_issue_date()
+        client = MagicMock()
+        client.request.return_value = {'acceptedDocuments': [{'uuid': 'approved-current-date', 'internalId': move.name}]}
+        def signed():
+            return {'internalID': move.name, 'dateTimeIssued': move._eta_issue_timestamp(),
+                    'signatures': [{'type': 'I', 'value': 'test-signature'}]}
+        with patch.object(type(move), 'action_generate_eta_json'), \
+                patch.object(type(move), 'action_sign_invoice', side_effect=signed), patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        self.assertEqual(job.state, 'accepted')
+        self.assertEqual(job.attempts, 1)
+        self.assertEqual(json.loads(job.payload)['documents'][0]['dateTimeIssued'], move._eta_issue_timestamp())
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.amount_untaxed, move.state))
+        self.assertEqual(client.request.call_args.args[0], 'POST')
+
+    def test_approved_current_eta_date_reprepares_after_calendar_rollover(self):
+        move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=45))
+        job = move.eta_job_ids
+        job.action_approve_current_issue_date()
+        old_time = fields.Datetime.now() - timedelta(days=2)
+        job.write({'current_issue_datetime': old_time, 'attempted_at': old_time,
+            'last_error': 'ETA returned HTTP 429.', 'payload': json.dumps({'documents': [{
+                'internalID': move.name, 'dateTimeIssued': old_time.strftime('%Y-%m-%dT%H:%M:%SZ')}]})})
+        client = MagicMock()
+        client.request.return_value = {'acceptedDocuments': [{'uuid': 'rollover-approved', 'internalId': move.name}]}
+        def signed():
+            return {'internalID': move.name, 'dateTimeIssued': move._eta_issue_timestamp(),
+                    'signatures': [{'type': 'I', 'value': 'test-signature'}]}
+        with patch.object(type(move), 'action_generate_eta_json') as generate, \
+                patch.object(type(move), 'action_sign_invoice', side_effect=signed), patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        generate.assert_called_once()
+        self.assertEqual(job.state, 'accepted')
+        self.assertGreater(job.current_issue_datetime, old_time + timedelta(days=1))
+        self.assertEqual(move.invoice_date, fields.Date.today() - timedelta(days=45))

@@ -58,3 +58,12 @@ it is not an append-only history of every state change. Reading it does not
 perform HTTP calls, retry documents or alter accounting data. The original
 ETA message remains available on each row's detail form. Finance arranges
 late-submission approval; original invoice dates stay unchanged.
+
+An accounting manager can explicitly approve the current ETA issue date for a
+queued or blocked document with no accepted/uncertain government receipt. The
+original accounting invoice date and amounts remain unchanged. Approval is
+recorded on the job and the prior payload/error is retained on the invoice as
+an attachment. JSON and canonical signing use one frozen UTC issue time. A safe
+queued retry prepared on an earlier Cairo date is regenerated before POST.
+Default processing still uses the original invoice date. This approval cannot
+clear an uncertain outcome or overwrite a known ETA receipt.

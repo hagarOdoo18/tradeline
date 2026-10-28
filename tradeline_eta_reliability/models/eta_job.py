@@ -9,7 +9,7 @@ import pytz
 import requests
 
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
 
@@ -39,7 +39,60 @@ class EtaJob(models.Model):
     payload = fields.Text(readonly=True, groups='account.group_account_manager')
     payload_hash = fields.Char(readonly=True)
     submission_uuid = fields.Char(readonly=True)
+    issue_date_policy = fields.Selection([
+        ('invoice', 'Original invoice date'), ('current', 'Approved current ETA issue date')],
+        default='invoice', required=True, readonly=True)
+    current_issue_datetime = fields.Datetime(string='ETA issue time', readonly=True)
+    issue_date_approved_by = fields.Many2one('res.users', string='Date treatment approved by', readonly=True)
+    issue_date_approved_at = fields.Datetime(string='Date treatment approved on', readonly=True)
+    issue_date_approval_note = fields.Text(string='Date treatment approval', readonly=True)
     _sql_constraints = [('move_unique', 'unique(move_id)', 'An invoice has one ETA submission job.')]
+
+    def _effective_issue_date(self):
+        self.ensure_one()
+        if self.issue_date_policy == 'current':
+            if not (self.issue_date_approved_by and self.issue_date_approved_at and self.issue_date_approval_note):
+                raise UserError(_('Approve the current ETA issue date before preparing this document.'))
+            return fields.Datetime.context_timestamp(
+                self.with_context(tz='Africa/Cairo'), fields.Datetime.now()).date()
+        return self.move_id.invoice_date
+
+    def action_approve_current_issue_date(self):
+        """Explicit date treatment for a document known not to be accepted at ETA."""
+        if not (self.env.is_superuser() or self.env.user.has_group('account.group_account_manager')
+                or self.env.user.has_group('base.group_system')):
+            raise AccessError(_('An accounting manager must approve the ETA issue-date treatment.'))
+        self.check_access('write')
+        for job in self:
+            move = job.move_id
+            move.check_access('write')
+            self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [job.id])
+            if not self.env.cr.fetchone()[0]:
+                raise UserError(_('This invoice is being processed. Refresh its status before approving a retry.'))
+            self.env.cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [move.id])
+            job.invalidate_recordset(); move.invalidate_recordset()
+            if (job.state not in ('queued', 'blocked') or move.state != 'posted'
+                    or move.move_type not in ('out_invoice', 'out_refund')
+                    or move.e_invoice_uuid or move.e_invoice_sent or move.l10n_eg_uuid
+                    or move.l10n_eg_eta_json_doc_id or job.attempted_at and not job.safe_to_retry):
+                raise UserError(_('Only an unsent or explicitly rejected document without an existing ETA receipt can use this action. Reconcile accepted, invalid or uncertain receipts first.'))
+            approval = _('Current ETA issue date approved. Preserve the original Odoo invoice date and accounting values.')
+            history = {'invoice_date': str(move.invoice_date), 'old_payload': job.payload,
+                       'old_payload_hash': job.payload_hash, 'old_attempted_at': str(job.attempted_at or ''),
+                       'old_error': job.last_error, 'previous_policy': job.issue_date_policy,
+                       'approval': approval, 'approved_by': self.env.uid, 'approved_at': str(fields.Datetime.now())}
+            self.env['ir.attachment'].sudo().create({
+                'name': 'ETA_issue_date_approval_%s.json' % job.id, 'res_model': 'account.move',
+                'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
+                'raw': json.dumps(history, ensure_ascii=False).encode(),
+            })
+            job.write({'issue_date_policy': 'current', 'current_issue_datetime': False,
+                       'issue_date_approved_by': self.env.uid, 'issue_date_approved_at': fields.Datetime.now(),
+                       'issue_date_approval_note': approval, 'state': 'queued', 'payload': False,
+                       'payload_hash': False, 'attempted_at': False, 'next_attempt': False,
+                       'last_error': False, 'failures': 0, 'safe_to_retry': False,
+                       'first_submission_candidate': False})
+        return True
 
     def _delay(self, error, seconds=None, state=None):
         self.ensure_one()
@@ -177,8 +230,12 @@ class EtaJob(models.Model):
             raise UserError(_('Set the invoice date before ETA submission.'))
         duration = int(self.env['ir.config_parameter'].sudo().get_param(
             'egyptian_electronic_invoice.eta_expiration_duration', '7'))
-        if move.invoice_date < fields.Date.today() - timedelta(days=duration):
+        if self._effective_issue_date() < fields.Date.today() - timedelta(days=duration):
             raise UserError(_('The invoice is outside the configured ETA submission window. Review it without changing its date.'))
+        if self.issue_date_policy == 'current':
+            # Freeze one timestamp for JSON, canonical bytes, signing and POST.
+            # A retry on another day is prepared again before any new POST.
+            self.current_issue_datetime = fields.Datetime.now()
         move.action_generate_eta_json()
         document = move.action_sign_invoice()
         if not document.get('signatures') or not document['signatures'][0].get('value'):
@@ -196,13 +253,20 @@ class EtaJob(models.Model):
             return self._refresh(client)
         if not self.payload:
             self._prepare()
+        if self.issue_date_policy == 'current':
+            expected = self._effective_issue_date()
+            prepared = (fields.Datetime.context_timestamp(self.with_context(tz='Africa/Cairo'),
+                        self.current_issue_datetime).date() if self.current_issue_datetime else None)
+            if prepared != expected:
+                self.write({'payload': False, 'payload_hash': False, 'current_issue_datetime': False})
+                self._prepare()
         document = json.loads(self.payload)['documents'][0]
         try:
             issued = datetime.fromisoformat(document.get('dateTimeIssued', '').replace('Z', '+00:00'))
         except (ValueError, TypeError, AttributeError):
             issued = None
         if (not issued or not issued.tzinfo
-                or issued.astimezone(pytz.timezone('Africa/Cairo')).date() != move.invoice_date):
+                or issued.astimezone(pytz.timezone('Africa/Cairo')).date() != self._effective_issue_date()):
             raise UserError(_('The prepared ETA issue date differs from the invoice date. Review and regenerate the document before submitting.'))
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.
