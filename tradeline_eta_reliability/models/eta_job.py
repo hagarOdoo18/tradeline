@@ -281,10 +281,22 @@ class EtaJob(models.Model):
     @api.model
     def _due_jobs(self, kind):
         states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'accepted', 'unknown']
-        groups = [self.sudo().search([('state', '=', state), '|', ('next_attempt', '=', False),
-                                      ('next_attempt', '<=', fields.Datetime.now())],
-                                    order='next_attempt ASC NULLS FIRST, id', limit=15 if state == 'unknown' else 40)
-                  for state in states]
+        groups = []
+        for state in states:
+            domain = [('state', '=', state), '|', ('next_attempt', '=', False),
+                      ('next_attempt', '<=', fields.Datetime.now())]
+            if state == 'queued':
+                oldest = self.sudo().search(domain, order='next_attempt ASC NULLS FIRST, id', limit=20)
+                newest = self.sudo().search(domain, order='create_date desc, id desc', limit=20)
+                ids = []
+                for index in range(max(len(oldest), len(newest))):
+                    for batch in (newest, oldest):
+                        if index < len(batch) and batch[index].id not in ids:
+                            ids.append(batch[index].id)
+                groups.append(self.sudo().browse(ids))
+            else:
+                groups.append(self.sudo().search(domain, order='next_attempt ASC NULLS FIRST, id',
+                                                limit=15 if state == 'unknown' else 40))
         # A historical reconciliation backlog must not starve today's submissions
         # or accepted-document validation, even when every API call is slow.
         return [group[index] for index in range(max((len(g) for g in groups), default=0))

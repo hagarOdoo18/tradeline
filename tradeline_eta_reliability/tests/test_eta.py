@@ -50,6 +50,16 @@ class TestEtaReliability(TransactionCase):
         due = self.env['tradeline.eta.job']._due_jobs('all')
         self.assertEqual([job.state for job in due[:3]], ['queued', 'accepted', 'unknown'])
 
+    def test_fresh_and_old_queued_invoices_both_progress_during_recovery(self):
+        older = self.invoice().eta_job_ids
+        fresh = self.invoice().eta_job_ids
+        self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id=%s',
+                            [fields.Datetime.now() - timedelta(days=2), older.id])
+        due = self.env['tradeline.eta.job']._due_jobs('submit')
+        self.assertEqual(due[:2], [fresh, older])
+        self.assertEqual(sum(job.id == fresh.id for job in due), 1)
+        self.assertEqual(sum(job.id == older.id for job in due), 1)
+
     def test_monitor_detects_wrong_database_activation(self):
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
         if not monitor:
