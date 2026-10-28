@@ -26,7 +26,7 @@ for index in range(3):
 moves.action_post()
 jobs = moves.eta_job_ids.sorted('id')
 for job in jobs:
-    job.payload = json.dumps({'documents': [{'internalID': job.move_id.name}]})
+    job.payload = json.dumps({'documents': [{'internalID': job.move_id.name, 'dateTimeIssued': str(job.move_id.invoice_date) + 'T00:00:00Z'}]})
 job_ids, move_ids = jobs.ids, moves.ids
 env.cr.commit()
 
@@ -84,7 +84,7 @@ move_b = env['account.move'].with_company(company_b).create({'move_type': 'out_i
         'account_id': income_b.id, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
 move_b.action_post()
 job_b = move_b.eta_job_ids
-job_b.payload = json.dumps({'documents': [{'internalID': move_b.name}]})
+job_b.payload = json.dumps({'documents': [{'internalID': move_b.name, 'dateTimeIssued': str(move_b.invoice_date) + 'T00:00:00Z'}]})
 job_b_id, move_b_id, company_b_id, invoice_b_name = job_b.id, move_b.id, company_b.id, move_b.name
 env.cr.commit()
 client_b = MagicMock()
