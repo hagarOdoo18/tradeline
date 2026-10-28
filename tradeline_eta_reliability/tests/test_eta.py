@@ -197,6 +197,22 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(move.eta_job_ids.state, 'invalid')
         self.assertTrue(move.eta_job_ids.last_error)
 
+    def test_async_rejection_fetches_field_details_before_becoming_terminal(self):
+        move = self.invoice()
+        move.e_invoice_uuid = 'eta-invalid'
+        job = move.eta_job_ids
+        job.submission_uuid = 'eta-submission'
+        client = MagicMock()
+        client.request.side_effect = [
+            {'documentSummary': [{'uuid': 'eta-invalid', 'internalId': move.name, 'status': 'Invalid'}]},
+            {'uuid': 'eta-invalid', 'internalId': move.name, 'status': 'Invalid',
+             'validationResults': {'errorCode': 'NI310', 'propertyName': 'receiverId', 'error': 'Invalid customer ID'}}]
+        job._refresh(client)
+        self.assertEqual(job.state, 'invalid')
+        self.assertIn('NI310', job.last_error)
+        self.assertIn('receiverId', move.e_invoice_issue)
+        self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET', 'GET'])
+
     def test_old_invoice_is_blocked_without_rewriting_date(self):
         old = fields.Date.today() - timedelta(days=30)
         move = self.invoice(invoice_date=old)

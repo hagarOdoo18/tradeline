@@ -121,7 +121,8 @@ class EtaJob(models.Model):
                 if len(matches) != 1:
                     raise EtaError('ETA submission does not contain the expected document.')
                 data = dict(matches[0], submissionUUID=self.submission_uuid)
-                if data.get('status') == 'Valid' and not move.l10n_eg_eta_json_doc_id:
+                if (data.get('status') in ('Invalid', 'Rejected', 'Cancelled')
+                        or data.get('status') == 'Valid' and not move.l10n_eg_eta_json_doc_id):
                     data = client.request('GET', '/api/v1.0/documents/%s/raw' % move.e_invoice_uuid)
             else:
                 data = client.request('GET', '/api/v1.0/documents/%s/raw' % move.e_invoice_uuid)
