@@ -11,6 +11,7 @@ from odoo.tests import TransactionCase, tagged
 
 from ..models.client import EtaClient, EtaError
 from ..models.eta_job import PROCESSING_REVISION
+from ..models.historical_recovery import match_document
 
 
 @tagged('post_install', '-at_install')
@@ -260,6 +261,20 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(first.eta_job_ids.state, 'blocked')
         self.assertEqual(jobs._requeue_software_holds(limit=1, move_ids=(first | second).ids), 1)
         self.assertEqual(second.eta_job_ids.state, 'review')
+
+    def test_legacy_optional_zero_egp_currency_fields_do_not_block_real_approvals(self):
+        old = {'invoiceLines': [{'unitValue': {'currencySold': 'EGP', 'amountEGP': 100,
+            'amountSold': 0.0, 'currencyExchangeRate': 0.0}}]}
+        current = deepcopy(old)
+        current['invoiceLines'][0]['unitValue'].pop('amountSold')
+        current['invoiceLines'][0]['unitValue'].pop('currencyExchangeRate')
+        self.assertTrue(match_document(old, current))
+        self.assertIn('amountSold', old['invoiceLines'][0]['unitValue'])
+        old['invoiceLines'][0]['unitValue']['amountSold'] = 1
+        self.assertFalse(match_document(old, current))
+        old['invoiceLines'][0]['unitValue'].update(currencySold='USD', amountSold=0)
+        current['invoiceLines'][0]['unitValue']['currencySold'] = 'USD'
+        self.assertFalse(match_document(old, current))
 
     def test_expected_cooldown_is_quiet_but_an_overdue_unprocessed_cooldown_is_flagged(self):
         _m, j, _doc, _proof = self.duplicate()
