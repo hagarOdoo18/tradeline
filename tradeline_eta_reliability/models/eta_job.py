@@ -18,6 +18,7 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
+PROCESSING_REVISION = '18.0.1.0.13'
 
 
 class EtaJob(models.Model):
@@ -40,6 +41,9 @@ class EtaJob(models.Model):
     payload = fields.Text(readonly=True, groups='account.group_account_manager')
     payload_hash = fields.Char(readonly=True)
     submission_uuid = fields.Char(readonly=True)
+    processing_revision = fields.Char(readonly=True)
+    duplicate_retry_at = fields.Datetime(readonly=True)
+    duplicate_payload_hash = fields.Char(readonly=True)
     issue_date_policy = fields.Selection([
         ('invoice', 'Original invoice date'), ('current', 'Approved current ETA issue date')],
         default='invoice', required=True, readonly=True)
@@ -137,7 +141,8 @@ class EtaJob(models.Model):
         self.write({'state': 'valid' if status == 'Valid' else 'accepted' if status == 'Submitted' else 'invalid',
                     'submission_uuid': data.get('submissionUUID') or self.submission_uuid,
                     'checked_at': fields.Datetime.now(), 'last_error': False, 'failures': 0,
-                    'next_attempt': fields.Datetime.now() + timedelta(minutes=2) if status == 'Submitted' else False})
+                    'next_attempt': fields.Datetime.now() + timedelta(minutes=2) if status == 'Submitted' else False,
+                    'duplicate_retry_at': False, 'duplicate_payload_hash': False})
         native = move.edi_document_ids.filtered(lambda d: d.edi_format_id.code == 'eg_eta' and d.state == 'to_send')
         if status == 'Valid':
             # Retain the government response as evidence; no synthetic signed document.
@@ -284,6 +289,12 @@ class EtaJob(models.Model):
         try:
             body = client.request('POST', '/api/v1/documentsubmissions', data=self.payload.encode())
         except EtaError as exc:
+            if exc.status == 422 and exc.code == 'DuplicateSubmission':
+                deadline = fields.Datetime.now() + timedelta(seconds=max(60, exc.retry_after))
+                self.write({'duplicate_retry_at': deadline, 'duplicate_payload_hash': self.payload_hash,
+                            'next_attempt': deadline, 'state': 'unknown',
+                            'last_error': 'ETA DuplicateSubmission cooldown. The same signed request will be reconciled after Retry-After before any retry.'})
+                return
             if exc.status in (401, 429):
                 self._delay(exc, seconds=exc.retry_after, state='queued')
                 return
@@ -305,8 +316,32 @@ class EtaJob(models.Model):
                         'last_error': reason[:4000]})
             move.write({'e_invoice_status': 'Error', 'eta_submission_pending': False,
                         'e_invoice_issue': reason[:4000]})
+            if (self.env['ir.config_parameter'].sudo().get_param(
+                    'tradeline_eta_reliability.historical_recovery_database') == self.env.cr.dbname
+                    and self.issue_date_policy == 'invoice' and self._is_date_only_rejection(error)):
+                self.action_approve_current_issue_date()
+                self.issue_date_approval_note = 'Karim approved today’s ETA issue date for recoverable invoices while preserving the original Odoo date and accounting amounts. ETA explicitly rejected the original timestamp only (CF313), without an accepted UUID.'
+                self.write({'next_attempt': fields.Datetime.now() + timedelta(minutes=10, seconds=5),
+                            'last_error': 'ETA rejected the original issue time. Approved current-date preparation will run automatically after the duplicate-submission cooldown.'})
         else:
             self._delay('ETA did not return an unambiguous document result. Reconciliation is required.', state='unknown')
+
+    @api.model
+    def _is_date_only_rejection(self, node):
+        if isinstance(node, str):
+            try:
+                node, _end = json.JSONDecoder().raw_decode(node[node.index('{'):])
+            except (ValueError, TypeError):
+                return False
+        def leaves(value):
+            if isinstance(value, list):
+                return [code for child in value for code in leaves(child)]
+            if isinstance(value, dict):
+                children = [code for child in value.values() if isinstance(child, (dict, list)) for code in leaves(child)]
+                return children or ([str(value.get('errorCode') or value.get('code'))] if value.get('errorCode') or value.get('code') else [])
+            return []
+        codes = set(leaves(node))
+        return bool(codes) and codes == {'CF313'}
 
     @api.model
     def _process_id(self, job_id, client):
@@ -327,6 +362,9 @@ class EtaJob(models.Model):
                 else:
                     job._refresh(client)
                 cr.commit()
+                if env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database') == cr.dbname:
+                    env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
+                    cr.commit()
             except (psycopg2.Error, requests.RequestException, EtaError, UserError, ValueError) as exc:
                 cr.rollback()
                 job.invalidate_recordset()
@@ -389,6 +427,7 @@ class EtaJob(models.Model):
             if self.env['ir.config_parameter'].sudo().get_param(
                     'tradeline_eta_reliability.historical_recovery_database') == self.env.cr.dbname:
                 self._enroll_historical(limit=500)
+                self._requeue_software_holds(limit=100)
                 self._requeue_changed_historical(limit=20)
             moves = self.env['account.move'].sudo().search([
                 ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),

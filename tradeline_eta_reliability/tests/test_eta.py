@@ -24,6 +24,7 @@ class TestEtaReliability(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.company = cls.env.company
+        cls.env.ref('base.EGP').active = True
         cls.company.write({'client_id': 'test-client', 'client_secret': 'test-secret',
                            'config_type': 'uat', 'config_version': '1.0', 'signature_tool': 'python'})
         Account = cls.env['account.account']
@@ -38,6 +39,7 @@ class TestEtaReliability(TransactionCase):
 
     def invoice(self, invoice_date=None):
         move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'currency_id': self.env.ref('base.EGP').id,
             'partner_id': self.partner.id, 'invoice_date': invoice_date or fields.Date.today(),
             'invoice_line_ids': [Command.create({'name': 'Test item', 'account_id': self.income.id,
                 'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})

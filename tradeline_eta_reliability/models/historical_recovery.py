@@ -14,6 +14,7 @@ from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
 from .client import EtaError
+from .eta_job import PROCESSING_REVISION
 
 HISTORY_INDEX = '/home/odoo/data/eta-2026-authority-index.sqlite3'
 
@@ -159,7 +160,25 @@ class EtaHistoricalRecovery(models.Model):
     def _historical_hold(self, message, authority=False):
         self.write({'state': 'invalid' if authority else 'blocked', 'last_error': str(message)[:4000],
                     'historical_review': False, 'historical_reviewed_at': fields.Datetime.now(),
-                    'historical_submission_verified': False, 'checked_at': fields.Datetime.now(), 'next_attempt': False})
+                    'historical_submission_verified': False, 'checked_at': fields.Datetime.now(), 'next_attempt': False,
+                    'processing_revision': PROCESSING_REVISION, 'duplicate_retry_at': False, 'duplicate_payload_hash': False})
+
+    @api.model
+    def _requeue_software_holds(self, limit=100, move_ids=None):
+        if self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
+            return 0
+        domain = [('state', 'in', ['blocked', 'invalid']), ('processing_revision', '!=', PROCESSING_REVISION),
+            '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
+                 ('last_error', '=like', 'Foreign-currency historical recovery requires posted FX%'),
+                 ('last_error', '=like', 'The invoice is outside the configured ETA submission window%'),
+                 ('last_error', 'ilike', 'CF313')]
+        if move_ids is not None:
+            domain.append(('move_id', 'in', move_ids))
+        jobs = self.sudo().search(domain, limit=limit, order='id').filtered(
+            lambda job: 'CF313' not in (job.last_error or '') or job._is_date_only_rejection(job.last_error))
+        jobs.write({'state': 'review', 'historical_review': True, 'historical_submission_verified': False,
+                    'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
+        return len(jobs)
 
     def _historical_financial_fingerprint(self):
         self.env.flush_all()
@@ -285,10 +304,11 @@ class EtaHistoricalRecovery(models.Model):
         if not match_document(document, current, safe_codes, trusted):
             return False
         rin = re.sub(r'\D', '', move.company_id.vat or '')
+        expected_net, expected_total = move._eta_posted_amounts()
         return (bool(re.fullmatch(r'[0-9]{9}', rin)) and document.get('internalID') == move.name
                 and re.sub(r'\D', '', str(document.get('issuer', {}).get('id', ''))) == rin
-                and abs(float(document.get('totalAmount', -1)) - move.amount_total) < .005
-                and abs(float(document.get('netAmount', -1)) - move.amount_untaxed) < .005)
+                and abs(float(document.get('totalAmount', -1)) - expected_total) < .005
+                and abs(float(document.get('netAmount', -1)) - expected_net) < .005)
 
     def _historical_archive(self, proof, receipts, action):
         move = self.move_id
@@ -313,8 +333,7 @@ class EtaHistoricalRecovery(models.Model):
         try:
             if move.state != 'posted' or move.move_type not in ('out_invoice', 'out_refund') or not move.invoice_date:
                 raise UserError(_('A posted customer invoice or credit note with its original invoice date is required.'))
-            if move.currency_id != self.env.ref('base.EGP'):
-                raise UserError(_('Foreign-currency historical recovery requires posted FX and receipt reconciliation.'))
+            expected_net, expected_total = move._eta_posted_amounts()
             if self.env['account.move'].sudo().search_count([('company_id', '=', self.company_id.id), ('name', '=', move.name), ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund'))]) != 1:
                 raise UserError(_('The posted invoice number is not unique in this company.'))
             before = self._historical_financial_fingerprint()
@@ -327,8 +346,8 @@ class EtaHistoricalRecovery(models.Model):
             current = self._historical_source()
             # Net and final totals reconcile the posted signed tax difference,
             # including withholding taxes whose ETA taxTotals amounts are positive.
-            if (abs(float(current['totalAmount']) - move.amount_total) >= .005
-                    or abs(float(current['netAmount']) - move.amount_untaxed) >= .005):
+            if (abs(float(current['totalAmount']) - expected_total) >= .005
+                    or abs(float(current['netAmount']) - expected_net) >= .005):
                 raise UserError(_('Generated ETA net or final amount differs from posted accounting values. IT must correct serialization; no document was submitted.'))
             self.historical_source_hash = hashlib.sha256(json.dumps(fiscal(current), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             proof = self._history_snapshot()
@@ -413,7 +432,9 @@ class EtaHistoricalRecovery(models.Model):
                 issued = datetime.fromisoformat(original['dateTimeIssued'].replace('Z', '+00:00')).replace(tzinfo=None)
                 if issued < proof['from']:
                     raise UserError(_('The saved ETA request predates the authority-history proof.'))
-            if not receipts and (self.attempted_at or move.e_invoice_sent):
+            date_rejected = (any('CF313' in leaf_codes(receipt.get('validationResults', {})) for receipt in receipts)
+                             or self.safe_to_retry and self._is_date_only_rejection(self.last_error))
+            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected:
                 anchor = self.attempted_at or move.e_invoice_date or move.create_date
                 if anchor and anchor > fields.Datetime.now() - timedelta(hours=24):
                     self.write({'state': 'review', 'next_attempt': anchor + timedelta(hours=24), 'last_error': 'A recent uncertain submission is in the 24-hour reconciliation window. Automatic checks continue; nothing was resent.'})
@@ -428,7 +449,7 @@ class EtaHistoricalRecovery(models.Model):
                         'safe_to_retry': False, 'first_submission_candidate': False, 'historical_review': False,
                         'historical_reviewed_at': fields.Datetime.now(), 'historical_submission_verified': True})
             duration = int(self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_expiration_duration', '7'))
-            if move.invoice_date < fields.Date.today() - timedelta(days=duration):
+            if date_rejected or move.invoice_date < fields.Date.today() - timedelta(days=duration):
                 self.action_approve_current_issue_date()
                 self.issue_date_approval_note = 'User authorized recovery of all eligible historical invoices and today’s ETA issue date while preserving the original accounting date and amounts. Complete authority history and a fresh invoice-specific delta exclude any existing approval, pending or cancelled receipt.'
             if self._historical_financial_fingerprint() != before:
@@ -439,9 +460,54 @@ class EtaHistoricalRecovery(models.Model):
             self._historical_hold(_('Historical fiscal evidence could not be parsed (%s). IT must reconcile the retained request and authority response.', type(exc).__name__))
 
     def _refresh(self, client):
+        if self.duplicate_retry_at and not self.move_id.e_invoice_uuid:
+            return self._reconcile_duplicate_cooldown(client)
         if self.state == 'review' or self.historical_review:
             return self._review_historical(client)
         return super()._refresh(client)
+
+    def _reconcile_duplicate_cooldown(self, client):
+        """A documented 422 is distinct from a timeout; reconcile before retry."""
+        self.ensure_one()
+        if self.duplicate_retry_at > fields.Datetime.now():
+            self.next_attempt = self.duplicate_retry_at
+            return
+        if (not self.payload or self.payload_hash != self.duplicate_payload_hash
+                or hashlib.sha256(self.payload.encode()).hexdigest() != self.payload_hash):
+            return self._historical_hold('The signed request changed after ETA DuplicateSubmission. IT must reconcile its retained payload.')
+        proof = self._history_snapshot()
+        if not proof:
+            self._delay('Complete authority history is required before the documented duplicate-submission retry.', seconds=300)
+            return
+        move = self.move_id
+        original = json.loads(self.payload)['documents'][0]
+        issued = datetime.fromisoformat(original['dateTimeIssued'].replace('Z', '+00:00')).replace(tzinfo=None)
+        if datetime.combine(move.invoice_date, datetime.min.time()) < proof['from'] or issued < proof['from']:
+            return self._historical_hold('This duplicate submission predates the complete authority history; expand the proof before retrying.')
+        before = self._historical_financial_fingerprint()
+        if self.historical_fingerprint and self.historical_fingerprint != before:
+            return self._historical_hold('Posted accounting changed after the duplicate submission. Reconcile it before retrying.')
+        receipts = self._history_candidates(client, proof)
+        if len(receipts) == 1:
+            document = receipts[0].get('document')
+            document = json.loads(document) if isinstance(document, str) else document
+            if document == original:
+                self._apply_remote(receipts[0])
+                self.write({'duplicate_retry_at': False, 'duplicate_payload_hash': False})
+                return
+        if receipts:
+            self._delay('Other authority receipts use this invoice number. Reconciliation continues; no duplicate was sent.', seconds=900)
+            return
+        source = self._historical_source()
+        if not fiscal_equal(fiscal(original), fiscal(source)):
+            return self._historical_hold('The source changed after ETA DuplicateSubmission. Reconcile the retained signed request before retrying.')
+        if not self.historical_fingerprint:
+            self.historical_fingerprint = before
+        self._historical_archive(proof, receipts, 'ETA explicitly rejected DuplicateSubmission. Its Retry-After expired; complete history and a fresh delta found no receipt. Retry the retained signed request.')
+        self.write({'state': 'queued', 'attempted_at': False, 'next_attempt': False, 'last_error': False,
+                    'historical_fingerprint': before, 'historical_review': False,
+                    'historical_submission_verified': True, 'historical_reviewed_at': fields.Datetime.now(),
+                    'duplicate_retry_at': False, 'duplicate_payload_hash': False})
 
     def _submit(self, client):
         if (self.historical_review or self.historical_fingerprint and not self.attempted_at

@@ -42,6 +42,17 @@ class OperationsMonitor(models.Model):
                 'The ETA queue has not run on schedule.',
                 'Review the scheduler and database locks.', 'critical'))
         jobs = self.env['tradeline.eta.job'].sudo()
+        processed = self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.last_processed_at')
+        try:
+            processed = fields.Datetime.to_datetime(processed) if processed else None
+        except (ValueError, TypeError):
+            processed = None
+        if (enabled_database == self.env.cr.dbname and processed and processed < now - timedelta(minutes=15)
+                and jobs.search_count([('state', 'in', ['queued', 'accepted', 'unknown', 'review']),
+                                       '|', ('next_attempt', '=', False), ('next_attempt', '<=', now)])):
+            observations.append(signal('eta:progress', 'ETA queue has stopped processing invoices',
+                'Invoices are ready but no successful queue operation has completed for 15 minutes.',
+                'Check ETA connectivity, signing, database locks and worker logs; preserve uncertain submission markers.', 'critical'))
         stalled = jobs.search_count(expression.AND([
             jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])]]))
         if stalled:
@@ -75,4 +86,6 @@ class OperationsIncident(models.Model):
         elif self.code == 'eta:stalled':
             action.update(domain=[('needs_attention', '=', True),
                                   ('state', 'in', ['queued', 'unknown', 'accepted', 'review'])], context={})
+        elif self.code == 'eta:progress':
+            action.update(domain=[('state', 'in', ['queued', 'unknown', 'accepted', 'review'])], context={})
         return action

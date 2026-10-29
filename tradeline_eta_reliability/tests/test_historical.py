@@ -21,6 +21,7 @@ class TestHistoricalRecovery(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.company = cls.env.company
+        cls.env.ref('base.EGP').active = True
         cls.company.write({'client_id': 'test-client', 'client_secret': 'test-secret', 'config_type': 'uat'})
         cls.receivable = cls.env['account.account'].create({'name': 'History test receivable', 'code': 'HTRCV',
             'account_type': 'asset_receivable', 'reconcile': True, 'company_ids': [Command.set(cls.company.ids)]})
@@ -32,6 +33,7 @@ class TestHistoricalRecovery(TransactionCase):
 
     def invoice(self, age=0):
         move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'currency_id': self.env.ref('base.EGP').id,
             'partner_id': self.partner.id, 'invoice_date': fields.Date.today() - timedelta(days=age),
             'invoice_line_ids': [Command.create({'name': 'History test item', 'account_id': self.income.id,
                 'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
