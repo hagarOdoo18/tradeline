@@ -745,6 +745,59 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_untaxed,
                   move.amount_tax, tuple(move.line_ids.mapped('balance'))))
 
+    def _free_item_serializer_fixture(self, currency):
+        currency.active = True
+        metadata = {'e_invoicing_code': 'EG-test-free', 'code_type': 'egs', 'ar_description': 'Test free item'}
+        product = self.env['product.product'].create({'name': 'ETA free item test',
+            **{key: value for key, value in metadata.items() if key in self.env['product.product']._fields}})
+        eta_uom = self.env['eta.uom'].search([('code', '=', 'D41')], limit=1)
+        eta_uom = eta_uom or self.env['eta.uom'].create({'name': 'Each', 'code': 'D41'})
+        product.uom_id.eta_uom_id = eta_uom
+        vat = self.env['account.tax'].create({'name': 'ETA free item VAT', 'amount': 14,
+            'amount_type': 'percent', 'type_tax_use': 'sale', 'price_include_override': 'tax_included'})
+        specs = [(1, 114, 0, vat), (2, 0, 0, vat), (3, 0, 0, self.env['account.tax']), (1, 114, 100, vat)]
+        move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'partner_id': self.partner.id, 'currency_id': currency.id, 'invoice_date': fields.Date.today(),
+            'invoice_line_ids': [Command.create({'product_id': product.id, 'account_id': self.income.id,
+                'quantity': qty, 'price_unit': price, 'discount': disc, 'tax_ids': [Command.set(tax.ids)]})
+                for qty, price, disc, tax in specs]})
+        move.action_post()
+        before = (move.invoice_date, move.amount_total, move.amount_untaxed, move.amount_tax,
+                  tuple(move.line_ids.mapped('balance')))
+        with ExitStack() as stack:
+            stack.enter_context(patch('requests.sessions.Session.request', side_effect=AssertionError('Serialization performed HTTP')))
+            for key, value in metadata.items():
+                if key not in product._fields:
+                    stack.enter_context(patch.object(type(product), key, value, create=True))
+            values = move._get_eta_invoice_lines()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_untaxed,
+                                  move.amount_tax, tuple(move.line_ids.mapped('balance'))))
+        return move, values
+
+    def test_free_egp_items_have_zero_unit_values_and_balanced_line_totals(self):
+        move, (lines, discount, sales, total) = self._free_item_serializer_fixture(self.env.ref('base.EGP'))
+        for index in (1, 2):
+            self.assertEqual(lines[index]['unitValue']['amountEGP'], 0)
+            self.assertEqual(lines[index]['salesTotal'], lines[index]['quantity'] * lines[index]['unitValue']['amountEGP'])
+            self.assertEqual(lines[index]['netTotal'], 0)
+            self.assertEqual(lines[index]['total'], 0)
+        # A paid-price item with a full discount is distinct from a zero-price item.
+        self.assertEqual(lines[3]['unitValue']['amountEGP'], 100)
+        self.assertEqual(lines[3]['salesTotal'], 100)
+        self.assertEqual(lines[3]['discount']['amount'], 100)
+        self.assertAlmostEqual(discount, 100, places=4)
+        self.assertAlmostEqual(sales, 200, places=4)
+        self.assertEqual(total, move.amount_total)
+
+    def test_free_foreign_currency_items_do_not_invent_amount_sold(self):
+        _move, (lines, _discount, _sales, _total) = self._free_item_serializer_fixture(self.env.ref('base.USD'))
+        for index in (1, 2):
+            self.assertEqual(lines[index]['unitValue']['amountSold'], 0)
+            self.assertEqual(lines[index]['unitValue']['amountEGP'], 0)
+            self.assertEqual(lines[index]['salesTotal'], 0)
+            self.assertEqual(lines[index]['total'], 0)
+        self.assertEqual(lines[3]['unitValue']['amountSold'], 100)
+
     def test_eta_canonical_preserves_json_escapes_and_numeric_representation(self):
         move = self.invoice()
         doc = {'description': 'Tablet 10.2"', 'receiver': {'name': 'A\\B\nC'},
