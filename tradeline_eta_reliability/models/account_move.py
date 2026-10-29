@@ -96,17 +96,21 @@ class AccountMove(models.Model):
     def _get_eta_invoice_lines(self):
         lines, discount, sales, total = super()._get_eta_invoice_lines()
         self.ensure_one()
-        if self.currency_id == self.env.ref('base.EGP'):
-            source = self.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
-            if len(source) != len(lines):
-                raise UserError(_('The ETA lines do not match the invoice lines. Review the document before submitting.'))
-            for posted_line, eta_line in zip(source, lines):
-                if not any(tax.amount for tax in posted_line.tax_ids):
-                    # The legacy zero-tax branch used price * quantity and lost
-                    # the discount. Use the existing accounting amount instead.
-                    correct_total = round(posted_line.price_total, 4)
-                    total += correct_total - eta_line['total']
-                    eta_line['total'] = correct_total
+        source = self.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
+        if len(source) != len(lines):
+            raise UserError(_('The ETA lines do not match the invoice lines. Review the document before submitting.'))
+        egp = self.currency_id == self.env.ref('base.EGP')
+        for posted_line, eta_line in zip(source, lines):
+            if not posted_line.price_unit and not posted_line.price_subtotal:
+                # A free item has a zero unit value. The legacy fallback of 1
+                # contradicted its zero SalesTotal and caused ETA SF330 errors.
+                eta_line['unitValue'].update(amountEGP=0.0, amountSold=0.0)
+            if egp and not any(tax.amount for tax in posted_line.tax_ids):
+                # The legacy zero-tax branch used price * quantity and lost
+                # the discount. Use the existing accounting amount instead.
+                correct_total = round(posted_line.price_total, 4)
+                total += correct_total - eta_line['total']
+                eta_line['total'] = correct_total
         return lines, discount, sales, round(total, 4)
 
     def _check_extra_fields(self, invoice_params):
