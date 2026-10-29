@@ -128,6 +128,9 @@ class EtaJobMonitoring(models.Model):
                 reason = detail if date_review else _('ETA approved this invoice.')
                 action = (_('Finance must review the issue-date discrepancy against the existing approved receipt. Do not automatically cancel or resend it.')
                           if date_review else _('No submission action required.'))
+            elif job.state == 'review':
+                reason = detail or _('Historical receipt verification is queued; no new invoice has been sent.')
+                action = _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.')
             elif job.state == 'unknown':
                 reason = detail or _('The submission outcome is uncertain; a reliable ETA receipt has not been matched.')
                 action = _('Reconcile the existing ETA outcome first. Automatic checks continue; do not blindly resend.')
