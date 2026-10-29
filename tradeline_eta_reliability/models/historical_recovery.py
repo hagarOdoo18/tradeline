@@ -45,6 +45,14 @@ def match_document(original, current, safe_codes=(), trusted_issuer=False):
             address = result.get('issuer', {}).get('address', {})
             address.pop('street', None); address.pop('regionCity', None)
         for index, line in enumerate(result.get('invoiceLines', [])):
+            unit = line.get('unitValue', {})
+            if unit.get('currencySold') == 'EGP':
+                # Legacy Ahmed payloads included optional foreign-currency
+                # zeroes; native ETA payloads omit them. Neither carries FX.
+                for key in ('amountSold', 'currencyExchangeRate'):
+                    value = unit.get(key)
+                    if value is None or type(value) in (int, float) and value == 0:
+                        unit.pop(key, None)
             others = other.get('invoiceLines', [])
             if (index < len(others) and line.get('itemCode') in safe_codes
                     and all(line.get(k) == others[index].get(k) for k in ('itemCode', 'internalCode', 'itemType'))):
@@ -168,10 +176,11 @@ class EtaHistoricalRecovery(models.Model):
         if self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
             return 0
         domain = [('state', 'in', ['blocked', 'invalid']), ('processing_revision', '!=', PROCESSING_REVISION),
-            '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
+            '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
                  ('last_error', '=like', 'Foreign-currency historical recovery requires posted FX%'),
                  ('last_error', '=like', 'The invoice is outside the configured ETA submission window%'),
-                 ('last_error', 'ilike', 'CF313')]
+                 ('last_error', 'ilike', 'CF313'),
+                 ('last_error', '=like', 'Existing Valid receipt differs from posted source%')]
         if move_ids is not None:
             domain.append(('move_id', 'in', move_ids))
         candidates = self.sudo().search(domain, limit=limit, order='id')
