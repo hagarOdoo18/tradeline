@@ -66,7 +66,7 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(jobs._enroll_historical(), 0)
         self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
         with patch('requests.sessions.Session.request', side_effect=AssertionError('Enrollment sent HTTP')):
-            jobs._enroll_historical(); jobs._enroll_historical()
+            jobs._enroll_historical(move_ids=move.ids); jobs._enroll_historical(move_ids=move.ids)
         self.assertEqual(len(move.eta_job_ids), 1)
         self.assertEqual(move.eta_job_ids.state, 'review')
         self.assertTrue(move.eta_job_ids.historical_fingerprint)
@@ -76,6 +76,13 @@ class TestHistoricalRecovery(TransactionCase):
         move = self.invoice(); job, client, candidates = self.review(move, proof=False)
         self.assertEqual(job.state, 'review'); self.assertTrue(job.next_attempt)
         candidates.assert_not_called(); client.request.assert_not_called()
+
+    def test_unscoped_enrollment_accepts_null_filter_without_http_or_accounting_edits(self):
+        move = self.invoice(); before = (move.invoice_date, move.amount_total, move.amount_tax, move.state)
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Enrollment sent HTTP')):
+            self.env['tradeline.eta.job']._enroll_historical(limit=0)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.state))
 
     def test_complete_absence_queues_old_invoice_with_approved_date_only(self):
         move = self.invoice(age=10); before = (move.invoice_date, move.amount_total, move.amount_tax, move.state)

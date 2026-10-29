@@ -92,7 +92,7 @@ class EtaHistoricalRecovery(models.Model):
     historical_source_hash = fields.Char(readonly=True)
 
     @api.model
-    def _enroll_historical(self, limit=500):
+    def _enroll_historical(self, limit=500, move_ids=None):
         if self.env['ir.config_parameter'].sudo().get_param(
                 'tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
             return 0
@@ -104,15 +104,19 @@ class EtaHistoricalRecovery(models.Model):
             WHERE m.state='posted' AND m.move_type IN ('out_invoice','out_refund')
             AND coalesce(c.client_id,'')<>'' AND coalesce(c.client_secret,'')<>''
             AND coalesce(m.e_invoice_status,'')<>'Valid' AND j.id IS NULL
-            ORDER BY m.id LIMIT %s FOR UPDATE OF m SKIP LOCKED""", [limit])
+            AND (%s::int[] IS NULL OR m.id=ANY(%s))
+            ORDER BY m.id LIMIT %s FOR UPDATE OF m SKIP LOCKED""", [move_ids, move_ids, limit])
         rows = self.env.cr.fetchall()
         if rows:
             self.sudo().create([{'move_id': mid, 'state': 'review', 'historical_review': True,
                                  'historical_fingerprint': fingerprint} for mid, fingerprint in rows])
         self.env.cr.execute("""SELECT j.id FROM tradeline_eta_job j JOIN account_move m ON m.id=j.move_id
+            JOIN res_company c ON c.id=m.company_id
             WHERE j.state IN ('unknown','blocked','invalid') AND coalesce(j.historical_fingerprint,'')=''
             AND m.state='posted' AND m.move_type IN ('out_invoice','out_refund')
-            ORDER BY j.id LIMIT 50 FOR UPDATE OF j SKIP LOCKED""")
+            AND coalesce(c.client_id,'')<>'' AND coalesce(c.client_secret,'')<>''
+            AND (%s::int[] IS NULL OR m.id=ANY(%s))
+            ORDER BY j.id LIMIT 50 FOR UPDATE OF j SKIP LOCKED""", [move_ids, move_ids])
         existing = self.browse([r[0] for r in self.env.cr.fetchall()])
         for job in existing:
             job.write({'state': 'review', 'historical_review': True,
@@ -307,8 +311,8 @@ class EtaHistoricalRecovery(models.Model):
     def _review_historical(self, client):
         self.ensure_one(); move = self.move_id
         try:
-            if move.state != 'posted' or not move.invoice_date:
-                raise UserError(_('A posted invoice with its original invoice date is required.'))
+            if move.state != 'posted' or move.move_type not in ('out_invoice', 'out_refund') or not move.invoice_date:
+                raise UserError(_('A posted customer invoice or credit note with its original invoice date is required.'))
             if move.currency_id != self.env.ref('base.EGP'):
                 raise UserError(_('Foreign-currency historical recovery requires posted FX and receipt reconciliation.'))
             if self.env['account.move'].sudo().search_count([('company_id', '=', self.company_id.id), ('name', '=', move.name), ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund'))]) != 1:
