@@ -174,8 +174,11 @@ class EtaHistoricalRecovery(models.Model):
                  ('last_error', 'ilike', 'CF313')]
         if move_ids is not None:
             domain.append(('move_id', 'in', move_ids))
-        jobs = self.sudo().search(domain, limit=limit, order='id').filtered(
+        candidates = self.sudo().search(domain, limit=limit, order='id')
+        jobs = candidates.filtered(
             lambda job: 'CF313' not in (job.last_error or '') or job._is_date_only_rejection(job.last_error))
+        # A mixed genuine rejection must not occupy the first page forever.
+        (candidates - jobs).write({'processing_revision': PROCESSING_REVISION})
         jobs.write({'state': 'review', 'historical_review': True, 'historical_submission_verified': False,
                     'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
         return len(jobs)

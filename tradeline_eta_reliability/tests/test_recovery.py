@@ -250,6 +250,17 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(error.exception.code, 'DuplicateSubmission'); self.assertEqual(error.exception.retry_after, 421)
         self.assertNotIn('private details', str(error.exception)); client.close()
 
+    def test_mixed_date_errors_do_not_starve_later_software_holds(self):
+        first = self.invoice(); second = self.invoice()
+        first.eta_job_ids.write({'state': 'blocked', 'last_error': json.dumps({'details': [{'code': 'CF313'}, {'code': 'NI310'}]})})
+        second.eta_job_ids.write({'state': 'blocked', 'last_error': 'Generated ETA net or final amount differs from posted accounting values.'})
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        jobs = self.env['tradeline.eta.job']
+        self.assertEqual(jobs._requeue_software_holds(limit=1, move_ids=(first | second).ids), 0)
+        self.assertEqual(first.eta_job_ids.state, 'blocked')
+        self.assertEqual(jobs._requeue_software_holds(limit=1, move_ids=(first | second).ids), 1)
+        self.assertEqual(second.eta_job_ids.state, 'review')
+
     def test_expected_cooldown_is_quiet_but_an_overdue_unprocessed_cooldown_is_flagged(self):
         _m, j, _doc, _proof = self.duplicate()
         j.duplicate_retry_at = fields.Datetime.now() + timedelta(minutes=5)
