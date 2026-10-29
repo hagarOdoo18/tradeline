@@ -10,10 +10,11 @@ _REJECTED_TOKENS = set()
 
 
 class EtaError(Exception):
-    def __init__(self, message, status=0, retry_after=60):
+    def __init__(self, message, status=0, retry_after=60, code=None):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        self.code = code
 
 
 class EtaClient:
@@ -73,6 +74,11 @@ class EtaClient:
         }, timeout=(5, 25), **kwargs)
         if not response.ok:
             try:
+                error = response.json().get('error', {})
+                code = error.get('code') if isinstance(error, dict) else None
+            except (ValueError, AttributeError):
+                code = None
+            try:
                 retry = max(60, min(3600, int(response.headers.get('Retry-After', 60)) + 1))
             except (TypeError, ValueError):
                 retry = 60
@@ -81,7 +87,7 @@ class EtaClient:
                 self.token = None
                 self.token_until = 0
                 _TOKENS.clear()
-            raise EtaError('ETA returned HTTP %s.' % response.status_code, response.status_code, retry)
+            raise EtaError('ETA returned HTTP %s.' % response.status_code, response.status_code, retry, code=code)
         try:
             body = response.json()
         except ValueError as exc:

@@ -69,11 +69,13 @@ class EtaJobMonitoring(models.Model):
 
     @api.model
     def _attention_domain(self, now=None):
-        cutoff = (now or fields.Datetime.now()) - timedelta(minutes=15)
+        now = now or fields.Datetime.now(); cutoff = now - timedelta(minutes=15)
         return expression.OR([
-            [('state', 'in', ['unknown', 'blocked', 'invalid'])],
+            [('state', 'in', ['blocked', 'invalid'])],
+            [('state', '=', 'unknown'), '|', ('duplicate_retry_at', '=', False), ('duplicate_retry_at', '<=', cutoff)],
             [('state', '=', 'review'), ('failures', '>', 0)],
-            [('state', '=', 'queued'), ('create_date', '<=', cutoff)],
+            [('state', '=', 'queued'), ('create_date', '<=', cutoff),
+             '|', ('next_attempt', '=', False), ('next_attempt', '<=', cutoff)],
             [('state', '=', 'accepted'), ('attempted_at', '<=', cutoff)],
             [('state', '=', 'accepted'), ('attempted_at', '=', False),
              ('move_id.e_invoice_date', '<=', cutoff)],
@@ -91,7 +93,7 @@ class EtaJobMonitoring(models.Model):
         return domain if bool(value) == (operator == '=') else ['!'] + expression.normalize_domain(domain)
 
     @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
-                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy')
+                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at')
     def _compute_monitoring(self):
         now = fields.Datetime.now()
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
@@ -125,6 +127,10 @@ class EtaJobMonitoring(models.Model):
                 actions.append(_('Correct the product details and verify its ETA-approved EGS/GS1 code.'))
             if '4043' in codes or any(word in lower for word in ('signer', 'signing', 'signature')):
                 actions.append(_('Check the company signing service and certificate configuration.'))
+            if any(word in lower for word in ('serialization', 'calculation review', 'five-decimal', 'tax allocations', 'posted exchange rate')):
+                actions.append(_('IT must reconcile ETA calculations with the posted ledger. Preserve the accounting dates and amounts.'))
+            if job.duplicate_retry_at:
+                actions.append(_('Wait for the ETA Retry-After deadline; automatic receipt reconciliation will run before any retry.'))
             if job.state == 'valid':
                 reason = detail if date_review else _('ETA approved this invoice.')
                 action = (_('Finance must review the issue-date discrepancy against the existing approved receipt. Do not automatically cancel or resend it.')
@@ -133,6 +139,9 @@ class EtaJobMonitoring(models.Model):
                 reason = detail or _('Historical receipt verification is queued; no new invoice has been sent.')
                 action = (_('IT must restore the authority-history scan or resolve its communication error. Automatic retries continue.')
                           if job.failures else _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.'))
+            elif job.state == 'unknown' and job.duplicate_retry_at:
+                reason = _('ETA duplicate-submission cooldown is being reconciled automatically after Retry-After.')
+                action = _('The worker checks for an existing ETA receipt before retrying the retained signed request. No manual resubmission is needed.')
             elif job.state == 'unknown':
                 reason = detail or _('The submission outcome is uncertain; a reliable ETA receipt has not been matched.')
                 action = _('Reconcile the existing ETA outcome first. Automatic checks continue; do not blindly resend.')
@@ -162,9 +171,11 @@ class EtaJobMonitoring(models.Model):
             job.reason_summary = reason
             job.required_action = action
             job.waiting_minutes = minutes if job.state != 'valid' else 0
-            job.needs_attention = (job.state in ('unknown', 'blocked', 'invalid') or date_review
+            job.needs_attention = (job.state in ('blocked', 'invalid') or date_review
+                                   or job.state == 'unknown' and (not job.duplicate_retry_at or job.duplicate_retry_at <= now - timedelta(minutes=15))
                                    or job.state == 'review' and job.failures > 0
-                                   or job.state in ('queued', 'accepted') and minutes >= 15)
+                                   or job.state == 'accepted' and minutes >= 15
+                                   or job.state == 'queued' and minutes >= 15 and (not job.next_attempt or job.next_attempt <= now - timedelta(minutes=15)))
 
     def action_open_invoice(self):
         self.ensure_one()

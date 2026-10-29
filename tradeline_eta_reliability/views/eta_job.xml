@@ -42,6 +42,7 @@
                         <field name="create_date" string="Queued on"/><field name="write_date" string="Last updated"/>
                         <field name="attempts"/><field name="next_attempt"/><field name="attempted_at"/>
                         <field name="checked_at"/><field name="submission_uuid"/><field name="payload_hash"/>
+                        <field name="duplicate_retry_at" string="ETA cooldown until" invisible="not duplicate_retry_at"/>
                     </group>
                     <group string="Original ETA / processing message"><field name="last_error" nolabel="1"/></group>
                     <group string="ETA issue date treatment">

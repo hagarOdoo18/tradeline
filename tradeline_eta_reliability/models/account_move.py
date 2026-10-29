@@ -5,6 +5,8 @@ import hashlib
 import json
 import re
 from datetime import datetime, time
+from collections import defaultdict
+from decimal import Decimal, ROUND_HALF_UP
 
 import pytz
 import requests
@@ -149,7 +151,126 @@ class AccountMove(models.Model):
         # in both the document and the canonical bytes generated immediately after this hook.
         if self.invoice_date:
             invoice_params['dateTimeIssued'] = self._eta_issue_timestamp()
+        if self.state == 'posted' and self.move_type in ('out_invoice', 'out_refund'):
+            expected_net, expected_total = self._eta_posted_amounts()
+            if (self.currency_id != self.env.ref('base.EGP')
+                    or abs(invoice_params['netAmount'] - expected_net) >= .005
+                    or abs(invoice_params['totalAmount'] - expected_total) >= .005):
+                invoice_params = self._eta_reconcile_posted_document(invoice_params)
         return invoice_params
+
+    def _eta_posted_amounts(self):
+        """ETA is denominated in EGP, including when the sale currency differs."""
+        self.ensure_one()
+        if self.currency_id == self.env.ref('base.EGP'):
+            return abs(self.amount_untaxed), abs(self.amount_total)
+        if self.company_id.currency_id == self.env.ref('base.EGP'):
+            return abs(self.amount_untaxed_signed), abs(self.amount_total_signed)
+        raise UserError(_('Historical foreign-currency recovery requires posted EGP accounting balances.'))
+
+    def _eta_reconcile_posted_document(self, document):
+        """Replace only monetary calculations, using the immutable posted ledger."""
+        self.ensure_one()
+        D = lambda value: Decimal(str(value))
+        Q = lambda value: float(D(value).quantize(Decimal('.00001'), rounding=ROUND_HALF_UP))
+        if self.company_id.currency_id != self.env.ref('base.EGP'):
+            raise UserError(_('Posted EGP balances are required to reconcile ETA calculations.'))
+        source = self.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
+        if len(source) != len(document['invoiceLines']):
+            raise UserError(_('ETA product lines differ from posted invoice lines.'))
+        direction = -1 if self.move_type == 'out_invoice' else 1
+        if any(line.quantity <= 0 or line.balance * direction < 0 or not 0 <= line.discount <= 100 for line in source):
+            raise UserError(_('Mixed-sign invoice lines require explicit ETA accounting reconciliation.'))
+        details = self._prepare_invoice_aggregated_taxes(round_from_tax_lines=True)
+        # Tax journal items are global. Keep each posted tax total, while moving
+        # only the rounding residual between its own lines to satisfy ETA's
+        # one-cent monetary tolerance. Never alter a posted journal item.
+        vat_groups = defaultdict(list)
+        for posted in source:
+            for tax, values in details['tax_details_per_record'].get(posted, {}).get('tax_details', {}).items():
+                if tax.type_code_id.code == 'T1' and tax.amount_type == 'percent' and tax.amount >= 0:
+                    expected = D(Q(abs(D(posted.balance)) * D(tax.amount) / 100))
+                    original = abs(D(Q(values['tax_amount'])))
+                    lower = max(D(0), expected - D('.009')); upper = expected + D('.009')
+                    vat_groups[tax.id].append([values, original, lower, upper, min(upper, max(lower, original))])
+        for entries in vat_groups.values():
+            residual = sum((entry[1] - entry[4] for entry in entries), D(0))
+            for entry in sorted(entries, key=lambda entry: entry[3] - entry[2], reverse=True):
+                if residual > 0:
+                    shift = min(residual, entry[3] - entry[4])
+                else:
+                    shift = -min(-residual, entry[4] - entry[2])
+                entry[4] += shift; residual -= shift
+            if abs(residual) > D('.000001'):
+                raise UserError(_('Posted VAT differs from its recorded tax rate. Finance must reconcile the posted tax ledger.'))
+            for values, _old, _lower, _upper, amount in entries:
+                values['tax_amount'] = Q(amount)
+        foreign = self.currency_id != self.env.ref('base.EGP')
+        nonzero = source.filtered(lambda line: line.amount_currency)
+        if foreign:
+            rate = (sum(abs(D(line.balance)) for line in nonzero) / sum(abs(D(line.amount_currency)) for line in nonzero)
+                    if nonzero else D(1) / D(self.invoice_currency_rate))
+            rate = D(Q(rate))
+        else:
+            rate = D(1)
+        if rate <= 0:
+            raise UserError(_('The original posted exchange rate is missing.'))
+        totals = defaultdict(Decimal); type_totals = defaultdict(Decimal)
+        for posted, line in zip(source, document['invoiceLines']):
+            if line['quantity'] != posted.quantity:
+                raise UserError(_('ETA quantities differ from the posted invoice.'))
+            net = abs(D(posted.balance)); qty = D(posted.quantity); discount = D(posted.discount)
+            if foreign and abs(abs(D(posted.amount_currency)) * rate - net) > D('.01'):
+                raise UserError(_('Posted exchange rates differ between invoice lines. Reconcile the recorded FX before submission.'))
+            if discount < 100:
+                sales = net / (1 - discount / 100)
+                sold_sales = abs(D(posted.price_subtotal)) / (1 - discount / 100)
+            else:
+                uncut = posted.tax_ids.compute_all(posted.price_unit, currency=self.currency_id,
+                    quantity=posted.quantity, product=posted.product_id, partner=self.partner_id)['total_excluded']
+                sold_sales = abs(D(uncut)); sales = sold_sales * rate
+            amount_egp = D(Q(sales / qty)); amount_sold = D(Q(sold_sales / qty))
+            if abs(amount_egp * qty - sales) > D('.009') or foreign and abs(amount_sold * rate - amount_egp) > D('.009'):
+                raise UserError(_('ETA five-decimal unit precision does not reconcile this quantity and posted FX. IT must review the calculation.'))
+            taxable = []; signed_tax = D(0)
+            allocated = details['tax_details_per_record'].get(posted, {}).get('tax_details', {})
+            for tax, values in allocated.items():
+                code = tax.type_code_id.code; sub = tax.sub_type_code_id.code
+                if (tax.amount_type != 'percent' or code not in ('T1', 'T4') or not sub
+                        or tax.is_deduction or code == 'T1' and tax.amount < 0 or code == 'T4' and tax.amount > 0):
+                    raise UserError(_('This posted tax combination requires explicit ETA calculation review.'))
+                amount = abs(D(Q(values['tax_amount'])))
+                if code == 'T1' and abs(amount - net * abs(D(tax.amount)) / 100) > D('.00901'):
+                    raise UserError(_('Posted VAT differs from its recorded tax rate. Finance must reconcile the posted tax ledger.'))
+                if any(item['taxType'] == code for item in taxable):
+                    raise UserError(_('Multiple tax rates share one ETA tax type on an invoice line.'))
+                taxable.append({'taxType': code, 'amount': Q(amount), 'subType': sub, 'rate': Q(abs(D(tax.amount)))})
+                type_totals[code] += amount
+                signed_tax += -amount if code == 'T4' else amount
+            # An untaxed item keeps its recorded zero-tax classification, if any.
+            if not taxable:
+                taxable = [item for item in line.get('taxableItems', []) if not item.get('amount') and not item.get('rate')]
+            line.update(salesTotal=Q(sales), netTotal=Q(net), total=Q(net + signed_tax),
+                        discount={'rate': Q(discount), 'amount': Q(sales - net)}, taxableItems=taxable)
+            line['unitValue'] = {'currencySold': self.currency_id.name, 'amountEGP': Q(amount_egp)}
+            if foreign:
+                line['unitValue'].update(amountSold=Q(amount_sold), currencyExchangeRate=Q(rate))
+            totals['sales'] += D(line['salesTotal']); totals['discount'] += D(line['discount']['amount'])
+            totals['net'] += D(line['netTotal']); totals['total'] += D(line['total'])
+        ledger = defaultdict(Decimal)
+        for tax_line in self.line_ids.filtered('tax_line_id'):
+            code = tax_line.tax_line_id.type_code_id.code
+            ledger[code] += abs(D(tax_line.balance))
+        if any(abs(type_totals[key] - ledger[key]) >= D('.005') for key in set(ledger) | set(type_totals)):
+            raise UserError(_('ETA tax allocations do not reconcile the posted tax ledger.'))
+        expected_net, expected_total = self._eta_posted_amounts()
+        if abs(totals['net'] - D(expected_net)) >= D('.005') or abs(totals['total'] - D(expected_total)) >= D('.005'):
+            raise UserError(_('ETA product coverage does not reconcile posted accounting values. Check non-product lines and manual adjustments.'))
+        document.update(totalSalesAmount=Q(totals['sales']), totalDiscountAmount=Q(totals['discount']),
+                        netAmount=Q(totals['net']), totalAmount=Q(totals['total']),
+                        taxTotals=([{'taxType': key, 'amount': Q(value)} for key, value in type_totals.items()]
+                                   or [item for item in document.get('taxTotals', []) if not item.get('amount')]))
+        return document
 
     def _eta_issue_timestamp(self):
         """Represent the Egyptian invoice date in the UTC timestamp ETA requires."""
