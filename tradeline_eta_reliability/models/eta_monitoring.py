@@ -72,6 +72,7 @@ class EtaJobMonitoring(models.Model):
         cutoff = (now or fields.Datetime.now()) - timedelta(minutes=15)
         return expression.OR([
             [('state', 'in', ['unknown', 'blocked', 'invalid'])],
+            [('state', '=', 'review'), ('failures', '>', 0)],
             [('state', '=', 'queued'), ('create_date', '<=', cutoff)],
             [('state', '=', 'accepted'), ('attempted_at', '<=', cutoff)],
             [('state', '=', 'accepted'), ('attempted_at', '=', False),
@@ -130,7 +131,8 @@ class EtaJobMonitoring(models.Model):
                           if date_review else _('No submission action required.'))
             elif job.state == 'review':
                 reason = detail or _('Historical receipt verification is queued; no new invoice has been sent.')
-                action = _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.')
+                action = (_('IT must restore the authority-history scan or resolve its communication error. Automatic retries continue.')
+                          if job.failures else _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.'))
             elif job.state == 'unknown':
                 reason = detail or _('The submission outcome is uncertain; a reliable ETA receipt has not been matched.')
                 action = _('Reconcile the existing ETA outcome first. Automatic checks continue; do not blindly resend.')
@@ -161,6 +163,7 @@ class EtaJobMonitoring(models.Model):
             job.required_action = action
             job.waiting_minutes = minutes if job.state != 'valid' else 0
             job.needs_attention = (job.state in ('unknown', 'blocked', 'invalid') or date_review
+                                   or job.state == 'review' and job.failures > 0
                                    or job.state in ('queued', 'accepted') and minutes >= 15)
 
     def action_open_invoice(self):

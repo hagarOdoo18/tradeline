@@ -170,8 +170,10 @@ class EtaHistoricalRecovery(models.Model):
                     raise UserError(_('The authority history proof belongs to a different database.'))
                 alias = db.execute('SELECT value FROM meta WHERE key=?', ['canonical:%s' % self.company_id.id]).fetchone()
                 owner = int(alias[0]) if alias else self.company_id.id
-                scan = db.execute('SELECT history_from,history_to,complete FROM scans WHERE company=?', [owner]).fetchone()
+                scan = db.execute('SELECT history_from,history_to,complete,updated_at FROM scans WHERE company=?', [owner]).fetchone()
                 if not scan or not scan[2]:
+                    if scan and scan[3] and datetime.fromisoformat(scan[3]) < fields.Datetime.now() - timedelta(minutes=30):
+                        raise EtaError('The authority-history scan has not advanced for 30 minutes. IT must restore it; no document was sent.')
                     return None
                 scope = db.execute('SELECT value FROM meta WHERE key=?', ['scope:%s' % self.company_id.id]).fetchone()
                 owner_scope = db.execute('SELECT value FROM meta WHERE key=?', ['scope:%s' % owner]).fetchone()
@@ -282,8 +284,7 @@ class EtaHistoricalRecovery(models.Model):
         return (bool(re.fullmatch(r'[0-9]{9}', rin)) and document.get('internalID') == move.name
                 and re.sub(r'\D', '', str(document.get('issuer', {}).get('id', ''))) == rin
                 and abs(float(document.get('totalAmount', -1)) - move.amount_total) < .005
-                and abs(float(document.get('netAmount', -1)) - move.amount_untaxed) < .005
-                and abs(sum(float(t['amount']) for t in document.get('taxTotals', [])) - move.amount_tax) < .005)
+                and abs(float(document.get('netAmount', -1)) - move.amount_untaxed) < .005)
 
     def _historical_archive(self, proof, receipts, action):
         move = self.move_id
@@ -295,6 +296,9 @@ class EtaHistoricalRecovery(models.Model):
                 'prior_json': move.e_invoice_json, 'prior_canonical': move.e_invoice_canonical,
                 'prior_signature': move.static_signature, 'prior_signed': move.invoice_signed,
                 'prior_sent': move.e_invoice_sent, 'prior_job_payload': self.payload,
+                'prior_issue_date_policy': self.issue_date_policy, 'prior_current_issue_datetime': str(self.current_issue_datetime or ''),
+                'prior_date_approved_by': self.issue_date_approved_by.id, 'prior_date_approved_at': str(self.issue_date_approved_at or ''),
+                'prior_date_approval_note': self.issue_date_approval_note,
                 'prior_attempted_at': str(self.attempted_at or ''), 'authority_receipts': receipts}
         self.env['ir.attachment'].sudo().create({'name': 'ETA_historical_recovery_%s.json' % self.id,
             'res_model': 'account.move', 'res_id': move.id, 'company_id': move.company_id.id,
@@ -317,6 +321,11 @@ class EtaHistoricalRecovery(models.Model):
             if move.l10n_eg_uuid and move.e_invoice_uuid and move.l10n_eg_uuid != move.e_invoice_uuid:
                 raise UserError(_('Native and custom ETA receipts differ; reconcile both existing receipts.'))
             current = self._historical_source()
+            # Net and final totals reconcile the posted signed tax difference,
+            # including withholding taxes whose ETA taxTotals amounts are positive.
+            if (abs(float(current['totalAmount']) - move.amount_total) >= .005
+                    or abs(float(current['netAmount']) - move.amount_untaxed) >= .005):
+                raise UserError(_('Generated ETA net or final amount differs from posted accounting values. IT must correct serialization; no document was submitted.'))
             self.historical_source_hash = hashlib.sha256(json.dumps(fiscal(current), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             proof = self._history_snapshot()
             if not proof:
@@ -329,7 +338,7 @@ class EtaHistoricalRecovery(models.Model):
                     proof = {'from': floor, 'to': floor, 'receipts': {}}
             if not proof:
                 self.write({'state': 'review', 'historical_review': True, 'next_attempt': fields.Datetime.now() + timedelta(minutes=5),
-                            'last_error': 'Automatic authority-history scan is in progress. No new document has been sent.'})
+                            'last_error': 'Automatic authority-history scan is in progress. No new document has been sent.', 'failures': 0})
                 return
             if datetime.combine(move.invoice_date, datetime.min.time()) < proof['from']:
                 raise UserError(_('This invoice predates the complete authority-history proof; expand the history check.'))
@@ -357,7 +366,9 @@ class EtaHistoricalRecovery(models.Model):
                             'e_invoice_canonical': False, 'static_signature': signature, 'invoice_signed': bool(document.get('signatures'))})
                 payload = json.dumps({'documents': [document]}, ensure_ascii=False, separators=(',', ':'))
                 self.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest(), 'submission_uuid': False,
-                            'historical_review': False, 'historical_reviewed_at': fields.Datetime.now()})
+                            'historical_review': False, 'historical_reviewed_at': fields.Datetime.now(),
+                            'issue_date_policy': 'invoice', 'current_issue_datetime': False,
+                            'issue_date_approved_by': False, 'issue_date_approved_at': False, 'issue_date_approval_note': False})
                 self._apply_remote(receipt)
                 if self._historical_financial_fingerprint() != before:
                     raise EtaError('Accounting fingerprint changed during receipt restoration; transaction rolled back.')

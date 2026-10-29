@@ -105,6 +105,31 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(move.l10n_eg_uuid, 'original-approved')
         client.request.assert_not_called()
 
+    def test_generated_amount_mismatch_is_stopped_before_authority_checks(self):
+        move = self.invoice(); job = move.eta_job_ids; source = self.document(move)
+        source['totalAmount'] = 101
+        job.write({'state': 'review', 'historical_review': True})
+        client = MagicMock()
+        with patch.object(type(move), 'currency_id', self.env.ref('base.EGP')), \
+                patch.object(type(job), '_historical_source', return_value=source), \
+                patch.object(type(job), '_history_snapshot') as proof:
+            job._review_historical(client)
+        self.assertEqual(job.state, 'blocked'); self.assertIn('serialization', job.last_error)
+        self.assertEqual(move.amount_total, 100); proof.assert_not_called(); client.request.assert_not_called()
+
+    def test_receipt_matching_preserves_withholding_tax_signs(self):
+        move = self.invoice(); move.button_draft()
+        withholding = self.env['account.tax'].create({'name': 'History withholding', 'amount': -10,
+            'amount_type': 'percent', 'type_tax_use': 'sale', 'company_id': self.company.id})
+        move.invoice_line_ids.tax_ids = withholding
+        move.action_post(); self.assertEqual(move.amount_total, 90)
+        source = self.document(move); source.update(totalAmount=90, netAmount=100,
+            taxTotals=[{'taxType': 'T4', 'amount': 10}])
+        raw = {'document': source}
+        with patch.object(type(self.company), 'vat', '123456789'), \
+                patch.object(type(self.env['product.product']), 'search_count', return_value=0):
+            self.assertTrue(move.eta_job_ids._historical_matches(raw, source))
+
     def test_approved_source_mismatch_keeps_original_identifiers_and_holds(self):
         move = self.invoice(); move.e_invoice_uuid = 'known-copy'
         raw = {'uuid': 'original-approved', 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)}
@@ -190,13 +215,13 @@ class TestHistoricalRecovery(TransactionCase):
         with TemporaryDirectory() as folder:
             path = str(Path(folder) / 'proof.sqlite3')
             with closing(sqlite3.connect(path)) as db, db:
-                db.executescript('CREATE TABLE meta(key TEXT,value TEXT);CREATE TABLE scans(company INTEGER,history_from TEXT,history_to TEXT,complete INTEGER);CREATE TABLE receipts(company INTEGER,uuid TEXT,invoice TEXT,status TEXT);')
+                db.executescript('CREATE TABLE meta(key TEXT,value TEXT);CREATE TABLE scans(company INTEGER,history_from TEXT,history_to TEXT,complete INTEGER,updated_at TEXT);CREATE TABLE receipts(company INTEGER,uuid TEXT,invoice TEXT,status TEXT);')
                 db.execute('INSERT INTO meta VALUES(?,?)', ['database', 'wrong-database'])
             with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.HISTORY_INDEX', path):
                 with self.assertRaises(UserError):job._history_snapshot()
                 with closing(sqlite3.connect(path)) as db, db:
                     db.execute("UPDATE meta SET value=? WHERE key='database'", [self.env.cr.dbname])
-                    db.execute('INSERT INTO scans VALUES(?,?,?,?)', [self.company.id, '2025-12-01', '2026-10-29', 0])
+                    db.execute('INSERT INTO scans VALUES(?,?,?,?,?)', [self.company.id, '2025-12-01', '2026-10-29', 0, str(fields.Datetime.now())])
                 self.assertIsNone(job._history_snapshot())
 
     def test_corrected_source_reenters_automatic_historical_review(self):
@@ -223,9 +248,9 @@ class TestHistoricalRecovery(TransactionCase):
         with TemporaryDirectory() as folder:
             path = str(Path(folder) / 'proof.sqlite3')
             with closing(sqlite3.connect(path)) as db, db:
-                db.executescript('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE scans(company INTEGER,history_from TEXT,history_to TEXT,complete INTEGER);CREATE TABLE receipts(company INTEGER,uuid TEXT,invoice TEXT,status TEXT);')
+                db.executescript('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT);CREATE TABLE scans(company INTEGER,history_from TEXT,history_to TEXT,complete INTEGER,updated_at TEXT);CREATE TABLE receipts(company INTEGER,uuid TEXT,invoice TEXT,status TEXT);')
                 db.execute('INSERT INTO meta VALUES(?,?)', ['database', self.env.cr.dbname])
-                db.execute('INSERT INTO scans VALUES(?,?,?,?)', [self.company.id, '2025-12-01', '2026-10-29', 1])
+                db.execute('INSERT INTO scans VALUES(?,?,?,?,?)', [self.company.id, '2025-12-01', '2026-10-29', 1, str(fields.Datetime.now())])
                 db.execute('INSERT INTO receipts VALUES(?,?,?,?)', [self.company.id, 'own-uuid', move.name, 'Invalid'])
                 db.execute('INSERT INTO receipts VALUES(?,?,?,?)', [self.company.id + 100, 'other-company', move.name, 'Valid'])
             with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.HISTORY_INDEX', path), \
@@ -242,6 +267,23 @@ class TestHistoricalRecovery(TransactionCase):
         with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
             with self.assertRaises(UserError):job._history_candidates(client, {'receipts': {'expected-uuid': 'Valid'}, 'to': fields.Datetime.now() - timedelta(minutes=1)})
         self.assertFalse(move.e_invoice_uuid)
+
+    def test_failed_history_review_is_visible_in_operations_attention(self):
+        move = self.invoice(); job = move.eta_job_ids
+        job.write({'state': 'review', 'historical_review': True, 'failures': 1, 'last_error': 'Authority history scan stopped advancing.'})
+        self.assertTrue(job.needs_attention)
+        self.assertIn(job, self.env['tradeline.eta.job'].search([('needs_attention', '=', True)]))
+        self.assertIn('IT must restore', job.required_action)
+
+    def test_restored_original_does_not_keep_a_rejected_attempt_timestamp(self):
+        move = self.invoice(age=10); job = move.eta_job_ids
+        job.write({'issue_date_policy': 'current', 'current_issue_datetime': fields.Datetime.now(),
+                   'issue_date_approved_by': self.env.uid, 'issue_date_approved_at': fields.Datetime.now(), 'issue_date_approval_note': 'Test approval'})
+        raw = {'uuid': 'old-approved-original', 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)}
+        job, _, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'valid'); self.assertFalse(job.current_issue_datetime)
+        self.assertEqual(job.issue_date_policy, 'invoice')
+        self.assertEqual(json.loads(job.payload)['documents'][0]['dateTimeIssued'], raw['document']['dateTimeIssued'])
 
     def test_fiscal_matching_allows_only_verified_metadata_and_subcent_money(self):
         move = self.invoice(); original = self.document(move); current = json.loads(json.dumps(original))
