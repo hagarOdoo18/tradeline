@@ -50,6 +50,56 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(len(move.eta_job_ids), 1)
         self.assertEqual(move.eta_job_ids.state, 'queued')
 
+    def _id_rule_partner(self, **values):
+        details = dict(company_type='person', mobile_type='local', vat=False,
+                       display_name='ID rule test buyer', country_id=SimpleNamespace(code='EG'),
+                       state_id=SimpleNamespace(display_name='Cairo'), city='Cairo', street='Test street',
+                       street2=False, zip=False, floor=False, room=False, landmark=False, additional_info=False)
+        details.update(values)
+        return SimpleNamespace(**details)
+
+    def test_missing_national_id_is_optional_below_25000(self):
+        partner = self._id_rule_partner()
+        for total in (0, 24999.99):
+            result = self.env['account.move']._get_eta_personal_details(partner, total)
+            self.assertEqual(result['type'], 'P')
+            self.assertEqual(result['id'], '')
+            self.assertFalse(partner.vat)
+
+    def test_national_id_is_required_at_inclusive_25000_boundary(self):
+        for total in (25000, 49999, 50000, 50001, -25000):
+            with self.assertRaisesRegex(UserError, '25,000'):
+                self.env['account.move']._get_eta_personal_details(self._id_rule_partner(), total)
+
+    def test_required_national_id_must_have_fourteen_digits(self):
+        for national_id in ('1234567890123', '1234567890123A', '123456789012345'):
+            with self.assertRaisesRegex(UserError, '14-digit'):
+                self.env['account.move']._get_eta_personal_details(self._id_rule_partner(vat=national_id), 25000)
+        partner = self._id_rule_partner(vat='12345678901234')
+        self.assertEqual(self.env['account.move']._get_eta_personal_details(partner, 25000)['id'], partner.vat)
+
+    def test_optional_recorded_id_is_not_removed_below_threshold(self):
+        partner = self._id_rule_partner(vat='12345678901234')
+        self.assertEqual(self.env['account.move']._get_eta_personal_details(partner, 100)['id'], partner.vat)
+
+    def test_national_id_rule_keeps_foreign_and_business_identity_rules(self):
+        foreign = self._id_rule_partner(mobile_type='foreigner', vat='TEST-PASSPORT',
+                                        country_id=SimpleNamespace(code='US'))
+        result = self.env['account.move']._get_eta_personal_details(foreign, 60000)
+        self.assertEqual((result['type'], result['id']), ('F', 'TEST-PASSPORT'))
+        with self.assertRaisesRegex(UserError, 'Tax ID'):
+            self.env['account.move']._get_eta_personal_details(self._id_rule_partner(company_type='company'), 100)
+
+    def test_national_id_threshold_uses_posted_total_after_discount(self):
+        move = self.invoice()
+        # Legacy order_total was the gross line price before discounts.
+        partner = move.partner_id
+        with patch.object(type(partner), 'mobile_type', 'local', create=True), \
+                patch.object(type(self.env['res.currency']), '_convert', return_value=100):
+            result = move._get_eta_personal_details(partner, 60000)
+        self.assertEqual(result['type'], 'P')
+        self.assertEqual(result['id'], '')
+
     def test_historical_backlog_does_not_starve_new_submissions_or_statuses(self):
         for state in ('queued', 'accepted', 'unknown'):
             self.invoice().eta_job_ids.write({'state': state, 'next_attempt': False})

@@ -3,6 +3,7 @@ import base64
 import binascii
 import hashlib
 import json
+import re
 from datetime import datetime, time
 
 import pytz
@@ -69,6 +70,34 @@ class AccountMove(models.Model):
     def _eta_correction_document(self):
         self.ensure_one()
         return self.with_company(self.company_id).action_generate_eta_json()[0]
+
+    def _get_eta_personal_details(self, partner, order_total):
+        domestic_person = partner.company_type == 'person' and partner.mobile_type == 'local'
+        if not domestic_person:
+            return super()._get_eta_personal_details(partner, order_total)
+        egp = self.env.ref('base.EGP')
+        total_egp = abs(order_total)
+        if len(self) == 1 and partner == self.partner_id and self.move_type in ('out_invoice', 'out_refund'):
+            # Use the posted document amount, including discounts and taxes.
+            # Company-currency balances preserve the original posted FX rate.
+            if self.currency_id == egp:
+                total_egp = abs(self.amount_total)
+            elif self.company_id.currency_id == egp:
+                total_egp = abs(self.amount_total_signed)
+            else:
+                total_egp = self.currency_id._convert(
+                    abs(self.amount_total), egp, self.company_id,
+                    self.invoice_date or fields.Date.context_today(self))
+        # ETA reduced the inclusive threshold to EGP 25,000 on 1 August 2024:
+        # https://www.eta.gov.eg/en/node/781
+        if egp.compare_amounts(total_egp, 25000) >= 0:
+            if not partner.vat:
+                raise UserError(_('National ID is required for domestic individual invoices of EGP 25,000 or more.'))
+            if not re.fullmatch(r'[0-9]{14}', partner.vat):
+                raise UserError(_('A 14-digit national ID is required for domestic individual invoices of EGP 25,000 or more.'))
+        # Keep the existing address, receiver type and optional recorded ID.
+        # Only replace the obsolete EGP 50,000 preflight; never invent an ID.
+        return super()._get_eta_personal_details(partner, 0)
 
     def generate_canonical_manual(self, invoice_params):
         # Use Odoo's ETA serializer: JSON string escaping is part of the signed
