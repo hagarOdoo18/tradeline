@@ -43,7 +43,7 @@ class OperationsMonitor(models.Model):
                 'Review the scheduler and database locks.', 'critical'))
         jobs = self.env['tradeline.eta.job'].sudo()
         stalled = jobs.search_count(expression.AND([
-            jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted'])]]))
+            jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])]]))
         if stalled:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,
@@ -74,5 +74,5 @@ class OperationsIncident(models.Model):
             action.update(domain=[('state', 'in', ['blocked', 'invalid'])], context={})
         elif self.code == 'eta:stalled':
             action.update(domain=[('needs_attention', '=', True),
-                                  ('state', 'in', ['queued', 'unknown', 'accepted'])], context={})
+                                  ('state', 'in', ['queued', 'unknown', 'accepted', 'review'])], context={})
         return action
