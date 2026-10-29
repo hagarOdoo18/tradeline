@@ -16,7 +16,8 @@ from .client import EtaClient, EtaError
 _logger = logging.getLogger(__name__)
 STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
-          ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction')]
+          ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
+          ('review', 'Historical verification queued')]
 
 
 class EtaJob(models.Model):
@@ -349,7 +350,7 @@ class EtaJob(models.Model):
 
     @api.model
     def _due_jobs(self, kind):
-        states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'accepted', 'unknown']
+        states = ['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status' else ['queued', 'accepted', 'unknown', 'review']
         groups = []
         for state in states:
             domain = [('state', '=', state), '|', ('next_attempt', '=', False),
@@ -385,6 +386,10 @@ class EtaJob(models.Model):
         clients = {}
         started = time.monotonic()
         try:
+            if self.env['ir.config_parameter'].sudo().get_param(
+                    'tradeline_eta_reliability.historical_recovery_database') == self.env.cr.dbname:
+                self._enroll_historical(limit=500)
+                self._requeue_changed_historical(limit=20)
             moves = self.env['account.move'].sudo().search([
                 ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
                 ('eta_submission_pending', '=', True), ('e_invoice_uuid', '=', False),
