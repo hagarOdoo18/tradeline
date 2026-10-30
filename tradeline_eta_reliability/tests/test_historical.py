@@ -13,7 +13,7 @@ from odoo.tests import TransactionCase, tagged
 
 from ..models.client import EtaClient, EtaError
 from ..models.historical_recovery import fiscal, fiscal_equal, leaf_codes, match_document
-from ..models.catalogue_recovery import approved_usage
+from ..models.catalogue_recovery import approval_identity, approved_usage
 
 
 @tagged('post_install', '-at_install')
@@ -509,6 +509,10 @@ class TestHistoricalRecovery(TransactionCase):
                        {'itemCode': 'EG-DIFFERENT'}, {'activeTo': '2000-01-01T00:00:00Z'}):
             self.assertFalse(approved_usage(publication, {'result': [dict(row, **change)]}, 'EG-OTHER-ITEM', '123456789', now))
         self.assertFalse(approved_usage(dict(publication, active=False), {'result': [row]}, 'EG-OTHER-ITEM', '123456789', now))
+        proof = {'scope': 'uat|123456789|EGS|EG-OTHER-ITEM', 'publication': publication, 'usage': {'result': [row]}}
+        unrelated = dict(row, itemCode='EG-UNRELATED', codeUsageRequestID=999)
+        foreign = dict(row, requesterTaxpayer={'rin': '987654321'}, codeUsageRequestID=1000)
+        self.assertEqual(approval_identity(proof), approval_identity(dict(proof, usage={'result': [row, unrelated, foreign]})))
 
     def test_approved_code_can_release_old_cv302_but_not_a_mixed_id_error(self):
         move = self.invoice(); doc = self.document(move)
@@ -532,36 +536,41 @@ class TestHistoricalRecovery(TransactionCase):
 
     def test_same_taxpayer_across_companies_shares_invoice_number_namespace(self):
         move = self.invoice(); egp = self.env.ref('base.EGP')
-        values = {'name': 'Same taxpayer sibling', 'is_company': True, 'vat': '123456789',
-                  'country_id': self.env.ref('base.eg').id}
-        for key, value in [('company_size', 'small'), ('company_device', 1)]:
-            if key in self.env['res.partner']._fields:
-                values[key] = value
-        partner = self.env['res.partner'].with_context(no_vat_validation=True).create(values)
-        other = self.env['res.company'].create({'name': 'Same taxpayer sibling', 'partner_id': partner.id,
-            'currency_id': egp.id, 'config_type': 'uat', 'client_id': 'other-client', 'client_secret': 'other-secret',
-            'activity_code_id': self.company.activity_code_id.id, 'type_code_id': self.company.type_code_id.id,
-            'sub_type_code_id': self.company.sub_type_code_id.id})
-        receivable = self.env['account.account'].with_company(other).create({'name': 'Sibling receivable',
-            'code': 'SIBRCV', 'account_type': 'asset_receivable', 'reconcile': True,
-            'company_ids': [Command.set(other.ids)]})
-        income = self.env['account.account'].with_company(other).create({'name': 'Sibling income',
-            'code': 'SIBINC', 'account_type': 'income', 'company_ids': [Command.set(other.ids)]})
-        self.partner.with_company(other).property_account_receivable_id = receivable
-        journal = self.env['account.journal'].create({'name': 'Sibling sale', 'code': 'SIBL', 'type': 'sale',
-            'company_id': other.id, 'edi_format_ids': [Command.clear()]})
-        sibling = self.env['account.move'].with_company(other).create({'move_type': 'out_invoice',
-            'journal_id': journal.id, 'partner_id': self.partner.id, 'invoice_date': fields.Date.today(),
-            'invoice_line_ids': [Command.create({'name': 'Sibling item', 'quantity': 1, 'price_unit': 100,
-                'account_id': income.id, 'tax_ids': [Command.clear()]})]})
-        sibling.action_post()
-        self.env.cr.execute('UPDATE account_move SET name=%s WHERE id=%s', [move.name, sibling.id])
-        sibling.invalidate_recordset()
+        def sibling(vat, code):
+            values = {'name': 'Namespace sibling ' + code, 'is_company': True, 'vat': vat,
+                      'country_id': self.env.ref('base.eg').id}
+            for key, value in [('company_size', 'small'), ('company_device', 1)]:
+                if key in self.env['res.partner']._fields:
+                    values[key] = value
+            partner = self.env['res.partner'].with_context(no_vat_validation=True).create(values)
+            company = self.env['res.company'].create({'name': values['name'], 'partner_id': partner.id,
+                'currency_id': egp.id, 'config_type': 'uat', 'client_id': 'other-client', 'client_secret': 'other-secret',
+                'activity_code_id': self.company.activity_code_id.id, 'type_code_id': self.company.type_code_id.id,
+                'sub_type_code_id': self.company.sub_type_code_id.id})
+            receivable = self.env['account.account'].with_company(company).create({'name': 'Sibling receivable',
+                'code': code + 'RCV', 'account_type': 'asset_receivable', 'reconcile': True,
+                'company_ids': [Command.set(company.ids)]})
+            income = self.env['account.account'].with_company(company).create({'name': 'Sibling income',
+                'code': code + 'INC', 'account_type': 'income', 'company_ids': [Command.set(company.ids)]})
+            self.partner.with_company(company).property_account_receivable_id = receivable
+            journal = self.env['account.journal'].create({'name': 'Sibling sale', 'code': code, 'type': 'sale',
+                'company_id': company.id, 'edi_format_ids': [Command.clear()]})
+            invoice = self.env['account.move'].with_company(company).create({'move_type': 'out_invoice',
+                'journal_id': journal.id, 'partner_id': self.partner.id, 'invoice_date': fields.Date.today(),
+                'invoice_line_ids': [Command.create({'name': 'Sibling item', 'quantity': 1, 'price_unit': 100,
+                    'account_id': income.id, 'tax_ids': [Command.clear()]})]})
+            invoice.action_post()
+            self.env.cr.execute('UPDATE account_move SET name=%s WHERE id=%s', [move.name, invoice.id])
+            invoice.invalidate_recordset()
+            return company
+        other = sibling('123456789', 'SIBL')
         with self.assertRaisesRegex(UserError, 'across Odoo companies'):
             move.eta_job_ids._assert_eta_number_unique()
         other.config_type = 'prod'
         move.eta_job_ids._assert_eta_number_unique()
-        other.config_type = 'uat'; other.with_context(no_vat_validation=True).vat = '987654321'
+        # Create a different taxpayer correctly from the outset; enterprise
+        # accounting rightly forbids changing a company's VAT after posting.
+        sibling('987654321', 'DIFF')
         move.eta_job_ids._assert_eta_number_unique()
 
     def test_catalogue_approval_evidence_is_cached_per_taxpayer_and_preserved(self):
@@ -605,3 +614,27 @@ class TestHistoricalRecovery(TransactionCase):
             with self.assertRaisesRegex(EtaError, 'cooldown'):
                 job._catalogue_get(client, '/catalogue-unit-test')
         self.assertEqual(client.request.call_count, 1)
+
+    def test_catalogue_rejection_after_approved_retry_cannot_loop_on_same_proof(self):
+        move = self.invoice(); job = move.eta_job_ids; doc = self.document(move)
+        publication = {'itemCode': 'TEST', 'active': True}
+        row = {'itemCode': 'TEST', 'active': True, 'status': 'Approved', 'codeUsageRequestID': 1,
+               'requesterTaxpayer': {'rin': '123456789'}}
+        raw = {'uuid': 'old-rejection', 'internalId': move.name, 'status': 'Invalid', 'document': doc,
+               'dateTimeReceived': '2026-03-01T00:00:00Z', 'validationResults': {'errorCode': 'CV302'}}
+        with patch.object(type(job), '_catalogue_get', side_effect=[publication, {'result': [row]}]):
+            job, _, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'queued'); self.assertTrue(job.catalogue_evidence_hash)
+        old_hash = job.catalogue_evidence_hash
+        raw['dateTimeReceived'] = (fields.Datetime.now() + timedelta(seconds=1)).isoformat() + 'Z'
+        job, _, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'invalid'); self.assertEqual(job.catalogue_evidence_hash, old_hash)
+        # A fresh read timestamp or label change is not a changed approval.
+        proof = {'publication': publication, 'usage': {'result': [row]}}
+        self.assertEqual(approval_identity(proof), approval_identity(dict(proof, captured_utc='2099-01-01')))
+        _scope, key = job._catalogue_cache_key('TEST')
+        self.env['ir.config_parameter'].sudo().search([('key', '=', key)]).unlink()
+        changed = dict(row, codeUsageRequestID=2)
+        with patch.object(type(job), '_catalogue_get', side_effect=[publication, {'result': [changed]}]):
+            job, _, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'queued'); self.assertNotEqual(job.catalogue_evidence_hash, old_hash)

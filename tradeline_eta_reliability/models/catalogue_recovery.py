@@ -5,7 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
-from odoo import api, models
+from odoo import api, fields, models
 
 from .client import EtaError
 from .processing_window import check_processing_window
@@ -32,14 +32,39 @@ def active_now(record, now):
 def approved_usage(publication, usage, code, rin, now):
     return (isinstance(publication, dict) and publication.get('itemCode') == code
         and active_now(publication, now) and isinstance(usage, dict)
+        and isinstance(usage.get('result'), list)
         and any(isinstance(row, dict) and row.get('itemCode') == code
                 and row.get('status') == 'Approved' and active_now(row, now)
-                and taxpayer(row.get('requesterTaxpayer', {}).get('rin')) == rin
+                and isinstance(row.get('requesterTaxpayer'), dict)
+                and taxpayer(row['requesterTaxpayer'].get('rin')) == rin
                 for row in usage.get('result', [])))
+
+
+def approval_identity(proof):
+    publication = proof.get('publication', {})
+    usage = proof.get('usage', {})
+    scope = proof.get('scope', '').split('|')
+    rin = scope[1] if len(scope) == 4 else None
+    keys = ('itemCode', 'codeUsageRequestID', 'codeID', 'status', 'active', 'activeFrom', 'activeTo')
+    decision = {'publication': {key: publication.get(key) for key in keys},
+        'usage': sorted([{key: row.get(key) for key in keys} for row in usage.get('result', [])
+                         if isinstance(row, dict) and row.get('status') == 'Approved' and row.get('active') is True
+                         and row.get('itemCode') == publication.get('itemCode')
+                         and (rin is None or isinstance(row.get('requesterTaxpayer'), dict)
+                              and taxpayer(row['requesterTaxpayer'].get('rin')) == rin)],
+                        key=lambda row: str(row.get('codeUsageRequestID')))}
+    return hashlib.sha256(json.dumps(decision, sort_keys=True).encode()).hexdigest()
 
 
 class EtaCatalogueRecovery(models.Model):
     _inherit = 'tradeline.eta.job'
+
+    catalogue_evidence_hash = fields.Char(readonly=True)
+    catalogue_evidence_at = fields.Datetime(readonly=True)
+
+    def _catalogue_cache_key(self, code):
+        scope = self.company_id.config_type + '|' + taxpayer(self.company_id.vat) + '|EGS|' + code
+        return scope, 'tradeline_eta_reliability.catalogue_proof.' + hashlib.sha256(scope.encode()).hexdigest()
 
     def _catalogue_get(self, client, path, **kwargs):
         # The caller owns the existing global transport lock. Keep the
@@ -75,8 +100,7 @@ class EtaCatalogueRecovery(models.Model):
 
     def _catalogue_code_approved(self, client, code):
         rin = taxpayer(self.company_id.vat)
-        scope = self.company_id.config_type + '|' + rin + '|EGS|' + code
-        key = 'tradeline_eta_reliability.catalogue_proof.' + hashlib.sha256(scope.encode()).hexdigest()
+        scope, key = self._catalogue_cache_key(code)
         params = self.env['ir.config_parameter'].sudo()
         now = datetime.now(timezone.utc)
         proof = None
@@ -116,4 +140,24 @@ class EtaCatalogueRecovery(models.Model):
         lines = current.get('invoiceLines', [])
         if not lines or any(str(line.get('itemType', '')).lower() != 'egs' or not line.get('itemCode') for line in lines):
             return False
-        return all(self._catalogue_code_approved(client, code) for code in sorted({line['itemCode'] for line in lines}))
+        proofs = []
+        for code in sorted({line['itemCode'] for line in lines}):
+            if not self._catalogue_code_approved(client, code):
+                return False
+            _scope, key = self._catalogue_cache_key(code)
+            proof = json.loads(self.env['ir.config_parameter'].sudo().get_param(key, '{}'))
+            proofs.append((code, approval_identity(proof)))
+        digest = hashlib.sha256(json.dumps(proofs).encode()).hexdigest()
+        if self.catalogue_evidence_hash == digest and self.catalogue_evidence_at:
+            try:
+                received = datetime.fromisoformat(receipt['dateTimeReceived'].replace('Z', '+00:00'))
+                received = received.astimezone(timezone.utc).replace(tzinfo=None)
+            except (KeyError, TypeError, ValueError):
+                return False
+            if received >= self.catalogue_evidence_at:
+                # The same entitlement already produced a newer rejection.
+                # Fresh GET timestamps or product label edits cannot justify
+                # another unchanged attempt; changed approval evidence can.
+                return False
+        self.write({'catalogue_evidence_hash': digest, 'catalogue_evidence_at': fields.Datetime.now()})
+        return True
