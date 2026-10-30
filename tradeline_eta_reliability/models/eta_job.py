@@ -19,7 +19,7 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.16'
+PROCESSING_REVISION = '18.0.1.0.17'
 
 
 class EtaJob(models.Model):

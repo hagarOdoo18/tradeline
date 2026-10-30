@@ -11,7 +11,7 @@ from odoo import Command, fields
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
-from ..models.client import EtaError
+from ..models.client import EtaClient, EtaError
 from ..models.historical_recovery import fiscal, fiscal_equal, leaf_codes, match_document
 
 
@@ -203,8 +203,7 @@ class TestHistoricalRecovery(TransactionCase):
         move = self.invoice(); job = move.eta_job_ids; client = MagicMock()
         client.request.return_value = {'result': [], 'metadata': {}}
         proof = {'receipts': {}, 'to': fields.Datetime.now() - timedelta(minutes=1)}
-        with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
-            with self.assertRaises(EtaError):job._history_candidates(client, proof)
+        with self.assertRaises(EtaError):job._history_candidates(client, proof)
         self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
 
     def test_duplicate_reference_is_checked_even_outside_cached_index(self):
@@ -214,10 +213,37 @@ class TestHistoricalRecovery(TransactionCase):
             {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}},
             {'uuid': 'copy', 'internalId': move.name, 'status': 'Invalid', 'validationResults': {'errorCode': 'DS301', 'error': 'Duplicate UUID: ' + original}},
             {'uuid': original, 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)}]
-        with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
-            result = job._history_candidates(client, {'receipts': {'copy': 'Invalid'}, 'to': fields.Datetime.now() - timedelta(minutes=1)})
+        result = job._history_candidates(client, {'receipts': {'copy': 'Invalid'}, 'to': fields.Datetime.now() - timedelta(minutes=1)})
         self.assertEqual([r['uuid'] for r in result], ['copy', original])
         self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+
+    def test_historical_pages_and_raw_receipts_keep_transport_rate_limits(self):
+        move = self.invoice(); job = move.eta_job_ids; client = EtaClient(self.company); client.token = 'test-token'
+        clock = [100.0]; starts = []
+        responses = [
+            {'result': [], 'metadata': {'continuationToken': 'next-page'}},
+            {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}},
+            {'uuid': 'approved', 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)}]
+        def request(method, url, **kwargs):
+            self.assertEqual(method, 'GET')
+            starts.append(clock[0]); clock[0] += .2
+            response = MagicMock(); response.ok = True; response.json.return_value = responses.pop(0)
+            return response
+        def sleep(seconds):
+            clock[0] += seconds
+        try:
+            with patch.object(client, '_authorize'), patch.object(client.session, 'request', side_effect=request), \
+                    patch('odoo.addons.tradeline_eta_reliability.models.client.time.monotonic', side_effect=lambda: clock[0]), \
+                    patch('odoo.addons.tradeline_eta_reliability.models.client.time.sleep', side_effect=sleep):
+                result = job._history_candidates(client, {'receipts': {'approved': 'Valid'},
+                    'to': fields.Datetime.now() - timedelta(minutes=1)})
+            self.assertEqual([r['uuid'] for r in result], ['approved'])
+            self.assertEqual(len(starts), 3)
+            self.assertAlmostEqual(starts[0], 102.1)
+            self.assertGreaterEqual(starts[1] - starts[0], 2.1)
+            self.assertAlmostEqual(starts[2] - starts[1], .6)
+        finally:
+            client.close()
 
     def test_history_index_cannot_cross_companies_or_databases(self):
         move = self.invoice(); job = move.eta_job_ids
@@ -273,8 +299,7 @@ class TestHistoricalRecovery(TransactionCase):
         move = self.invoice(); job = move.eta_job_ids; client = MagicMock()
         client.request.side_effect = [{'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}},
                                      {'uuid': 'wrong-uuid', 'internalId': move.name, 'status': 'Valid'}]
-        with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
-            with self.assertRaises(UserError):job._history_candidates(client, {'receipts': {'expected-uuid': 'Valid'}, 'to': fields.Datetime.now() - timedelta(minutes=1)})
+        with self.assertRaises(UserError):job._history_candidates(client, {'receipts': {'expected-uuid': 'Valid'}, 'to': fields.Datetime.now() - timedelta(minutes=1)})
         self.assertFalse(move.e_invoice_uuid)
 
     def test_failed_history_review_is_visible_in_operations_attention(self):
