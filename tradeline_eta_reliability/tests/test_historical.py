@@ -22,7 +22,11 @@ class TestHistoricalRecovery(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.company = cls.env.company
-        cls.company.with_context(no_vat_validation=True).vat = '123456789'
+        company_partner = {'vat': '123456789'}
+        for name, value in [('company_size', 'small'), ('company_device', 1)]:
+            if name in cls.env['res.partner']._fields:
+                company_partner[name] = value
+        cls.company.partner_id.with_context(no_vat_validation=True).write(company_partner)
         cls.env.ref('base.EGP').active = True
         cls.company.write({'client_id': 'test-client', 'client_secret': 'test-secret', 'config_type': 'uat'})
         cls.receivable = cls.env['account.account'].create({'name': 'History test receivable', 'code': 'HTRCV',
