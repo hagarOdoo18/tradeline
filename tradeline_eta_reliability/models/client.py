@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime
 
 import requests
+from .processing_window import check_processing_window
 
 _TOKENS = {}
 _REJECTED_TOKENS = set()
@@ -32,6 +33,7 @@ class EtaClient:
                          else 'https://id.preprod.eta.gov.eg')
 
     def _authorize(self):
+        check_processing_window(self.company.env)
         if self.token and time.monotonic() < self.token_until:
             return
         if not self.company.client_id or not self.company.client_secret:
@@ -49,6 +51,7 @@ class EtaClient:
             self.token_until = time.monotonic() + 60
             _TOKENS[key] = (self.token, self.token_until)
             return
+        check_processing_window(self.company.env)
         result = self.session.post(self.identity + '/connect/token', data={
             'grant_type': 'client_credentials', 'scope': 'InvoicingAPI',
             'client_id': self.company.client_id, 'client_secret': self.company.client_secret,
@@ -68,6 +71,7 @@ class EtaClient:
             gap = 2.1 if path.endswith('/search') else 0.6
             time.sleep(max(0, gap - (time.monotonic() - self.last_get)))
             self.last_get = time.monotonic()
+        check_processing_window(self.company.env)
         response = self.session.request(method, self.api + path, headers={
             'Authorization': 'Bearer ' + self.token, 'Accept': 'application/json',
             'Content-Type': 'application/json',

@@ -16,6 +16,7 @@ from odoo import fields, models, _
 from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
+from .processing_window import check_processing_window
 
 
 class AccountMove(models.Model):
@@ -376,12 +377,14 @@ class AccountMove(models.Model):
     def get_signature_value(self):
         """Signing never commits an invoice transaction or releases its locks."""
         self.ensure_one()
+        check_processing_window(self.env)
         company = self.company_id.sudo()
         if company.signature_tool != 'python':
             raise UserError(_('Automatic ETA signing currently requires the configured Python signer.'))
         if not self.e_invoice_canonical:
             self.with_company(company).action_generate_eta_json()
         try:
+            check_processing_window(self.env)
             result = requests.get(company.signature_url, data={
                 'data': self.e_invoice_canonical, 'token_label': company.signature_label,
                 'user_pin': company.signature_pin,

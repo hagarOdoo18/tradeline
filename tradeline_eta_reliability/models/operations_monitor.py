@@ -3,6 +3,7 @@ from datetime import timedelta
 from odoo import api, fields, models
 from odoo.osv import expression
 from odoo.addons.tradeline_operations_monitor.models.operations_monitor import signal
+from .processing_window import EtaStopped, check_processing_window
 
 
 class OperationsMonitor(models.Model):
@@ -33,11 +34,20 @@ class OperationsMonitor(models.Model):
         observations = super()._probe_crons(now)
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
         enabled_database = self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database')
-        if not cron or not cron.active or cron.failure_count or enabled_database != self.env.cr.dbname:
+        paused = False
+        try:
+            check_processing_window(self.env, now=now)
+        except EtaStopped as exc:
+            paused = True
+            if not exc.planned:
+                observations.append(signal('eta:cutoff', 'ETA cutoff configuration needs review',
+                    'ETA processing stopped because its owner cutoff is missing or invalid.',
+                    'Review the database-bound owner drain and cutoff timestamps before resuming.', 'critical'))
+        if not paused and (not cron or not cron.active or cron.failure_count or enabled_database != self.env.cr.dbname):
             observations.append(signal('eta:scheduler', 'Automatic ETA processing is unavailable',
                 'The reliable ETA queue is missing, disabled or failing.',
                 'Review ETA Submission Jobs and its scheduled action.', 'critical'))
-        elif cron.nextcall < now - timedelta(minutes=3):
+        elif not paused and cron.nextcall < now - timedelta(minutes=3):
             observations.append(signal('eta:scheduler', 'Automatic ETA processing is overdue',
                 'The ETA queue has not run on schedule.',
                 'Review the scheduler and database locks.', 'critical'))
@@ -47,7 +57,7 @@ class OperationsMonitor(models.Model):
             processed = fields.Datetime.to_datetime(processed) if processed else None
         except (ValueError, TypeError):
             processed = None
-        if (enabled_database == self.env.cr.dbname and processed and processed < now - timedelta(minutes=15)
+        if (not paused and enabled_database == self.env.cr.dbname and processed and processed < now - timedelta(minutes=15)
                 and jobs.search_count([('state', 'in', ['queued', 'accepted', 'unknown', 'review']),
                                        '|', ('next_attempt', '=', False), ('next_attempt', '<=', now)])):
             observations.append(signal('eta:progress', 'ETA queue has stopped processing invoices',
@@ -55,7 +65,7 @@ class OperationsMonitor(models.Model):
                 'Check ETA connectivity, signing, database locks and worker logs; preserve uncertain submission markers.', 'critical'))
         stalled = jobs.search_count(expression.AND([
             jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])]]))
-        if stalled:
+        if stalled and not paused:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,
                 'Open ETA Submission Jobs. Reconcile uncertain results before retrying.', 'critical'))
