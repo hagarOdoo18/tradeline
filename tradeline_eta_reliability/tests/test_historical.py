@@ -162,6 +162,67 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(job.state, 'invalid'); self.assertIn('NI310', job.last_error)
         self.assertFalse(job.historical_submission_verified)
 
+    def test_optional_id_only_rejection_is_recovered_after_complete_history(self):
+        move = self.invoice(); source = self.document(move); source['receiver']['id'] = '1'
+        before = (move.invoice_date, move.amount_total, move.amount_tax)
+        raw = {'uuid': 'bad-id', 'internalId': move.name, 'status': 'Invalid', 'document': source,
+               'validationResults': {'errorCode': 'Err04', 'innerError': [{'errorCode': 'NI310'}, {'errorCode': 'SF307'}]}}
+        with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'queued'); self.assertTrue(job.omit_optional_receiver_id)
+        self.assertTrue(job.historical_submission_verified)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+        client.request.assert_not_called()
+        self.assertTrue(self.env['ir.attachment'].search_count([('res_model', '=', 'account.move'), ('res_id', '=', move.id)]))
+
+    def test_optional_id_recovery_rejects_mixed_product_errors_and_required_ids(self):
+        move = self.invoice(); source = self.document(move); source['receiver']['id'] = '1'; job = move.eta_job_ids
+        ni = {'innerError': [{'errorCode': 'NI303'}]}
+        self.assertTrue(job._optional_person_id_rejection(source, source, ni))
+        mixed = {'innerError': [{'errorCode': 'NI303'}, {'errorCode': 'CV302'}]}
+        self.assertFalse(job._optional_person_id_rejection(source, source, mixed))
+        for change in ({'type': 'B'}, {'type': 'F'}, {'address': {'country': 'US'}}):
+            other = json.loads(json.dumps(source)); other['receiver'].update(change)
+            self.assertFalse(job._optional_person_id_rejection(other, source, ni))
+        high = json.loads(json.dumps(source)); high.update(totalAmount=25000, netAmount=25000)
+        self.assertFalse(job._optional_person_id_rejection(high, source, ni))
+        raw = {'uuid': 'mixed', 'internalId': move.name, 'status': 'Invalid', 'document': source, 'validationResults': mixed}
+        with patch.object(self, 'document', return_value=source):job, _, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'invalid'); self.assertFalse(job.omit_optional_receiver_id)
+
+    def test_optional_id_recovery_does_not_bypass_unknown_or_incomplete_proof(self):
+        move = self.invoice(); job = move.eta_job_ids; source = self.document(move); source['receiver']['id'] = '1'
+        job.write({'attempted_at': fields.Datetime.now(), 'payload': json.dumps({'documents': [source]}),
+            'last_error': 'ETA rejected the submission (1). ' + json.dumps({'code': '1', 'details': [{'code': 'NI310'}]})})
+        with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'review'); self.assertFalse(job.omit_optional_receiver_id)
+        self.assertIn('uncertain', job.last_error); client.request.assert_not_called()
+        job.write({'safe_to_retry': True, 'last_error': 'ETA rejected the submission (1). ' + json.dumps({'code': '1', 'details': [{'code': 'NI310'}]})})
+        with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move, proof=False)
+        self.assertEqual(job.state, 'review'); self.assertFalse(job.omit_optional_receiver_id)
+        client.request.assert_not_called()
+        with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'queued'); self.assertTrue(job.omit_optional_receiver_id)
+        self.assertFalse(job.attempted_at); client.request.assert_not_called()
+
+    def test_approved_anonymous_person_receipt_keeps_strict_nonempty_identity_checks(self):
+        move = self.invoice(); job = move.eta_job_ids; original = self.document(move)
+        current = json.loads(json.dumps(original)); current['receiver']['id'] = '1'
+        with patch.object(type(self.company), 'vat', '123456789'), patch.object(type(self.env['product.product']), 'search_count', return_value=0):
+            self.assertTrue(job._historical_matches({'status': 'Valid', 'document': original}, current))
+            self.assertFalse(job._historical_matches({'status': 'Submitted', 'document': original}, current))
+            conflicting = json.loads(json.dumps(original)); conflicting['receiver']['id'] = '12345678901234'
+            self.assertFalse(job._historical_matches({'status': 'Valid', 'document': conflicting}, current))
+            current['receiver']['name'] = 'Different person'
+            self.assertFalse(job._historical_matches({'status': 'Valid', 'document': original}, current))
+        self.assertEqual(original['receiver']['id'], '')
+
+    def test_optional_id_policy_does_not_apply_to_other_invalid_validation_steps(self):
+        move = self.invoice(); job = move.eta_job_ids; doc = self.document(move); doc['receiver']['id'] = '1'
+        profile = {'status': 'Invalid', 'validationSteps': [{'name': 'Step-05. TaxpayerProfile Validator', 'status': 'Invalid'}]}
+        self.assertTrue(job._optional_person_id_rejection(doc, doc, profile))
+        profile['validationSteps'].append({'name': 'Step-03. ITIDA Signature Validator', 'status': 'Invalid'})
+        self.assertFalse(job._optional_person_id_rejection(doc, doc, profile))
+
     def test_date_only_rejection_is_recoverable_after_complete_history(self):
         move = self.invoice(age=10); move.write({'e_invoice_uuid': 'date-rejection', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
         raw = {'uuid': 'date-rejection', 'internalId': move.name, 'status': 'Invalid', 'document': self.document(move),

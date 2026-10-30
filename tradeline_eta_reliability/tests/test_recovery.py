@@ -396,6 +396,26 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(error.exception.code, 'DuplicateSubmission'); self.assertEqual(error.exception.retry_after, 421)
         self.assertNotIn('private details', str(error.exception)); client.close()
 
+    def test_optional_id_policy_uses_posted_egp_and_cannot_bypass_mandatory_foreign_sale_total(self):
+        foreign = self.invoice(self.usd, [(1, 1000, 0, self.env['account.tax'])]); job = foreign.eta_job_ids
+        doc = self.template(foreign); doc.update(totalAmount=1000, netAmount=1000)
+        doc['receiver'] = {'type': 'P', 'id': '1', 'address': {'country': 'EG'}}
+        self.assertGreater(abs(foreign.amount_total_signed), 25000)
+        self.assertFalse(job._optional_person_id_scope(doc))
+
+    def test_optional_id_software_recovery_is_scoped_and_still_requires_history(self):
+        low = self.invoice(); high = self.invoice(specs=[(1, 25000, 0, self.env['account.tax'])])
+        self.partner.country_id = self.env.ref('base.eg')
+        values = {'state': 'invalid', 'processing_revision': False,
+                  'last_error': json.dumps({'status': 'Invalid', 'validationSteps': [{'error': {'errorCode': 'NI310'}}]})}
+        (low | high).eta_job_ids.write(values)
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        with patch.object(type(self.partner), 'mobile_type', 'local', create=True), patch('requests.sessions.Session.request', side_effect=AssertionError('Requeue sent HTTP')):
+            self.assertEqual(self.env['tradeline.eta.job']._requeue_software_holds(move_ids=(low | high).ids), 1)
+        self.assertEqual(low.eta_job_ids.state, 'queued'); self.assertTrue(low.eta_job_ids.historical_review)
+        self.assertFalse(low.eta_job_ids.historical_submission_verified)
+        self.assertEqual(high.eta_job_ids.state, 'invalid')
+
     def test_mixed_date_errors_do_not_starve_later_software_holds(self):
         first = self.invoice(); second = self.invoice()
         first.eta_job_ids.write({'state': 'blocked', 'last_error': json.dumps({'details': [{'code': 'CF313'}, {'code': 'NI310'}]})})

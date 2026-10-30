@@ -84,6 +84,52 @@ class TestEtaReliability(TransactionCase):
         partner = self._id_rule_partner(vat='12345678901234')
         self.assertEqual(self.env['account.move']._get_eta_personal_details(partner, 100)['id'], partner.vat)
 
+    def test_optional_placeholder_ids_are_omitted_without_editing_customer(self):
+        for value in ('1', '00000000000000', '11111111111111', '1234567890123A'):
+            partner = self._id_rule_partner(vat=value)
+            for amount in (350, 1250, -3198, 24999.99):
+                details = self.env['account.move']._get_eta_personal_details(partner, amount)
+                self.assertEqual((details['type'], details['id']), ('P', ''))
+                self.assertEqual(partner.vat, value)
+            kept = self.env['account.move'].with_context(eta_keep_recorded_person_id=True)._get_eta_personal_details(partner, 350)
+            self.assertEqual(kept['id'], value)
+        with self.assertRaisesRegex(UserError, '14-digit'):
+            self.env['account.move']._get_eta_personal_details(self._id_rule_partner(vat='1'), 25000)
+
+    def test_optional_id_policy_preserves_recorded_reference_and_amounts(self):
+        move = self.invoice(); partner = move.partner_id
+        partner.with_context(no_vat_validation=True).write({'vat': '12345678901234', 'country_id': self.env.ref('base.eg').id})
+        move.eta_job_ids.omit_optional_receiver_id = True
+        before = (move.invoice_date, move.amount_total, partner.vat)
+        with patch.object(type(partner), 'mobile_type', 'local', create=True):
+            self.assertEqual(move._get_eta_personal_details(partner, 100)['id'], '')
+            self.assertEqual(move.with_context(eta_keep_recorded_person_id=True)._get_eta_personal_details(partner, 100)['id'], partner.vat)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, partner.vat))
+
+    def test_recorded_rejections_in_review_are_visible_without_communications_alarm(self):
+        job = self.invoice().eta_job_ids; jobs = self.env['tradeline.eta.job']
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor = monitor or self.env['tradeline.operations.monitor'].create({})
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').write({'active': True, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
+        messages = [
+            (True, 'ETA rejected the submission (1). ' + json.dumps({'code': '1', 'details': [{'code': 'CF305', 'message': 'Receiver ID required'}]})),
+            (False, json.dumps({'status': 'Invalid', 'validationSteps': [{'status': 'Invalid', 'error': {'errorCode': 'CV302', 'error': 'Item code does not exist'}}]})),
+        ]
+        for safe, message in messages:
+            job.write({'state': 'review', 'safe_to_retry': safe, 'failures': 0, 'last_error': message})
+            self.assertTrue(job.needs_attention)
+            self.assertIn(job, jobs.search([('needs_attention', '=', True)]))
+            self.assertIn('previous submission was rejected', job.required_action)
+            self.assertTrue('customer ID' in job.required_action or 'product details' in job.required_action)
+            with patch.object(type(jobs), 'search_count', side_effect=lambda domain, **kw: len(job.filtered_domain(domain))):
+                codes = [s['code'] for s in monitor._probe_crons(fields.Datetime.now())]
+            self.assertIn('eta:rejected', codes); self.assertNotIn('eta:stalled', codes)
+        job.write({'safe_to_retry': False, 'last_error': 'Automatic authority-history scan is in progress.'})
+        self.assertFalse(job.needs_attention)
+        self.assertNotIn(job, jobs.search([('needs_attention', '=', True)]))
+
     def test_national_id_rule_keeps_foreign_and_business_identity_rules(self):
         foreign = self._id_rule_partner(mobile_type='foreigner', vat='TEST-PASSPORT',
                                         country_id=SimpleNamespace(code='US'))

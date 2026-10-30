@@ -98,9 +98,20 @@ class AccountMove(models.Model):
                 raise UserError(_('National ID is required for domestic individual invoices of EGP 25,000 or more.'))
             if not re.fullmatch(r'[0-9]{14}', partner.vat):
                 raise UserError(_('A 14-digit national ID is required for domestic individual invoices of EGP 25,000 or more.'))
-        # Keep the existing address, receiver type and optional recorded ID.
-        # Only replace the obsolete EGP 50,000 preflight; never invent an ID.
-        return super()._get_eta_personal_details(partner, 0)
+        details = super()._get_eta_personal_details(partner, 0)
+        # ETA validates an optional value when supplied. A placeholder such as
+        # 1 must not turn an otherwise eligible small personal sale into a
+        # rejection. A well-formed recorded ID is kept unless ETA rejected it
+        # and complete receipt reconciliation approved the optional omission.
+        below = egp.compare_amounts(total_egp, 25000) < 0
+        recorded = details.get('id') or ''
+        malformed = (not re.fullmatch(r'[0-9]{14}', recorded) or len(set(recorded)) == 1)
+        job_policy = (bool(self.eta_job_ids.sudo().omit_optional_receiver_id)
+                      if len(self) == 1 and partner == self.partner_id else False)
+        if (below and details.get('type') == 'P' and details.get('address', {}).get('country') == 'EG'
+                and not self.env.context.get('eta_keep_recorded_person_id') and (malformed or job_policy)):
+            details['id'] = ''
+        return details
 
     def generate_canonical_manual(self, invoice_params):
         # Use Odoo's ETA serializer: JSON string escaping is part of the signed

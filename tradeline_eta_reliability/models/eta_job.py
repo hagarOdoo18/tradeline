@@ -19,7 +19,7 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.17'
+PROCESSING_REVISION = '18.0.1.0.18'
 
 
 class EtaJob(models.Model):
@@ -45,6 +45,8 @@ class EtaJob(models.Model):
     processing_revision = fields.Char(readonly=True)
     duplicate_retry_at = fields.Datetime(readonly=True)
     duplicate_payload_hash = fields.Char(readonly=True)
+    omit_optional_receiver_id = fields.Boolean(readonly=True,
+        help='Omit an authority-rejected optional personal ID only below EGP 25,000. The customer record is preserved.')
     issue_date_policy = fields.Selection([
         ('invoice', 'Original invoice date'), ('current', 'Approved current ETA issue date')],
         default='invoice', required=True, readonly=True)
