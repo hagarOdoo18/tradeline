@@ -19,7 +19,7 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.18'
+PROCESSING_REVISION = '18.0.1.0.19'
 
 
 class EtaJob(models.Model):
@@ -285,11 +285,21 @@ class EtaJob(models.Model):
         # have submitted a document and can be retried safely.
         client._authorize()
         check_processing_window(self.env)
+        if not self._preflight_submission(client):
+            return
+        before = self._transmission_fingerprint()
         self.write({'state': 'unknown', 'attempted_at': fields.Datetime.now(),
                     'attempts': self.attempts + 1})
         # This method runs ONLY in the isolated worker cursor. The marker must
         # survive process death or a lost HTTP/commit response after the POST.
         self.env.cr.commit()
+        # The durable marker releases the original accounting row lock. Own
+        # the row again before HTTP, and retain the uncertain marker on any
+        # conflict rather than send a document whose ledger changed meanwhile.
+        self.env.cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [move.id])
+        move.invalidate_recordset()
+        if self._transmission_fingerprint() != before:
+            raise EtaError('Posted accounting changed before ETA transmission; reconcile the retained request.')
         try:
             body = client.request('POST', '/api/v1/documentsubmissions', data=self.payload.encode())
         except EtaError as exc:

@@ -415,6 +415,9 @@ class AccountMove(models.Model):
         if self.e_invoice_uuid and self.e_invoice_status in ('Invalid', 'Rejected', 'Cancelled'):
             return {'error': _('ETA reports %s. Correct the document before any resubmission.', self.e_invoice_status),
                     'blocking_level': 'error'}
+        if not self.company_id.client_id or not self.company_id.client_secret:
+            return {'error': _('Configure ETA credentials on this invoice company. The native sender will not submit a second copy.'),
+                    'blocking_level': 'error'}
         self._eta_enqueue(reconcile=not bool(self.env.context.get('eta_new_invoice')))
         return {'error': _('The Tradeline ETA queue is processing this invoice. See ETA Submission Jobs.'),
                 'blocking_level': 'info'}

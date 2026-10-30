@@ -225,7 +225,17 @@ class EtaHistoricalRecovery(models.Model):
         optional = self.sudo().search(optional_domain, limit=limit, order='id')
         optional.write({'state': 'queued', 'historical_review': True, 'historical_submission_verified': False,
                         'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
-        return len(jobs) + len(optional)
+        # Code registration can be approved at ETA without changing the Odoo
+        # product. Revisit a bounded batch, retaining complete receipt checks.
+        code_domain = [('state', 'in', ['blocked', 'invalid']), ('last_error', 'ilike', 'CV302'),
+            '|', ('processing_revision', '!=', PROCESSING_REVISION),
+                 ('historical_reviewed_at', '<', fields.Datetime.now() - timedelta(hours=6))]
+        if move_ids is not None:
+            code_domain.append(('move_id', 'in', move_ids))
+        catalogue = self.sudo().search(code_domain, limit=min(limit, 5), order='historical_reviewed_at, id')
+        catalogue.write({'state': 'review', 'historical_review': True, 'historical_submission_verified': False,
+                         'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
+        return len(jobs) + len(optional) + len(catalogue)
 
     def _historical_financial_fingerprint(self):
         self.env.flush_all()
@@ -433,12 +443,13 @@ class EtaHistoricalRecovery(models.Model):
             'res_model': 'account.move', 'res_id': move.id, 'company_id': move.company_id.id,
             'mimetype': 'application/json', 'raw': json.dumps(data, ensure_ascii=False, default=str).encode(), 'public': False})
 
-    def _review_historical(self, client):
+    def _review_historical(self, client, verified=None):
         self.ensure_one(); move = self.move_id
         try:
             if move.state != 'posted' or move.move_type not in ('out_invoice', 'out_refund') or not move.invoice_date:
                 raise UserError(_('A posted customer invoice or credit note with its original invoice date is required.'))
             expected_net, expected_total = move._eta_posted_amounts()
+            self._assert_eta_number_unique()
             if self.env['account.move'].sudo().search_count([('company_id', '=', self.company_id.id), ('name', '=', move.name), ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund'))]) != 1:
                 raise UserError(_('The posted invoice number is not unique in this company.'))
             before = self._historical_financial_fingerprint()
@@ -455,7 +466,7 @@ class EtaHistoricalRecovery(models.Model):
                     or abs(float(current['netAmount']) - expected_net) >= .005):
                 raise UserError(_('Generated ETA net or final amount differs from posted accounting values. IT must correct serialization; no document was submitted.'))
             self.historical_source_hash = hashlib.sha256(json.dumps(fiscal(current), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            proof = self._history_snapshot()
+            proof = verified[0] if verified is not None else self._history_snapshot()
             if not proof:
                 selected = json.loads(self.env['ir.config_parameter'].sudo().get_param(
                     'tradeline_eta_reliability.historical_canary_move_ids', '[]'))
@@ -471,7 +482,7 @@ class EtaHistoricalRecovery(models.Model):
                 return
             if datetime.combine(move.invoice_date, datetime.min.time()) < proof['from']:
                 raise UserError(_('This invoice predates the complete authority-history proof; expand the history check.'))
-            receipts = self._history_candidates(client, proof)
+            receipts = verified[1] if verified is not None else self._history_candidates(client, proof)
             valid = [r for r in receipts if r.get('status') == 'Valid']
             pending = [r for r in receipts if r.get('status') == 'Submitted']
             if len(valid) > 1:
@@ -524,8 +535,21 @@ class EtaHistoricalRecovery(models.Model):
                 codes = set(leaf_codes(receipt.get('validationResults', {})))
                 optional_id = self._optional_person_id_rejection(old, current, receipt.get('validationResults', {}))
                 optional_id_rejected |= optional_id
+                if 'CV302' in codes and not self._catalogue_rejection_resolved(client, old, current, receipt):
+                    self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False), authority=True)
+                    return
+                id_errors = any(code.startswith('NI') or code in ('SF307', 'CF305') for code in codes)
+                receiver_changed = (isinstance(old, dict) and any(
+                    old.get('receiver', {}).get(k) != current.get('receiver', {}).get(k) for k in ('id', 'type')))
+                country_changed = (isinstance(old, dict) and old.get('receiver', {}).get('address', {}).get('country')
+                                   != current.get('receiver', {}).get('address', {}).get('country'))
+                classification_changed = (isinstance(old, dict) and old.get('receiver', {}).get('type') != current.get('receiver', {}).get('type'))
+                if (id_errors and not (optional_id or receiver_changed)
+                        or 'CF320' in codes and not (classification_changed or country_changed)):
+                    self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False), authority=True)
+                    return
                 if (isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(current))
-                        and not (codes and codes.issubset({'CF313', '4043'})) and not optional_id):
+                        and not (codes and codes.issubset({'CF313', '4043', 'CV302'})) and not optional_id):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False) or 'ETA rejected this unchanged invoice. Correct its source data before retrying.', authority=True)
                     return
             original = None
@@ -538,6 +562,8 @@ class EtaHistoricalRecovery(models.Model):
                         raise UserError(_('The previous signed request is unreadable; reconcile its invoice identity before a new submission.'))
             if original and (not isinstance(original, dict) or original.get('internalID') != move.name):
                 raise UserError(_('The saved ETA request uses a different or missing invoice number.'))
+            if original:
+                self._assert_eta_document_issuer(original)
             if original and original.get('dateTimeIssued'):
                 issued = datetime.fromisoformat(original['dateTimeIssued'].replace('Z', '+00:00')).replace(tzinfo=None)
                 if issued < proof['from']:
@@ -561,6 +587,7 @@ class EtaHistoricalRecovery(models.Model):
             self.write({'state': 'queued', 'payload': False, 'payload_hash': False, 'attempted_at': False,
                         'submission_uuid': False, 'next_attempt': False, 'last_error': False, 'failures': 0,
                         'safe_to_retry': False, 'first_submission_candidate': False, 'historical_review': False,
+                        'authority_receipt_hash': self._receipt_set_hash(receipts),
                         'historical_reviewed_at': fields.Datetime.now(), 'historical_submission_verified': True})
             duration = int(self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_expiration_duration', '7'))
             if date_rejected or move.invoice_date < fields.Date.today() - timedelta(days=duration):
