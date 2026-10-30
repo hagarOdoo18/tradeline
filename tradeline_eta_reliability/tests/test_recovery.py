@@ -416,6 +416,25 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertFalse(low.eta_job_ids.historical_submission_verified)
         self.assertEqual(high.eta_job_ids.state, 'invalid')
 
+    def test_new_optional_id_rejection_enrollment_does_not_bury_reconciliation(self):
+        move = self.invoice()
+        self.partner.country_id = self.env.ref('base.eg')
+        if 'mobile_type' in self.partner._fields:
+            self.partner.mobile_type = 'local'
+        job = move.eta_job_ids
+        job.write({'state': 'blocked', 'processing_revision': False, 'safe_to_retry': True,
+                   'last_error': 'ETA rejected the submission (1). ' + json.dumps({'details': [{'code': 'NI310'}]})})
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Enrollment or requeue sent HTTP')):
+            self.env['tradeline.eta.job']._enroll_historical(move_ids=move.ids)
+            self.assertEqual(job.state, 'review')
+            self.assertEqual(self.env['tradeline.eta.job']._requeue_software_holds(move_ids=move.ids), 1)
+            self.assertEqual(self.env['tradeline.eta.job']._requeue_software_holds(move_ids=move.ids), 0)
+        self.assertEqual(job.state, 'queued')
+        self.assertTrue(job.historical_review)
+        self.assertFalse(job.historical_submission_verified)
+        self.assertIn('NI310', job.last_error)
+
     def test_mixed_date_errors_do_not_starve_later_software_holds(self):
         first = self.invoice(); second = self.invoice()
         first.eta_job_ids.write({'state': 'blocked', 'last_error': json.dumps({'details': [{'code': 'CF313'}, {'code': 'NI310'}]})})
