@@ -20,10 +20,19 @@ from ..models.eta_monitoring import error_details
 
 @tagged('post_install', '-at_install')
 class TestEtaReliability(TransactionCase):
+    def setUp(self):
+        super().setUp()
+        # These transport/date tests isolate the POST state machine. The real
+        # final preflight is exercised end-to-end in test_historical.
+        guard = patch.object(type(self.env['tradeline.eta.job']), '_preflight_submission', return_value=True)
+        guard.start()
+        self.addCleanup(guard.stop)
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
         cls.company = cls.env.company
+        cls.company.with_context(no_vat_validation=True).vat = '123456789'
         cls.env.ref('base.EGP').active = True
         cls.company.write({'client_id': 'test-client', 'client_secret': 'test-secret',
                            'config_type': 'uat', 'config_version': '1.0', 'signature_tool': 'python'})
@@ -290,7 +299,8 @@ class TestEtaReliability(TransactionCase):
         native = self.env['account.edi.document'].create({'move_id': move.id, 'edi_format_id': eta.id,
             'state': 'to_send', 'error': 'Missing native signing payload', 'blocking_level': 'error'})
         move.eta_job_ids._apply_remote({'uuid': 'verified-uuid', 'internalId': move.name, 'status': 'Valid',
-            'submissionUUID': 'verified-submission', 'document': json.dumps({'internalID': move.name, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'})})
+            'submissionUUID': 'verified-submission', 'document': json.dumps({'internalID': move.name,
+                'issuer': {'id': '123456789'}, 'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'})})
         self.assertEqual(native.state, 'sent')
         self.assertFalse(native.error)
         self.assertEqual(move.l10n_eg_uuid, 'verified-uuid')

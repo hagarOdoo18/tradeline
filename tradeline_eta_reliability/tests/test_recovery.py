@@ -17,6 +17,14 @@ from ..models.processing_window import EtaStopped, check_processing_window
 
 @tagged('post_install', '-at_install')
 class TestAutomaticRecovery(TransactionCase):
+    def setUp(self):
+        super().setUp()
+        # Focus existing retry/window tests on their own boundary; full
+        # government preflight and duplicate integration live in test_historical.
+        guard = patch.object(type(self.env['tradeline.eta.job']), '_preflight_submission', return_value=True)
+        guard.start()
+        self.addCleanup(guard.stop)
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -77,7 +85,7 @@ class TestAutomaticRecovery(TransactionCase):
     def template(self, m):
         # A retained legacy-shaped request whose fiscal identity must stay intact.
         return {'internalID': m.name, 'dateTimeIssued': str(m.invoice_date) + 'T00:00:00Z', 'netAmount': 1,
-            'totalAmount': 1, 'issuer': {'id': '123456789'}, 'receiver': {'type': 'P', 'id': ''},
+            'totalAmount': 1, 'issuer': {'id': m.company_id.vat}, 'receiver': {'type': 'P', 'id': ''},
             'invoiceLines': [{'quantity': l.quantity, 'itemCode': 'UNCHANGED', 'itemType': 'EGS',
                 'internalCode': 'SAME', 'description': 'Retain this label',
                 'taxableItems': [], 'valueDifference': 0, 'itemsDiscount': 0, 'totalTaxableFees': 0}
@@ -482,5 +490,5 @@ class TestAutomaticRecovery(TransactionCase):
     def test_foreign_receipt_matching_compares_egp_to_posted_egp_not_usd(self):
         m = self.invoice(self.usd, [(245, 499, 0, self.vat | self.wht), (255, 499, 0, self.vat | self.wht)])
         doc = self.reconcile(m)
-        with patch.object(type(m.company_id), 'vat', '123456789'), patch.object(type(self.env['product.product']), 'search_count', return_value=0):
+        with patch.object(type(self.env['product.product']), 'search_count', return_value=0):
             self.assertTrue(m.eta_job_ids._historical_matches({'document': doc}, doc))
