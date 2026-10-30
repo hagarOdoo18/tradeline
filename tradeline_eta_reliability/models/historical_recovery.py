@@ -210,7 +210,7 @@ class EtaHistoricalRecovery(models.Model):
         # newly fixable optional-ID cases timely proof checks rather than leave
         # them behind the entire untouched historical cohort.
         egp = self.env.ref('base.EGP')
-        optional_domain = [('state', 'in', ['blocked', 'invalid']),
+        optional_domain = [('state', 'in', ['blocked', 'invalid', 'review']),
             ('processing_revision', '!=', PROCESSING_REVISION),
             ('move_id.partner_id.is_company', '=', False),
             ('move_id.company_id.currency_id', '=', egp.id),
