@@ -267,6 +267,8 @@ class EtaHistoricalRecovery(models.Model):
             while True:
                 if token:
                     params['continuationToken'] = token
+                # Keep a conservative search gap across native/owned workers.
+                # Receipt GETs below use EtaClient's existing transport pacing.
                 time.sleep(2.1)
                 data = client.request('GET', '/api/v1.0/documents/search', params=params)
                 if not isinstance(data.get('result'), list):
@@ -295,7 +297,6 @@ class EtaHistoricalRecovery(models.Model):
             if len(seen_uuids) >= 20:
                 raise UserError(_('The duplicate receipt chain exceeds 20 documents; reconcile it before submission.'))
             seen_uuids.add(uuid)
-            time.sleep(.65)
             item = client.request('GET', '/api/v1.0/documents/%s/raw' % uuid)
             if item.get('uuid') != uuid or item.get('internalId') != self.move_id.name:
                 raise UserError(_('An authority receipt does not match this invoice number and UUID.'))
