@@ -260,19 +260,20 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertFalse(j.safe_to_retry); self.assertFalse(j.duplicate_retry_at)
 
     def legacy_approved_rounding(self):
-        self.egp.rounding = .01
-        m = self.invoice(specs=[(1, 2000, 0, self.vat), (1, 300, 0, self.vat)])
+        # These prices naturally create cent-booked net/VAT/gross values
+        # under the existing millime currency configuration.
+        m = self.invoice(specs=[(1, 2000.13, 0, self.vat), (1, 299.82, 0, self.vat)])
         current = self.reconcile(m); current['issuer'] = {'id': self.company.vat}
         old = deepcopy(current)
-        for line, net, vat in zip(old['invoiceLines'], [1754.38596, 263.15789], [245.61403, 36.84210]):
+        for line, offset in zip(old['invoiceLines'], [.00412, .00413]):
+            net = round(line['netTotal'] - offset, 5)
+            vat = round(line['taxableItems'][0]['amount'] + offset, 5)
             line['unitValue'].update(amountEGP=net, amountSold=0, currencyExchangeRate=0)
             line.update(salesTotal=net, netTotal=net)
             line['taxableItems'][0]['amount'] = vat
-        old.update(netAmount=2017.54386, totalSalesAmount=2017.54386)
-        old['taxTotals'][0]['amount'] = 282.45614
-        # Existing cent-booked invoices remain cent-booked if the company
-        # subsequently configures millime precision, as in production.
-        self.egp.rounding = .001
+        old.update(netAmount=round(current['netAmount'] - .00825, 5),
+                   totalSalesAmount=round(current['totalSalesAmount'] - .00825, 5))
+        old['taxTotals'][0]['amount'] = round(current['taxTotals'][0]['amount'] + .00825, 5)
         return m, m.eta_job_ids, current, {'status': 'Valid', 'document': old}
 
     def test_authority_valid_legacy_egp_rounding_restores_without_changing_posted_money(self):
