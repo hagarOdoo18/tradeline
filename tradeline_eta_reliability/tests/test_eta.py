@@ -300,7 +300,13 @@ class TestEtaReliability(TransactionCase):
                 (date(2026, 7, 15), '2026-07-14T21:00:00Z'),
                 (date(2026, 4, 24), '2026-04-23T22:00:00Z'),
                 (date(2026, 10, 30), '2026-10-29T22:00:00Z')):
-            self.assertEqual(self.invoice(invoice_date=issued)._eta_issue_timestamp(), expected)
+            move = self.invoice(invoice_date=issued)
+            # Exercise the midnight fallback even when the test runs on one
+            # of these dates; matching stored issue-time evidence is separate.
+            self.env.cr.execute('UPDATE account_move SET create_date=%s WHERE id=%s',
+                                [fields.Datetime.to_datetime('2025-01-01 00:00:00'), move.id])
+            move.invalidate_recordset(['create_date'])
+            self.assertEqual(move._eta_issue_timestamp(), expected)
 
     def test_valid_cairo_date_can_have_previous_utc_date(self):
         move = self.invoice(invoice_date=date(2026, 7, 15))

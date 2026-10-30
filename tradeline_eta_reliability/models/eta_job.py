@@ -12,13 +12,14 @@ from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
+from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
 STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.14'
+PROCESSING_REVISION = '18.0.1.0.15'
 
 
 class EtaJob(models.Model):
@@ -281,6 +282,7 @@ class EtaJob(models.Model):
         # Authenticate before the durable uncertain marker: auth failure cannot
         # have submitted a document and can be retried safely.
         client._authorize()
+        check_processing_window(self.env)
         self.write({'state': 'unknown', 'attempted_at': fields.Datetime.now(),
                     'attempts': self.attempts + 1})
         # This method runs ONLY in the isolated worker cursor. The marker must
@@ -348,6 +350,10 @@ class EtaJob(models.Model):
         """Own cursor, session lock, transaction, and failure handling per invoice."""
         with self.env.registry.cursor() as cr:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            try:
+                check_processing_window(env)
+            except EtaStopped:
+                return
             job = env[self._name].sudo().browse(job_id)
             job = job.with_company(job.company_id)
             cr.execute('SELECT pg_try_advisory_lock(741180, %s)', [job_id])
@@ -361,12 +367,22 @@ class EtaJob(models.Model):
                     job._submit(client)
                 else:
                     job._refresh(client)
+                check_processing_window(env, drain_seconds=0)
                 cr.commit()
                 if env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database') == cr.dbname:
+                    check_processing_window(env, drain_seconds=0)
                     env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
                     cr.commit()
+            except EtaStopped:
+                # Keep any durable pre-POST uncertain marker; do not turn a
+                # planned pause into a data error or schedule more work.
+                cr.rollback()
             except (psycopg2.Error, requests.RequestException, EtaError, UserError, ValueError) as exc:
                 cr.rollback()
+                try:
+                    check_processing_window(env, drain_seconds=0)
+                except EtaStopped:
+                    return
                 job.invalidate_recordset()
                 # Rollback never removes the committed uncertain marker.
                 if isinstance(exc, UserError) and job.state == 'queued':
@@ -413,6 +429,10 @@ class EtaJob(models.Model):
     @api.model
     def _cron_process(self, kind='all'):
         # Cron callers own their transaction. Never invoke from an invoice HTTP request.
+        try:
+            check_processing_window(self.env)
+        except EtaStopped:
+            return
         enabled_database = self.env['ir.config_parameter'].sudo().get_param(
             'tradeline_eta_reliability.enabled_database')
         if enabled_database != self.env.cr.dbname:
@@ -449,9 +469,11 @@ class EtaJob(models.Model):
             ], limit=100, order='invoice_date, id')
             # Old code has no durable request/outcome ledger. Reconcile first.
             legacy_recent._eta_enqueue(reconcile=True)
+            check_processing_window(self.env, drain_seconds=0)
             self.env.cr.commit()
             jobs = self._due_jobs(kind)
             for job in jobs:
+                check_processing_window(self.env)
                 if time.monotonic() - started > 40:
                     break
                 company = job.company_id.sudo()
@@ -459,6 +481,8 @@ class EtaJob(models.Model):
                     clients[company.id] = EtaClient(company)
                 client = clients[company.id]
                 self._process_id(job.id, client)
+        except EtaStopped:
+            self.env.cr.rollback()
         finally:
             for client in clients.values():
                 client.close()

@@ -2,7 +2,7 @@ import hashlib
 import json
 from contextlib import ExitStack
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from odoo import Command, fields
@@ -12,6 +12,7 @@ from odoo.tests import TransactionCase, tagged
 from ..models.client import EtaClient, EtaError
 from ..models.eta_job import PROCESSING_REVISION
 from ..models.historical_recovery import match_document
+from ..models.processing_window import EtaStopped, check_processing_window
 
 
 @tagged('post_install', '-at_install')
@@ -170,6 +171,93 @@ class TestAutomaticRecovery(TransactionCase):
         payload = json.dumps({'documents': [doc]})
         j.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
         return m, j, doc
+
+    def cutoff(self, deadline, database=None):
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.processing_cutoff_database', database or self.env.cr.dbname)
+        params.set_param('tradeline_eta_reliability.processing_cutoff_utc', deadline)
+        params.flush_model(['key', 'value'])
+
+    def test_cutoff_drains_before_exact_deadline_and_does_not_restart_next_day(self):
+        self.cutoff('2026-10-29 19:00:00')
+        check_processing_window(self.env, now=datetime(2026, 10, 29, 18, 58, 59))
+        with self.assertRaises(EtaStopped):
+            check_processing_window(self.env, now=datetime(2026, 10, 29, 18, 59, 0))
+        check_processing_window(self.env, now=datetime(2026, 10, 29, 18, 59, 59), drain_seconds=0)
+        with self.assertRaises(EtaStopped):
+            check_processing_window(self.env, now=datetime(2026, 10, 29, 19, 0, 0), drain_seconds=0)
+        with self.assertRaises(EtaStopped):
+            check_processing_window(self.env, now=datetime(2026, 10, 30, 8, 0, 0))
+
+    def test_cutoff_is_database_bound_and_invalid_bound_cutoff_fails_closed(self):
+        self.cutoff('not a timestamp', database='another-database')
+        check_processing_window(self.env)
+        self.cutoff('not a timestamp')
+        with self.assertRaises(EtaStopped): check_processing_window(self.env)
+
+    def test_cutoff_blocks_cached_authorization_signing_and_cron_without_new_work(self):
+        self.cutoff('2000-01-01 00:00:00')
+        client = EtaClient(self.company); client.token = 'cached'; client.token_until = float('inf')
+        m = self.env['account.move'].new({'company_id': self.company.id})
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('HTTP after cutoff')), patch.object(type(self.env['tradeline.eta.job']), '_enroll_historical', side_effect=AssertionError('Enrollment after cutoff')):
+            with self.assertRaises(EtaStopped): client._authorize()
+            with self.assertRaises(EtaStopped): client.request('POST', '/api/v1/documentsubmissions', data=b'never')
+            with self.assertRaises(EtaStopped): m.get_signature_value()
+            self.env['tradeline.eta.job']._cron_process()
+        client.close()
+
+    def test_cutoff_is_rechecked_after_get_throttle_and_not_cached(self):
+        self.cutoff('2099-01-01 00:00:00')
+        client = EtaClient(self.company); client.token = 'test'
+        with patch.object(client, '_authorize'), patch('odoo.addons.tradeline_eta_reliability.models.client.time.sleep', side_effect=lambda _: self.cutoff('2000-01-01 00:00:00')), patch.object(client.session, 'request', side_effect=AssertionError('HTTP after throttle passed cutoff')):
+            with self.assertRaises(EtaStopped): client.request('GET', '/api/v1/documents/search')
+        client.close()
+
+    def test_cutoff_before_post_preserves_queued_payload_without_uncertain_marker(self):
+        m, j, _ = self.ready(); client = MagicMock(); before = j.payload
+        self.cutoff('2000-01-01 00:00:00')
+        with self.assertRaises(EtaStopped): j._submit(client)
+        client.request.assert_not_called()
+        self.assertEqual(j.state, 'queued'); self.assertEqual(j.payload, before)
+        self.assertFalse(j.attempted_at)
+
+    def test_owner_drain_and_hard_deadline_follow_an_explicit_new_day(self):
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.processing_cutoff_database', self.env.cr.dbname)
+        params.set_param('tradeline_eta_reliability.processing_cutoff_utc', False)
+        params.set_param('tradeline_eta_reliability.owner_cutoff_utc', '2026-10-30 20:00:00')
+        params.set_param('tradeline_eta_reliability.owner_drain_utc', '2026-10-30 19:55:00')
+        params.flush_model(['key', 'value'])
+        check_processing_window(self.env, now=datetime(2026, 10, 30, 19, 54, 59))
+        with self.assertRaises(EtaStopped): check_processing_window(self.env, now=datetime(2026, 10, 30, 19, 55))
+        check_processing_window(self.env, now=datetime(2026, 10, 30, 19, 59, 59), drain_seconds=0)
+        with self.assertRaises(EtaStopped): check_processing_window(self.env, now=datetime(2026, 10, 30, 20), drain_seconds=0)
+        with self.assertRaises(EtaStopped): check_processing_window(self.env, now=datetime(2026, 10, 31, 8))
+        params.set_param('tradeline_eta_reliability.owner_cutoff_utc', '2026-10-31 20:00:00')
+        params.set_param('tradeline_eta_reliability.owner_drain_utc', '2026-10-31 19:55:00')
+        params.flush_model(['key', 'value'])
+        check_processing_window(self.env, now=datetime(2026, 10, 31, 8))
+
+    def test_cutoff_configuration_failure_is_visible_and_finance_holds_survive_planned_pause(self):
+        self.invoice().eta_job_ids.write({'state': 'blocked', 'last_error': 'Finance must correct the customer ID.'})
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor = monitor or self.env['tradeline.operations.monitor'].create({})
+        self.cutoff('invalid')
+        codes = {item['code'] for item in monitor._probe_crons(fields.Datetime.now())}
+        self.assertIn('eta:cutoff', codes); self.assertIn('eta:rejected', codes)
+        self.cutoff('2000-01-01 00:00:00')
+        codes = {item['code'] for item in monitor._probe_crons(fields.Datetime.now())}
+        self.assertNotIn('eta:cutoff', codes); self.assertNotIn('eta:scheduler', codes)
+        self.assertNotIn('eta:progress', codes); self.assertIn('eta:rejected', codes)
+
+    def test_stopping_after_the_durable_attempt_marker_never_authorizes_a_resubmission(self):
+        _m, j, _ = self.ready(); client = MagicMock()
+        self.cutoff('2099-01-01 00:00:00')
+        client.request.side_effect = EtaStopped('Owner stop')
+        with patch.object(self.env.cr, 'commit'), self.assertRaisesRegex(EtaStopped, '^Owner stop$'): j._submit(client)
+        client.request.assert_called_once()
+        self.assertEqual(j.state, 'unknown'); self.assertTrue(j.attempted_at)
+        self.assertFalse(j.safe_to_retry); self.assertFalse(j.duplicate_retry_at)
 
     def test_explicit_duplicate_response_waits_for_its_deadline_without_losing_attempt(self):
         m, j, _ = self.ready(); client = MagicMock()
