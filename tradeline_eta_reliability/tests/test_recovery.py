@@ -259,6 +259,62 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(j.state, 'unknown'); self.assertTrue(j.attempted_at)
         self.assertFalse(j.safe_to_retry); self.assertFalse(j.duplicate_retry_at)
 
+    def legacy_approved_rounding(self):
+        self.egp.rounding = .01
+        m = self.invoice(specs=[(1, 2000, 0, self.vat), (1, 300, 0, self.vat)])
+        current = self.reconcile(m); current['issuer'] = {'id': self.company.vat}
+        old = deepcopy(current)
+        for line, net, vat in zip(old['invoiceLines'], [1754.38596, 263.15789], [245.61403, 36.84210]):
+            line['unitValue'].update(amountEGP=net, amountSold=0, currencyExchangeRate=0)
+            line.update(salesTotal=net, netTotal=net)
+            line['taxableItems'][0]['amount'] = vat
+        old.update(netAmount=2017.54386, totalSalesAmount=2017.54386)
+        old['taxTotals'][0]['amount'] = 282.45614
+        # Existing cent-booked invoices remain cent-booked if the company
+        # subsequently configures millime precision, as in production.
+        self.egp.rounding = .001
+        return m, m.eta_job_ids, current, {'status': 'Valid', 'document': old}
+
+    def test_authority_valid_legacy_egp_rounding_restores_without_changing_posted_money(self):
+        m, j, current, raw = self.legacy_approved_rounding()
+        before = (m.invoice_date, m.amount_untaxed, m.amount_tax, m.amount_total, tuple(m.line_ids.mapped('balance')))
+        self.assertFalse(match_document(raw['document'], current))
+        self.assertTrue(j._historical_matches(raw, current))
+        self.assertEqual(before, (m.invoice_date, m.amount_untaxed, m.amount_tax, m.amount_total, tuple(m.line_ids.mapped('balance'))))
+
+    def test_approved_egp_rounding_keeps_gross_identity_quantity_codes_and_tax_rates_strict(self):
+        _m, j, current, raw = self.legacy_approved_rounding()
+        changes = [lambda d: d.update(totalAmount=d['totalAmount'] + .001),
+            lambda d: d.update(internalID='another-invoice'),
+            lambda d: d['receiver'].update(id='12345678901234'),
+            lambda d: d['issuer'].update(id='123456789'),
+            lambda d: d['invoiceLines'][0].update(quantity=2),
+            lambda d: d['invoiceLines'][0].update(itemCode='another-code'),
+            lambda d: d['invoiceLines'][0]['taxableItems'][0].update(rate=15),
+            lambda d: d['invoiceLines'][0]['unitValue'].update(currencyExchangeRate=.00001)]
+        for change in changes:
+            changed = deepcopy(raw); change(changed['document'])
+            self.assertFalse(j._historical_matches(changed, current))
+        changed = deepcopy(raw); changed['document']['netAmount'] = current['netAmount'] - .009
+        self.assertFalse(j._historical_matches(changed, current))
+
+    def test_pending_invalid_and_foreign_documents_do_not_get_approved_egp_rounding(self):
+        _m, j, current, raw = self.legacy_approved_rounding()
+        for status in ('Submitted', 'Invalid', 'Rejected'):
+            self.assertFalse(j._historical_matches(dict(raw, status=status), current))
+        foreign_old = deepcopy(raw['document']); foreign_current = deepcopy(current)
+        for doc in (foreign_old, foreign_current):
+            for line in doc['invoiceLines']: line['unitValue']['currencySold'] = 'USD'
+        self.assertFalse(match_document(foreign_old, foreign_current, approved_egp_rounding=True))
+
+    def test_millime_booked_invoices_keep_the_original_strict_comparison(self):
+        self.egp.rounding = .001
+        m = self.invoice(specs=[(1, 2000, 0, self.vat), (1, 300, 0, self.vat)])
+        current = self.reconcile(m); current['issuer'] = {'id': self.company.vat}
+        self.assertTrue(any(round(line.balance * 100) != line.balance * 100 for line in m.line_ids))
+        old = deepcopy(current); old['netAmount'] = float(round(current['netAmount'] - .006, 5))
+        self.assertFalse(m.eta_job_ids._historical_matches({'status': 'Valid', 'document': old}, current))
+
     def test_explicit_duplicate_response_waits_for_its_deadline_without_losing_attempt(self):
         m, j, _ = self.ready(); client = MagicMock()
         client.request.side_effect = EtaError('ETA returned HTTP 422.', 422, 420, code='DuplicateSubmission')

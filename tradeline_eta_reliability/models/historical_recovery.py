@@ -23,21 +23,31 @@ def fiscal(document):
     return {k: v for k, v in document.items() if k not in ('signatures', 'dateTimeIssued')}
 
 
-def fiscal_equal(a, b, path=''):
+def fiscal_equal(a, b, path='', monetary_tolerance=Decimal('0.005')):
     if isinstance(a, dict) and isinstance(b, dict):
-        return set(a) == set(b) and all(fiscal_equal(a[k], b[k], path + '.' + k) for k in a)
+        return set(a) == set(b) and all(fiscal_equal(a[k], b[k], path + '.' + k, monetary_tolerance) for k in a)
     if isinstance(a, list) and isinstance(b, list):
-        return len(a) == len(b) and all(fiscal_equal(x, y, path + '[%s]' % i) for i, (x, y) in enumerate(zip(a, b)))
+        return len(a) == len(b) and all(fiscal_equal(x, y, path + '[%s]' % i, monetary_tolerance) for i, (x, y) in enumerate(zip(a, b)))
     monetary = bool(re.fullmatch(r'\.(netAmount|totalAmount|totalSalesAmount|totalDiscountAmount|totalItemsDiscountAmount|extraDiscountAmount)', path)
                     or re.fullmatch(r'\.taxTotals\[\d+\]\.amount', path)
                     or re.fullmatch(r'\.invoiceLines\[\d+\]\.(salesTotal|netTotal|total|taxableFees|valueDifference|itemsDiscount)', path)
                     or re.fullmatch(r'\.invoiceLines\[\d+\]\.(unitValue\.(amountEGP|amountSold)|discount\.amount|taxableItems\[\d+\]\.amount)', path))
     if monetary and type(a) in (int, float) and type(b) in (int, float):
-        return abs(Decimal(str(a)) - Decimal(str(b))) < Decimal('0.005')
+        return abs(Decimal(str(a)) - Decimal(str(b))) < monetary_tolerance
     return type(a) == type(b) and a == b or type(a) in (int, float) and type(b) in (int, float) and a == b
 
 
-def match_document(original, current, safe_codes=(), trusted_issuer=False):
+def egp_rounding_pair(original, current):
+    """Legacy EGP components can round differently while gross stays exact."""
+    lines = original.get('invoiceLines', []) + current.get('invoiceLines', [])
+    gross = [doc.get('totalAmount') for doc in (original, current)]
+    return (bool(original.get('invoiceLines')) and bool(current.get('invoiceLines'))
+        and all(line.get('unitValue', {}).get('currencySold') == 'EGP' for line in lines)
+        and all(type(value) in (int, float) and Decimal(str(value)).is_finite() for value in gross)
+        and Decimal(str(gross[0])) == Decimal(str(gross[1])))
+
+
+def match_document(original, current, safe_codes=(), trusted_issuer=False, approved_egp_rounding=False):
     """Permit verified master-label/address drift, never fiscal or identity drift."""
     def normalize(document, other):
         result = deepcopy(fiscal(document))
@@ -64,7 +74,13 @@ def match_document(original, current, safe_codes=(), trusted_issuer=False):
                 and buyer.get('address', {}).get('country') == ref.get('address', {}).get('country') == 'EG'):
             buyer['address'] = {'country': 'EG'}
         return result
-    return fiscal_equal(normalize(original, current), normalize(current, original))
+    # Only the receipt-restoration caller can enable this for a currently
+    # Valid authority receipt and an entirely cent-booked EGP ledger. Keep
+    # gross exact, identities/quantities/rates strict, and stay below ETA's
+    # +/-0.01 invoice tolerance. New submissions keep posted amounts exactly.
+    # https://sdk.invoicing.eta.gov.eg/release-notes/dec-2020-release/
+    tolerance = Decimal('0.009') if approved_egp_rounding and egp_rounding_pair(original, current) else Decimal('0.005')
+    return fiscal_equal(normalize(original, current), normalize(current, original), monetary_tolerance=tolerance)
 
 
 def leaf_codes(node):
@@ -300,10 +316,17 @@ class EtaHistoricalRecovery(models.Model):
         if not isinstance(document, dict):
             return False
         move = self.move_id
+        egp = self.env.ref('base.EGP')
+        expected_net, expected_total = move._eta_posted_amounts()
+        approved_rounding = (raw.get('status') == 'Valid' and move.currency_id == egp
+            and move.company_id.currency_id == egp and egp_rounding_pair(document, current)
+            and Decimal(str(document['totalAmount'])) == Decimal(str(expected_total))
+            and all(Decimal(str(line.balance)) % Decimal('0.01') == 0 for line in move.line_ids))
         safe_codes = set()
+        products = self.env['product.product'].sudo().with_context(active_test=False)
         for line in current.get('invoiceLines', []):
             code = line.get('itemCode')
-            if code and self.env['product.product'].sudo().with_context(active_test=False).search_count([('e_invoicing_code', '=', code)]) == 1:
+            if code and 'e_invoicing_code' in products._fields and products.search_count([('e_invoicing_code', '=', code)]) == 1:
                 safe_codes.add(code)
         issuer = current.get('issuer'); trusted = False
         if move.company_id.partner_id.street and move.company_id.partner_id.city:
@@ -313,14 +336,13 @@ class EtaHistoricalRecovery(models.Model):
                         trusted = True; break
                 except (ValueError, KeyError, TypeError):
                     continue
-        if not match_document(document, current, safe_codes, trusted):
+        if not match_document(document, current, safe_codes, trusted, approved_egp_rounding=approved_rounding):
             return False
         rin = re.sub(r'\D', '', move.company_id.vat or '')
-        expected_net, expected_total = move._eta_posted_amounts()
         return (bool(re.fullmatch(r'[0-9]{9}', rin)) and document.get('internalID') == move.name
                 and re.sub(r'\D', '', str(document.get('issuer', {}).get('id', ''))) == rin
                 and abs(float(document.get('totalAmount', -1)) - expected_total) < .005
-                and abs(float(document.get('netAmount', -1)) - expected_net) < .005)
+                and abs(Decimal(str(document.get('netAmount', -1))) - Decimal(str(expected_net))) < (Decimal('0.009') if approved_rounding else Decimal('0.005')))
 
     def _historical_archive(self, proof, receipts, action):
         move = self.move_id
