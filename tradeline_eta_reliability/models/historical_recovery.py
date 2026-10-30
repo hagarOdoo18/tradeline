@@ -206,7 +206,26 @@ class EtaHistoricalRecovery(models.Model):
         (candidates - jobs).write({'processing_revision': PROCESSING_REVISION})
         jobs.write({'state': 'review', 'historical_review': True, 'historical_submission_verified': False,
                     'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
-        return len(jobs)
+        # This queue still enters _review_historical before any POST. Give the
+        # newly fixable optional-ID cases timely proof checks rather than leave
+        # them behind the entire untouched historical cohort.
+        egp = self.env.ref('base.EGP')
+        optional_domain = [('state', 'in', ['blocked', 'invalid']),
+            ('processing_revision', '!=', PROCESSING_REVISION),
+            ('move_id.partner_id.is_company', '=', False),
+            ('move_id.company_id.currency_id', '=', egp.id),
+            ('move_id.amount_total_signed', '>', -25000), ('move_id.amount_total_signed', '<', 25000),
+            '|', ('move_id.partner_id.country_id.code', '=', 'EG'), ('move_id.partner_id.country_id', '=', False),
+            '|', '|', ('last_error', 'ilike', 'NI3'), ('last_error', 'ilike', 'SF307'),
+                      ('last_error', 'ilike', 'Receiver Id is not valid')]
+        if 'mobile_type' in self.env['res.partner']._fields:
+            optional_domain.append(('move_id.partner_id.mobile_type', '=', 'local'))
+        if move_ids is not None:
+            optional_domain.append(('move_id', 'in', move_ids))
+        optional = self.sudo().search(optional_domain, limit=limit, order='id')
+        optional.write({'state': 'queued', 'historical_review': True, 'historical_submission_verified': False,
+                        'next_attempt': False, 'processing_revision': PROCESSING_REVISION})
+        return len(jobs) + len(optional)
 
     def _historical_financial_fingerprint(self):
         self.env.flush_all()
@@ -246,7 +265,9 @@ class EtaHistoricalRecovery(models.Model):
             with self.env.cr.savepoint():
                 if self.issue_date_policy == 'current' and not self.current_issue_datetime:
                     self.current_issue_datetime = fields.Datetime.now()
-                document = deepcopy(move._eta_correction_document())
+                # Receipt identity comparison must retain a recorded ID even
+                # when a new submission may legally omit that optional field.
+                document = deepcopy(move.with_context(eta_keep_recorded_person_id=True)._eta_correction_document())
                 raise PreviewRollback()
         except PreviewRollback:
             pass
@@ -337,13 +358,62 @@ class EtaHistoricalRecovery(models.Model):
                         trusted = True; break
                 except (ValueError, KeyError, TypeError):
                     continue
-        if not match_document(document, current, safe_codes, trusted, approved_egp_rounding=approved_rounding):
+        matched = match_document(document, current, safe_codes, trusted, approved_egp_rounding=approved_rounding)
+        if (not matched and raw.get('status') == 'Valid'
+                and not document.get('receiver', {}).get('id')
+                and self._optional_person_id_scope(document) and self._optional_person_id_scope(current)):
+            # An already approved anonymous personal receipt does not conflict
+            # with an optional ID subsequently recorded in Odoo. A nonempty
+            # government ID is never discarded to manufacture a match.
+            anonymous = deepcopy(current); anonymous['receiver']['id'] = ''
+            recorded = deepcopy(document); recorded['receiver']['id'] = ''
+            matched = match_document(recorded, anonymous, safe_codes, trusted,
+                                     approved_egp_rounding=approved_rounding)
+        if not matched:
             return False
         rin = re.sub(r'\D', '', move.company_id.vat or '')
         return (bool(re.fullmatch(r'[0-9]{9}', rin)) and document.get('internalID') == move.name
                 and re.sub(r'\D', '', str(document.get('issuer', {}).get('id', ''))) == rin
                 and abs(float(document.get('totalAmount', -1)) - expected_total) < .005
                 and abs(Decimal(str(document.get('netAmount', -1))) - Decimal(str(expected_net))) < (Decimal('0.009') if approved_rounding else Decimal('0.005')))
+
+    def _optional_person_id_scope(self, document):
+        receiver = document.get('receiver', {}) if isinstance(document, dict) else {}
+        if (not isinstance(receiver, dict) or not isinstance(receiver.get('address'), dict)
+                or receiver.get('type') != 'P' or receiver['address'].get('country') != 'EG'):
+            return False
+        try:
+            total = Decimal(str(document['totalAmount']))
+            _net, posted = self.move_id._eta_posted_amounts()
+            posted = Decimal(str(posted))
+            egp = self.env.ref('base.EGP')
+            return (total.is_finite() and posted.is_finite() and total >= 0 and posted >= 0
+                    and egp.compare_amounts(float(total), 25000) < 0
+                    and egp.compare_amounts(float(posted), 25000) < 0)
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            return False
+
+    def _optional_person_id_rejection(self, original, current, validation):
+        if (not self._optional_person_id_scope(original) or not self._optional_person_id_scope(current)
+                or not original.get('receiver', {}).get('id')):
+            return False
+        codes = set(leaf_codes(validation))
+        if codes:
+            return all(code.startswith('NI') or code == 'SF307' for code in codes)
+        steps = validation.get('validationSteps', []) if isinstance(validation, dict) else []
+        invalid = [step for step in (steps or []) if isinstance(step, dict) and step.get('status') == 'Invalid']
+        return bool(invalid) and all(any(name in (step.get('name') or '').lower().replace(' ', '')
+            for name in ('nationalidvalidator', 'taxpayerprofilevalidator')) for step in invalid)
+
+    def _explicit_optional_id_rejection(self, current):
+        if not self.safe_to_retry or not (self.last_error or '').startswith('ETA rejected the submission ('):
+            return False
+        try:
+            validation, _end = json.JSONDecoder().raw_decode(self.last_error[self.last_error.index('{'):])
+            original = json.loads(self.payload)['documents'][0]
+        except (ValueError, TypeError, KeyError, IndexError):
+            return False
+        return self._optional_person_id_rejection(original, current, validation)
 
     def _historical_archive(self, proof, receipts, action):
         move = self.move_id
@@ -396,7 +466,8 @@ class EtaHistoricalRecovery(models.Model):
                     proof = {'from': floor, 'to': floor, 'receipts': {}}
             if not proof:
                 self.write({'state': 'review', 'historical_review': True, 'next_attempt': fields.Datetime.now() + timedelta(minutes=5),
-                            'last_error': 'Automatic authority-history scan is in progress. No new document has been sent.', 'failures': 0})
+                            'last_error': self.last_error if self._has_recorded_rejection() else
+                                'Automatic authority-history scan is in progress. No new document has been sent.', 'failures': 0})
                 return
             if datetime.combine(move.invoice_date, datetime.min.time()) < proof['from']:
                 raise UserError(_('This invoice predates the complete authority-history proof; expand the history check.'))
@@ -443,6 +514,7 @@ class EtaHistoricalRecovery(models.Model):
                 raise UserError(_('A cancelled or buyer-rejected ETA receipt exists. Finance must trace the replacement or approve the correction route.'))
             if any(r.get('status') != 'Invalid' for r in receipts):
                 raise UserError(_('An unrecognized authority receipt status prevents safe submission.'))
+            optional_id_rejected = False
             for receipt in receipts:
                 old = receipt.get('document'); old = json.loads(old) if isinstance(old, str) else old
                 if isinstance(old, dict) and old.get('dateTimeIssued'):
@@ -450,7 +522,10 @@ class EtaHistoricalRecovery(models.Model):
                     if old_issued < proof['from']:
                         raise UserError(_('An earlier authority document predates the complete history proof; expand the history before a new submission.'))
                 codes = set(leaf_codes(receipt.get('validationResults', {})))
-                if isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(current)) and not (codes and codes.issubset({'CF313', '4043'})):
+                optional_id = self._optional_person_id_rejection(old, current, receipt.get('validationResults', {}))
+                optional_id_rejected |= optional_id
+                if (isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(current))
+                        and not (codes and codes.issubset({'CF313', '4043'})) and not optional_id):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False) or 'ETA rejected this unchanged invoice. Correct its source data before retrying.', authority=True)
                     return
             original = None
@@ -469,12 +544,16 @@ class EtaHistoricalRecovery(models.Model):
                     raise UserError(_('The saved ETA request predates the authority-history proof.'))
             date_rejected = (any('CF313' in leaf_codes(receipt.get('validationResults', {})) for receipt in receipts)
                              or self.safe_to_retry and self._is_date_only_rejection(self.last_error))
-            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected:
+            optional_id_rejected |= self._explicit_optional_id_rejection(current)
+            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected:
                 anchor = self.attempted_at or move.e_invoice_date or move.create_date
                 if anchor and anchor > fields.Datetime.now() - timedelta(hours=24):
                     self.write({'state': 'review', 'next_attempt': anchor + timedelta(hours=24), 'last_error': 'A recent uncertain submission is in the 24-hour reconciliation window. Automatic checks continue; nothing was resent.'})
                     return
-            self._historical_archive(proof, receipts, 'Queue source-complete invoice after complete authority history and fresh delta')
+            if optional_id_rejected:
+                self.omit_optional_receiver_id = True
+            self._historical_archive(proof, receipts, 'Queue source-complete invoice after complete authority history and fresh delta'
+                + ('; omit the authority-rejected optional personal ID below EGP 25,000, preserving the customer record' if optional_id_rejected else ''))
             move.write({'e_invoice_uuid': False, 'e_invoice_long_id': False, 'e_invoice_date': False,
                         'l10n_eg_eta_json_doc_id': False, 'e_invoice_sent': False, 'eta_submission_pending': True,
                         'e_invoice_status': 'Draft', 'e_invoice_issue': False, 'invoice_signed': False,

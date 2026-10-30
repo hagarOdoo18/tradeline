@@ -68,12 +68,28 @@ class EtaJobMonitoring(models.Model):
     needs_attention = fields.Boolean(compute='_compute_monitoring', search='_search_needs_attention')
 
     @api.model
+    def _recorded_rejection_domain(self):
+        return expression.AND([[('state', '=', 'review')], expression.OR([
+            [('safe_to_retry', '=', True), ('last_error', '=like', 'ETA rejected the submission (%')],
+            [('last_error', '=like', '{"status": "Invalid"%')],
+            [('last_error', '=like', '{"status":"Invalid"%')],
+        ])])
+
+    def _has_recorded_rejection(self):
+        self.ensure_one()
+        raw = self.last_error or ''
+        return (self.state == 'review' and (
+            self.safe_to_retry and raw.startswith('ETA rejected the submission (')
+            or raw.startswith(('{"status": "Invalid"', '{"status":"Invalid"'))))
+
+    @api.model
     def _attention_domain(self, now=None):
         now = now or fields.Datetime.now(); cutoff = now - timedelta(minutes=15)
         return expression.OR([
             [('state', 'in', ['blocked', 'invalid'])],
             [('state', '=', 'unknown'), '|', ('duplicate_retry_at', '=', False), ('duplicate_retry_at', '<=', cutoff)],
             [('state', '=', 'review'), ('failures', '>', 0)],
+            self._recorded_rejection_domain(),
             [('state', '=', 'queued'), ('create_date', '<=', cutoff),
              '|', ('next_attempt', '=', False), ('next_attempt', '<=', cutoff)],
             [('state', '=', 'accepted'), ('attempted_at', '<=', cutoff)],
@@ -93,7 +109,7 @@ class EtaJobMonitoring(models.Model):
         return domain if bool(value) == (operator == '=') else ['!'] + expression.normalize_domain(domain)
 
     @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
-                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at')
+                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry')
     def _compute_monitoring(self):
         now = fields.Datetime.now()
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
@@ -137,8 +153,11 @@ class EtaJobMonitoring(models.Model):
                           if date_review else _('No submission action required.'))
             elif job.state == 'review':
                 reason = detail or _('Historical receipt verification is queued; no new invoice has been sent.')
-                action = (_('IT must restore the authority-history scan or resolve its communication error. Automatic retries continue.')
-                          if job.failures else _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.'))
+                if job._has_recorded_rejection():
+                    action = ' '.join(actions + [_('A previous submission was rejected. Verify or correct the reported source fields; receipt verification must finish before any corrected submission.')])
+                else:
+                    action = (_('IT must restore the authority-history scan or resolve its communication error. Automatic retries continue.')
+                              if job.failures else _('Automatic recovery checks existing ETA receipts, then submits only documents with a proven safe submission route.'))
             elif job.state == 'unknown' and job.duplicate_retry_at:
                 reason = _('ETA duplicate-submission cooldown is being reconciled automatically after Retry-After.')
                 action = _('The worker checks for an existing ETA receipt before retrying the retained signed request. No manual resubmission is needed.')
@@ -174,6 +193,7 @@ class EtaJobMonitoring(models.Model):
             job.needs_attention = (job.state in ('blocked', 'invalid') or date_review
                                    or job.state == 'unknown' and (not job.duplicate_retry_at or job.duplicate_retry_at <= now - timedelta(minutes=15))
                                    or job.state == 'review' and job.failures > 0
+                                   or job._has_recorded_rejection()
                                    or job.state == 'accepted' and minutes >= 15
                                    or job.state == 'queued' and minutes >= 15 and (not job.next_attempt or job.next_attempt <= now - timedelta(minutes=15)))
 

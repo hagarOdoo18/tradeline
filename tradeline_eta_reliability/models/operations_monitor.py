@@ -64,12 +64,14 @@ class OperationsMonitor(models.Model):
                 'Invoices are ready but no successful queue operation has completed for 15 minutes.',
                 'Check ETA connectivity, signing, database locks and worker logs; preserve uncertain submission markers.', 'critical'))
         stalled = jobs.search_count(expression.AND([
-            jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])]]))
+            jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])],
+            ['!'] + expression.normalize_domain(jobs._recorded_rejection_domain())]))
         if stalled and not paused:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,
                 'Open ETA Submission Jobs. Reconcile uncertain results before retrying.', 'critical'))
-        blocked = jobs.search_count([('state', 'in', ['blocked', 'invalid'])])
+        blocked = jobs.search_count(expression.OR([
+            [('state', 'in', ['blocked', 'invalid'])], jobs._recorded_rejection_domain()]))
         if blocked:
             observations.append(signal('eta:rejected', 'ETA documents need correction',
                 '%s ETA jobs have a validation or source-data problem.' % blocked,
