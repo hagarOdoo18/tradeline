@@ -25,6 +25,10 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
 # these fixes. Description holds can enter a bounded, explicitly selected review.
 PROCESSING_REVISION = '18.0.1.0.22'
 DUPLICATE_REVIEW_PREFIX = 'Multiple currently Valid ETA receipts'
+NATIVE_BATCH_MAX_OPERATIONS = 4
+NATIVE_BATCH_SECONDS = 8
+NATIVE_MAINTENANCE_SECONDS = 120
+NATIVE_SCHEDULE = ('queued', 'review', 'queued', 'accepted', 'review', 'unknown', 'review')
 
 
 class EtaJob(models.Model):
@@ -380,20 +384,33 @@ class EtaJob(models.Model):
 
     @api.model
     def _process_id(self, job_id, client):
-        """Own cursor, session lock, transaction, and failure handling per invoice."""
+        """Return whether an owned processing result/deferral was committed."""
         with self.env.registry.cursor() as cr:
             env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            committed = False
             try:
                 check_processing_window(env)
             except EtaStopped:
-                return
-            job = env[self._name].sudo().browse(job_id)
+                return False
+            env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+            cr.execute("SELECT value FROM ir_config_parameter WHERE key='tradeline_eta_reliability.enabled_database'")
+            enabled = cr.fetchone()
+            if not enabled or enabled[0] != cr.dbname:
+                return False
+            job = env[self._name].sudo().browse(job_id).exists()
+            if not job:
+                return False
             job = job.with_company(job.company_id)
             cr.execute('SELECT pg_try_advisory_lock(741180, %s)', [job_id])
             if not cr.fetchone()[0]:
-                return
+                return False
             try:
+                job.invalidate_recordset()
+                if (job.state not in ('queued', 'accepted', 'unknown', 'review')
+                        or job.next_attempt and job.next_attempt > fields.Datetime.now()):
+                    return False
                 cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [job.move_id.id])
+                job.move_id.invalidate_recordset()
                 if job.move_id.state != 'posted':
                     job.write({'state': 'blocked', 'last_error': 'Invoice is no longer posted.'})
                 elif job.state == 'queued':
@@ -402,6 +419,7 @@ class EtaJob(models.Model):
                     job._refresh(client)
                 check_processing_window(env, drain_seconds=0)
                 cr.commit()
+                committed = True
                 if env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database') == cr.dbname:
                     check_processing_window(env, drain_seconds=0)
                     env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
@@ -410,12 +428,13 @@ class EtaJob(models.Model):
                 # Keep any durable pre-POST uncertain marker; do not turn a
                 # planned pause into a data error or schedule more work.
                 cr.rollback()
+                return committed
             except (psycopg2.Error, requests.RequestException, EtaError, UserError, ValueError) as exc:
                 cr.rollback()
                 try:
                     check_processing_window(env, drain_seconds=0)
                 except EtaStopped:
-                    return
+                    return committed
                 job.invalidate_recordset()
                 # Rollback never removes the committed uncertain marker.
                 if isinstance(exc, UserError) and job.state == 'queued':
@@ -429,11 +448,13 @@ class EtaJob(models.Model):
                             else str(exc) if isinstance(exc, EtaError) else 'ETA communication failed; retry scheduled.')
                     job._delay(safe, seconds=getattr(exc, 'retry_after', None))
                 cr.commit()
+                committed = True
                 _logger.warning('ETA job %s deferred (%s); no invoice contents logged', job_id, type(exc).__name__)
             finally:
                 cr.rollback()
                 cr.execute('SELECT pg_advisory_unlock(741180, %s)', [job_id])
                 cr.commit()
+            return committed
 
     @api.model
     def _due_jobs(self, kind):
@@ -460,68 +481,148 @@ class EtaJob(models.Model):
                 for group in groups if index < len(group)]
 
     @api.model
+    def _native_due_domain(self, kind='all', now=None):
+        states = (['queued', 'unknown'] if kind == 'submit' else ['accepted'] if kind == 'status'
+                  else ['queued', 'accepted', 'unknown', 'review'])
+        return [('state', 'in', states), '|', ('next_attempt', '=', False),
+                ('next_attempt', '<=', now or fields.Datetime.now())]
+
+    @api.model
+    def _native_batch_candidate(self, kind, turn):
+        due = self._due_jobs(kind)
+        now = fields.Datetime.now()
+        fresh = [job for job in due if job.state == 'queued' and not job.historical_fingerprint]
+        if fresh:
+            return min(fresh, key=lambda job: (job.create_date, job.id))
+        uncertain = [job for job in due if job.state == 'unknown']
+        if uncertain:
+            return uncertain[0]
+        stale = [job for job in due if job.state == 'accepted'
+                 and (not job.checked_at or job.checked_at < now - timedelta(minutes=5))]
+        if stale:
+            return stale[0]
+        verified = [job for job in due if job.state == 'queued' and job.historical_reviewed_at
+                    and job.historical_reviewed_at >= now - timedelta(minutes=5)]
+        if verified:
+            return min(verified, key=lambda job: (job.historical_reviewed_at, job.id))
+        for offset in range(len(NATIVE_SCHEDULE)):
+            matches = [job for job in due if job.state == NATIVE_SCHEDULE[(turn + offset) % len(NATIVE_SCHEDULE)]]
+            if matches:
+                return matches[0]
+        return None
+
+    @api.model
+    def _native_maintenance(self):
+        """Avoid repeating enrollment/catalogue requeues in each core batch."""
+        key = 'tradeline_eta_reliability.native_maintenance_at'
+        self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+        self.env.cr.execute('SELECT key,value FROM ir_config_parameter WHERE key IN %s', [(
+            key, 'tradeline_eta_reliability.historical_recovery_database')])
+        values = dict(self.env.cr.fetchall())
+        now = fields.Datetime.now()
+        try:
+            stamp = json.loads(values.get(key, 'null'))
+            last = fields.Datetime.to_datetime(stamp['at']) if stamp and stamp['database'] == self.env.cr.dbname else None
+        except (ValueError, TypeError, KeyError):
+            last = None
+        if last and timedelta(0) <= now - last < timedelta(seconds=NATIVE_MAINTENANCE_SECONDS):
+            return False
+        if values.get('tradeline_eta_reliability.historical_recovery_database') == self.env.cr.dbname:
+            self._enroll_historical(limit=500)
+            self._requeue_software_holds(limit=100)
+            self._requeue_changed_historical(limit=20)
+        Move = self.env['account.move'].sudo()
+        moves = Move.search([
+            ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
+            ('eta_submission_pending', '=', True), ('e_invoice_uuid', '=', False), ('eta_job_ids', '=', False),
+        ], limit=200, order='id')
+        moves._eta_enqueue(reconcile=True)
+        pending_status = Move.search([
+            ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
+            ('e_invoice_status', '=', 'Submitted'), ('e_invoice_uuid', '!=', False), ('eta_job_ids', '=', False),
+        ], limit=200, order='e_invoice_date, id')
+        pending_status._eta_enqueue()
+        legacy_recent = Move.search([
+            ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
+            ('e_invoice_status', 'in', ('Draft', 'Error')), ('e_invoice_uuid', '=', False),
+            ('invoice_date', '>=', fields.Date.today() - timedelta(days=7)), ('eta_job_ids', '=', False),
+        ], limit=100, order='invoice_date, id')
+        legacy_recent._eta_enqueue(reconcile=True)
+        self.env['ir.config_parameter'].sudo().set_param(key, json.dumps({
+            'database': self.env.cr.dbname, 'at': fields.Datetime.to_string(now)}))
+        return True
+
+    @api.model
     def _cron_process(self, kind='all'):
         # Cron callers own their transaction. Never invoke from an invoice HTTP request.
+        self = self.with_context(eta_queue_cron=True)
         try:
             check_processing_window(self.env)
         except EtaStopped:
-            return
-        enabled_database = self.env['ir.config_parameter'].sudo().get_param(
-            'tradeline_eta_reliability.enabled_database')
-        if enabled_database != self.env.cr.dbname:
+            return 0
+        self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+        self.env.cr.execute("SELECT value FROM ir_config_parameter WHERE key='tradeline_eta_reliability.enabled_database'")
+        enabled = self.env.cr.fetchone()
+        if not enabled or enabled[0] != self.env.cr.dbname:
             # Staging database copies must never submit using production credentials.
-            return
+            return 0
         self.env.cr.execute('SELECT pg_try_advisory_lock(741181, 1)')
         if not self.env.cr.fetchone()[0]:
-            return
+            return 0
         clients = {}
         started = time.monotonic()
+        processed = 0
+        paused = False
         try:
-            if self.env['ir.config_parameter'].sudo().get_param(
-                    'tradeline_eta_reliability.historical_recovery_database') == self.env.cr.dbname:
-                self._enroll_historical(limit=500)
-                self._requeue_software_holds(limit=100)
-                self._requeue_changed_historical(limit=20)
-            moves = self.env['account.move'].sudo().search([
-                ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
-                ('eta_submission_pending', '=', True), ('e_invoice_uuid', '=', False),
-                ('eta_job_ids', '=', False),
-            ], limit=200, order='id')
-            moves._eta_enqueue(reconcile=True)
-            pending_status = self.env['account.move'].sudo().search([
-                ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
-                ('e_invoice_status', '=', 'Submitted'), ('e_invoice_uuid', '!=', False),
-                ('eta_job_ids', '=', False),
-            ], limit=200, order='e_invoice_date, id')
-            pending_status._eta_enqueue()
-            legacy_recent = self.env['account.move'].sudo().search([
-                ('state', '=', 'posted'), ('move_type', 'in', ('out_invoice', 'out_refund')),
-                ('e_invoice_status', 'in', ('Draft', 'Error')), ('e_invoice_uuid', '=', False),
-                ('invoice_date', '>=', fields.Date.today() - timedelta(days=7)),
-                ('eta_job_ids', '=', False),
-            ], limit=100, order='invoice_date, id')
-            # Old code has no durable request/outcome ledger. Reconcile first.
-            legacy_recent._eta_enqueue(reconcile=True)
+            self._native_maintenance()
             check_processing_window(self.env, drain_seconds=0)
             self.env.cr.commit()
-            jobs = self._due_jobs(kind)
-            for job in jobs:
+            for turn in range(NATIVE_BATCH_MAX_OPERATIONS):
                 check_processing_window(self.env)
-                if time.monotonic() - started > 40:
+                if time.monotonic() - started >= NATIVE_BATCH_SECONDS:
+                    break
+                self.env.invalidate_all()
+                self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+                self.env.cr.execute("SELECT value FROM ir_config_parameter WHERE key='tradeline_eta_reliability.enabled_database'")
+                enabled = self.env.cr.fetchone()
+                if not enabled or enabled[0] != self.env.cr.dbname:
+                    paused = True
+                    break
+                job = self._native_batch_candidate(kind, turn)
+                if not job:
                     break
                 company = job.company_id.sudo()
                 if company.id not in clients:
                     clients[company.id] = EtaClient(company)
                 client = clients[company.id]
-                self._process_id(job.id, client)
+                if self._process_id(job.id, client):
+                    processed += 1
         except EtaStopped:
+            paused = True
             self.env.cr.rollback()
         finally:
-            for client in clients.values():
-                client.close()
-            self.env.cr.rollback()
-            self.env.cr.execute('SELECT pg_advisory_unlock(741181, 1)')
-            self.env.cr.commit()
+            try:
+                for client in clients.values():
+                    client.close()
+            finally:
+                self.env.cr.rollback()
+                self.env.cr.execute('SELECT pg_advisory_unlock(741181, 1)')
+                self.env.cr.commit()
+        if processed and not paused and self.env.context.get('ir_cron_progress_id'):
+            try:
+                check_processing_window(self.env)
+            except EtaStopped:
+                return processed
+            self.env.invalidate_all()
+            self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+            self.env.cr.execute("SELECT value FROM ir_config_parameter WHERE key='tradeline_eta_reliability.enabled_database'")
+            enabled = self.env.cr.fetchone()
+            if enabled and enabled[0] == self.env.cr.dbname:
+                remaining = self.sudo().search_count(self._native_due_domain(kind))
+                # Notify after cleanup: its rollback must not erase progress.
+                # The framework owns the final progress transaction/commit.
+                self.env['ir.cron']._notify_progress(done=processed, remaining=remaining)
+        return processed
 
     def _has_authority_duplicate_review(self):
         self.ensure_one()

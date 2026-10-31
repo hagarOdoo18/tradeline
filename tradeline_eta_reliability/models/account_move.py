@@ -16,7 +16,7 @@ from odoo import fields, models, _
 from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
-from .processing_window import check_processing_window
+from .processing_window import EtaStopped, check_processing_window
 
 
 class AccountMove(models.Model):
@@ -32,6 +32,7 @@ class AccountMove(models.Model):
 
     def _eta_enqueue(self, reconcile=False):
         Job = self.env['tradeline.eta.job'].sudo()
+        newly_queued = False
         for move in self.filtered(lambda m: m.state == 'posted' and m.move_type in ('out_invoice', 'out_refund')):
             if not move.company_id.client_id or not move.company_id.client_secret:
                 continue
@@ -54,8 +55,23 @@ class AccountMove(models.Model):
                     except (ValueError, SyntaxError, TypeError):
                         pass
                 Job.create(values)
+                newly_queued |= values['state'] == 'queued'
             elif move.e_invoice_uuid and job.state not in ('valid', 'invalid', 'blocked'):
                 job.write({'state': 'accepted'})
+        if newly_queued and not self.env.context.get('eta_queue_cron'):
+            cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
+            self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+            self.env.cr.execute("SELECT value FROM ir_config_parameter WHERE key='tradeline_eta_reliability.enabled_database'")
+            enabled = self.env.cr.fetchone()
+            if (cron and cron.sudo().active and self.env.context.get('cron_id') != cron.id
+                    and enabled and enabled[0] == self.env.cr.dbname):
+                try:
+                    check_processing_window(self.env)
+                except EtaStopped:
+                    return
+                # Odoo commits this trigger with the invoice and wakes the
+                # native scheduler postcommit. No authority HTTP runs here.
+                cron.sudo()._trigger()
 
     def action_send_electronic_invoice(self):
         """Manual and legacy callers enter the same durable queue as the cron."""

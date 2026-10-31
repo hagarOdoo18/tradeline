@@ -584,6 +584,7 @@ class EtaHistoricalRecovery(models.Model):
             if any(r.get('status') != 'Invalid' for r in receipts):
                 raise UserError(_('An unrecognized authority receipt status prevents safe submission.'))
             outgoing = self._submission_source()
+            certificate_retry = self._certificate_retry_allowed(receipts, outgoing)
             # An explicit rejection/no attempt is not an uncertain HTTP result.
             # Preserve any genuine uncertain marker and its existing route.
             if self.safe_to_retry or not self.attempted_at or move.e_invoice_uuid:
@@ -626,7 +627,8 @@ class EtaHistoricalRecovery(models.Model):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False), authority=True)
                     return
                 if (isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(proposed))
-                        and not (codes and codes.issubset({'CF313', '4043', 'CV302'})) and not optional_id):
+                        and not (codes and codes.issubset({'CF313', '4043', 'CV302'}))
+                        and not optional_id and not certificate_retry):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False) or 'ETA rejected this unchanged invoice. Correct its source data before retrying.', authority=True)
                     return
             original = None
@@ -677,7 +679,7 @@ class EtaHistoricalRecovery(models.Model):
                         'authority_receipt_hash': self._receipt_set_hash(receipts),
                         'historical_reviewed_at': fields.Datetime.now(), 'historical_submission_verified': True})
             duration = int(self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_expiration_duration', '7'))
-            if date_rejected or move.invoice_date < fields.Date.today() - timedelta(days=duration):
+            if certificate_retry or date_rejected or move.invoice_date < fields.Date.today() - timedelta(days=duration):
                 self.action_approve_current_issue_date()
                 self.issue_date_approval_note = 'User authorized recovery of all eligible historical invoices and today’s ETA issue date while preserving the original accounting date and amounts. Complete authority history and a fresh invoice-specific delta exclude any existing approval, pending or cancelled receipt.'
             if self._historical_financial_fingerprint() != before:
