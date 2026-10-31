@@ -20,6 +20,9 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
+# Release 23 changes manual refresh routing, not the automatic recovery policy.
+# Keep the policy revision so unchanged correction holds are not retried merely
+# because this UI action was fixed.
 PROCESSING_REVISION = '18.0.1.0.22'
 DUPLICATE_REVIEW_PREFIX = 'Multiple currently Valid ETA receipts'
 
@@ -526,10 +529,14 @@ class EtaJob(models.Model):
 
     def action_recheck(self):
         for job in self:
-            if job._has_authority_duplicate_review():
-                # Polling just one UUID cannot resolve a known multiple-
-                # approval finding. Retain all links/payload/attempt markers
-                # and run the complete history route instead.
+            move = job.move_id
+            native_history = bool(move.l10n_eg_uuid and move.l10n_eg_uuid != move.e_invoice_uuid)
+            held_history = bool(job.historical_fingerprint and job.state in ('blocked', 'invalid'))
+            if (job._has_authority_duplicate_review() or native_history
+                    or held_history or job.historical_review):
+                # A single-receipt status poll cannot reconcile conflicting
+                # links or clear a held source/history comparison. Preserve
+                # every request and receipt until complete history is checked.
                 job.write({'state': 'review', 'historical_review': True,
                            'historical_submission_verified': False, 'next_attempt': False})
             elif job.move_id.e_invoice_uuid:
