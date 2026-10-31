@@ -902,6 +902,70 @@ class TestHistoricalRecovery(TransactionCase):
                  'document': self.document(move), 'validationResults': {'errorCode': 'CV302'}}
                 for uuid, status in [('native-original', native), ('custom-later', custom)]]
 
+    def test_manual_refresh_of_held_native_conflict_reconciles_history_without_discarding_evidence(self):
+        move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+        job.write({'payload': 'retained signed request', 'attempted_at': fields.Datetime.now(),
+                   'safe_to_retry': True, 'historical_submission_verified': True})
+        job._historical_hold('Native and custom ETA receipts differ; reconcile both existing receipts.')
+        self.assertFalse(job.historical_review)
+        before = (job.payload, job.attempted_at, job.safe_to_retry, move.l10n_eg_eta_json_doc_id,
+                  move.e_invoice_uuid, move.l10n_eg_uuid, move.invoice_date, move.amount_total)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertFalse(job.historical_submission_verified)
+        self.assertEqual(before, (job.payload, job.attempted_at, job.safe_to_retry, move.l10n_eg_eta_json_doc_id,
+                                 move.e_invoice_uuid, move.l10n_eg_uuid, move.invoice_date, move.amount_total))
+        self.assertTrue(attachment.exists())
+        with patch.object(type(job), '_review_historical') as history:
+            job._refresh(MagicMock())
+        history.assert_called_once()
+
+    def test_manual_refresh_of_native_only_receipt_does_not_turn_into_a_first_submission(self):
+        move = self.invoice(); attachment = self.native_conflict(move); move.e_invoice_uuid = False
+        job = move.eta_job_ids
+        job.write({'state': 'blocked', 'safe_to_retry': True, 'payload': 'retained native request',
+                   'attempted_at': fields.Datetime.now()})
+        before = (job.payload, job.attempted_at, move.e_invoice_sent, move.l10n_eg_uuid)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertEqual(before, (job.payload, job.attempted_at, move.e_invoice_sent, move.l10n_eg_uuid))
+        self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+
+    def test_manual_refresh_of_held_historical_source_difference_cannot_clear_it_by_polling_one_uuid(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'prior-approval', 'e_invoice_status': 'Valid'})
+        job.historical_fingerprint = job._historical_financial_fingerprint()
+        job._historical_hold('Existing Valid receipt differs from the current posted invoice.')
+        reason = job.last_error
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertEqual(job.last_error, reason); self.assertEqual(move.e_invoice_uuid, 'prior-approval')
+        with patch.object(type(job), '_review_historical') as history:
+            job._refresh(MagicMock())
+        history.assert_called_once()
+
+    def test_manual_refresh_of_unambiguous_live_receipt_keeps_normal_validation_polling(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'newly-accepted', 'e_invoice_status': 'Submitted'})
+        job.write({'state': 'accepted', 'payload': 'retained request', 'attempted_at': fields.Datetime.now()})
+        before = (job.payload, job.attempted_at)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(job.state, 'accepted'); self.assertFalse(job.historical_review)
+        self.assertEqual(before, (job.payload, job.attempted_at))
+
+    def test_manual_refresh_of_unresolved_timeout_without_receipts_keeps_uncertain_marker(self):
+        move = self.invoice(); job = move.eta_job_ids
+        job.write({'state': 'unknown', 'payload': 'retained uncertain request',
+                   'attempted_at': fields.Datetime.now(), 'safe_to_retry': False})
+        before = (job.state, job.payload, job.attempted_at)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(before, (job.state, job.payload, job.attempted_at))
+
     def test_conflicting_receipt_history_fetches_both_known_uuids_even_when_missing_from_index(self):
         move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
         receipts = self.conflict_receipts(move)
