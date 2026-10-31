@@ -1,0 +1,3 @@
+A small deployment canary: the paperwork has arrived.
+
+This file has no application or configuration effect.

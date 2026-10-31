@@ -6,4 +6,3 @@ from . import operations_monitor
 from . import eta_monitoring
 from . import submission_safety
 from . import catalogue_recovery
-from . import certificate_recovery
