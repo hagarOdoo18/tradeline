@@ -31,6 +31,20 @@ def utc(value):
     return value.astimezone(timezone.utc)
 
 
+def certificate_time(certificate, attribute):
+    """Support both cryptography APIs; legacy certificate dates are naive UTC."""
+    value = getattr(certificate, attribute + '_utc', None)
+    if value is None:
+        value = getattr(certificate, attribute)
+        if not isinstance(value, datetime):
+            raise ValueError('The certificate validity time is unreadable')
+        # Older cryptography explicitly returns naive UTC, regardless of the
+        # server timezone. Never interpret it as local Cairo/system time.
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+    return utc(value)
+
+
 def signer_certificate(signature, canonical=None, valid_at=()):
     """Resolve the actual CMS signer; verify its signature, digest and times.
 
@@ -73,7 +87,8 @@ def signer_certificate(signature, canonical=None, valid_at=()):
         if len(times) > 1:
             raise ValueError('Ambiguous signing time')
         signing_time = utc(times[0]) if times else None
-        before = certificate.not_valid_before_utc; after = certificate.not_valid_after_utc
+        before = certificate_time(certificate, 'not_valid_before')
+        after = certificate_time(certificate, 'not_valid_after')
         checks = [utc(t) for t in valid_at]
         if checks and signing_time:
             checks.append(signing_time)

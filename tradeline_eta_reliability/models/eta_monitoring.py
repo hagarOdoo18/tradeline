@@ -116,6 +116,40 @@ class EtaJobMonitoring(models.Model):
         domain = self._attention_domain()
         return domain if bool(value) == (operator == '=') else ['!'] + expression.normalize_domain(domain)
 
+    @api.model
+    def _native_partial_progress_is_recent(self, now=None, cron=None):
+        """A ready partial native batch deliberately keeps nextcall in the past.
+
+        Require both a recently completed core partial batch and a fresh
+        committed invoice-processing marker. A ready date or a live/incomplete
+        progress row alone is not evidence that the scheduler is healthy.
+        """
+        now = now or fields.Datetime.now()
+        cron = cron or self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
+        if not cron:
+            return False
+        cron = cron.sudo()
+        if not cron.active or cron.failure_count:
+            return False
+        self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+        self.env.cr.execute('SELECT key,value FROM ir_config_parameter WHERE key IN %s', [(
+            'tradeline_eta_reliability.enabled_database',
+            'tradeline_eta_reliability.last_processed_at')])
+        values = dict(self.env.cr.fetchall())
+        if values.get('tradeline_eta_reliability.enabled_database') != self.env.cr.dbname:
+            return False
+        try:
+            processed = fields.Datetime.to_datetime(values.get('tradeline_eta_reliability.last_processed_at'))
+        except (ValueError, TypeError):
+            return False
+        cutoff = now - timedelta(minutes=3)
+        if not processed or not cutoff <= processed <= now:
+            return False
+        return bool(self.env['ir.cron.progress'].sudo().search_count([
+            ('cron_id', '=', cron.id), ('done', '>', 0), ('remaining', '>', 0),
+            ('timed_out_counter', '=', 0), ('write_date', '>=', cutoff), ('write_date', '<=', now),
+        ], limit=1))
+
     @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
                  'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry')
     def _compute_monitoring(self):
@@ -125,7 +159,8 @@ class EtaJobMonitoring(models.Model):
         enabled = (bool(cron and cron.active and not cron.failure_count)
                    and self.env['ir.config_parameter'].sudo().get_param(
                        'tradeline_eta_reliability.enabled_database') == self.env.cr.dbname)
-        overdue = bool(enabled and cron.nextcall and cron.nextcall < now - timedelta(minutes=3))
+        overdue = bool(enabled and cron.nextcall and cron.nextcall < now - timedelta(minutes=3)
+                       and not self._native_partial_progress_is_recent(now, cron))
         for job in self:
             anchor = (job.attempted_at or job.move_id.e_invoice_date or job.create_date
                       if job.state == 'accepted' else job.create_date)
