@@ -928,7 +928,7 @@ class TestEtaReliability(TransactionCase):
         move = self.invoice(); job = move.eta_job_ids
         before = (move.invoice_date, move.amount_total, move.amount_tax, move.state)
         description = 'Tablet 10.2"'
-        with patch.object(type(move), '_get_eta_invoice_lines', return_value=([{'description': description}], 0, 100, 100)), \
+        with patch.object(type(move), '_get_eta_invoice_lines', return_value=([{'description': description, 'quantity': 1}], 0, 100, 100)), \
                 patch.object(type(move), '_get_eta_personal_details', side_effect=lambda *a: {'address': {}}), \
                 patch.object(type(move), '_get_eta_tax_totals', return_value=[]), \
                 patch.object(type(move), 'inv_type', '', create=True), \
@@ -970,3 +970,23 @@ class TestEtaReliability(TransactionCase):
         client.request.assert_not_called()
         self.assertFalse(job.attempted_at or job.payload)
         self.assertEqual(job.attempts, 0)
+
+    def test_negative_exchange_line_is_blocked_before_any_http(self):
+        move = self.invoice(); job = move.eta_job_ids
+        document = {'invoiceLines': [{'quantity': -1}], 'signatures': [{'value': 'signed-fixture'}]}
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat)
+        with patch.object(type(move), 'action_generate_eta_json'), \
+                patch.object(type(move), 'action_sign_invoice', return_value=document), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Invalid quantity sent HTTP')):
+            with self.assertRaisesRegex(UserError, 'positive quantities'):
+                job._prepare()
+        self.assertFalse(job.payload or job.attempted_at)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat))
+
+    def test_quantity_contract_keeps_free_goods_and_rejects_nonpositive_or_non_numeric_values(self):
+        job = self.invoice().eta_job_ids
+        self.assertTrue(job._validate_eta_line_quantities({'invoiceLines': [
+            {'quantity': 1, 'unitValue': {'amountEGP': 0}, 'total': 0}, {'quantity': .125}]}))
+        for quantity in (-1, 0, float('nan'), float('inf'), '1', True):
+            with self.assertRaisesRegex(UserError, 'positive quantities'):
+                job._validate_eta_line_quantities({'invoiceLines': [{'quantity': quantity}]})

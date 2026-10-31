@@ -90,6 +90,7 @@ class EtaSubmissionSafety(models.Model):
         self._assert_eta_number_unique()
         document = json.loads(self.payload)['documents'][0]
         self._assert_eta_document_issuer(document)
+        self._validate_eta_line_quantities(document)
         if self.historical_fingerprint and self._historical_financial_fingerprint() != self.historical_fingerprint:
             raise UserError(_('Posted accounting changed after historical verification. Finance must review this invoice.'))
         current = self._submission_source()
