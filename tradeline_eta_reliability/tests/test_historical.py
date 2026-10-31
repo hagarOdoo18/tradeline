@@ -650,7 +650,7 @@ class TestHistoricalRecovery(TransactionCase):
                                 ('room', False), ('landmark', False), ('additional_info', False)]:
                 if name not in partner._fields:
                     stack.enter_context(patch.object(type(partner), name, value, create=True))
-            if 'mobile_type' in partner._fields:
+            if 'mobile_type' in partner._fields and partner.mobile_type != 'local':
                 partner.mobile_type = 'local'
             yield
 
@@ -680,6 +680,8 @@ class TestHistoricalRecovery(TransactionCase):
     def test_preflight_accepts_small_sale_placeholder_omission_from_existing_data(self):
         move = self.invoice(); job = move.eta_job_ids
         move.partner_id.country_id = self.env.ref('base.eg')
+        if 'mobile_type' in move.partner_id._fields:
+            move.partner_id.mobile_type = 'local'
         # Simulate the malformed legacy value seen in production without
         # weakening the hosted contact module's normal input validation.
         self.env.flush_all()
