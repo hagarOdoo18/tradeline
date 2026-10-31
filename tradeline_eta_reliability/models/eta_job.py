@@ -20,9 +20,9 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-# Release 23 changes manual refresh routing, not the automatic recovery policy.
-# Keep the policy revision so unchanged correction holds are not retried merely
-# because this UI action was fixed.
+# Releases 23/24 correct refresh routing and an unused description prerequisite.
+# Keep the policy revision: unchanged correction holds must not all retry after
+# these fixes. Description holds can enter a bounded, explicitly selected review.
 PROCESSING_REVISION = '18.0.1.0.22'
 DUPLICATE_REVIEW_PREFIX = 'Multiple currently Valid ETA receipts'
 

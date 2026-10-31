@@ -374,8 +374,11 @@ class AccountMove(models.Model):
         self.check_access('write')
         self._eta_enqueue()
         jobs = self.env['tradeline.eta.job'].sudo().search([
-            ('move_id', 'in', self.ids), ('move_id.e_invoice_uuid', '!=', False)])
-        jobs.write({'state': 'accepted', 'next_attempt': False})
+            ('move_id', 'in', self.ids), '|',
+            ('move_id.e_invoice_uuid', '!=', False), ('move_id.l10n_eg_uuid', '!=', False)])
+        # Use the same full-history routing as the log's Refresh action. Polling
+        # one UUID must not erase a duplicate warning or a held source comparison.
+        jobs.action_recheck()
         return True
 
     def cron_send_invoices(self):

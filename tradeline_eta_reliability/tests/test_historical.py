@@ -966,6 +966,82 @@ class TestHistoricalRecovery(TransactionCase):
             job.action_recheck()
         self.assertEqual(before, (job.state, job.payload, job.attempted_at))
 
+    def test_native_status_update_keeps_duplicate_audit_until_complete_history_reconciliation(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'kept-approved', 'e_invoice_status': 'Valid'})
+        reason = 'Multiple currently Valid ETA receipts use this invoice number; audit requires reconciliation.'
+        job.write({'state': 'valid', 'last_error': reason,
+                   'historical_fingerprint': job._historical_financial_fingerprint()})
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.e_invoice_uuid,
+                  job.payload, job.attempted_at, job.attempts)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Status action sent HTTP')):
+            move.action_update_electronic_invoice_status()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertFalse(job.historical_submission_verified); self.assertEqual(job.last_error, reason)
+        self.assertTrue(job.needs_attention)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.e_invoice_uuid,
+                                  job.payload, job.attempted_at, job.attempts))
+        receipts = [{'uuid': uuid, 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)}
+                    for uuid in ('kept-approved', 'other-approved')]
+        job, client, _ = self.review(move, receipts)
+        self.assertEqual(job.state, 'blocked'); self.assertTrue(job.needs_attention)
+        self.assertTrue(job.last_error.startswith('Multiple currently Valid ETA receipts'))
+        self.assertFalse(job.historical_submission_verified); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.e_invoice_uuid,
+                                  job.payload, job.attempted_at, job.attempts))
+
+    def test_native_status_update_routes_both_conflicting_and_native_only_receipts_through_history(self):
+        for native_only in (False, True):
+            move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+            if native_only:move.e_invoice_uuid = False
+            job.write({'state': 'blocked', 'payload': 'retained signed request',
+                       'attempted_at': fields.Datetime.now(), 'safe_to_retry': True,
+                       'last_error': 'Native and custom ETA receipts differ; reconcile their history.'})
+            before = (job.payload, job.attempted_at, job.safe_to_retry, move.e_invoice_uuid,
+                      move.l10n_eg_uuid, move.l10n_eg_eta_json_doc_id, job.last_error)
+            with patch('requests.sessions.Session.request', side_effect=AssertionError('Status action sent HTTP')):
+                move.action_update_electronic_invoice_status()
+            self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+            self.assertFalse(job.historical_submission_verified)
+            self.assertEqual(before, (job.payload, job.attempted_at, job.safe_to_retry, move.e_invoice_uuid,
+                                      move.l10n_eg_uuid, move.l10n_eg_eta_json_doc_id, job.last_error))
+            self.assertTrue(attachment.exists())
+
+    def test_native_status_update_cannot_poll_away_a_held_historical_source_comparison(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'prior-approval', 'e_invoice_status': 'Valid'})
+        job.historical_fingerprint = job._historical_financial_fingerprint()
+        job._historical_hold('Existing Valid receipt differs from the current posted invoice.')
+        before = (job.last_error, job.payload, job.attempted_at, move.e_invoice_uuid,
+                  move.invoice_date, move.amount_total)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Status action sent HTTP')):
+            move.action_update_electronic_invoice_status()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertFalse(job.historical_submission_verified)
+        self.assertEqual(before, (job.last_error, job.payload, job.attempted_at, move.e_invoice_uuid,
+                                  move.invoice_date, move.amount_total))
+
+    def test_native_status_update_preserves_normal_unambiguous_receipt_polling(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'newly-accepted', 'e_invoice_status': 'Submitted'})
+        job.write({'state': 'accepted', 'payload': 'retained request', 'attempted_at': fields.Datetime.now()})
+        before = (job.payload, job.attempted_at)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Status action sent HTTP')):
+            move.action_update_electronic_invoice_status()
+        self.assertEqual(job.state, 'accepted'); self.assertFalse(job.historical_review)
+        self.assertEqual(before, (job.payload, job.attempted_at))
+
+    def test_native_status_update_preserves_unresolved_timeout_without_receipt_links(self):
+        move = self.invoice(); job = move.eta_job_ids
+        job.write({'state': 'unknown', 'payload': 'retained uncertain request',
+                   'attempted_at': fields.Datetime.now(), 'safe_to_retry': False})
+        before = (job.state, job.payload, job.attempted_at, job.safe_to_retry,
+                  job.historical_review, job.historical_submission_verified)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Status action sent HTTP')):
+            move.action_update_electronic_invoice_status()
+        self.assertEqual(before, (job.state, job.payload, job.attempted_at, job.safe_to_retry,
+                                  job.historical_review, job.historical_submission_verified))
+
     def test_manual_refresh_release_does_not_automatically_retry_unchanged_v22_correction_holds(self):
         move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
         self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)

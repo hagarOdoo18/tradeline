@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from odoo import Command, fields
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
 
@@ -901,6 +901,89 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(total, move.amount_total)
         self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_untaxed,
                   move.amount_tax, tuple(move.line_ids.mapped('balance'))))
+
+    def _description_serializer_fixture(self, **overrides):
+        metadata = {'e_invoicing_code': 'EG-test-description', 'code_type': 'egs', 'ar_description': False}
+        metadata.update(overrides)
+        Product = self.env['product.product']
+        product = Product.create({'name': 'Adapter USB-C 25W - White'})
+        product.barcode = 'ETA-ENGLISH-DESCRIPTION-%s' % product.id
+        product.write({key: value for key, value in metadata.items() if key in product._fields})
+        eta_uom = self.env['eta.uom'].search([('code', '=', 'D41')], limit=1)
+        eta_uom = eta_uom or self.env['eta.uom'].create({'name': 'Each', 'code': 'D41'})
+        product.uom_id.eta_uom_id = eta_uom
+        move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'partner_id': self.partner.id, 'currency_id': self.env.ref('base.EGP').id,
+            'invoice_date': fields.Date.today(), 'invoice_line_ids': [Command.create({
+                'product_id': product.id, 'account_id': self.income.id, 'quantity': 2,
+                'price_unit': 1250, 'discount': 10, 'tax_ids': [Command.clear()]})]})
+        move.action_post()
+        return move, product, metadata
+
+    def _description_serializer_values(self, move, product, metadata):
+        before = (move.invoice_date, move.date, move.amount_total, move.amount_untaxed, move.amount_tax,
+                  tuple(move.line_ids.mapped('balance')), move.partner_id.vat,
+                  move.e_invoice_uuid, move.e_invoice_status, move.eta_job_ids.payload, move.eta_job_ids.state)
+        with ExitStack() as stack:
+            stack.enter_context(patch('requests.sessions.Session.request', side_effect=AssertionError('Serialization performed HTTP')))
+            for key, value in metadata.items():
+                if key not in product._fields:
+                    stack.enter_context(patch.object(type(product), key, value, create=True))
+            product_before = (product.name, product.barcode,
+                product.e_invoicing_code, product.code_type, product.ar_description)
+            values = move._get_eta_invoice_lines()
+            self.assertEqual(product_before, (product.name, product.barcode,
+                product.e_invoicing_code, product.code_type, product.ar_description))
+        self.assertEqual(before, (move.invoice_date, move.date, move.amount_total, move.amount_untaxed, move.amount_tax,
+                  tuple(move.line_ids.mapped('balance')), move.partner_id.vat,
+                  move.e_invoice_uuid, move.e_invoice_status, move.eta_job_ids.payload, move.eta_job_ids.state))
+        return values
+
+    def test_actual_eta_description_does_not_require_unused_arabic_metadata(self):
+        move, product, metadata = self._description_serializer_fixture()
+        lines, discount, sales, total = self._description_serializer_values(move, product, metadata)
+        self.assertEqual(lines[0]['description'], 'Adapter USB-C 25W - White')
+        self.assertEqual(lines[0]['itemCode'], metadata['e_invoicing_code'])
+        self.assertEqual(lines[0]['itemType'], 'egs')
+        self.assertEqual(lines[0]['unitType'], 'D41')
+        self.assertEqual((discount, sales, total), (250, 2500, move.amount_total))
+
+    def test_arabic_metadata_does_not_change_existing_approved_payload(self):
+        move, product, metadata = self._description_serializer_fixture(ar_description='Existing catalogue description')
+        original = self._description_serializer_values(move, product, metadata)
+        payload = json.dumps({'documents': [{'internalID': move.name, 'invoiceLines': original[0]}]})
+        move.write({'e_invoice_uuid': 'existing-approved-description', 'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        move.eta_job_ids.write({'state': 'valid', 'payload': payload})
+        if 'ar_description' in product._fields:
+            product.ar_description = False
+        metadata['ar_description'] = False
+        self.assertEqual(self._description_serializer_values(move, product, metadata), original)
+        self.assertEqual(move.eta_job_ids.payload, payload)
+
+    def test_missing_eta_product_code_or_type_still_blocks_serialization(self):
+        for key in ('e_invoicing_code', 'code_type'):
+            with self.subTest(required_field=key):
+                move, product, metadata = self._description_serializer_fixture(**{key: False})
+                with self.assertRaisesRegex(ValidationError, key):
+                    self._description_serializer_values(move, product, metadata)
+                self.assertFalse(move.eta_job_ids.attempted_at)
+
+    def test_invalid_eta_product_unit_still_blocks_serialization(self):
+        move, product, metadata = self._description_serializer_fixture()
+        invalid = self.env['eta.uom'].create({'name': 'Invalid ETA unit', 'code': 'INVALID_ETA_UNIT'})
+        product.uom_id.eta_uom_id = invalid
+        with self.assertRaisesRegex(ValidationError, 'INVALID_ETA_UNIT'):
+            self._description_serializer_values(move, product, metadata)
+        self.assertFalse(move.eta_job_ids.attempted_at)
+
+    def test_blank_actual_eta_description_is_held_without_fabricating_a_name(self):
+        move, product, metadata = self._description_serializer_fixture()
+        for description in ('', False, '  \n  '):
+            with self.subTest(description=description), patch.object(type(product), 'display_name', description):
+                with self.assertRaisesRegex(ValidationError, 'line description is required'):
+                    self._description_serializer_values(move, product, metadata)
+        self.assertEqual(product.name, 'Adapter USB-C 25W - White')
+        self.assertFalse(move.eta_job_ids.attempted_at)
 
     def _free_item_serializer_fixture(self, currency):
         currency.active = True
