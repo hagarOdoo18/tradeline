@@ -290,7 +290,7 @@ class ShopifyMinQty(models.Model):
         return qty if qty > min_qty else 0
 
     @api.model
-    def _resolve_document_type(self, instance, products):
+    def _resolve_document_type(self, instance, products, warehouse=None):
         """Determine whether a Shopify order should stay as a Sales Order
         or be converted to an Invoice, based on the rules matching its
         products.
@@ -309,26 +309,35 @@ class ShopifyMinQty(models.Model):
             return 'sale_order'
         for product in products:
             matched_rule = self._find_matching_rule(
-                rules, instance, product)
+                rules, instance, product, warehouse=warehouse)
             if not matched_rule or matched_rule.document_type != 'invoice':
                 return 'sale_order'
         return 'invoice'
 
     @api.model
-    def _find_matching_rule(self, rules, instance, product):
+    def _find_matching_rule(self, rules, instance, product,
+                           warehouse=None):
         """Find the most specific rule matching a product.
 
-        Priority: instance > product variant > product category.
+        Priority: instance > warehouse > product variant > product category.
         Returns the first matching rule or False.
+
+        When *warehouse* is given, rules that list that warehouse are
+        preferred over rules with an empty warehouse list at every
+        tier.  Rules that list *other* warehouses (but not this one)
+        are excluded entirely.
         """
+        if warehouse:
+            # Exclude rules that explicitly list warehouses but not this one.
+            rules = rules.filtered(
+                lambda r: not r.warehouse_ids
+                or warehouse in r.warehouse_ids)
         # 1. Rules with this specific product variant
         variant_rules = rules.filtered(
             lambda r: product in r.product_ids)
         if variant_rules:
-            # Prefer instance-specific
-            instance_match = variant_rules.filtered(
-                lambda r: r.instance_id == instance)
-            return instance_match[:1] or variant_rules[:1]
+            return self._pick_best_rule(
+                variant_rules, instance, warehouse)
 
         # 2. Rules with a matching product category (closest ancestor wins)
         categ = product.categ_id
@@ -341,16 +350,46 @@ class ShopifyMinQty(models.Model):
             categ_rules = rules.filtered(
                 lambda r: cat in r.categ_ids)
             if categ_rules:
-                instance_match = categ_rules.filtered(
-                    lambda r: r.instance_id == instance)
-                return instance_match[:1] or categ_rules[:1]
+                return self._pick_best_rule(
+                    categ_rules, instance, warehouse)
 
         # 3. Global rules (no product, no category)
         global_rules = rules.filtered(
             lambda r: not r.product_ids and not r.categ_ids)
         if global_rules:
-            instance_match = global_rules.filtered(
-                lambda r: r.instance_id == instance)
-            return instance_match[:1] or global_rules[:1]
+            return self._pick_best_rule(
+                global_rules, instance, warehouse)
 
         return False
+
+    @api.model
+    def _pick_best_rule(self, candidates, instance, warehouse):
+        """From a set of candidate rules at the same specificity tier,
+        pick the single best one.
+
+        Ranking (first match wins):
+        1. instance + warehouse both match
+        2. instance matches, warehouse empty (applies to all)
+        3. no instance, warehouse matches
+        4. no instance, warehouse empty
+        """
+        if warehouse:
+            wh_specific = candidates.filtered(
+                lambda r: warehouse in r.warehouse_ids)
+            wh_global = candidates.filtered(
+                lambda r: not r.warehouse_ids)
+            for pool in (wh_specific, wh_global):
+                inst_match = pool.filtered(
+                    lambda r: r.instance_id == instance)
+                if inst_match:
+                    return inst_match[:1]
+            # Warehouse-specific but any instance
+            if wh_specific:
+                return wh_specific[:1]
+            if wh_global:
+                return wh_global[:1]
+            return candidates[:1]
+        # No warehouse context — rank by instance only
+        inst_match = candidates.filtered(
+            lambda r: r.instance_id == instance)
+        return inst_match[:1] or candidates[:1]

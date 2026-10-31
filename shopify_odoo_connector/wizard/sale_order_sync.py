@@ -863,7 +863,8 @@ class SaleOrderSync(models.TransientModel):
                         lambda p: p.type != 'service')
                     doc_type = self.env[
                         'shopify.min.qty']._resolve_document_type(
-                        instance, storable_products)
+                        instance, storable_products,
+                        warehouse=so.warehouse_id)
                     if doc_type == 'invoice':
                         # validate the delivery and create + post the
                         # invoice.  Never raises: a step that fails is
