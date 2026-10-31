@@ -145,6 +145,8 @@ class EtaJobMonitoring(models.Model):
                 actions.append(_('Check the company signing service and certificate configuration.'))
             if any(word in lower for word in ('serialization', 'calculation review', 'five-decimal', 'tax allocations', 'posted exchange rate')):
                 actions.append(_('IT must reconcile ETA calculations with the posted ledger. Preserve the accounting dates and amounts.'))
+            if 'eta requires positive quantities' in lower:
+                actions.append(_('Finance must review the return/credit-note and replacement-invoice route. Do not invert quantities or remove return lines to force ETA acceptance.'))
             if job.duplicate_retry_at:
                 actions.append(_('Wait for the ETA Retry-After deadline; automatic receipt reconciliation will run before any retry.'))
             if job.state == 'valid':

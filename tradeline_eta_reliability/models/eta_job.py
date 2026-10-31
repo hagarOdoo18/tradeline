@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import math
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -19,7 +20,7 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.20'
+PROCESSING_REVISION = '18.0.1.0.21'
 
 
 class EtaJob(models.Model):
@@ -236,6 +237,21 @@ class EtaJob(models.Model):
                 return
         self._delay('Submission outcome needs reconciliation. No duplicate was sent.', seconds=900, state='unknown')
 
+    def _validate_eta_line_quantities(self, document):
+        # ETA invoice/credit-note lines require positive quantities. An ERP
+        # return/exchange encoded as a negative sale needs Finance's document
+        # route; taking abs() or dropping the line would change the facts.
+        # https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/
+        for index, line in enumerate(document.get('invoiceLines') or [], 1):
+            quantity = line.get('quantity') if isinstance(line, dict) else None
+            try:
+                valid = type(quantity) in (int, float) and math.isfinite(quantity) and quantity > 0
+            except (TypeError, OverflowError):
+                valid = False
+            if not valid:
+                raise UserError(_('Invoice line %s has a non-positive or invalid quantity. ETA requires positive quantities; Finance must review the return/credit-note or replacement-invoice route. Nothing was submitted.', index))
+        return True
+
     def _prepare(self):
         self.ensure_one()
         move = self.move_id.with_company(self.company_id)
@@ -251,6 +267,7 @@ class EtaJob(models.Model):
             self.current_issue_datetime = fields.Datetime.now()
         move.action_generate_eta_json()
         document = move.action_sign_invoice()
+        self._validate_eta_line_quantities(document)
         if not document.get('signatures') or not document['signatures'][0].get('value'):
             raise UserError(_('The signing service returned no signature.'))
         payload = json.dumps({'documents': [document]}, ensure_ascii=False, separators=(',', ':'))

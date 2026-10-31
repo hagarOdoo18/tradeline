@@ -47,13 +47,30 @@ def egp_rounding_pair(original, current):
         and Decimal(str(gross[0])) == Decimal(str(gross[1])))
 
 
-def match_document(original, current, safe_codes=(), trusted_issuer=False, approved_egp_rounding=False):
+def match_document(original, current, safe_codes=(), trusted_issuer=False, approved_egp_rounding=False, issuer_name_aliases=()):
     """Permit verified master-label/address drift, never fiscal or identity drift."""
     def normalize(document, other):
         result = deepcopy(fiscal(document))
         if trusted_issuer:
-            address = result.get('issuer', {}).get('address', {})
-            address.pop('street', None); address.pop('regionCity', None)
+            issuer = result.get('issuer', {}); peer = other.get('issuer', {})
+            address = issuer.get('address', {}); peer_address = peer.get('address', {})
+            # A currently approved document may use the taxpayer's earlier
+            # ERP company name/address. Accept only known names of companies
+            # sharing this exact taxpayer, environment and credentials, and a
+            # current issuer already confirmed on an approved ETA document.
+            # Branch/country/taxpayer identity and all fiscal data stay strict.
+            known_alias = (issuer.get('name') in issuer_name_aliases and peer.get('name') in issuer_name_aliases
+                and issuer.get('type') == peer.get('type') == 'B'
+                and bool(re.fullmatch(r'[0-9]{9}', str(issuer.get('id') or '')))
+                and issuer.get('id') == peer.get('id')
+                and address.get('country') == peer_address.get('country') == 'EG'
+                and isinstance(address.get('branchID'), str) and bool(address['branchID'].strip())
+                and address.get('branchID') == peer_address.get('branchID'))
+            if known_alias:
+                issuer.pop('name', None)
+                issuer['address'] = {'country': address['country'], 'branchID': address['branchID']}
+            else:
+                address.pop('street', None); address.pop('regionCity', None)
         for index, line in enumerate(result.get('invoiceLines', [])):
             unit = line.get('unitValue', {})
             if unit.get('currencySold') == 'EGP':
@@ -192,12 +209,13 @@ class EtaHistoricalRecovery(models.Model):
         if self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
             return 0
         domain = [('state', 'in', ['blocked', 'invalid']), ('processing_revision', '!=', PROCESSING_REVISION),
-            '|', '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
+            '|', '|', '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
                  ('last_error', '=like', 'Foreign-currency historical recovery requires posted FX%'),
                  ('last_error', '=like', 'The invoice is outside the configured ETA submission window%'),
                  ('last_error', 'ilike', 'CF313'),
                  ('last_error', '=like', 'Existing Valid receipt differs from posted source%'),
-                 ('last_error', '=like', 'The prepared ETA request differs from the current posted source.%')]
+                 ('last_error', '=like', 'The prepared ETA request differs from the current posted source.%'),
+                 ('last_error', '=like', 'ETA rejected the submission (2).%')]
         if move_ids is not None:
             domain.append(('move_id', 'in', move_ids))
         candidates = self.sudo().search(domain, limit=limit, order='id')
@@ -351,6 +369,24 @@ class EtaHistoricalRecovery(models.Model):
         proof['verified_through'] = end
         return raw
 
+    def _historical_issuer_name_aliases(self):
+        self.ensure_one()
+        company = self.company_id
+        if not company.client_id or not company.client_secret:
+            return set()
+        taxpayer_id = re.sub(r'\D', '', company.vat or '')
+        if not re.fullmatch(r'[0-9]{9}', taxpayer_id):
+            return set()
+        aliases = set()
+        companies = self.env['res.company'].sudo().search([
+            ('config_type', '=', company.config_type), ('client_id', '=', company.client_id)])
+        for candidate in companies:
+            if (re.sub(r'\D', '', candidate.vat or '') == taxpayer_id
+                    and candidate.client_secret == company.client_secret):
+                aliases.update(name for name in (candidate.name, candidate.partner_id.name,
+                                                 candidate.partner_id.display_name) if name)
+        return aliases
+
     def _historical_matches(self, raw, current):
         document = raw.get('document')
         if isinstance(document, str):
@@ -378,7 +414,9 @@ class EtaHistoricalRecovery(models.Model):
                         trusted = True; break
                 except (ValueError, KeyError, TypeError):
                     continue
-        matched = match_document(document, current, safe_codes, trusted, approved_egp_rounding=approved_rounding)
+        aliases = self._historical_issuer_name_aliases() if raw.get('status') == 'Valid' and trusted else set()
+        matched = match_document(document, current, safe_codes, trusted, approved_egp_rounding=approved_rounding,
+                                 issuer_name_aliases=aliases)
         if (not matched and raw.get('status') == 'Valid'
                 and not document.get('receiver', {}).get('id')
                 and self._optional_person_id_scope(document) and self._optional_person_id_scope(current)):
@@ -388,7 +426,7 @@ class EtaHistoricalRecovery(models.Model):
             anonymous = deepcopy(current); anonymous['receiver']['id'] = ''
             recorded = deepcopy(document); recorded['receiver']['id'] = ''
             matched = match_document(recorded, anonymous, safe_codes, trusted,
-                                     approved_egp_rounding=approved_rounding)
+                                     approved_egp_rounding=approved_rounding, issuer_name_aliases=aliases)
         if not matched:
             return False
         rin = re.sub(r'\D', '', move.company_id.vat or '')
@@ -441,7 +479,7 @@ class EtaHistoricalRecovery(models.Model):
                 'baseline_history_to': str(proof['to']),
                 'checked_at': str(fields.Datetime.now()), 'financial_fingerprint': self.historical_fingerprint,
                 'prior_uuid': move.e_invoice_uuid, 'prior_native_uuid': move.l10n_eg_uuid,
-                'prior_status': move.e_invoice_status, 'prior_error': move.e_invoice_issue,
+                'prior_status': move.e_invoice_status, 'prior_error': move.e_invoice_issue, 'prior_job_error': self.last_error,
                 'prior_json': move.e_invoice_json, 'prior_canonical': move.e_invoice_canonical,
                 'prior_signature': move.static_signature, 'prior_signed': move.invoice_signed,
                 'prior_sent': move.e_invoice_sent, 'prior_job_payload': self.payload,
@@ -536,6 +574,15 @@ class EtaHistoricalRecovery(models.Model):
             if any(r.get('status') != 'Invalid' for r in receipts):
                 raise UserError(_('An unrecognized authority receipt status prevents safe submission.'))
             outgoing = self._submission_source()
+            # An explicit rejection/no attempt is not an uncertain HTTP result.
+            # Preserve any genuine uncertain marker and its existing route.
+            if self.safe_to_retry or not self.attempted_at or move.e_invoice_uuid:
+                try:
+                    self._validate_eta_line_quantities(outgoing)
+                except UserError:
+                    if self._has_recorded_rejection():
+                        self._historical_archive(proof, receipts, 'Hold recorded schema rejection for Finance document-route correction; no resubmission')
+                    raise
             optional_id_rejected = False
             for receipt in receipts:
                 old = receipt.get('document'); old = json.loads(old) if isinstance(old, str) else old
@@ -591,7 +638,17 @@ class EtaHistoricalRecovery(models.Model):
             date_rejected = (any('CF313' in leaf_codes(receipt.get('validationResults', {})) for receipt in receipts)
                              or self.safe_to_retry and self._is_date_only_rejection(self.last_error))
             optional_id_rejected |= self._explicit_optional_id_rejection(current)
-            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected:
+            schema_rejected = bool(self.safe_to_retry and (self.last_error or '').startswith('ETA rejected the submission (2).'))
+            if not receipts and schema_rejected and not date_rejected and not optional_id_rejected:
+                try:
+                    rejected = json.loads(self.payload)['documents'][0]
+                    self._assert_eta_document_issuer(rejected)
+                except (ValueError, TypeError, KeyError, IndexError):
+                    raise UserError(_('The retained schema-rejected request is unreadable. IT must reconcile it before any retry.'))
+                if fiscal_equal(fiscal(rejected), fiscal(outgoing)):
+                    self._historical_hold(self.last_error)
+                    return
+            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected and not schema_rejected:
                 anchor = self.attempted_at or move.e_invoice_date or move.create_date
                 if anchor and anchor > fields.Datetime.now() - timedelta(hours=24):
                     self.write({'state': 'review', 'next_attempt': anchor + timedelta(hours=24), 'last_error': 'A recent uncertain submission is in the 24-hour reconciliation window. Automatic checks continue; nothing was resent.'})

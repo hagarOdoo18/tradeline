@@ -742,3 +742,147 @@ class TestHistoricalRecovery(TransactionCase):
             job, client, _ = self.review(move, [raw])
         self.assertEqual(job.state, 'invalid'); self.assertFalse(job.omit_optional_receiver_id)
         client.request.assert_not_called()
+
+    def test_cached_negative_quantity_is_rejected_before_authority_lookup(self):
+        move = self.invoice(); source = self.document(move); source['invoiceLines'][0]['quantity'] = -1
+        with patch.object(self, 'document', return_value=source):
+            job, _doc, stack = self.preflight(move)
+        client = MagicMock()
+        with stack, self.assertRaisesRegex(UserError, 'positive quantities'):
+            job._preflight_submission(client)
+        client.request.assert_not_called(); self.assertFalse(job.attempted_at)
+
+    def test_known_schema_rejection_is_held_for_finance_without_uncertainty_or_resend(self):
+        move = self.invoice(); job = move.eta_job_ids; source = self.document(move)
+        source['invoiceLines'][0]['quantity'] = -1
+        rejected = 'ETA rejected the submission (2). ' + json.dumps({'code': '2', 'details': [
+            {'message': 'ArrayItemNotValid', 'propertyPath': '#/invoiceLines[0]'}]})
+        job.write({'payload': json.dumps({'documents': [source]}), 'attempted_at': fields.Datetime.now(),
+                   'safe_to_retry': True, 'last_error': rejected})
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat)
+        with patch.object(self, 'document', return_value=source):
+            job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'blocked'); self.assertIn('positive quantities', job.last_error)
+        self.assertTrue(job.needs_attention); self.assertIn('credit-note', job.required_action)
+        self.assertFalse(job.historical_submission_verified); client.request.assert_not_called()
+        saved = self.env['ir.attachment'].search([('res_model', '=', 'account.move'), ('res_id', '=', move.id),
+            ('name', '=', 'ETA_historical_recovery_%s.json' % job.id)], order='id desc', limit=1)
+        self.assertEqual(json.loads(saved.raw)['prior_job_error'], rejected)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat))
+
+    def test_uncertain_negative_quantity_request_retains_its_reconciliation_marker(self):
+        move = self.invoice(); job = move.eta_job_ids; source = self.document(move)
+        source['invoiceLines'][0]['quantity'] = -1
+        payload = json.dumps({'documents': [source]}); attempted = fields.Datetime.now()
+        job.write({'payload': payload, 'attempted_at': attempted, 'safe_to_retry': False})
+        with patch.object(self, 'document', return_value=source):
+            job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'review'); self.assertEqual(job.attempted_at, attempted)
+        self.assertEqual(job.payload, payload); self.assertIn('uncertain', job.last_error)
+        client.request.assert_not_called()
+
+    def test_new_submission_quantity_rules_do_not_discard_an_existing_approval(self):
+        move = self.invoice(); source = self.document(move); source['invoiceLines'][0]['quantity'] = -1
+        receipt = {'uuid': 'retained-approved', 'internalId': move.name, 'status': 'Valid', 'document': source}
+        with patch.object(self, 'document', return_value=source):
+            job, client, _ = self.review(move, [receipt])
+        self.assertEqual(job.state, 'valid'); self.assertEqual(move.e_invoice_uuid, 'retained-approved')
+        client.request.assert_not_called()
+
+    def test_unchanged_explicit_schema_rejection_is_not_relabelled_uncertain_or_resent(self):
+        move = self.invoice(); job = move.eta_job_ids; doc = self.document(move)
+        reason = 'ETA rejected the submission (2). ' + json.dumps({'code': '2', 'message': 'Schema rejected'})
+        job.write({'payload': json.dumps({'documents': [doc]}), 'attempted_at': fields.Datetime.now(),
+                   'safe_to_retry': True, 'last_error': reason})
+        job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'blocked'); self.assertEqual(job.last_error, reason)
+        self.assertTrue(job.needs_attention); self.assertFalse(job.historical_submission_verified)
+        client.request.assert_not_called()
+
+    def test_corrected_schema_request_can_retry_after_full_negative_history_without_24hour_wait(self):
+        move = self.invoice(); job = move.eta_job_ids; original = self.document(move)
+        original['invoiceLines'][0]['quantity'] = '1'  # Previously invalid JSON type; current source is numeric.
+        reason = 'ETA rejected the submission (2). ' + json.dumps({'code': '2', 'message': 'Schema rejected'})
+        job.write({'payload': json.dumps({'documents': [original]}), 'attempted_at': fields.Datetime.now(),
+                   'safe_to_retry': True, 'last_error': reason})
+        before = (move.invoice_date, move.amount_total, move.amount_tax)
+        job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'queued'); self.assertTrue(job.historical_submission_verified)
+        self.assertFalse(job.attempted_at or job.payload); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+
+    def test_schema_rejection_without_retained_request_stays_held(self):
+        move = self.invoice(); job = move.eta_job_ids
+        job.write({'payload': False, 'attempted_at': fields.Datetime.now(), 'safe_to_retry': True,
+                   'last_error': 'ETA rejected the submission (2). {"code":"2"}'})
+        job, client, _ = self.review(move)
+        self.assertEqual(job.state, 'blocked'); self.assertIn('unreadable', job.last_error)
+        client.request.assert_not_called()
+
+    def issuer_alias_document(self, move):
+        doc = self.document(move)
+        doc['issuer'].update(type='B', name='Known old company')
+        doc['issuer']['address'].update(branchID='0', governate='Old state', buildingNumber='10', postalCode='10000')
+        current = json.loads(json.dumps(doc)); current['issuer']['name'] = 'Known current company'
+        current['issuer']['address'].update(governate='Current state', street='Current street', regionCity='Current city',
+                                            buildingNumber='20', postalCode='20000')
+        return doc, current
+
+    def test_verified_same_taxpayer_company_alias_can_match_existing_approval_without_rewriting_documents(self):
+        original, current = self.issuer_alias_document(self.invoice())
+        before = (json.dumps(original, sort_keys=True), json.dumps(current, sort_keys=True))
+        names = {'Known old company', 'Known current company'}
+        self.assertTrue(match_document(original, current, trusted_issuer=True, issuer_name_aliases=names))
+        self.assertEqual(before, (json.dumps(original, sort_keys=True), json.dumps(current, sort_keys=True)))
+        self.assertFalse(match_document(original, current, trusted_issuer=False, issuer_name_aliases=names))
+        self.assertFalse(match_document(original, current, trusted_issuer=True))
+
+    def test_issuer_alias_comparison_keeps_branch_country_identity_and_all_fiscal_fields_strict(self):
+        original, current = self.issuer_alias_document(self.invoice()); names = {'Known old company', 'Known current company'}
+        for path, value in [('issuer.id', '987654321'), ('issuer.type', 'F'), ('issuer.name', 'Unverified company'),
+                            ('issuer.address.branchID', '1'), ('issuer.address.country', 'SA'),
+                            ('receiver.id', '12345678901234'), ('totalAmount', 101)]:
+            changed = json.loads(json.dumps(current)); target = changed
+            for key in path.split('.')[:-1]:target = target[key]
+            target[path.split('.')[-1]] = value
+            self.assertFalse(match_document(original, changed, trusted_issuer=True, issuer_name_aliases=names), path)
+        for key, value in [('quantity', 2), ('itemCode', 'DIFFERENT'), ('unitType', 'C62')]:
+            changed = json.loads(json.dumps(current)); changed['invoiceLines'][0][key] = value
+            self.assertFalse(match_document(original, changed, trusted_issuer=True, issuer_name_aliases=names), key)
+
+    def alias_company(self, name, vat='123456789', environment='uat', client='test-client', secret='test-secret'):
+        values = {'name': name, 'is_company': True, 'vat': vat, 'country_id': self.env.ref('base.eg').id}
+        for key, value in [('company_size', 'small'), ('company_device', 1)]:
+            if key in self.env['res.partner']._fields:values[key] = value
+        partner = self.env['res.partner'].with_context(no_vat_validation=True).create(values)
+        return self.env['res.company'].create({'name': name, 'partner_id': partner.id,
+            'currency_id': self.env.ref('base.EGP').id, 'config_type': environment,
+            'client_id': client, 'client_secret': secret, 'activity_code_id': self.company.activity_code_id.id,
+            'type_code_id': self.company.type_code_id.id, 'sub_type_code_id': self.company.sub_type_code_id.id})
+
+    def test_company_name_aliases_are_scoped_to_taxpayer_environment_and_both_credentials(self):
+        move = self.invoice(); allowed = self.alias_company('Allowed issuer alias')
+        excluded = [self.alias_company('Different taxpayer', vat='987654321'),
+                    self.alias_company('Different environment', environment='prod'),
+                    self.alias_company('Different client', client='different-client'),
+                    self.alias_company('Different secret', secret='different-secret')]
+        names = move.eta_job_ids._historical_issuer_name_aliases()
+        self.assertIn(allowed.name, names); self.assertIn(self.company.name, names)
+        for company in excluded:self.assertNotIn(company.name, names)
+
+    def test_company_alias_restore_requires_valid_authority_status_and_previously_approved_current_issuer(self):
+        move = self.invoice(); alias = self.alias_company('Known registered issuer alias')
+        self.company.partner_id.write({'street': 'Current street', 'city': 'Current city'})
+        source = self.document(move); source['issuer'].update(type='B', name=self.company.partner_id.display_name)
+        source['issuer']['address'].update(branchID='0', governate='Current state', buildingNumber='20')
+        original = json.loads(json.dumps(source)); original['issuer']['name'] = alias.name
+        original['issuer']['address'].update(governate='Old state', street='Old street', regionCity='Old city', buildingNumber='10')
+        raw = {'uuid': 'approved-old-name', 'internalId': move.name, 'status': 'Valid', 'document': original}
+        job = move.eta_job_ids
+        self.assertFalse(job._historical_matches(raw, source))
+        trusted = self.invoice().eta_job_ids
+        trusted.write({'state': 'valid', 'payload': json.dumps({'documents': [source]})})
+        self.assertTrue(job._historical_matches(raw, source))
+        self.assertFalse(job._historical_matches(dict(raw, status='Submitted'), source))
+        alias.client_secret = 'different-secret'
+        self.assertFalse(job._historical_matches(raw, source))
