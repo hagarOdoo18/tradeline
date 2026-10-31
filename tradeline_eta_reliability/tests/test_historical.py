@@ -871,7 +871,8 @@ class TestHistoricalRecovery(TransactionCase):
         for company in excluded:self.assertNotIn(company.name, names)
 
     def test_company_alias_restore_requires_valid_authority_status_and_previously_approved_current_issuer(self):
-        move = self.invoice(); alias = self.alias_company('Known registered issuer alias')
+        move = self.invoice(); trusted = self.invoice().eta_job_ids
+        alias = self.alias_company('Known registered issuer alias')
         self.company.partner_id.write({'street': 'Current street', 'city': 'Current city'})
         source = self.document(move); source['issuer'].update(type='B', name=self.company.partner_id.display_name)
         source['issuer']['address'].update(branchID='0', governate='Current state', buildingNumber='20')
@@ -880,7 +881,6 @@ class TestHistoricalRecovery(TransactionCase):
         raw = {'uuid': 'approved-old-name', 'internalId': move.name, 'status': 'Valid', 'document': original}
         job = move.eta_job_ids
         self.assertFalse(job._historical_matches(raw, source))
-        trusted = self.invoice().eta_job_ids
         trusted.write({'state': 'valid', 'payload': json.dumps({'documents': [source]})})
         self.assertTrue(job._historical_matches(raw, source))
         self.assertFalse(job._historical_matches(dict(raw, status='Submitted'), source))
