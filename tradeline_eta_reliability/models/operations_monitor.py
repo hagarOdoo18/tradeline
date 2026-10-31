@@ -65,7 +65,8 @@ class OperationsMonitor(models.Model):
                 'Check ETA connectivity, signing, database locks and worker logs; preserve uncertain submission markers.', 'critical'))
         stalled = jobs.search_count(expression.AND([
             jobs._attention_domain(now), [('state', 'in', ['queued', 'unknown', 'accepted', 'review'])],
-            ['!'] + expression.normalize_domain(jobs._recorded_rejection_domain())]))
+            ['!'] + expression.normalize_domain(jobs._recorded_rejection_domain()),
+            ['!'] + expression.normalize_domain(jobs._authority_duplicate_review_domain())]))
         if stalled and not paused:
             observations.append(signal('eta:stalled', 'ETA submissions need review',
                 '%s ETA jobs are delayed or have uncertain submission outcomes.' % stalled,

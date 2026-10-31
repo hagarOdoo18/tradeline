@@ -886,3 +886,141 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertFalse(job._historical_matches(dict(raw, status='Submitted'), source))
         alias.client_secret = 'different-secret'
         self.assertFalse(job._historical_matches(raw, source))
+
+    def native_conflict(self, move):
+        attachment = self.env['ir.attachment'].create({'name': 'Existing native ETA evidence',
+            'res_model': 'account.move', 'res_id': move.id, 'company_id': move.company_id.id,
+            'mimetype': 'application/json', 'raw': json.dumps({'request': self.document(move),
+                'response': {'l10n_eg_uuid': 'native-original'}}).encode()})
+        move.write({'l10n_eg_eta_json_doc_id': attachment.id, 'e_invoice_uuid': 'custom-later',
+                    'e_invoice_status': 'Invalid', 'e_invoice_sent': True})
+        self.assertEqual(move.l10n_eg_uuid, 'native-original')
+        return attachment
+
+    def conflict_receipts(self, move, native='Invalid', custom='Invalid'):
+        return [{'uuid': uuid, 'internalId': move.name, 'status': status,
+                 'document': self.document(move), 'validationResults': {'errorCode': 'CV302'}}
+                for uuid, status in [('native-original', native), ('custom-later', custom)]]
+
+    def test_conflicting_receipt_history_fetches_both_known_uuids_even_when_missing_from_index(self):
+        move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
+        receipts = self.conflict_receipts(move)
+        def response(method, path, **kwargs):
+            self.assertEqual(method, 'GET')
+            if path.endswith('/search'):
+                return {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+            return next(row for row in receipts if path.endswith('/%s/raw' % row['uuid']))
+        client = MagicMock(); client.request.side_effect = response
+        proof = {'to': fields.Datetime.now(), 'receipts': {}}
+        with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
+            found = job._history_candidates(client, proof)
+        self.assertEqual({r['uuid'] for r in found}, {'native-original', 'custom-later'})
+        self.assertEqual(sum('/raw' in c.args[1] for c in client.request.call_args_list), 2)
+        self.assertEqual((move.l10n_eg_uuid, move.e_invoice_uuid), ('native-original', 'custom-later'))
+
+    def test_conflicting_links_restore_only_the_sole_matching_approval_without_post(self):
+        move = self.invoice(); attachment = self.native_conflict(move)
+        before = (move.invoice_date, move.amount_total, move.amount_tax)
+        job, client, _ = self.review(move, self.conflict_receipts(move, native='Valid'))
+        self.assertEqual((job.state, move.e_invoice_uuid, move.l10n_eg_uuid), ('valid', 'native-original', 'native-original'))
+        self.assertTrue(attachment.exists()); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+        archive = self.env['ir.attachment'].search([('name', '=', 'ETA_historical_recovery_%s.json' % job.id)])
+        saved = json.loads(archive.raw)
+        self.assertEqual(saved['prior_native_attachment_id'], attachment.id)
+        self.assertEqual((saved['prior_native_uuid'], saved['prior_uuid']), ('native-original', 'custom-later'))
+
+    def test_two_rejected_links_can_queue_only_after_catalogue_approval_and_complete_history(self):
+        move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat)
+        with patch.object(type(job), '_catalogue_rejection_resolved', return_value=True) as approved:
+            job, client, _ = self.review(move, self.conflict_receipts(move))
+        self.assertEqual(job.state, 'queued'); self.assertTrue(job.historical_submission_verified)
+        self.assertEqual(approved.call_count, 2)
+        self.assertFalse(move.l10n_eg_uuid or move.e_invoice_uuid or move.l10n_eg_eta_json_doc_id)
+        self.assertTrue(attachment.exists()); client.request.assert_not_called()
+        self.assertFalse(job.attempted_at or job.payload)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.partner_id.vat))
+
+    def test_two_rejected_links_keep_their_original_evidence_when_code_approval_is_missing(self):
+        move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+        with patch.object(type(job), '_catalogue_rejection_resolved', return_value=False):
+            job, client, _ = self.review(move, self.conflict_receipts(move))
+        self.assertEqual(job.state, 'invalid'); self.assertIn('CV302', job.last_error)
+        self.assertFalse(job.historical_submission_verified); client.request.assert_not_called()
+        self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+        self.assertEqual((move.l10n_eg_uuid, move.e_invoice_uuid), ('native-original', 'custom-later'))
+
+    def test_conflicting_links_never_reissue_multiple_valid_or_cancelled_or_buyer_rejected_receipts(self):
+        for native, custom in [('Valid', 'Valid'), ('Cancelled', 'Invalid'), ('Rejected', 'Invalid')]:
+            move = self.invoice(); attachment = self.native_conflict(move)
+            job, client, _ = self.review(move, self.conflict_receipts(move, native, custom))
+            self.assertEqual(job.state, 'blocked'); self.assertFalse(job.historical_submission_verified)
+            self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+            self.assertEqual((move.l10n_eg_uuid, move.e_invoice_uuid), ('native-original', 'custom-later'))
+            client.request.assert_not_called()
+
+    def test_conflicting_links_cannot_queue_from_a_partial_receipt_set(self):
+        move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+        with patch.object(type(job), '_catalogue_rejection_resolved', return_value=True) as approved:
+            job, client, _ = self.review(move, self.conflict_receipts(move)[1:])
+        self.assertEqual(job.state, 'blocked'); self.assertIn('both recorded receipts', job.last_error)
+        approved.assert_not_called(); client.request.assert_not_called()
+        self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+        self.assertFalse(job.historical_submission_verified)
+
+    def test_pending_conflicting_receipt_is_polled_without_replacing_links_or_sending_another_copy(self):
+        move = self.invoice(); attachment = self.native_conflict(move)
+        job, client, _ = self.review(move, self.conflict_receipts(move, custom='Submitted'))
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.next_attempt)
+        self.assertIn('still pending', job.last_error)
+        self.assertFalse(job.historical_submission_verified); client.request.assert_not_called()
+        self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+        self.assertEqual((move.l10n_eg_uuid, move.e_invoice_uuid), ('native-original', 'custom-later'))
+
+    def test_conflicting_native_receipt_with_wrong_invoice_identity_stops_the_full_history_check(self):
+        move = self.invoice(); attachment = self.native_conflict(move); job = move.eta_job_ids
+        receipts = self.conflict_receipts(move); receipts[0]['internalId'] = 'ANOTHER-INVOICE'
+        def response(method, path, **kwargs):
+            self.assertEqual(method, 'GET')
+            if path.endswith('/search'):
+                return {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+            return next(row for row in receipts if path.endswith('/%s/raw' % row['uuid']))
+        client = MagicMock(); client.request.side_effect = response
+        with patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'), self.assertRaisesRegex(UserError, 'invoice number and UUID'):
+            job._history_candidates(client, {'to': fields.Datetime.now(), 'receipts': {}})
+        self.assertEqual(move.l10n_eg_eta_json_doc_id, attachment)
+        self.assertEqual((move.l10n_eg_uuid, move.e_invoice_uuid), ('native-original', 'custom-later'))
+
+    def test_native_conflict_rechecks_once_per_release_and_still_enters_history_before_submission(self):
+        move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        job.write({'state': 'blocked', 'last_error': 'Native and custom ETA receipts differ; reconcile both existing receipts.',
+                   'processing_revision': '18.0.1.0.21'})
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Requeue sent HTTP')):
+            job._requeue_software_holds(move_ids=move.ids)
+            self.assertEqual(job.state, 'review'); self.assertFalse(job.historical_submission_verified)
+            job._historical_hold('Native and custom ETA receipts differ; still needs reconciliation.')
+            job._requeue_software_holds(move_ids=move.ids)
+            self.assertEqual(job.state, 'blocked')
+
+    def test_known_duplicate_approval_warning_stays_visible_while_history_proof_is_unavailable(self):
+        move = self.invoice(); job = move.eta_job_ids
+        reason = 'Multiple currently Valid ETA receipts use this invoice number; audit requires reconciliation.'
+        job.write({'state': 'valid', 'last_error': reason})
+        job, client, _ = self.review(move, proof=False)
+        self.assertEqual(job.state, 'review'); self.assertEqual(job.last_error, reason)
+        self.assertTrue(job.needs_attention); self.assertTrue(job.next_attempt)
+        client.request.assert_not_called(); self.assertFalse(job.historical_submission_verified)
+
+    def test_duplicate_audit_warning_clears_only_after_full_history_finds_a_sole_matching_approval(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'kept-approved', 'e_invoice_status': 'Valid'})
+        job.write({'state': 'valid', 'last_error': 'Multiple currently Valid ETA receipts use this invoice number.'})
+        receipts = [{'uuid': 'kept-approved', 'internalId': move.name, 'status': 'Valid', 'document': self.document(move)},
+                    {'uuid': 'finance-cancelled', 'internalId': move.name, 'status': 'Cancelled', 'document': self.document(move)}]
+        before = (move.invoice_date, move.amount_total, move.amount_tax)
+        job, client, _ = self.review(move, receipts)
+        self.assertEqual(job.state, 'valid'); self.assertFalse(job.last_error or job.needs_attention)
+        self.assertEqual(move.e_invoice_uuid, 'kept-approved'); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
