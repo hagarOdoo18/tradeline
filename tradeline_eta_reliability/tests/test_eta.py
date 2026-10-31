@@ -143,6 +143,45 @@ class TestEtaReliability(TransactionCase):
         self.assertFalse(job.needs_attention)
         self.assertNotIn(job, jobs.search([('needs_attention', '=', True)]))
 
+    def test_existing_approvals_with_duplicate_audit_are_visible_without_reclassifying_the_invoice(self):
+        move = self.invoice(); normal = self.invoice().eta_job_ids; job = move.eta_job_ids
+        move.write({'e_invoice_status': 'Valid', 'e_invoice_uuid': 'kept-approved'})
+        before = (move.invoice_date, move.amount_total, move.e_invoice_uuid, move.e_invoice_status)
+        reason = 'Multiple currently Valid ETA receipts use this invoice number; authority audit found two approvals.'
+        job.write({'state': 'valid', 'last_error': reason}); normal.state = 'valid'
+        self.assertTrue(job.needs_attention); self.assertFalse(normal.needs_attention)
+        self.assertEqual(job.reason_summary, reason)
+        self.assertIn('Finance and IT', job.required_action); self.assertIn('do not automatically cancel', job.required_action)
+        jobs = self.env['tradeline.eta.job']; ids = [job.id, normal.id]
+        self.assertEqual(jobs.search([('id', 'in', ids), ('needs_attention', '=', True)]), job)
+        self.assertEqual(jobs.search([('id', 'in', ids), ('needs_attention', '=', False)]), normal)
+        self.assertEqual(job.state, 'valid'); self.assertEqual(before, (move.invoice_date, move.amount_total, move.e_invoice_uuid, move.e_invoice_status))
+
+    def test_duplicate_audit_refresh_preserves_payload_and_receipts_until_full_history_reconciliation(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_status': 'Valid', 'e_invoice_uuid': 'kept-approved'})
+        job.write({'state': 'valid', 'last_error': 'Multiple currently Valid ETA receipts use this invoice number.',
+                   'payload': 'retained signed audit evidence', 'attempted_at': fields.Datetime.now()})
+        before = (job.payload, job.attempted_at, move.e_invoice_uuid, move.invoice_date, move.amount_total)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertFalse(job.historical_submission_verified); self.assertTrue(job.needs_attention)
+        self.assertEqual(before, (job.payload, job.attempted_at, move.e_invoice_uuid, move.invoice_date, move.amount_total))
+
+    def test_known_duplicate_approval_review_is_not_a_scheduler_or_uncertain_submission_alarm(self):
+        job = self.invoice().eta_job_ids; jobs = self.env['tradeline.eta.job']
+        job.write({'state': 'review', 'last_error': 'Multiple currently Valid ETA receipts use this invoice number.', 'failures': 0})
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor = monitor or self.env['tradeline.operations.monitor'].create({})
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').write({'active': True, 'failure_count': 0, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
+        with patch.object(type(jobs), 'search_count', side_effect=lambda domain, **kw: len(job.filtered_domain(domain))):
+            codes = {s['code'] for s in monitor._probe_crons(fields.Datetime.now())}
+        self.assertTrue(job.needs_attention)
+        self.assertFalse(codes.intersection({'eta:stalled', 'eta:progress', 'eta:scheduler'}))
+
     def test_national_id_rule_keeps_foreign_and_business_identity_rules(self):
         foreign = self._id_rule_partner(mobile_type='foreigner', vat='TEST-PASSPORT',
                                         country_id=SimpleNamespace(code='US'))

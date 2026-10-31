@@ -209,13 +209,14 @@ class EtaHistoricalRecovery(models.Model):
         if self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
             return 0
         domain = [('state', 'in', ['blocked', 'invalid']), ('processing_revision', '!=', PROCESSING_REVISION),
-            '|', '|', '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
+            '|', '|', '|', '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
                  ('last_error', '=like', 'Foreign-currency historical recovery requires posted FX%'),
                  ('last_error', '=like', 'The invoice is outside the configured ETA submission window%'),
                  ('last_error', 'ilike', 'CF313'),
                  ('last_error', '=like', 'Existing Valid receipt differs from posted source%'),
                  ('last_error', '=like', 'The prepared ETA request differs from the current posted source.%'),
-                 ('last_error', '=like', 'ETA rejected the submission (2).%')]
+                 ('last_error', '=like', 'ETA rejected the submission (2).%'),
+                 ('last_error', '=like', 'Native and custom ETA receipts differ;%')]
         if move_ids is not None:
             domain.append(('move_id', 'in', move_ids))
         candidates = self.sudo().search(domain, limit=limit, order='id')
@@ -344,9 +345,11 @@ class EtaHistoricalRecovery(models.Model):
             if stop == end:
                 break
             history_start = stop - timedelta(seconds=1)
-        known = self.move_id.e_invoice_uuid or self.move_id.l10n_eg_uuid
-        if known:
-            candidates.setdefault(known, None)
+        # A legacy/native link and the custom application's receipt can differ.
+        # Neither may be forgotten just because the other field is populated.
+        for known in (self.move_id.e_invoice_uuid, self.move_id.l10n_eg_uuid):
+            if known:
+                candidates.setdefault(known, None)
         if len(candidates) > 20:
             raise UserError(_('More than 20 ETA receipts use this invoice number; reconcile the repeated invoice number.'))
         raw = []; pending_uuids = list(candidates); seen_uuids = set()
@@ -479,6 +482,7 @@ class EtaHistoricalRecovery(models.Model):
                 'baseline_history_to': str(proof['to']),
                 'checked_at': str(fields.Datetime.now()), 'financial_fingerprint': self.historical_fingerprint,
                 'prior_uuid': move.e_invoice_uuid, 'prior_native_uuid': move.l10n_eg_uuid,
+                'prior_native_attachment_id': move.l10n_eg_eta_json_doc_id.id,
                 'prior_status': move.e_invoice_status, 'prior_error': move.e_invoice_issue, 'prior_job_error': self.last_error,
                 'prior_json': move.e_invoice_json, 'prior_canonical': move.e_invoice_canonical,
                 'prior_signature': move.static_signature, 'prior_signed': move.invoice_signed,
@@ -505,8 +509,8 @@ class EtaHistoricalRecovery(models.Model):
                 raise UserError(_('Posted accounting values changed after historical enrollment; Finance must review and restart this record.'))
             if not self.historical_fingerprint:
                 self.historical_fingerprint = before
-            if move.l10n_eg_uuid and move.e_invoice_uuid and move.l10n_eg_uuid != move.e_invoice_uuid:
-                raise UserError(_('Native and custom ETA receipts differ; reconcile both existing receipts.'))
+            receipt_conflict = bool(move.l10n_eg_uuid and move.e_invoice_uuid and move.l10n_eg_uuid != move.e_invoice_uuid)
+            known_receipts = {uuid for uuid in (move.l10n_eg_uuid, move.e_invoice_uuid) if uuid}
             current = self._historical_source()
             # Net and final totals reconcile the posted signed tax difference,
             # including withholding taxes whose ETA taxTotals amounts are positive.
@@ -525,12 +529,14 @@ class EtaHistoricalRecovery(models.Model):
                     proof = {'from': floor, 'to': floor, 'receipts': {}}
             if not proof:
                 self.write({'state': 'review', 'historical_review': True, 'next_attempt': fields.Datetime.now() + timedelta(minutes=5),
-                            'last_error': self.last_error if self._has_recorded_rejection() else
+                            'last_error': self.last_error if (self._has_recorded_rejection() or self._has_authority_duplicate_review()) else
                                 'Automatic authority-history scan is in progress. No new document has been sent.', 'failures': 0})
                 return
             if datetime.combine(move.invoice_date, datetime.min.time()) < proof['from']:
                 raise UserError(_('This invoice predates the complete authority-history proof; expand the history check.'))
             receipts = verified[1] if verified is not None else self._history_candidates(client, proof)
+            if receipt_conflict and not known_receipts.issubset({r.get('uuid') for r in receipts}):
+                raise UserError(_('Native and custom ETA receipts differ; both recorded receipts must be verified in the complete authority history before reconciliation. Nothing was submitted.'))
             valid = [r for r in receipts if r.get('status') == 'Valid']
             pending = [r for r in receipts if r.get('status') == 'Submitted']
             if len(valid) > 1:
@@ -564,6 +570,10 @@ class EtaHistoricalRecovery(models.Model):
             if pending:
                 if len(pending) != 1 or not self._historical_matches(pending[0], current):
                     raise UserError(_('Pending ETA receipts do not safely identify this posted invoice. Do not submit another copy.'))
+                if receipt_conflict:
+                    self.write({'state': 'review', 'next_attempt': fields.Datetime.now() + timedelta(minutes=5),
+                                'last_error': 'Native and custom ETA receipts differ; a matching authority receipt is still pending. Automatic history checks continue without resubmission.'})
+                    return
                 if move.e_invoice_uuid and move.e_invoice_uuid != pending[0]['uuid']:
                     self.write({'state': 'review', 'next_attempt': fields.Datetime.now() + timedelta(minutes=5), 'last_error': 'Another matching ETA receipt is pending. Automatic checks continue without resubmission.'})
                 else:

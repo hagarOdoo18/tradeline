@@ -20,7 +20,8 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.21'
+PROCESSING_REVISION = '18.0.1.0.22'
+DUPLICATE_REVIEW_PREFIX = 'Multiple currently Valid ETA receipts'
 
 
 class EtaJob(models.Model):
@@ -519,9 +520,19 @@ class EtaJob(models.Model):
             self.env.cr.execute('SELECT pg_advisory_unlock(741181, 1)')
             self.env.cr.commit()
 
+    def _has_authority_duplicate_review(self):
+        self.ensure_one()
+        return (self.last_error or '').startswith(DUPLICATE_REVIEW_PREFIX)
+
     def action_recheck(self):
         for job in self:
-            if job.move_id.e_invoice_uuid:
+            if job._has_authority_duplicate_review():
+                # Polling just one UUID cannot resolve a known multiple-
+                # approval finding. Retain all links/payload/attempt markers
+                # and run the complete history route instead.
+                job.write({'state': 'review', 'historical_review': True,
+                           'historical_submission_verified': False, 'next_attempt': False})
+            elif job.move_id.e_invoice_uuid:
                 job.write({'state': 'accepted', 'next_attempt': False})
             elif job.state != 'unknown' and (not job.attempted_at or job.safe_to_retry):
                 job.write({'state': 'queued', 'next_attempt': False, 'payload': False,

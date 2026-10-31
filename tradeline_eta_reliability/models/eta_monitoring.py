@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from odoo import api, fields, models, _
 from odoo.osv import expression
+from .eta_job import DUPLICATE_REVIEW_PREFIX
 
 
 def error_details(message):
@@ -86,6 +87,7 @@ class EtaJobMonitoring(models.Model):
     def _attention_domain(self, now=None):
         now = now or fields.Datetime.now(); cutoff = now - timedelta(minutes=15)
         return expression.OR([
+            self._authority_duplicate_review_domain(),
             [('state', 'in', ['blocked', 'invalid'])],
             [('state', '=', 'unknown'), '|', ('duplicate_retry_at', '=', False), ('duplicate_retry_at', '<=', cutoff)],
             [('state', '=', 'review'), ('failures', '>', 0)],
@@ -100,6 +102,12 @@ class EtaJobMonitoring(models.Model):
             [('state', '=', 'valid'), '|', ('last_error', 'ilike', 'issue date'),
              ('move_id.e_invoice_issue', 'ilike', 'issue date')],
         ])
+
+    @api.model
+    def _authority_duplicate_review_domain(self):
+        # Keep NULL errors in the inverse (healthy) filter as well. A bare
+        # NOT LIKE predicate does not match SQL NULL values.
+        return [('last_error', '!=', False), ('last_error', '=like', DUPLICATE_REVIEW_PREFIX + '%')]
 
     @api.model
     def _search_needs_attention(self, operator, value):
@@ -123,6 +131,7 @@ class EtaJobMonitoring(models.Model):
                       if job.state == 'accepted' else job.create_date)
             minutes = max(0, int((now - anchor).total_seconds() / 60)) if anchor else 0
             raw = job.last_error or ''
+            duplicate_review = job._has_authority_duplicate_review()
             date_review = job.state == 'valid' and 'issue date' in (
                 raw + ' ' + (job.move_id.e_invoice_issue or '')).lower()
             if date_review and 'issue date' not in raw.lower():
@@ -149,7 +158,10 @@ class EtaJobMonitoring(models.Model):
                 actions.append(_('Finance must review the return/credit-note and replacement-invoice route. Do not invert quantities or remove return lines to force ETA acceptance.'))
             if job.duplicate_retry_at:
                 actions.append(_('Wait for the ETA Retry-After deadline; automatic receipt reconciliation will run before any retry.'))
-            if job.state == 'valid':
+            if duplicate_review:
+                reason = detail
+                action = _('Finance and IT must compare all currently approved ETA receipts with the original invoice and determine which transactions they represent. Preserve the original documents and accounting values; do not automatically cancel, delete or submit another copy. Refresh uses complete authority history before clearing this warning.')
+            elif job.state == 'valid':
                 reason = detail if date_review else _('ETA approved this invoice.')
                 action = (_('Finance must review the issue-date discrepancy against the existing approved receipt. Do not automatically cancel or resend it.')
                           if date_review else _('No submission action required.'))
@@ -192,7 +204,7 @@ class EtaJobMonitoring(models.Model):
             job.reason_summary = reason
             job.required_action = action
             job.waiting_minutes = minutes if job.state != 'valid' else 0
-            job.needs_attention = (job.state in ('blocked', 'invalid') or date_review
+            job.needs_attention = (job.state in ('blocked', 'invalid') or date_review or duplicate_review
                                    or job.state == 'unknown' and (not job.duplicate_retry_at or job.duplicate_retry_at <= now - timedelta(minutes=15))
                                    or job.state == 'review' and job.failures > 0
                                    or job._has_recorded_rejection()
