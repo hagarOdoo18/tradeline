@@ -20,7 +20,10 @@ STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
           ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
           ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
           ('review', 'Historical verification queued')]
-PROCESSING_REVISION = '18.0.1.0.23'
+# Release 23 changes manual refresh routing, not the automatic recovery policy.
+# Keep the policy revision so unchanged correction holds are not retried merely
+# because this UI action was fixed.
+PROCESSING_REVISION = '18.0.1.0.22'
 DUPLICATE_REVIEW_PREFIX = 'Multiple currently Valid ETA receipts'
 
 

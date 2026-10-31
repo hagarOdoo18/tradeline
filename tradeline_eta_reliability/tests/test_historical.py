@@ -966,6 +966,17 @@ class TestHistoricalRecovery(TransactionCase):
             job.action_recheck()
         self.assertEqual(before, (job.state, job.payload, job.attempted_at))
 
+    def test_manual_refresh_release_does_not_automatically_retry_unchanged_v22_correction_holds(self):
+        move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        job.write({'state': 'blocked', 'processing_revision': '18.0.1.0.22',
+                   'last_error': 'Native and custom ETA receipts differ; reconcile both existing receipts.'})
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Maintenance sent HTTP')):
+            job._requeue_software_holds(move_ids=move.ids)
+        self.assertEqual(job.state, 'blocked')
+        job.action_recheck()
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+
     def test_conflicting_receipt_history_fetches_both_known_uuids_even_when_missing_from_index(self):
         move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
         receipts = self.conflict_receipts(move)
