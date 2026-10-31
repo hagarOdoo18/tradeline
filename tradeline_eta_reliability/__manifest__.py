@@ -1,5 +1,7 @@
 {
     'name': 'Tradeline ETA Reliable Submission',
+    # Python-only repair: no fields, views, security or data records changed.
+    # Keep the installed version; Git identifies this code-only deployment.
     'version': '18.0.1.0.23',
     'license': 'LGPL-3',
     'depends': ['egyptian_electronic_invoice', 'l10n_eg_edi_eta', 'tradeline_operations_monitor'],

@@ -33,6 +33,8 @@ class OperationsMonitor(models.Model):
     def _probe_crons(self, now):
         observations = super()._probe_crons(now)
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
+        jobs = self.env['tradeline.eta.job'].sudo()
+        native_progress = jobs._native_partial_progress_is_recent(now, cron)
         enabled_database = self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.enabled_database')
         paused = False
         try:
@@ -47,17 +49,16 @@ class OperationsMonitor(models.Model):
             observations.append(signal('eta:scheduler', 'Automatic ETA processing is unavailable',
                 'The reliable ETA queue is missing, disabled or failing.',
                 'Review ETA Submission Jobs and its scheduled action.', 'critical'))
-        elif not paused and cron.nextcall < now - timedelta(minutes=3):
+        elif not paused and cron.nextcall < now - timedelta(minutes=3) and not native_progress:
             observations.append(signal('eta:scheduler', 'Automatic ETA processing is overdue',
                 'The ETA queue has not run on schedule.',
                 'Review the scheduler and database locks.', 'critical'))
-        jobs = self.env['tradeline.eta.job'].sudo()
         processed = self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.last_processed_at')
         try:
             processed = fields.Datetime.to_datetime(processed) if processed else None
         except (ValueError, TypeError):
             processed = None
-        if (not paused and enabled_database == self.env.cr.dbname and processed and processed < now - timedelta(minutes=15)
+        if (not paused and not native_progress and enabled_database == self.env.cr.dbname and processed and processed < now - timedelta(minutes=15)
                 and jobs.search_count([('state', 'in', ['queued', 'accepted', 'unknown', 'review']),
                                        '|', ('next_attempt', '=', False), ('next_attempt', '<=', now)])):
             observations.append(signal('eta:progress', 'ETA queue has stopped processing invoices',

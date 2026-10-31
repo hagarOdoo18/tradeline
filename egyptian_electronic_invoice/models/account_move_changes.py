@@ -541,11 +541,16 @@ class AccountMoveInherit(models.Model):
 			                                             product=line.product_id,
 			                                             partner=line.partner_id)
 			total_sales_amount += sales_total_amount
-			prd_required_fields = ['e_invoicing_code', 'code_type', 'ar_description']
+			# ETA transmits display_name below, not the optional Arabic catalogue
+			# metadata. Validate the actual description without changing its text.
+			prd_required_fields = ['e_invoicing_code', 'code_type']
 			for prd_field in prd_required_fields:
 				if not getattr(line.product_id, prd_field):
 					raise ValidationError(_("Missing One of required details [%s] for product [%s] !!!" %
 					                        (prd_field, line.product_id.display_name)))
+			description = line.product_id.display_name
+			if not isinstance(description, str) or not description.strip():
+				raise ValidationError(_("The ETA invoice line description is required for product [%s]." % line.product_id.id))
 			uom = line.product_uom_id.eta_uom_id and line.product_uom_id.eta_uom_id.code or line.product_uom_id.name
 			if uom not in PROD_UNIT_TYPE:
 				raise ValidationError(_("This product uit of measure [%s] not in Tax System unites \n\n %s" %
@@ -555,7 +560,6 @@ class AccountMoveInherit(models.Model):
 			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
 			totalAmount += line_price_total
 			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
-			description =  line.product_id.display_name
 			if quantity != 0.0:
 				invoice_lines.append({
 					"description": description or '',  # "Computerl"
