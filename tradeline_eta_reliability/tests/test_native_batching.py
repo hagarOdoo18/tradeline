@@ -413,3 +413,105 @@ class TestNativeBatching(TransactionCase):
         self.assertEqual(len(callbacks), 10)
         self.assertEqual(len(run.calls), 40)
         self.assertEqual(sum(job.state == 'queued' for job in jobs), 5)
+
+    def _partial_progress(self, now, *, age=30, done=4, remaining=20, timed_out=0):
+        progress = self.env['ir.cron.progress'].create({'cron_id': self.cron.id,
+            'done': done, 'remaining': remaining, 'timed_out_counter': timed_out})
+        self.env.flush_all()
+        self.env.cr.execute('UPDATE ir_cron_progress SET write_date=%s WHERE id=%s',
+                            [now - timedelta(seconds=age), progress.id])
+        progress.invalidate_recordset()
+        return progress
+
+    def _eta_observations(self, job, now):
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor = monitor or self.env['tradeline.operations.monitor'].create({})
+        with patch.object(type(self.Job), 'search_count', side_effect=lambda domain, **kw: len(job.filtered_domain(domain))):
+            return {item['code'] for item in monitor._probe_crons(now) if item['code'].startswith('eta:')}
+
+    def test_recent_committed_partial_batch_is_healthy_with_past_nextcall(self):
+        move = self.draft()
+        move.action_post()
+        job = move.eta_job_ids
+        now = fields.Datetime.now()
+        self.cron.nextcall = now - timedelta(hours=1)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.last_processed_at', fields.Datetime.to_string(now - timedelta(seconds=15)))
+        self._partial_progress(now)
+        self.assertTrue(self.Job._native_partial_progress_is_recent(now, self.cron))
+        self.assertNotIn('eta:scheduler', self._eta_observations(job, now))
+        self.assertNotIn('eta:progress', self._eta_observations(job, now))
+        self.assertNotIn('eta:stalled', self._eta_observations(job, now))
+        job._compute_monitoring()
+        self.assertNotIn('overdue', job.reason_summary.lower())
+        self.assertIn('Waiting in the automatic submission queue', job.reason_summary)
+
+    def test_partial_progress_does_not_hide_stale_invoice_processing(self):
+        move = self.draft()
+        move.action_post()
+        job = move.eta_job_ids
+        now = fields.Datetime.now()
+        self.cron.nextcall = now - timedelta(hours=1)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.last_processed_at', fields.Datetime.to_string(now - timedelta(minutes=16)))
+        self._partial_progress(now)
+        self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+        observations = self._eta_observations(job, now)
+        self.assertIn('eta:scheduler', observations)
+        self.assertIn('eta:progress', observations)
+        job._compute_monitoring()
+        self.assertIn('overdue', job.reason_summary.lower())
+
+    def test_fresh_processing_alone_and_old_or_incomplete_core_rows_are_not_partial_health(self):
+        now = fields.Datetime.now()
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.last_processed_at', fields.Datetime.to_string(now))
+        for values in ({'age': 181}, {'done': 0}, {'remaining': 0}, {'timed_out': 1}):
+            progress = self._partial_progress(now, **values)
+            self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+            progress.unlink()
+        self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+
+    def test_partial_health_cannot_override_disabled_failed_or_wrong_database_scheduler(self):
+        now = fields.Datetime.now()
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.last_processed_at', fields.Datetime.to_string(now))
+        self._partial_progress(now)
+        move = self.draft()
+        move.action_post()
+        job = move.eta_job_ids
+        self.cron.active = False
+        self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+        self.assertIn('eta:scheduler', self._eta_observations(job, now))
+        self.cron.write({'active': True, 'failure_count': 1})
+        self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+        self.assertIn('eta:scheduler', self._eta_observations(job, now))
+        self.cron.failure_count = 0
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', 'copied-database')
+        self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))
+        self.assertIn('eta:scheduler', self._eta_observations(job, now))
+
+    def test_healthy_partial_scheduler_does_not_hide_genuine_uncertain_outcome(self):
+        move = self.draft()
+        move.action_post()
+        job = move.eta_job_ids
+        job.write({'state': 'unknown', 'last_error': 'A submitted request lost its response.'})
+        now = fields.Datetime.now()
+        self.cron.nextcall = now - timedelta(hours=1)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.last_processed_at', fields.Datetime.to_string(now))
+        self._partial_progress(now)
+        observations = self._eta_observations(job, now)
+        self.assertNotIn('eta:scheduler', observations)
+        self.assertIn('eta:stalled', observations)
+        job._compute_monitoring()
+        self.assertTrue(job.needs_attention)
+        self.assertIn('reconcile the existing eta outcome first', job.required_action.lower())
+        self.assertIn('do not blindly resend', job.required_action.lower())
+
+    def test_malformed_or_future_processing_markers_cannot_claim_partial_health(self):
+        now = fields.Datetime.now()
+        self._partial_progress(now)
+        for marker in ('not a timestamp', fields.Datetime.to_string(now + timedelta(minutes=1)), False):
+            self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', marker)
+            self.assertFalse(self.Job._native_partial_progress_is_recent(now, self.cron))

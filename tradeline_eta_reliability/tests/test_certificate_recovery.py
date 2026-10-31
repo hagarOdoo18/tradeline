@@ -161,6 +161,45 @@ class TestCertificateRecovery(TransactionCase):
             with self.subTest(canonical=canonical), self.assertRaises(ValueError):
                 signer_certificate(value, canonical, valid_at=[datetime.now(timezone.utc)])
 
+    def test_legacy_naive_utc_certificate_api_keeps_exact_validity_bounds(self):
+        actual = x509.load_der_x509_certificate(self.new_cert.dump())
+        validity = self.new_cert['tbs_certificate']['validity']
+        before = validity['not_before'].native
+        after = validity['not_after'].native
+        legacy = SimpleNamespace(public_key=actual.public_key,
+            not_valid_before=before.replace(tzinfo=None), not_valid_after=after.replace(tzinfo=None))
+        signed = self.signature('canonical', self.new_cert, self.new_key)
+        with patch('odoo.addons.tradeline_eta_reliability.models.certificate_recovery.x509.load_der_x509_certificate',
+                   return_value=legacy):
+            result = signer_certificate(signed, 'canonical', valid_at=[before, after])
+            self.assertEqual(result['not_before'], before.isoformat())
+            self.assertEqual(result['not_after'], after.isoformat())
+            for outside in (before - timedelta(microseconds=1), after + timedelta(microseconds=1)):
+                with self.subTest(outside=outside), self.assertRaisesRegex(ValueError, 'expired or not yet valid'):
+                    signer_certificate(signed, 'canonical', valid_at=[outside])
+
+    def test_aware_certificate_api_is_preferred_and_normalized_without_relaxing_bounds(self):
+        actual = x509.load_der_x509_certificate(self.new_cert.dump())
+        validity = self.new_cert['tbs_certificate']['validity']
+        before = validity['not_before'].native
+        after = validity['not_after'].native
+        offset = timezone(timedelta(hours=2))
+        # No legacy properties are provided: using the wrong API must fail.
+        aware = SimpleNamespace(public_key=actual.public_key,
+            not_valid_before_utc=before.astimezone(offset), not_valid_after_utc=after.astimezone(offset))
+        signed = self.signature('canonical', self.new_cert, self.new_key)
+        with patch('odoo.addons.tradeline_eta_reliability.models.certificate_recovery.x509.load_der_x509_certificate',
+                   return_value=aware):
+            result = signer_certificate(signed, 'canonical', valid_at=[before, after])
+            self.assertEqual(result['not_before'], before.isoformat())
+            self.assertEqual(result['not_after'], after.isoformat())
+            for outside in (before - timedelta(microseconds=1), after + timedelta(microseconds=1)):
+                with self.subTest(outside=outside), self.assertRaisesRegex(ValueError, 'expired or not yet valid'):
+                    signer_certificate(signed, 'canonical', valid_at=[outside])
+            aware.not_valid_before_utc = before.replace(tzinfo=None)
+            with self.assertRaisesRegex(ValueError, 'explicit UTC'):
+                signer_certificate(signed, 'canonical', valid_at=[before])
+
     def test_unproved_expired_certificate_is_not_added_to_a_general_retry_allowlist(self):
         with self.routes() as (client, _candidates, signer):
             self.job._review_historical(client)
