@@ -254,6 +254,8 @@ class TestNativeBatching(TransactionCase):
         run.notify.assert_not_called()
 
     def test_native_selection_prioritizes_fresh_uncertain_stale_then_verified(self):
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.native_review_next_class', 'null')
         review, accepted, verified, unknown, fresh = [self.fake_jobs(1, state)[0]
             for state in ('review', 'accepted', 'queued', 'unknown', 'queued')]
         for index, job in enumerate((review, accepted, verified, unknown, fresh), 1):
@@ -270,6 +272,52 @@ class TestNativeBatching(TransactionCase):
             self.assertIs(self.Job._native_batch_candidate('all', 0), accepted)
             jobs.remove(accepted)
             self.assertIs(self.Job._native_batch_candidate('all', 0), verified)
+
+    def test_review_page_includes_overdue_jobs_beyond_large_null_backlog(self):
+        moves = self.draft()
+        for _index in range(44):
+            moves |= self.draft()
+        moves.action_post()
+        jobs = moves.eta_job_ids.sorted('id')
+        jobs.write({'state': 'review', 'next_attempt': False})
+        jobs[-2].next_attempt = fields.Datetime.now() - timedelta(days=2)
+        jobs[-1].next_attempt = fields.Datetime.now() + timedelta(minutes=10)
+        due = self.Job._due_jobs('all')
+        self.assertIn(jobs[-2], due)
+        self.assertNotIn(jobs[-1], due)
+        self.assertEqual(len([job for job in due if job.id in jobs[:-2].ids]), 20)
+
+    def test_review_class_alternates_across_single_operation_callbacks(self):
+        dated, untouched = self.fake_jobs(2, 'review')
+        dated.next_attempt = fields.Datetime.now() - timedelta(days=2)
+        parameters = self.env['ir.config_parameter'].sudo()
+        parameters.set_param('tradeline_eta_reliability.native_review_next_class', 'dated')
+        with self.native_harness([dated, untouched], seconds=9) as run:
+            self.assertEqual(self.Job._cron_process(), 1)
+            self.assertEqual(run.calls, [dated.id])
+        self.assertEqual(parameters.get_param('tradeline_eta_reliability.native_review_next_class'), 'null')
+        with self.native_harness([dated, untouched], seconds=9) as run:
+            self.assertEqual(self.Job._cron_process(), 1)
+            self.assertEqual(run.calls, [untouched.id])
+        self.assertEqual(parameters.get_param('tradeline_eta_reliability.native_review_next_class'), 'dated')
+
+    def test_missing_preferred_review_class_still_progresses(self):
+        untouched = self.fake_jobs(1, 'review')[0]
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.native_review_next_class', 'dated')
+        with self.native_harness([untouched]) as run:
+            self.assertEqual(self.Job._cron_process(), 1)
+        self.assertEqual(run.calls, [untouched.id])
+
+    def test_busy_review_job_does_not_advance_persistent_class(self):
+        dated = self.fake_jobs(1, 'review')[0]
+        dated.next_attempt = fields.Datetime.now() - timedelta(days=2)
+        parameters = self.env['ir.config_parameter'].sudo()
+        parameters.set_param('tradeline_eta_reliability.native_review_next_class', 'dated')
+        with self.native_harness([dated], processor=lambda job: False) as run:
+            self.assertEqual(self.Job._cron_process(), 0)
+        self.assertEqual(len(run.calls), 4)
+        self.assertEqual(parameters.get_param('tradeline_eta_reliability.native_review_next_class'), 'dated')
 
     def test_real_orm_cache_is_refreshed_after_an_isolated_processing_result(self):
         move = self.draft()

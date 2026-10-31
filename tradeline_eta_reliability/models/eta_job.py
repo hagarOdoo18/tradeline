@@ -472,6 +472,14 @@ class EtaJob(models.Model):
                         if index < len(batch) and batch[index].id not in ids:
                             ids.append(batch[index].id)
                 groups.append(self.sudo().browse(ids))
+            elif state == 'review':
+                # Both populations must enter the bounded page. NULLS FIRST
+                # alone hides overdue retries behind the untouched backlog.
+                dated = self.sudo().search(domain + [('next_attempt', '!=', False)],
+                                           order='next_attempt, id', limit=20)
+                untouched = self.sudo().search(domain + [('next_attempt', '=', False)],
+                                               order='id', limit=20)
+                groups.append(dated | untouched)
             else:
                 groups.append(self.sudo().search(domain, order='next_attempt ASC NULLS FIRST, id',
                                                 limit=15 if state == 'unknown' else 40))
@@ -508,6 +516,14 @@ class EtaJob(models.Model):
         for offset in range(len(NATIVE_SCHEDULE)):
             matches = [job for job in due if job.state == NATIVE_SCHEDULE[(turn + offset) % len(NATIVE_SCHEDULE)]]
             if matches:
+                if matches[0].state == 'review':
+                    # Persist the class across callbacks, including callbacks
+                    # whose first slow request exhausts the soft time budget.
+                    prefer_dated = self.env['ir.config_parameter'].sudo().get_param(
+                        'tradeline_eta_reliability.native_review_next_class', 'dated') == 'dated'
+                    preferred = [job for job in matches if bool(job.next_attempt) == prefer_dated]
+                    if preferred:
+                        return preferred[0]
                 return matches[0]
         return None
 
@@ -595,8 +611,13 @@ class EtaJob(models.Model):
                 if company.id not in clients:
                     clients[company.id] = EtaClient(company)
                 client = clients[company.id]
+                review_class = ('null' if job.next_attempt else 'dated') if job.state == 'review' else None
                 if self._process_id(job.id, client):
                     processed += 1
+                    if review_class:
+                        self.env['ir.config_parameter'].sudo().set_param(
+                            'tradeline_eta_reliability.native_review_next_class', review_class)
+                        self.env.cr.commit()
         except EtaStopped:
             paused = True
             self.env.cr.rollback()
