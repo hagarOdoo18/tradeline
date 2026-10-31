@@ -1,7 +1,7 @@
 import hashlib
 import json
 import sqlite3
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager
 from datetime import timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -53,7 +53,7 @@ class TestHistoricalRecovery(TransactionCase):
                              'quantity': 1, 'unitValue': {'currencySold': 'EGP', 'amountEGP': 100}, 'total': 100}],
             'totalAmount': 100, 'netAmount': 100, 'taxTotals': []}
 
-    def review(self, move, receipts=(), proof=True, match=True):
+    def review(self, move, receipts=(), proof=True, match=True, outgoing=None):
         job = move.eta_job_ids
         job.write({'state': 'review', 'historical_review': True})
         client = MagicMock(); source = self.document(move)
@@ -61,6 +61,7 @@ class TestHistoricalRecovery(TransactionCase):
         with ExitStack() as stack:
             stack.enter_context(patch.object(type(move), 'currency_id', self.env.ref('base.EGP')))
             stack.enter_context(patch.object(type(job), '_historical_source', return_value=source))
+            stack.enter_context(patch.object(type(job), '_submission_source', return_value=outgoing or source))
             stack.enter_context(patch.object(type(job), '_history_snapshot', return_value=history))
             candidates = stack.enter_context(patch.object(type(job), '_history_candidates', return_value=list(receipts)))
             stack.enter_context(patch.object(type(job), '_historical_matches', return_value=match))
@@ -409,6 +410,7 @@ class TestHistoricalRecovery(TransactionCase):
                    'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}} if proof else None
         stack = ExitStack()
         stack.enter_context(patch.object(type(job), '_historical_source', return_value=doc))
+        stack.enter_context(patch.object(type(job), '_submission_source', return_value=doc))
         stack.enter_context(patch.object(type(job), '_history_snapshot', return_value=history))
         stack.enter_context(patch.object(type(job), '_history_candidates', return_value=list(receipts)))
         stack.enter_context(patch.object(type(job), '_historical_matches', return_value=True))
@@ -638,3 +640,103 @@ class TestHistoricalRecovery(TransactionCase):
         with patch.object(type(job), '_catalogue_get', side_effect=[publication, {'result': [changed]}]):
             job, _, _ = self.review(move, [raw])
         self.assertEqual(job.state, 'queued'); self.assertNotEqual(job.catalogue_evidence_hash, old_hash)
+
+    @contextmanager
+    def personal_details_fields(self, partner):
+        # Community QA lacks the hosted contact extension. Supply only its
+        # absent address fields; exercise the real serializer on both hosts.
+        with ExitStack() as stack:
+            for name, value in [('mobile_type', 'local'), ('floor', False),
+                                ('room', False), ('landmark', False), ('additional_info', False)]:
+                if name not in partner._fields:
+                    stack.enter_context(patch.object(type(partner), name, value, create=True))
+            if 'mobile_type' in partner._fields:
+                partner.mobile_type = 'local'
+            yield
+
+    def test_preflight_accepts_authorized_optional_id_omission_without_editing_customer(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.partner_id.with_context(no_vat_validation=True).write({
+            'vat': '12345678901234', 'country_id': self.env.ref('base.eg').id, 'city': 'Cairo', 'street': 'Test'})
+        job.omit_optional_receiver_id = True
+        before = (move.partner_id.vat, move.invoice_date, move.amount_total)
+        def source(invoice):
+            document = self.document(invoice)
+            document['receiver'] = invoice._get_eta_personal_details(invoice.partner_id, invoice.amount_total)
+            return document
+        proof = {'from': fields.Datetime.now() - timedelta(days=400),
+                 'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
+        with self.personal_details_fields(move.partner_id), \
+                patch.object(type(move), '_eta_correction_document', source), \
+                patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]):
+            outgoing = source(move)
+            self.assertEqual(outgoing['receiver']['id'], '')
+            self.assertEqual(job._historical_source()['receiver']['id'], before[0])
+            job.payload = json.dumps({'documents': [outgoing]})
+            self.assertTrue(job._preflight_submission(MagicMock()))
+        self.assertEqual(before, (move.partner_id.vat, move.invoice_date, move.amount_total))
+
+    def test_preflight_accepts_small_sale_placeholder_omission_from_existing_data(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.partner_id.country_id = self.env.ref('base.eg')
+        # Simulate the malformed legacy value seen in production without
+        # weakening the hosted contact module's normal input validation.
+        self.env.flush_all()
+        self.env.cr.execute("UPDATE res_partner SET vat='1' WHERE id=%s", [move.partner_id.id])
+        move.partner_id.invalidate_recordset()
+        def source(invoice):
+            document = self.document(invoice)
+            document['receiver'] = invoice._get_eta_personal_details(invoice.partner_id, invoice.amount_total)
+            return document
+        proof = {'from': fields.Datetime.now() - timedelta(days=400),
+                 'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
+        with self.personal_details_fields(move.partner_id), \
+                patch.object(type(move), '_eta_correction_document', source), \
+                patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]):
+            outgoing = source(move)
+            self.assertEqual(outgoing['receiver']['id'], '')
+            job.payload = json.dumps({'documents': [outgoing]})
+            self.assertTrue(job._preflight_submission(MagicMock()))
+        self.assertEqual(move.partner_id.vat, '1')
+
+    def test_mixed_id_and_catalogue_rejection_requires_both_corrections(self):
+        for approved in (False, True):
+            move = self.invoice(); job = move.eta_job_ids
+            source = self.document(move); source['receiver']['id'] = '123456789012345'
+            raw = {'uuid': 'mixed-id-code', 'internalId': move.name, 'status': 'Invalid', 'document': source,
+                'validationResults': {'details': [{'errorCode': 'NI310'}, {'errorCode': 'SF307'}, {'errorCode': 'CV302'}]}}
+            before = (move.invoice_date, move.amount_total, move.partner_id.vat)
+            with patch.object(self, 'document', return_value=source), \
+                    patch.object(type(job), '_catalogue_code_approved', return_value=approved):
+                job, client, _ = self.review(move, [raw])
+            self.assertEqual(job.state, 'queued' if approved else 'invalid')
+            self.assertEqual(bool(job.omit_optional_receiver_id), approved)
+            self.assertEqual(before, (move.invoice_date, move.amount_total, move.partner_id.vat))
+            client.request.assert_not_called()
+
+    def test_new_empty_id_rejection_cannot_retry_using_older_nonempty_id(self):
+        move = self.invoice(); job = move.eta_job_ids
+        source = self.document(move); source['receiver']['id'] = '123456789012345'
+        outgoing = json.loads(json.dumps(source)); outgoing['receiver']['id'] = ''
+        receipts = [{'uuid': 'older-id', 'internalId': move.name, 'status': 'Invalid', 'document': source,
+                     'validationResults': {'errorCode': 'NI310'}},
+                    {'uuid': 'newer-empty', 'internalId': move.name, 'status': 'Invalid', 'document': outgoing,
+                     'validationResults': {'errorCode': 'CF305'}}]
+        with patch.object(self, 'document', return_value=source):
+            job, client, _ = self.review(move, receipts, outgoing=outgoing)
+        self.assertEqual(job.state, 'invalid'); self.assertFalse(job.historical_submission_verified)
+        self.assertIn('CF305', job.last_error); client.request.assert_not_called()
+
+    def test_mixed_rejection_never_omits_mandatory_id(self):
+        move = self.invoice(); move.button_draft(); move.invoice_line_ids.price_unit = 25000; move.action_post()
+        job = move.eta_job_ids; source = self.document(move)
+        source.update(totalAmount=25000, netAmount=25000); source['receiver']['id'] = '123456789012345'
+        raw = {'uuid': 'required-id', 'internalId': move.name, 'status': 'Invalid', 'document': source,
+            'validationResults': {'details': [{'errorCode': 'NI310'}, {'errorCode': 'CV302'}]}}
+        with patch.object(self, 'document', return_value=source), \
+                patch.object(type(job), '_catalogue_code_approved', return_value=True):
+            job, client, _ = self.review(move, [raw])
+        self.assertEqual(job.state, 'invalid'); self.assertFalse(job.omit_optional_receiver_id)
+        client.request.assert_not_called()

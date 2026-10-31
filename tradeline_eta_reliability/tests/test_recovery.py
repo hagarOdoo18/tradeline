@@ -483,7 +483,7 @@ class TestAutomaticRecovery(TransactionCase):
                  'historical_fingerprint': j._historical_financial_fingerprint(),
                  'last_error': 'ETA rejected (1). ' + json.dumps({'code': '1', 'details': [{'code': 'CF313'}]})})
         proof = {'from': fields.Datetime.now() - timedelta(days=400), 'to': fields.Datetime.now(), 'receipts': {}}
-        with patch.object(type(j), '_historical_source', return_value=doc), patch.object(type(j), '_history_snapshot', return_value=proof), patch.object(type(j), '_history_candidates', return_value=[]): j._review_historical(MagicMock())
+        with patch.object(type(j), '_historical_source', return_value=doc), patch.object(type(j), '_submission_source', return_value=doc), patch.object(type(j), '_history_snapshot', return_value=proof), patch.object(type(j), '_history_candidates', return_value=[]): j._review_historical(MagicMock())
         self.assertEqual(j.state, 'queued'); self.assertEqual(j.issue_date_policy, 'current')
         self.assertFalse(j.attempted_at); self.assertEqual(m.invoice_date, fields.Date.today() - timedelta(days=1))
 

@@ -92,7 +92,7 @@ class EtaSubmissionSafety(models.Model):
         self._assert_eta_document_issuer(document)
         if self.historical_fingerprint and self._historical_financial_fingerprint() != self.historical_fingerprint:
             raise UserError(_('Posted accounting changed after historical verification. Finance must review this invoice.'))
-        current = self._historical_source()
+        current = self._submission_source()
         if not fiscal_equal(fiscal(document), fiscal(current)):
             raise UserError(_('The prepared ETA request differs from the current posted source. Reconcile it before submitting.'))
         proof = self._history_snapshot()

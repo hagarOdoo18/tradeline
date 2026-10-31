@@ -192,11 +192,12 @@ class EtaHistoricalRecovery(models.Model):
         if self.env['ir.config_parameter'].sudo().get_param('tradeline_eta_reliability.historical_recovery_database') != self.env.cr.dbname:
             return 0
         domain = [('state', 'in', ['blocked', 'invalid']), ('processing_revision', '!=', PROCESSING_REVISION),
-            '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
+            '|', '|', '|', '|', '|', ('last_error', '=like', 'Generated ETA net or final amount%'),
                  ('last_error', '=like', 'Foreign-currency historical recovery requires posted FX%'),
                  ('last_error', '=like', 'The invoice is outside the configured ETA submission window%'),
                  ('last_error', 'ilike', 'CF313'),
-                 ('last_error', '=like', 'Existing Valid receipt differs from posted source%')]
+                 ('last_error', '=like', 'Existing Valid receipt differs from posted source%'),
+                 ('last_error', '=like', 'The prepared ETA request differs from the current posted source.%')]
         if move_ids is not None:
             domain.append(('move_id', 'in', move_ids))
         candidates = self.sudo().search(domain, limit=limit, order='id')
@@ -269,6 +270,15 @@ class EtaHistoricalRecovery(models.Model):
             raise EtaError('The resumable authority-history index is temporarily unavailable.') from exc
 
     def _historical_source(self):
+        # Matching an existing government document must retain recorded IDs.
+        return self._eta_source_preview(keep_recorded_person_id=True)
+
+    def _submission_source(self):
+        # A final POST comparison must use the same authorised omission policy
+        # as the outgoing serializer, rather than the receipt-matching view.
+        return self._eta_source_preview(keep_recorded_person_id=False)
+
+    def _eta_source_preview(self, keep_recorded_person_id):
         move = self.move_id
         document = None
         try:
@@ -277,7 +287,7 @@ class EtaHistoricalRecovery(models.Model):
                     self.current_issue_datetime = fields.Datetime.now()
                 # Receipt identity comparison must retain a recorded ID even
                 # when a new submission may legally omit that optional field.
-                document = deepcopy(move.with_context(eta_keep_recorded_person_id=True)._eta_correction_document())
+                document = deepcopy(move.with_context(eta_keep_recorded_person_id=keep_recorded_person_id)._eta_correction_document())
                 raise PreviewRollback()
         except PreviewRollback:
             pass
@@ -525,6 +535,7 @@ class EtaHistoricalRecovery(models.Model):
                 raise UserError(_('A cancelled or buyer-rejected ETA receipt exists. Finance must trace the replacement or approve the correction route.'))
             if any(r.get('status') != 'Invalid' for r in receipts):
                 raise UserError(_('An unrecognized authority receipt status prevents safe submission.'))
+            outgoing = self._submission_source()
             optional_id_rejected = False
             for receipt in receipts:
                 old = receipt.get('document'); old = json.loads(old) if isinstance(old, str) else old
@@ -534,21 +545,30 @@ class EtaHistoricalRecovery(models.Model):
                         raise UserError(_('An earlier authority document predates the complete history proof; expand the history before a new submission.'))
                 codes = set(leaf_codes(receipt.get('validationResults', {})))
                 optional_id = self._optional_person_id_rejection(old, current, receipt.get('validationResults', {}))
-                optional_id_rejected |= optional_id
-                if 'CV302' in codes and not self._catalogue_rejection_resolved(client, old, current, receipt):
+                if 'CV302' in codes and not self._catalogue_rejection_resolved(client, old, outgoing, receipt):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False), authority=True)
                     return
+                if ('CV302' in codes and any(code.startswith('NI') or code == 'SF307' for code in codes)
+                        and all(code.startswith('NI') or code in ('SF307', 'CV302') for code in codes)):
+                    # All non-ID errors were separately proved resolved above.
+                    # Omit only an authority-rejected optional domestic ID.
+                    optional_id = self._optional_person_id_rejection(old, current, {
+                        'details': [{'errorCode': code} for code in codes if code != 'CV302']})
+                optional_id_rejected |= optional_id
+                proposed = deepcopy(outgoing)
+                if optional_id:
+                    proposed['receiver']['id'] = ''
                 id_errors = any(code.startswith('NI') or code in ('SF307', 'CF305') for code in codes)
                 receiver_changed = (isinstance(old, dict) and any(
-                    old.get('receiver', {}).get(k) != current.get('receiver', {}).get(k) for k in ('id', 'type')))
+                    old.get('receiver', {}).get(k) != proposed.get('receiver', {}).get(k) for k in ('id', 'type')))
                 country_changed = (isinstance(old, dict) and old.get('receiver', {}).get('address', {}).get('country')
-                                   != current.get('receiver', {}).get('address', {}).get('country'))
-                classification_changed = (isinstance(old, dict) and old.get('receiver', {}).get('type') != current.get('receiver', {}).get('type'))
+                                   != proposed.get('receiver', {}).get('address', {}).get('country'))
+                classification_changed = (isinstance(old, dict) and old.get('receiver', {}).get('type') != proposed.get('receiver', {}).get('type'))
                 if (id_errors and not (optional_id or receiver_changed)
                         or 'CF320' in codes and not (classification_changed or country_changed)):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False), authority=True)
                     return
-                if (isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(current))
+                if (isinstance(old, dict) and fiscal_equal(fiscal(old), fiscal(proposed))
                         and not (codes and codes.issubset({'CF313', '4043', 'CV302'})) and not optional_id):
                     self._historical_hold(json.dumps(receipt.get('validationResults', {}), ensure_ascii=False) or 'ETA rejected this unchanged invoice. Correct its source data before retrying.', authority=True)
                     return
