@@ -1,4 +1,4 @@
-"""Explicit, certificate-proved recovery of unchanged 4159 rejections.
+"""Explicit certificate recovery, with separate proof for resolved CV302.
 
 Ordinary invoices keep their existing signing path. A private, short-lived proof
 is required before this module permits an unchanged expired-certificate retry.
@@ -21,6 +21,7 @@ from odoo.exceptions import AccessError, UserError
 
 from .historical_recovery import fiscal, fiscal_equal, leaf_codes, PreviewRollback
 from .submission_safety import taxpayer
+from .catalogue_recovery import approved_usage, approval_identity
 
 
 def utc(value):
@@ -111,6 +112,51 @@ def document_signature(document):
 
 class EtaCertificateRecovery(models.Model):
     _inherit = 'tradeline.eta.job'
+
+    def _certificate_catalogue_evidence(self, source, created=None, frozen=None):
+        """Bind a mixed 4159/CV302 proof to fresh, scoped EGS approvals.
+
+        Refreshing catalogue evidence is a separate paced GET operation. This
+        method only reads it, so certificate proof need not monopolize the
+        transport while waiting between catalogue-family requests.
+        """
+        now = datetime.now(timezone.utc)
+        created = utc(created) if created else now
+        try:
+            lines = source['invoiceLines']
+            if (not lines or any(str(line.get('itemType', '')).upper() != 'EGS'
+                    or not line.get('itemCode') for line in lines)):
+                raise ValueError('Every current line must identify its EGS code')
+            codes = sorted({line['itemCode'] for line in lines})
+            retained = {row['code']: row for row in frozen} if frozen is not None else None
+            if retained is not None and (len(retained) != len(frozen) or set(retained) != set(codes)):
+                raise ValueError('The frozen approvals do not cover every current code')
+            params = self.env['ir.config_parameter'].sudo()
+            rin = taxpayer(self.company_id.vat)
+            evidence = []
+            for code in codes:
+                scope, key = self._catalogue_cache_key(code)
+                current = json.loads(params.get_param(key, 'null'))
+                saved = retained[code]['approval'] if retained is not None else current
+                age = created - utc(saved['captured_utc'])
+                if (saved.get('scope') != scope or saved.get('approved') is not True
+                        or not timedelta(0) <= age < timedelta(minutes=5)
+                        or not approved_usage(saved.get('publication'), saved.get('usage'), code, rin, now)
+                        or not current or current.get('scope') != scope or current.get('approved') is not True
+                        or not timedelta(0) <= now - utc(current['captured_utc']) < timedelta(minutes=20)
+                        or not approved_usage(current.get('publication'), current.get('usage'), code, rin, now)
+                        or approval_identity(current) != approval_identity(saved)):
+                    raise ValueError('Fresh approval is missing, changed, expired or outside this taxpayer scope')
+                evidence.append({'code': code, 'approval': saved})
+            return evidence
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError) as exc:
+            raise UserError(_('Certificate/code recovery requires fresh taxpayer-scoped ETA catalogue approval for every current EGS code (%s). Refresh that evidence before proving recovery; nothing was submitted.', str(exc))) from exc
+
+    def _certificate_receipts_eligible(self, receipts):
+        return bool(receipts) and all(receipt.get('status') == 'Invalid'
+            and '4159' in set(leaf_codes(receipt.get('validationResults', {})))
+            and set(leaf_codes(receipt.get('validationResults', {}))).issubset({'4159', 'CV302'})
+            for receipt in receipts)
 
     def _certificate_configuration_hash(self):
         company = self.company_id.sudo()
@@ -255,13 +301,16 @@ class EtaCertificateRecovery(models.Model):
             valid = False
         if not valid:
             raise UserError(_('The certificate recovery proof expired or its source/configuration changed. Recheck the complete authority history and fixed signer; do not resend it manually.'))
+        if proof.get('catalogue_recovery'):
+            self._certificate_catalogue_evidence(source, proof['created_utc'], proof.get('catalogue_approvals', []))
 
     def _certificate_retry_allowed(self, receipts, source):
-        if (not receipts or any(r.get('status') != 'Invalid'
-                or set(leaf_codes(r.get('validationResults', {}))) != {'4159'} for r in receipts)):
+        if not self._certificate_receipts_eligible(receipts):
             return False
         proof = self._certificate_recovery_proof()
         if not proof:
+            return False
+        if any('CV302' in leaf_codes(r.get('validationResults', {})) for r in receipts) and not proof.get('catalogue_recovery'):
             return False
         self._check_certificate_recovery_proof(proof, source)
         return proof['receipt_set_hash'] == self._receipt_set_hash(receipts)
@@ -340,10 +389,11 @@ class EtaCertificateRecovery(models.Model):
         if not history or datetime.combine(move.invoice_date, datetime.min.time()) < history['from']:
             raise UserError(_('Complete taxpayer-scoped authority history is required before certificate recovery.'))
         receipts = self._history_candidates(client, history)
-        if (not receipts or any(r.get('status') != 'Invalid'
-                or set(leaf_codes(r.get('validationResults', {}))) != {'4159'} for r in receipts)):
-            raise UserError(_('Certificate recovery requires exclusively Invalid receipts with only expired-certificate error 4159. Reconcile approvals, pending or other errors first.'))
+        if not self._certificate_receipts_eligible(receipts):
+            raise UserError(_('Certificate recovery requires exclusively Invalid receipts with only expired-certificate error 4159, optionally CV302 with fresh catalogue proof. Reconcile approvals, pending or other errors first.'))
         self._assert_certificate_attempt_reconciled(receipts)
+        catalogue_recovery = any('CV302' in leaf_codes(r.get('validationResults', {})) for r in receipts)
+        catalogue = self._certificate_catalogue_evidence(source) if catalogue_recovery else []
         expired = set(); now = datetime.now(timezone.utc)
         try:
             for receipt in receipts:
@@ -400,6 +450,7 @@ class EtaCertificateRecovery(models.Model):
             'receipt_set_hash': self._receipt_set_hash(receipts), 'financial_fingerprint': financial,
             'source_hash': self._certificate_source_hash(source), 'fresh_certificate': fresh,
             'expired_certificate_fingerprints': sorted(expired), 'original_receipts': receipts,
+            'catalogue_recovery': catalogue_recovery, 'catalogue_approvals': catalogue,
             'preview_document': preview, 'preview_only': True, 'document_posts': 0}
         self.env['ir.attachment'].sudo().create({'name': 'ETA_certificate_recovery_proof_%s_%s.json' % (self.id, fresh['fingerprint'][:16]),
             'res_model': self._name, 'res_id': self.id, 'company_id': self.company_id.id,
