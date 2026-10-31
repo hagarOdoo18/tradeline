@@ -153,6 +153,116 @@ class TestCertificateRecovery(TransactionCase):
         with self.assertRaisesRegex(ValueError, 'expired'):
             signer_certificate(expired_with_valid_decoy, 'canonical', valid_at=[now])
 
+    def mixed_receipt_and_catalogue(self):
+        self.raw['validationResults']['innerError'].append({'errorCode': 'CV302',
+            'propertyPath': '$.invoiceLines[*].itemCode', 'error': 'QA code was not registered'})
+        scope, key = self.job._catalogue_cache_key('QA-CERT')
+        proof = {'scope': scope, 'captured_utc': datetime.now(timezone.utc).isoformat(), 'approved': True,
+            'publication': {'itemCode': 'QA-CERT', 'active': True},
+            'usage': {'result': [{'itemCode': 'QA-CERT', 'active': True, 'status': 'Approved',
+                'codeUsageRequestID': 'qa-approval-1', 'requesterTaxpayer': {'rin': '123456789'}}]}}
+        self.env['ir.config_parameter'].sudo().set_param(key, json.dumps(proof))
+        return key, proof
+
+    def test_mixed_certificate_and_code_recovery_requires_both_proofs_and_final_history(self):
+        self.mixed_receipt_and_catalogue()
+        before = (self.move.invoice_date, self.move.date, self.move.amount_total, self.partner.vat)
+        with self.routes() as (client, candidates, signer):
+            self.job._prove_expired_certificate_recovery(client)
+            proof = self.job._certificate_recovery_proof()
+            self.assertTrue(proof['catalogue_recovery'])
+            self.assertEqual([p['code'] for p in proof['catalogue_approvals']], ['QA-CERT'])
+            self.job._review_historical(client)
+            self.assertEqual(self.job.state, 'queued')
+            self.job._prepare()
+            self.assertTrue(self.job._preflight_submission(client))
+            self.assertGreaterEqual(candidates.call_count, 3)
+            self.assertEqual(signer.call_count, 2)
+            client.request.assert_not_called()
+        self.assertEqual(before, (self.move.invoice_date, self.move.date, self.move.amount_total, self.partner.vat))
+
+    def test_mixed_code_proof_rejects_missing_stale_future_wrong_scope_or_unapproved_catalogue(self):
+        key, good = self.mixed_receipt_and_catalogue()
+        wrong_scope = deepcopy(good); wrong_scope['scope'] = 'uat|999999999|EGS|QA-CERT'
+        pending = deepcopy(good); pending['usage']['result'][0]['status'] = 'Pending'
+        stale = deepcopy(good); stale['captured_utc'] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+        future = deepcopy(good); future['captured_utc'] = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+        inactive = deepcopy(good); inactive['publication']['active'] = False
+        for saved in (None, wrong_scope, pending, stale, future, inactive):
+            self.env['ir.config_parameter'].sudo().set_param(key, json.dumps(saved))
+            with self.subTest(proof=saved), self.routes() as (client, _candidates, signer):
+                with self.assertRaisesRegex(UserError, 'fresh taxpayer-scoped ETA catalogue approval'):
+                    self.job._prove_expired_certificate_recovery(client)
+                signer.assert_not_called(); client.request.assert_not_called()
+            self.assertFalse(self.job._certificate_recovery_proof())
+
+    def test_mixed_code_approval_cannot_bypass_national_id_or_other_errors(self):
+        self.mixed_receipt_and_catalogue()
+        self.raw['validationResults']['innerError'].append({'errorCode': 'NI303'})
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'only expired-certificate error 4159'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+        self.assertFalse(self.job._certificate_recovery_proof())
+
+    def test_mixed_certificate_proof_covers_every_current_code_and_excludes_gs1(self):
+        self.mixed_receipt_and_catalogue()
+        extra = dict(self.source['invoiceLines'][0], itemCode='QA-SECOND-CODE')
+        self.source['invoiceLines'].append(extra)
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'catalogue approval'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+        self.source['invoiceLines'].pop()
+        self.source['invoiceLines'][0]['itemType'] = 'GS1'
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'Every current line must identify its EGS code'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_mixed_proof_stops_before_resigning_after_approval_revocation_or_identity_change(self):
+        key, good = self.mixed_receipt_and_catalogue()
+        with self.routes() as (client, _candidates, signer):
+            self.job._prove_expired_certificate_recovery(client)
+            for changed in (dict(good, approved=False), deepcopy(good)):
+                if changed.get('approved'):
+                    changed['usage']['result'][0]['codeUsageRequestID'] = 'qa-different-approval'
+                self.env['ir.config_parameter'].sudo().set_param(key, json.dumps(changed))
+                with self.assertRaisesRegex(UserError, 'catalogue approval'):
+                    self.job._prepare()
+                self.assertEqual(signer.call_count, 1)
+            client.request.assert_not_called()
+
+    def test_mixed_proof_rejects_expired_frozen_approval_or_missing_code_coverage(self):
+        self.mixed_receipt_and_catalogue()
+        with self.routes() as (client, _candidates, signer):
+            self.job._prove_expired_certificate_recovery(client)
+            attachment = self.job._certificate_proof_attachments()[:1]
+            original = json.loads(attachment.raw)
+            stale = deepcopy(original)
+            stale['catalogue_approvals'][0]['approval']['captured_utc'] = (
+                datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+            for changed in (stale, dict(original, catalogue_approvals=[])):
+                attachment.raw = json.dumps(changed).encode()
+                with self.assertRaisesRegex(UserError, 'catalogue approval'):
+                    self.job._prepare()
+                self.assertEqual(signer.call_count, 1)
+            client.request.assert_not_called()
+
+    def test_mixed_proof_still_restores_late_valid_receipt_without_another_post(self):
+        self.mixed_receipt_and_catalogue()
+        with self.routes() as (client, candidates, _signer):
+            self.job._prove_expired_certificate_recovery(client)
+            self.job._review_historical(client)
+            self.job._prepare()
+            candidates.return_value = [dict(self.raw, uuid='qa-late-valid-mixed', status='Valid',
+                dateTimeReceived=datetime.now(timezone.utc).isoformat(),
+                document=json.loads(self.job.payload)['documents'][0])]
+            self.assertFalse(self.job._preflight_submission(client))
+            self.assertEqual(self.job.state, 'valid')
+            self.assertEqual(self.move.e_invoice_uuid, 'qa-late-valid-mixed')
+            client.request.assert_not_called()
+
     def test_certificate_proof_rejects_digest_tampering_rsa_tampering_and_future_certificate(self):
         good = self.signature('canonical', self.new_cert, self.new_key)
         for value, canonical in [(good, 'other bytes'),
