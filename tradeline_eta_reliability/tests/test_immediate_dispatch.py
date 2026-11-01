@@ -241,6 +241,24 @@ class TestImmediateDispatch(TransactionCase):
         self.assertFalse(run.calls)
         self.assertEqual(self.Job._native_batch_candidate('all', 0), fresh)
 
+    def test_stale_status_backlog_does_not_starve_an_explicit_send_request(self):
+        accepted = self.invoice().eta_job_ids
+        accepted.write({'state': 'accepted', 'checked_at': fields.Datetime.now() - timedelta(hours=1)})
+        target = self.invoice().eta_job_ids
+        target.write({'state': 'review', 'historical_review': True, 'historical_fingerprint': 'saved baseline'})
+        target._request_priority_dispatch()
+        self.assertEqual(self.Job._native_batch_candidate('all', 0), target)
+        target.next_attempt = fields.Datetime.now() + timedelta(minutes=30)
+        self.assertEqual(self.Job._native_batch_candidate('all', 0), accepted)
+
+    def test_uncertain_outcome_still_precedes_a_manual_history_request(self):
+        uncertain = self.invoice().eta_job_ids
+        uncertain.write({'state': 'unknown', 'attempts': 1, 'attempted_at': fields.Datetime.now()})
+        target = self.invoice().eta_job_ids
+        target.write({'state': 'review', 'historical_review': True, 'historical_fingerprint': 'saved baseline'})
+        target._request_priority_dispatch()
+        self.assertEqual(self.Job._native_batch_candidate('all', 0), uncertain)
+
     def test_manual_history_request_is_selected_outside_the_normal_review_page(self):
         jobs = self.Job.browse()
         for _i in range(24):jobs |= self.invoice().eta_job_ids
