@@ -70,6 +70,8 @@ class TestEtaDraftCorrection(TransactionCase):
 
     def setUp(self):
         super().setUp()
+        vat = patch.object(type(self.env['tradeline.eta.job']), '_assert_positive_vat_submission', return_value=True)
+        vat.start(); self.addCleanup(vat.stop)
         guard = patch('requests.sessions.Session.request', side_effect=AssertionError('Unexpected external HTTP'))
         guard.start()
         self.addCleanup(guard.stop)
@@ -321,6 +323,45 @@ class TestEtaDraftCorrection(TransactionCase):
         self.assertFalse(corrections.eta_job_ids)
         wizard.action_prepare()  # A second click reopens these drafts.
         self.assertEqual(len(move.eta_vat_correction_ids), 2)
+
+    def test_untaxed_usd_receipt_prepares_exact_credit_at_original_rate(self):
+        move = self.vat_invoice()
+        move.button_draft()
+        usd = self.env.ref('base.USD')
+        usd.active = True
+        move.write({'currency_id': usd.id, 'invoice_currency_rate': .02})
+        move.action_post()
+        receipt = self.receipt(move)
+        doc = receipt['document']
+        doc.update(totalAmount=5000, netAmount=5000)
+        doc['invoiceLines'][0].update(netTotal=5000, unitValue={
+            'currencySold':'USD','amountSold':100,'amountEGP':5000,'currencyExchangeRate':50})
+        move.write({'e_invoice_uuid': receipt['uuid'], 'e_invoice_status':'Valid', 'e_invoice_sent':True})
+        move.eta_job_ids.state = 'valid'
+        before = (move.amount_total, move.amount_total_signed, move.invoice_date)
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt):
+            self.vat_wizard(move).action_prepare()
+        credit = move.eta_vat_correction_ids.filtered(lambda record: record.move_type == 'out_refund')
+        replacement = move.eta_vat_correction_ids.filtered(lambda record: record.move_type == 'out_invoice')
+        self.assertEqual(credit.currency_id, usd)
+        self.assertAlmostEqual(credit.amount_total, 100, places=2)
+        self.assertAlmostEqual(abs(credit.amount_total_signed), 5000, places=2)
+        self.assertAlmostEqual(credit.invoice_currency_rate, .02)
+        self.assertGreater(replacement.amount_tax, 0)
+        self.assertTrue(all(record.state == 'draft' for record in credit | replacement))
+        self.assertEqual(before, (move.amount_total, move.amount_total_signed, move.invoice_date))
+
+    def test_foreign_receipt_rate_mismatch_cannot_prepare_correction(self):
+        move = self.vat_invoice()
+        move.button_draft()
+        usd = self.env.ref('base.USD'); usd.active = True
+        move.write({'currency_id': usd.id, 'invoice_currency_rate': .02})
+        move.action_post()
+        receipt = self.receipt(move)
+        receipt['document']['invoiceLines'][0]['unitValue'] = {'currencySold':'USD','currencyExchangeRate':49}
+        credit = move._reverse_moves([{'date':fields.Date.today()}], cancel=False)
+        with self.assertRaisesRegex(UserError, 'exchange rate differs'):
+            self.vat_wizard(move)._restore_credit_lines(credit, receipt['document'])
 
     def test_already_edited_invoice_gets_balanced_draft_alignment(self):
         move = self.vat_invoice()
