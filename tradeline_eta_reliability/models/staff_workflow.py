@@ -12,6 +12,7 @@ from datetime import timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
+from odoo.osv import expression
 
 from .client import EtaClient, EtaError
 from .eta_job import EtaJob, STATES, STAFF_SEND, STAFF_STATUS
@@ -35,6 +36,26 @@ class EtaStaffJob(models.Model):
     invoice_number = fields.Char(related='move_id.name', string='Invoice number', readonly=True)
     invoice_total = fields.Monetary(related='move_id.amount_total', string='Invoice total', readonly=True)
     currency_id = fields.Many2one(related='move_id.currency_id', readonly=True)
+
+    def _apply_ir_rules(self, query, mode='read'):
+        super()._apply_ir_rules(query, mode)
+        if not self.env.su:
+            # Use a subquery built as the actual reader, rather than a relational
+            # ir.rule (those are compiled under sudo). This keeps branch and
+            # custom invoice rules without enumerating the whole invoice table.
+            readable = self.env['account.move']._search([])
+            expression.expression([('move_id', 'in', readable)], self.sudo(), self._table, query)
+
+    def _check_access(self, operation):
+        result = super()._check_access(operation)
+        if result or self.env.su or not self:
+            return result
+        moves = self.sudo().mapped('move_id').with_env(self.env)
+        denied = set((moves - moves._filtered_access('read')).ids)
+        if denied:
+            forbidden = self.filtered(lambda job: job.sudo().move_id.id in denied)
+            return forbidden, lambda: AccessError(_('You can only view ETA details for invoices you can access.'))
+        return None
 
     def action_send_now(self):
         self.ensure_one()
