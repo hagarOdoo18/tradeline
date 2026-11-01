@@ -295,7 +295,7 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertIn('earlier ETA receipt', move.eta_staff_reason)
         action = move.with_user(self.clerk).action_eta_check_status_now()
         self.assertEqual(action['params']['mode'], 'status')
-        self.assertEqual(move.eta_job_ids.state, 'accepted')
+        self.assertEqual(move.eta_job_ids.state, 'valid')
         self.assertFalse(move.eta_job_ids.attempts)
 
     def test_staff_views_support_invoice_search_badges_and_branch_grouping(self):

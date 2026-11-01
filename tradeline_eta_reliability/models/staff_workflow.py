@@ -215,12 +215,17 @@ class EtaStaffMove(models.Model):
 
     def _eta_staff_request(self, mode):
         self._eta_staff_access()
+        had_job = bool(self.eta_job_ids)
         # Enroll just this invoice without postcommit queue dispatch/wakeups.
         if mode == 'send' or not self.eta_job_ids and (self.e_invoice_uuid or self.l10n_eg_uuid):
             self.with_context(eta_queue_cron=True)._eta_enqueue(reconcile=True)
         job = self.eta_job_ids.sudo()
         if not job:
             raise UserError(_('No ETA submission is recorded. Use Send to ETA now to submit this invoice.'))
+        if not had_job and self.e_invoice_uuid and self.e_invoice_status == 'Valid':
+            # Enrollment for a manual check must not downgrade an approval
+            # already recorded by the earlier integration if that check fails.
+            job.state = 'valid'
         now = fields.Datetime.now()
         request = self.env['ir.attachment'].sudo().create({
             'name': REQUEST_NAME, 'res_model': 'tradeline.eta.job', 'res_id': job.id,
