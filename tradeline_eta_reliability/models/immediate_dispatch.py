@@ -16,12 +16,16 @@ DISPATCH_MAX_OPERATIONS = 2
 DISPATCH_SECONDS = 8  # Soft budget; never interrupt an in-flight HTTP request.
 
 
-def dispatch_after_commit(registry, uid, job_ids):
+def dispatch_after_commit(registry, uid, job_ids, priority_request_ids=None):
     """Never retain the posting environment or commit an invoice from its RPC."""
     try:
         with registry.cursor() as cr:
             env = api.Environment(cr, uid, {'eta_queue_cron': True})
-            env['tradeline.eta.job'].sudo().browse(job_ids)._dispatch_immediately()
+            jobs = env['tradeline.eta.job'].sudo().browse(job_ids).exists()
+            if priority_request_ids is not None:
+                jobs = jobs._committed_priority_jobs(priority_request_ids)
+            if jobs:
+                jobs._dispatch_immediately()
     except Exception as exc:
         # The invoice is already committed. Its queue job and cron trigger are
         # the fallback; leaking an exception cannot roll back a government POST.
@@ -43,10 +47,22 @@ class EtaImmediateDispatch(models.Model):
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
         return bool(binding and binding[0] == self.env.cr.dbname and cron and cron.sudo().active)
 
-    def _schedule_immediate_dispatch(self):
+    def _schedule_immediate_dispatch(self, priority_request_ids=None):
         if self and not self.env.context.get('eta_queue_cron'):
-            self.env.cr.postcommit.add(partial(
-                dispatch_after_commit, self.env.registry, self.env.uid, tuple(self.ids)))
+            args = (self.env.registry, self.env.uid, tuple(self.ids))
+            if priority_request_ids is not None:
+                args += (tuple(priority_request_ids),)
+            self.env.cr.postcommit.add(partial(dispatch_after_commit, *args))
+
+    def _committed_priority_jobs(self, request_ids):
+        # A savepoint rollback can leave a postcommit callback registered even
+        # though its click was undone. Act only on the durable request records
+        # captured by that callback, never merely an existing queued invoice.
+        requests = self.env['ir.attachment'].sudo().browse(request_ids).exists().filtered(
+            lambda a: a.res_model == self._name and a.name == PRIORITY_REQUEST_NAME)
+        now = fields.Datetime.now()
+        return self.filtered(lambda job: any(a.res_id == job.id
+            and self._read_priority_request(a, job, now) for a in requests))
 
     @api.model
     def _read_priority_request(self, attachment, job, now):
@@ -67,16 +83,19 @@ class EtaImmediateDispatch(models.Model):
             return False
         now = fields.Datetime.now()
         Attachment = self.env['ir.attachment'].sudo()
+        requests = Attachment.browse()
         active = self.filtered(lambda job: job.state in ('queued', 'unknown', 'accepted', 'review'))
         for job in active:
             existing = Attachment.search([
                 ('res_model', '=', self._name), ('res_id', '=', job.id),
                 ('company_id', '=', job.company_id.id), ('name', '=', PRIORITY_REQUEST_NAME),
                 ('create_date', '>=', now - timedelta(hours=2))], order='id desc', limit=20)
-            if any(self._read_priority_request(a, job, now) for a in existing):
+            valid = next((a for a in existing if self._read_priority_request(a, job, now)), None)
+            if valid:
+                requests |= valid
                 continue
             expiry = min(now + timedelta(hours=2), max(now, job.next_attempt or now) + timedelta(minutes=10))
-            Attachment.create({
+            requests |= Attachment.create({
                 'name': PRIORITY_REQUEST_NAME, 'res_model': self._name, 'res_id': job.id,
                 'company_id': job.company_id.id, 'public': False, 'mimetype': 'application/json',
                 'raw': json.dumps({'database': self.env.cr.dbname, 'job': job.id,
@@ -84,8 +103,10 @@ class EtaImmediateDispatch(models.Model):
                     'requested_at': fields.Datetime.to_string(now),
                     'expires_at': fields.Datetime.to_string(expiry)}).encode()})
         if active:
+            # Register the direct attempt first. Waking an idle cron before it
+            # would race for the same transport and could start maintenance.
+            active._schedule_immediate_dispatch(priority_request_ids=requests.ids)
             self.env.ref('tradeline_eta_reliability.cron_eta_queue').sudo()._trigger()
-            active._schedule_immediate_dispatch()
         return bool(active)
 
     @api.model

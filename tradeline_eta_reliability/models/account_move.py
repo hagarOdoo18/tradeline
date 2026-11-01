@@ -77,8 +77,8 @@ class AccountMove(models.Model):
                 # No authority HTTP or manual commit in the posting transaction.
                 # The short postcommit attempt and native fallback share the
                 # same durable job, transport lock and uncertainty safeguards.
-                cron.sudo()._trigger()
                 newly_queued._schedule_immediate_dispatch()
+                cron.sudo()._trigger()
 
     def action_send_electronic_invoice(self):
         """Request immediate safe dispatch of the same durable job as the cron."""

@@ -94,6 +94,9 @@ class TestImmediateDispatch(TransactionCase):
         self.assertFalse(self.callback.called)
         dispatch = [c for c in callbacks if isinstance(c, partial) and c.func is self.callback]
         self.assertEqual(len(dispatch), 1)
+        notify = next(c for c in callbacks if getattr(c, '__name__', '') == '_notifydb'
+            and getattr(getattr(c, '__self__', None), 'ids', []) == self.cron.ids)
+        self.assertLess(callbacks.index(dispatch[0]), callbacks.index(notify))
         self.assertEqual(dispatch[0].args[2], tuple(move.eta_job_ids.ids))
         self.assertEqual(self.env['ir.cron.trigger'].search_count([('cron_id', '=', self.cron.id)]) - before, 1)
         dispatch[0]()
@@ -282,6 +285,7 @@ class TestImmediateDispatch(TransactionCase):
     def test_callback_exception_cannot_escape_after_invoice_commit(self):
         registry = MagicMock(); model = MagicMock()
         model.sudo.return_value = model; model.browse.return_value = model
+        model.exists.return_value = model
         model._dispatch_immediately.side_effect = RuntimeError('private exception contents')
         with patch(MODULE + '.api.Environment', return_value={'tradeline.eta.job': model}), \
                 patch(MODULE + '._logger.warning') as log:
@@ -338,3 +342,28 @@ class TestImmediateDispatch(TransactionCase):
         with self.dispatch_harness() as run:self.assertEqual(job._dispatch_immediately(), 0)
         self.assertFalse(run.calls)
         self.assertEqual(before, job.read(list(before[0].keys())))
+
+    def test_manual_dispatch_precedes_cron_wakeup_and_carries_durable_intent(self):
+        move = self.invoice(); callbacks = []
+        with patch.object(type(self.env.cr.postcommit), 'add', autospec=True,
+                side_effect=lambda owner, callback: callbacks.append(callback)):
+            move.action_send_electronic_invoice()
+        callback = next(c for c in callbacks if isinstance(c, partial) and c.func is self.callback)
+        notify = next(c for c in callbacks if getattr(c, '__name__', '') == '_notifydb'
+            and getattr(getattr(c, '__self__', None), 'ids', []) == self.cron.ids)
+        self.assertLess(callbacks.index(callback), callbacks.index(notify))
+        self.assertEqual(callback.args[3], tuple(self.requests(move.eta_job_ids).ids))
+
+    def test_savepoint_rollback_of_click_cannot_dispatch_an_existing_invoice(self):
+        job = self.invoice().eta_job_ids; requests = []
+        with self.assertRaisesRegex(UserError, 'undo click'):
+            with self.env.cr.savepoint():
+                job._request_priority_dispatch(); requests = self.requests(job).ids
+                raise UserError('undo click')
+        self.assertTrue(job.exists())
+        self.assertFalse(self.env['ir.attachment'].sudo().browse(requests).exists())
+        registry = MagicMock()
+        with patch(MODULE + '.api.Environment', return_value=self.env), \
+                patch.object(type(self.Job), '_dispatch_immediately') as dispatch:
+            dispatch_after_commit(registry, self.env.uid, tuple(job.ids), tuple(requests))
+        dispatch.assert_not_called()
