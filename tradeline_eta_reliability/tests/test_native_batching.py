@@ -187,6 +187,28 @@ class TestNativeBatching(TransactionCase):
             self.assertIs(run.client.company, original)
             run.job._delay.assert_called_once()
 
+    def test_worker_preserves_tagged_request_failure_after_rollback_before_deferral_commit(self):
+        events = []
+        exc = EtaError('uncertain request', status=503)
+        exc.eta_submission_failure = {'job': 1}
+        with self.isolated_worker() as run:
+            run.job._submit.side_effect = exc
+            run.job._preserve_uncertain_request_failure = MagicMock(side_effect=lambda error: events.append('evidence'))
+            run.cr.rollback.side_effect = lambda: events.append('rollback')
+            run.job._delay.side_effect = lambda *args, **kwargs: events.append('delay')
+            run.cr.commit.side_effect = lambda: events.append('commit')
+            self.assertTrue(self.Job._process_id(1, run.client))
+            run.job._preserve_uncertain_request_failure.assert_called_once_with(exc)
+        self.assertEqual(events[:4], ['rollback', 'evidence', 'delay', 'commit'])
+
+    def test_worker_does_not_label_a_later_get_failure_as_original_submission_error(self):
+        with self.isolated_worker(state='unknown') as run:
+            run.job._refresh.side_effect = EtaError('later GET unavailable', status=503)
+            run.job._preserve_uncertain_request_failure = MagicMock()
+            self.assertTrue(self.Job._process_id(1, run.client))
+            run.job._preserve_uncertain_request_failure.assert_not_called()
+            run.job._delay.assert_called_once()
+
     def test_posted_recordset_wakes_native_scheduler_once_without_http(self):
         moves = self.draft() | self.draft()
         before = self.trigger_count()

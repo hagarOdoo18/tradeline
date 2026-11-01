@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -327,7 +328,17 @@ class EtaJob(models.Model):
             raise EtaError('Posted accounting changed before ETA transmission; reconcile the retained request.')
         try:
             body = client.request('POST', '/api/v1/documentsubmissions', data=self.payload.encode())
-        except EtaError as exc:
+        except (EtaError, requests.RequestException) as exc:
+            # Retain only a scoped diagnostic tag in memory. The isolated
+            # worker persists it AFTER rolling back the failed request's
+            # transaction, alongside the normal uncertain deferral.
+            exc.eta_submission_failure = {
+                'job': self.id, 'attempts': self.attempts,
+                'attempted_at': fields.Datetime.to_string(self.attempted_at),
+                'payload_sha256': hashlib.sha256(self.payload.encode()).hexdigest(),
+            }
+            if not isinstance(exc, EtaError):
+                raise
             if exc.status == 422 and exc.code == 'DuplicateSubmission':
                 deadline = fields.Datetime.now() + timedelta(seconds=max(60, exc.retry_after))
                 self.write({'duplicate_retry_at': deadline, 'duplicate_payload_hash': self.payload_hash,
@@ -381,6 +392,48 @@ class EtaJob(models.Model):
             return []
         codes = set(leaves(node))
         return bool(codes) and codes == {'CF313'}
+
+    def _preserve_uncertain_request_failure(self, exc):
+        """Keep the first request failure; this is NEVER a retry/absence proof."""
+        self.ensure_one()
+        context = getattr(exc, 'eta_submission_failure', None)
+        if (not isinstance(context, dict) or self.state != 'unknown'
+                or not self.attempted_at or not self.payload):
+            return False
+        expected = {'job': self.id, 'attempts': self.attempts,
+            'attempted_at': fields.Datetime.to_string(self.attempted_at),
+            'payload_sha256': hashlib.sha256(self.payload.encode()).hexdigest()}
+        if context != expected:
+            return False
+        try:
+            with self.env.cr.savepoint():
+                name = 'ETA_uncertain_request_failure_%s_%s_%s.json' % (
+                    self.attempts, self.attempted_at.strftime('%Y%m%dT%H%M%S'), expected['payload_sha256'][:12])
+                Attachment = self.env['ir.attachment'].sudo()
+                domain = [('res_model', '=', self._name), ('res_id', '=', self.id),
+                    ('company_id', '=', self.company_id.id), ('public', '=', False), ('name', '=', name)]
+                if Attachment.search(domain, limit=1):
+                    return False
+                status = getattr(exc, 'status', None)
+                code = getattr(exc, 'code', None)
+                evidence = dict(expected, database=self.env.cr.dbname, company=self.company_id.id,
+                    observed_at=fields.Datetime.to_string(fields.Datetime.now()),
+                    operation='document_submission_request', exception_type=type(exc).__name__,
+                    http_status=status if type(status) is int and 100 <= status <= 599 else None,
+                    error_code=code if isinstance(code, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', code) else None,
+                    delivery_proven=False, retry_authorized=False)
+                # No exception message, response/request body, URL, auth token,
+                # customer identifier or invoice contents enter this record.
+                Attachment.create({'name': name, 'res_model': self._name, 'res_id': self.id,
+                    'company_id': self.company_id.id, 'public': False, 'mimetype': 'application/json',
+                    'raw': json.dumps(evidence).encode()})
+                return True
+        except Exception as failure:
+            # A diagnostic failure must not replace the durable marker or
+            # prevent the existing reconciliation/retry schedule from committing.
+            _logger.warning('ETA job %s diagnostic unavailable (%s); normal reconciliation retained',
+                            self.id, type(failure).__name__)
+            return False
 
     @api.model
     def _process_id(self, job_id, client):
@@ -454,6 +507,8 @@ class EtaJob(models.Model):
                 except EtaStopped:
                     return committed
                 job.invalidate_recordset()
+                if getattr(exc, 'eta_submission_failure', None):
+                    job._preserve_uncertain_request_failure(exc)
                 # Rollback never removes the committed uncertain marker.
                 if isinstance(exc, UserError) and job.state == 'queued':
                     # Signer outages are transient; data/age errors need correction.
