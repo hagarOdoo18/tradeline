@@ -12,7 +12,7 @@ export class EtaConnectionHealth extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.state = useState({ rows: [], failed: false });
+        this.state = useState({ rows: [], failed: false, query: "", finding: false });
         this.alive = true;
         onWillStart(() => this.refresh());
         onMounted(() => { this.timer = setInterval(() => this.refresh(), 30000); });
@@ -42,6 +42,14 @@ export class EtaConnectionHealth extends Component {
         return value >= 60 ? _t("%s min", (value / 60).toFixed(1)) : _t("%s sec", Number(value).toFixed(2));
     }
     checked(value) { return value ? new Date(value.replace(" ", "T") + "Z").toLocaleTimeString() : "—"; }
+    async findInvoice() {
+        if (!this.state.query.trim() || this.state.finding) { return; }
+        this.state.finding = true;
+        try {
+            const result = await this.orm.call("account.move", "action_eta_find_invoice", [this.state.query]);
+            await this.action.doAction(result);
+        } finally { this.state.finding = false; }
+    }
     open(suffix) { return this.action.doAction("tradeline_eta_reliability.action_eta_" + suffix); }
 }
 class EtaWorkspaceListController extends ListController {

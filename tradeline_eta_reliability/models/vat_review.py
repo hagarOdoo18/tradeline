@@ -40,8 +40,11 @@ class EtaVatReviewMove(models.Model):
     eta_vat_review_state = fields.Selection([
         ('missing', 'VAT missing — sending blocked'),
         ('approved_missing', 'Approved without VAT — correct it'),
+        ('rejected_missing', 'No VAT on rejected receipt — correct invoice'),
+        ('receipt_missing', 'No VAT on ETA receipt — reconcile its status'),
+        ('receipt_vat', 'VAT confirmed on ETA receipt'),
         ('receipt_review', 'Receipt unavailable — reconcile ETA'),
-        ('source_changed', 'Current VAT differs from saved receipt'),
+        ('source_changed', 'ETA receipt has VAT — Odoo VAT missing'),
         ('correcting', 'VAT correction in progress'),
         ('corrected', 'VAT correction completed'),
         ('ready', 'VAT present'), ('other', 'Credit / other document')],
@@ -97,14 +100,18 @@ class EtaVatReviewMove(models.Model):
                 elif docs:
                     state, note = 'correcting', _('Open VAT Corrections. Review/post the credit first; send the VAT replacement after ETA approves the credit.')
                 else:
-                    state = 'approved_missing' if move.e_invoice_status == 'Valid' else 'receipt_review'
-                    note = _('The saved ETA receipt contains no positive VAT. Use Correct VAT to prepare linked correction drafts; keep the original receipt.')
+                    state = ('approved_missing' if move.e_invoice_status == 'Valid'
+                        else 'rejected_missing' if move.e_invoice_status in ('Invalid', 'Rejected') else 'receipt_missing')
+                    note = (_('The saved ETA receipt contains no positive VAT. Use Correct VAT to prepare linked correction drafts; keep the original receipt.')
+                        if state == 'approved_missing' else _('The ETA receipt contains no positive VAT. Correct VAT verifies the latest authority status before reopening or replacing the invoice; an unresolved send is never replayed.'))
             elif missing and sent:
                 state = 'source_changed' if audited else 'receipt_review'
                 note = (_('The saved receipt includes VAT but the current accounting record does not. Finance must reconcile the difference before any correction.')
                     if audited else _('No matching saved ETA receipt is available. Check ETA status to retrieve the signed document. An unresolved send must be reconciled before a correction or resend.'))
             elif missing:
                 state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Use Correct VAT, review the draft, and post it again.')
+            elif audited:
+                state, note = 'receipt_vat', _('Positive VAT is confirmed on the matching ETA receipt. No missing-VAT correction is required.')
             move.eta_vat_amount = amount
             move.eta_vat_missing = missing
             move.eta_vat_review_state = state

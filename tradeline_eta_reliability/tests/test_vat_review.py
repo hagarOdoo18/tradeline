@@ -298,3 +298,20 @@ class TestEtaVatReview(TransactionCase):
             self.assertTrue(root.xpath("//filter[@name='%s']" % name))
         for group in ('state', 'e_invoice_status', 'journal_id', 'e_invoice_date:day', 'e_invoice_date:hour'):
             self.env['account.move'].with_user(self.clerk).read_group([('move_type','=','out_invoice')], [], [group])
+
+    def test_global_lookup_finds_old_invoice_branch_reference_full_label_or_link(self):
+        move = self.invoice(vat=True)
+        move.ref = 'City Center QA/0777'
+        lookup = self.env['account.move'].with_user(self.clerk)
+        for query in (move.name, move.ref, '%s (%s)' % (move.name, move.ref),
+                'https://example.odoo.com/odoo/account.move/%s' % move.id):
+            action = lookup.action_eta_find_invoice(query)
+            self.assertEqual(action['res_id'], move.id)
+            self.assertEqual(action['view_mode'], 'form')
+        with self.assertRaisesRegex(UserError, 'No invoice found'):
+            lookup.action_eta_find_invoice('NO-SUCH-INVOICE-CTYA-999999')
+        rule = self.env['ir.rule'].create({'name': 'Global lookup inaccessible invoice',
+            'model_id': self.env['ir.model']._get_id('account.move'), 'domain_force': "[('id','!=',%s)]" % move.id})
+        with self.assertRaisesRegex(UserError, 'No invoice found'):
+            lookup.action_eta_find_invoice(move.name)
+        rule.unlink()

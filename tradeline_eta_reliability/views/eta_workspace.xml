@@ -12,9 +12,9 @@
                 <field name="e_invoice_date" string="First ETA submission time" optional="hide"/>
                 <field name="eta_staff_state" widget="badge" string="ETA status"
                     decoration-success="eta_staff_state == 'valid'" decoration-danger="eta_staff_state in ('blocked','invalid')"
-                    decoration-warning="eta_staff_state == 'unknown'" decoration-info="eta_staff_state in ('queued','accepted','review')"/>
-                <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','source_changed')"
-                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','corrected')"/>
+                    decoration-warning="eta_staff_state in ('unknown','delivery_review')" decoration-info="eta_staff_state in ('queued','accepted','review')"/>
+                <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
+                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected')"/>
                 <field name="amount_total"/>
                 <field name="currency_id" optional="hide"/>
                 <field name="company_id" groups="base.group_multi_company"/>
@@ -34,7 +34,7 @@
         <field name="model">account.move</field>
         <field name="arch" type="xml">
             <search>
-                <field name="name" string="Invoice number"/>
+                <field name="name" string="Invoice or branch reference" filter_domain="['|','|',('name','ilike',self),('ref','ilike',self),('invoice_origin','ilike',self)]"/>
                 <field name="partner_id" string="Customer"/>
                 <field name="journal_id"/>
                 <filter name="drafts" string="Drafts — not submitted" domain="[('state','=','draft')]"/>
@@ -82,7 +82,7 @@
     <record id="action_eta_backlog" model="ir.actions.act_window">
         <field name="name">ETA — Backlog and active processing</field><field name="res_model">tradeline.eta.job</field>
         <field name="view_mode">list,form</field><field name="search_view_id" ref="eta_job_search"/>
-        <field name="domain">[('state','!=','valid')]</field><field name="context">{'group_by':'state'}</field>
+        <field name="domain">[('state','!=','valid')]</field><field name="context">{'group_by':'staff_state'}</field>
         <field name="help" type="html"><p>The backlog includes earlier records being verified, invoices waiting to send, unresolved submissions and correction holds. Draft invoices appear under Drafts, before they enter processing.</p></field>
     </record>
     <record id="action_eta_sent_history" model="ir.actions.act_window">
@@ -100,6 +100,14 @@
         <field name="domain">[('move_type','in',['out_invoice','out_refund']),('state','=','draft')]</field>
         <field name="context">{'group_by':'journal_id','create':False}</field>
     </record>
+    <record id="action_eta_approved_invoices" model="ir.actions.act_window">
+        <field name="name">ETA — Approved invoices</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('move_type','in',['out_invoice','out_refund']),('e_invoice_status','=','Valid')]</field>
+        <field name="context">{'group_by':'e_invoice_date:day','create':False}</field>
+        <field name="help" type="html"><p>All invoices and credits approved by ETA, grouped by submission day. Find any invoice searches every date and status, including older backlog invoices.</p></field>
+    </record>
     <record id="action_eta_vat_issues" model="ir.actions.act_window">
         <field name="name">ETA — VAT issues and corrections</field><field name="res_model">account.move</field>
         <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
@@ -113,6 +121,7 @@
     <menuitem id="menu_eta_all_invoices" name="All invoices — by day" parent="menu_account_eta_jobs" action="action_eta_all_invoices" sequence="1" groups="account.group_account_invoice"/>
     <menuitem id="menu_eta_backlog" name="Backlog and active processing" parent="menu_account_eta_jobs" action="action_eta_backlog" sequence="2" groups="account.group_account_invoice"/>
     <menuitem id="menu_eta_sent_history" name="Sent history" parent="menu_account_eta_jobs" action="action_eta_sent_history" sequence="3" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_approved" name="Approved invoices" parent="menu_account_eta_jobs" action="action_eta_approved_invoices" sequence="3" groups="account.group_account_invoice"/>
     <menuitem id="menu_eta_drafts" name="Drafts — not submitted" parent="menu_account_eta_jobs" action="action_eta_draft_invoices" sequence="4" groups="account.group_account_invoice"/>
     <menuitem id="menu_eta_vat_issues" name="VAT issues and corrections" parent="menu_account_eta_jobs" action="action_eta_vat_issues" sequence="5" groups="account.group_account_invoice"/>
     <menuitem id="menu_eta_job_status" name="Queue status details" parent="menu_account_eta_jobs" action="action_eta_invoice_log" sequence="6" groups="account.group_account_invoice"/>
@@ -123,8 +132,8 @@
             <xpath expr="//field[@name='eta_staff_reason']" position="before">
                 <widget name="eta_connection_health" groups="account.group_account_invoice,account.group_account_readonly"/>
                 <div class="my-2">
-                    <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','source_changed')"
-                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','corrected')"/>
+                    <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
+                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected')"/>
                     <field name="eta_vat_review_note" nolabel="1"/>
                 </div>
             </xpath>

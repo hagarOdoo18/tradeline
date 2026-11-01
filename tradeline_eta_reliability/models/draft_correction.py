@@ -350,18 +350,18 @@ class EtaVatCorrection(models.TransientModel):
             taxes = self.env['account.tax']
             included = 0
             for item in old.get('taxableItems', []):
-                if not item.get('amount') and not item.get('rate'):
-                    continue
                 candidates = self.env['account.tax'].search([
                     ('company_id', '=', move.company_id.id), ('type_tax_use', '=', 'sale'),
                     ('amount_type', '=', 'percent'), ('type_code_id.code', '=', item.get('taxType')),
                     ('sub_type_code_id.code', '=', item.get('subType'))])
-                rate = float(item.get('rate', 0))
-                candidates = candidates.filtered(lambda tax: abs(abs(tax.amount) - rate) < .000001
+                tax_rate = float(item.get('rate', 0))
+                candidates = candidates.filtered(lambda tax: abs(abs(tax.amount) - tax_rate) < .000001
                     and (tax.amount < 0 if item.get('taxType') == 'T4' else tax.amount >= 0))
                 preferred = candidates & original.tax_ids
                 selected = preferred[:1] or candidates[:1]
                 if not selected:
+                    if not item.get('amount') and not tax_rate:
+                        continue  # A synthetic zero item has no configured tax/reporting tags.
                     raise UserError(_('Configure a company sales tax matching the original ETA tax %s/%s before correcting it.',
                                       item.get('taxType'), item.get('subType')))
                 taxes |= selected
@@ -385,30 +385,37 @@ class EtaVatCorrection(models.TransientModel):
         entries remain draft for review; no ledger or government POST occurs.
         """
         move = self.move_id
-        groups = defaultdict(lambda: {'balance': 0, 'base': 0})
+        groups = defaultdict(lambda: {'balance': 0, 'base': 0, 'currency_amount': 0})
         for line in (move.line_ids | credit.line_ids).filtered(lambda line: line.display_type not in ('line_section', 'line_note')):
             key = (line.account_id.id, line.partner_id.id, line.tax_repartition_line_id.id,
                    tuple(sorted(line.tax_tag_ids.ids)), tuple(sorted(line.tax_ids.ids)),
-                   line.tax_tag_invert, json.dumps(line.analytic_distribution or {}, sort_keys=True))
+                   line.tax_tag_invert, json.dumps(line.analytic_distribution or {}, sort_keys=True),
+                   line.currency_id.id)
             groups[key]['balance'] += line.balance
             groups[key]['base'] += line.tax_base_amount
+            groups[key]['currency_amount'] += line.amount_currency
         commands = []
-        for (account_id, partner_id, repartition_id, tags, taxes, invert, analytics), amounts in groups.items():
+        for (account_id, partner_id, repartition_id, tags, taxes, invert, analytics, currency_id), amounts in groups.items():
             balance = -move.company_id.currency_id.round(amounts['balance'])
+            currency = self.env['res.currency'].browse(currency_id)
+            currency_amount = -currency.round(amounts['currency_amount'])
             if not balance:
+                if not currency.is_zero(currency_amount):
+                    raise UserError(_('The correction has a currency-only ledger difference. Finance must reconcile it before preparing drafts.'))
                 continue
             account = self.env['account.account'].browse(account_id)
             if account.account_type in ('asset_receivable', 'liability_payable'):
                 raise UserError(_('The Odoo and ETA receivable amounts differ. Finance must reconcile payments before a VAT replacement.'))
+            if balance * currency_amount < 0:
+                raise UserError(_('The correction currency and ledger signs differ. Finance must reconcile the original exchange rate.'))
             commands.append(Command.create({'name': self.reason, 'account_id': account_id,
                 'partner_id': partner_id, 'debit': max(balance, 0), 'credit': max(-balance, 0),
+                'currency_id': currency.id, 'amount_currency': currency_amount,
                 'tax_repartition_line_id': repartition_id, 'tax_tag_ids': [Command.set(tags)],
                 'tax_ids': [Command.set(taxes)], 'tax_base_amount': -amounts['base'],
                 'tax_tag_invert': invert, 'analytic_distribution': json.loads(analytics)}))
         if not commands:
             return self.env['account.move']
-        if move.currency_id != move.company_id.currency_id:
-            raise UserError(_('The foreign-currency correction does not exactly offset the posted ledger. Finance must reconcile it before preparing replacement drafts.'))
         journal = self.adjustment_journal_id or self.env['account.journal'].search([
             ('company_id', '=', move.company_id.id), ('type', '=', 'general')], limit=1)
         if not journal or journal.company_id != move.company_id or journal.type != 'general':

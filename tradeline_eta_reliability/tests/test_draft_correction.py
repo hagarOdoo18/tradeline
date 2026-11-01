@@ -374,6 +374,54 @@ class TestEtaDraftCorrection(TransactionCase):
         with self.assertRaisesRegex(UserError, 'exchange rate differs'):
             self.vat_wizard(move)._restore_credit_lines(credit, receipt['document'])
 
+    def test_zero_rate_foreign_receipt_retains_tax_code_and_balances_both_currencies(self):
+        move = self.vat_invoice()
+        move.button_draft()
+        zero = self.vat.copy({'name': 'Original zero VAT', 'amount': 0,
+            'price_include_override': 'tax_excluded'})
+        usd = self.env.ref('base.USD'); usd.active = True
+        move.write({'currency_id': usd.id, 'invoice_currency_rate': .02})
+        move.invoice_line_ids.tax_ids = zero
+        move.action_post()
+        receipt = self.receipt(move)
+        receipt['document'].update(totalAmount=5000, netAmount=5000)
+        receipt['document']['invoiceLines'][0].update(netTotal=5000,
+            unitValue={'currencySold':'USD','amountSold':100,'amountEGP':5000,'currencyExchangeRate':50},
+            taxableItems=[{'taxType':'T1','subType':zero.sub_type_code_id.code,'rate':0,'amount':0}])
+        move.write({'e_invoice_uuid':receipt['uuid'],'e_invoice_status':'Valid','e_invoice_sent':True})
+        move.eta_job_ids.state = 'valid'
+        before = (move.amount_total, move.amount_total_signed, move.amount_tax, move.invoice_date)
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt):
+            self.vat_wizard(move).action_prepare()
+        docs = move.eta_vat_correction_ids
+        credit = docs.filtered(lambda record: record.move_type == 'out_refund')
+        adjustment = docs.filtered(lambda record: record.move_type == 'entry')
+        self.assertEqual(credit.invoice_line_ids.tax_ids, zero)
+        self.assertAlmostEqual(credit.amount_total, 100)
+        self.assertAlmostEqual(abs(credit.amount_total_signed), 5000)
+        self.assertTrue(adjustment, 'Tax report tags differ from the earlier posted record')
+        self.assertTrue(all(line.currency_id == usd for line in adjustment.line_ids))
+        for account in self.receivable | self.income | self.tax_account:
+            lines = (move | credit | adjustment).line_ids.filtered(lambda line: line.account_id == account)
+            self.assertAlmostEqual(sum(lines.mapped('balance')), 0)
+            self.assertAlmostEqual(sum(lines.mapped('amount_currency')), 0)
+        for tag in self.vat_base_tag | self.vat_tax_tag:
+            lines = (move | credit | adjustment).line_ids.filtered(lambda line: tag in line.tax_tag_ids)
+            self.assertAlmostEqual(sum(line.balance * (-1 if line.tax_tag_invert else 1) for line in lines), 0)
+        self.assertTrue(all(record.state == 'draft' and record.auto_post == 'no' for record in docs))
+        self.assertEqual(before, (move.amount_total, move.amount_total_signed, move.amount_tax, move.invoice_date))
+
+    def test_restoring_taxed_receipt_does_not_use_tax_rate_as_currency_rate(self):
+        move = self.vat_invoice()
+        receipt = self.receipt(move)['document']
+        receipt.update(totalAmount=114, taxTotals=[{'taxType':'T1','amount':14}])
+        receipt['invoiceLines'][0]['taxableItems'] = [
+            {'taxType':'T1','subType':self.vat.sub_type_code_id.code,'rate':14,'amount':14}]
+        credit = move._reverse_moves([{'date':fields.Date.today()}], cancel=False)
+        self.vat_wizard(move)._restore_credit_lines(credit, receipt)
+        self.assertAlmostEqual(credit.amount_total, 114)
+        self.assertAlmostEqual(credit.amount_tax, 14)
+
     def test_already_edited_invoice_gets_balanced_draft_alignment(self):
         move = self.vat_invoice()
         receipt = self.receipt(move)

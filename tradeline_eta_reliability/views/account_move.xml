@@ -33,7 +33,7 @@
                         <field name="eta_staff_state" widget="badge"
                             decoration-success="eta_staff_state == 'valid'"
                             decoration-danger="eta_staff_state in ('blocked', 'invalid')"
-                            decoration-warning="eta_staff_state == 'unknown'"
+                            decoration-warning="eta_staff_state in ('unknown','delivery_review')"
                             decoration-info="eta_staff_state in ('queued', 'accepted', 'review')"/>
                         <span invisible="eta_staff_state">No ETA submission recorded</span>
                     </div>
@@ -104,7 +104,7 @@
                 <field name="eta_staff_state" string="ETA status" widget="badge" optional="show"
                     decoration-success="eta_staff_state == 'valid'"
                     decoration-danger="eta_staff_state in ('blocked', 'invalid')"
-                    decoration-warning="eta_staff_state == 'unknown'"
+                    decoration-warning="eta_staff_state in ('unknown','delivery_review')"
                     decoration-info="eta_staff_state in ('queued', 'accepted', 'review')"/>
             </xpath>
         </field>
