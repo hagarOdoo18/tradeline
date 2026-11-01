@@ -173,6 +173,16 @@ class TestEtaStaffWorkflow(TransactionCase):
             finally:
                 other.execute('SELECT pg_advisory_unlock(741182,%s)', [self.company.id])
 
+    def test_client_initialization_failure_releases_the_manual_company_lock(self):
+        job = self.invoice().eta_job_ids
+        with patch(MODULE + '.EtaClient', side_effect=EtaError('Select an ETA environment.')), \
+                patch.object(self.env.cr, 'rollback'), patch.object(self.env.cr, 'commit'):
+            with self.assertRaises(EtaError):job._staff_dispatch('send')
+        with self.env.registry.cursor() as other:
+            other.execute('SELECT pg_try_advisory_lock(741182,%s)', [self.company.id])
+            self.assertTrue(other.fetchone()[0])
+            other.execute('SELECT pg_advisory_unlock(741182,%s)', [self.company.id])
+
     def test_explicit_retry_can_bring_forward_local_backoff_but_preserves_authority_waits(self):
         job = self.invoice().eta_job_ids
         future = fields.Datetime.now() + timedelta(minutes=5)
@@ -273,6 +283,17 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertTrue(job.needs_attention)
         self.assertIn(job, self.Job.search([('id', '=', job.id), ('needs_attention', '=', True)]))
         self.assertIn('Customer identification', job.staff_summary)
+
+    def test_earlier_approved_invoice_without_a_job_keeps_approval_and_status_does_not_queue_send(self):
+        move = self.invoice()
+        move.eta_job_ids.unlink()
+        move.write({'e_invoice_uuid': 'earlier-approval', 'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        self.assertEqual(move.eta_staff_state, 'valid')
+        self.assertIn('earlier ETA receipt', move.eta_staff_reason)
+        action = move.with_user(self.clerk).action_eta_check_status_now()
+        self.assertEqual(action['params']['mode'], 'status')
+        self.assertEqual(move.eta_job_ids.state, 'accepted')
+        self.assertFalse(move.eta_job_ids.attempts)
 
     def test_staff_views_support_invoice_search_badges_and_branch_grouping(self):
         move = self.invoice(); model = self.Job.with_user(self.clerk)
