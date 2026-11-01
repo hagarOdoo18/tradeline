@@ -133,7 +133,48 @@ class TestNativeBatching(TransactionCase):
         with patch.object(self.env.registry, 'cursor', return_value=cr), \
                 patch(MODULE + '.api.Environment', return_value=env), \
                 patch(MODULE + '.check_processing_window') as window:
-            yield SimpleNamespace(cr=cr, job=job, params=params, window=window, client=MagicMock())
+            yield SimpleNamespace(cr=cr, env=env, job=job, params=params, window=window, client=MagicMock())
+
+    def test_native_releases_selection_transaction_before_each_owned_worker(self):
+        jobs = self.fake_jobs(2)
+        observations = []
+        def process(job):
+            observations.append(self.env.cr.rollback.call_count)
+            job.state = 'valid'
+            return True
+        with self.native_harness(jobs, processor=process):
+            self.Job.with_context(ir_cron_progress_id=123)._cron_process()
+        self.assertEqual(observations, [1, 2])
+
+    def test_worker_binds_transport_guards_to_the_owned_cursor_and_restores_client(self):
+        from ..models.client import EtaClient
+        from types import SimpleNamespace
+        outer_company = SimpleNamespace(id=1, config_type='uat', env=self.env)
+        client = EtaClient(outer_company)
+        client.token = 'test-only-token'; client.token_until = float('inf')
+        session = client.session
+        client.session.request = MagicMock(return_value=SimpleNamespace(ok=True, json=lambda: {'status': 'Submitted'}))
+        try:
+            with self.isolated_worker() as run, \
+                    patch('odoo.addons.tradeline_eta_reliability.models.client.check_processing_window') as guard:
+                run.job.company_id.env = run.env
+                run.job._submit.side_effect = lambda value: value.request('GET', '/api/v1.0/documents/test/raw')
+                self.assertTrue(self.Job._process_id(1, client))
+                self.assertTrue(guard.call_args_list)
+                self.assertTrue(all(c.args[0] is run.env for c in guard.call_args_list))
+            self.assertIs(client.company, outer_company)
+            self.assertIs(client.session, session)
+            self.assertEqual(client.token, 'test-only-token')
+            self.assertGreater(client.last_get, 0, 'Client pacing must survive cursor rebinding')
+        finally:client.close()
+
+    def test_worker_restores_transport_company_on_deferred_http_error(self):
+        with self.isolated_worker() as run:
+            original = run.client.company
+            run.job._submit.side_effect = EtaError('test throttle', status=429, retry_after=61)
+            self.assertTrue(self.Job._process_id(1, run.client))
+            self.assertIs(run.client.company, original)
+            run.job._delay.assert_called_once()
 
     def test_posted_recordset_wakes_native_scheduler_once_without_http(self):
         moves = self.draft() | self.draft()

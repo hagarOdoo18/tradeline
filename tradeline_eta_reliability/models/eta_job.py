@@ -404,6 +404,7 @@ class EtaJob(models.Model):
             cr.execute('SELECT pg_try_advisory_lock(741180, %s)', [job_id])
             if not cr.fetchone()[0]:
                 return False
+            original_company = client.company
             try:
                 job.invalidate_recordset()
                 if (job.state not in ('queued', 'accepted', 'unknown', 'review')
@@ -411,6 +412,11 @@ class EtaJob(models.Model):
                     return False
                 cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [job.move_id.id])
                 job.move_id.invalidate_recordset()
+                # Transport guards and credential reads must use this owned
+                # cursor too. A client bound to its caller's idle transaction
+                # can otherwise block queued platform DDL while this cursor
+                # waits behind that DDL: an application-level deadlock.
+                client.company = job.company_id
                 if job.move_id.state != 'posted':
                     job.write({'state': 'blocked', 'last_error': 'Invoice is no longer posted.'})
                 elif job.state == 'queued':
@@ -451,6 +457,7 @@ class EtaJob(models.Model):
                 committed = True
                 _logger.warning('ETA job %s deferred (%s); no invoice contents logged', job_id, type(exc).__name__)
             finally:
+                client.company = original_company
                 cr.rollback()
                 cr.execute('SELECT pg_advisory_unlock(741180, %s)', [job_id])
                 cr.commit()
@@ -612,7 +619,12 @@ class EtaJob(models.Model):
                     clients[company.id] = EtaClient(company)
                 client = clients[company.id]
                 review_class = ('null' if job.next_attempt else 'dated') if job.state == 'review' else None
-                if self._process_id(job.id, client):
+                job_id = job.id
+                # The session transport lock survives rollback. Selection is
+                # read-only; release its relation locks before the owned worker
+                # opens/commits another cursor, including during platform DDL.
+                self.env.cr.rollback()
+                if self._process_id(job_id, client):
                     processed += 1
                     if review_class:
                         self.env['ir.config_parameter'].sudo().set_param(
