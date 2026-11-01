@@ -1,0 +1,43 @@
+<odoo>
+    <record id="view_eta_local_vat_preview" model="ir.ui.view">
+        <field name="name">tradeline.eta.local.vat.correction.preview</field>
+        <field name="model">tradeline.eta.local.vat.correction</field>
+        <field name="arch" type="xml">
+            <form string="Preview 14% VAT in Odoo" create="0" delete="0">
+                <field name="currency_id" invisible="1"/>
+                <field name="can_apply" invisible="1"/>
+                <field name="applied_at" invisible="1"/>
+                <group>
+                    <field name="move_id" string="Invoice" readonly="1" options="{'no_open': True}"/>
+                    <field name="tax_id" string="VAT to apply" readonly="1" options="{'no_open': True}"/>
+                </group>
+                <div class="alert alert-info" role="status">
+                    <strong>Odoo accounting only.</strong> This does not send, cancel, credit or replace an ETA invoice.
+                    The original ETA receipt and submission history are preserved.
+                </div>
+                <group>
+                    <group string="Current invoice">
+                        <field name="original_untaxed" string="Net amount"/>
+                        <field name="original_tax" string="Tax amount"/>
+                        <field name="original_total" string="Customer total"/>
+                    </group>
+                    <group string="After local 14% VAT correction">
+                        <field name="preview_untaxed" string="New net amount"/>
+                        <field name="preview_tax" string="New tax amount"/>
+                        <field name="preview_total" string="Unchanged customer total"/>
+                        <field name="preview_difference" string="Change to customer total"/>
+                    </group>
+                </group>
+                <div class="alert alert-danger" role="status" invisible="not preview_difference">
+                    This selection would change the customer's total. It cannot be applied here.
+                </div>
+                <field name="preview_note" nolabel="1" readonly="1"/>
+                <footer>
+                    <button name="action_apply" type="object" string="Apply 14% VAT in Odoo" class="btn-primary"
+                        invisible="not can_apply" groups="tradeline_eta_reliability.group_eta_workspace"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

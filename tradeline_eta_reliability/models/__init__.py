@@ -16,3 +16,8 @@ from . import connection_health
 from . import workspace
 from . import workspace_access
 from . import vat_workspace
+
+from . import invoice_controls
+from . import rejection_presentation
+from . import branch_eta_access
+from . import local_vat

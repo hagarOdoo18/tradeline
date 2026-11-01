@@ -10,6 +10,8 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
 
+from ..models.local_vat import _LEGACY_CREDIT_ROUTE
+
 
 @tagged('post_install', '-at_install')
 class TestEtaDraftCorrection(TransactionCase):
@@ -291,7 +293,8 @@ class TestEtaDraftCorrection(TransactionCase):
         return move
 
     def vat_wizard(self, move):
-        return self.env['tradeline.eta.vat.correction'].create({'move_id': move.id,
+        return self.env['tradeline.eta.vat.correction'].with_context(
+            _eta_legacy_credit_route=_LEGACY_CREDIT_ROUTE).create({'move_id': move.id,
             'tax_id': self.vat.id, 'adjustment_journal_id': self.general.id})
 
     def receipt(self, move, status='Valid'):

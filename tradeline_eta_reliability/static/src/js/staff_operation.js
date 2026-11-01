@@ -16,7 +16,9 @@ registry.category("actions").add("tradeline_eta_staff_operation", async (env, ac
         env.services.notification.add(result.message, {
             title: result.title, type: result.type, sticky: true,
         });
-        return { type: "ir.actions.client", tag: "reload" };
+        // Refresh the current list/form without throwing away the result toast
+        // or the accountant's filters and grouping in a full browser reload.
+        return { type: "ir.actions.client", tag: "soft_reload" };
     } finally {
         remove();
     }

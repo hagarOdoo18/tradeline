@@ -14,7 +14,7 @@
                     decoration-success="eta_staff_state == 'valid'" decoration-danger="eta_staff_state in ('blocked','invalid')"
                     decoration-warning="eta_staff_state in ('unknown','delivery_review')" decoration-info="eta_staff_state in ('queued','accepted','review')"/>
                 <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
-                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected')"/>
+                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected','local_corrected')"/>
                 <field name="amount_total"/>
                 <field name="currency_id" optional="hide"/>
                 <field name="company_id" groups="base.group_multi_company"/>
@@ -27,7 +27,7 @@
                 <field name="eta_vat_workflow_note" string="What to do" optional="hide"/>
                 <button name="action_eta_start_vat_correction" type="object" string="Add VAT — same invoice" icon="fa-percent"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('unsent','rejected')"/>
-                <button name="action_eta_start_vat_correction" type="object" string="Prepare credit + replacement" icon="fa-files-o"
+                <button name="action_eta_local_vat_preview" type="object" string="Add 14% VAT in Odoo" icon="fa-percent"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow != 'approved'"/>
                 <button name="action_eta_vat_documents" type="object" string="Open existing corrections" icon="fa-folder-open"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('in_progress','completed')"/>
@@ -56,7 +56,8 @@
                 <filter name="receipt_no_vat" string="Saved receipt has no VAT" domain="[('eta_receipt_vat_missing','=',True),('eta_receipt_vat_checked_at','!=',False)]"/>
                 <filter name="correction" string="VAT correction documents" domain="[('eta_vat_original_id','!=',False)]"/>
                 <filter name="vat_not_sent" string="Not sent — add VAT" domain="[('eta_vat_workflow','=','unsent')]"/>
-                <filter name="vat_approved_correction" string="Approved — credit and replace" domain="[('eta_vat_workflow','=','approved')]"/>
+                <filter name="vat_approved_correction" string="ETA approved — add VAT in Odoo" domain="[('eta_vat_workflow','=','approved')]"/>
+                <filter name="vat_local_done" string="VAT added in Odoo — ETA unchanged" domain="[('eta_vat_workflow','=','local_completed')]"/>
                 <filter name="vat_started" string="Corrections already started" domain="[('eta_vat_workflow','=','in_progress')]"/>
                 <separator/>
                 <filter name="invoice_period" string="Invoice date" date="invoice_date"/>
@@ -130,9 +131,9 @@
         <field name="name">ETA — VAT issues and corrections</field><field name="res_model">account.move</field>
         <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
         <field name="search_view_id" ref="eta_workspace_invoice_search"/>
-        <field name="domain">[('move_type','=','out_invoice'),('state','in',['draft','posted']),'|',('eta_vat_missing','=',True),('eta_receipt_vat_missing','=',True)]</field>
+        <field name="domain">[('move_type','=','out_invoice'),('state','in',['draft','posted']),('eta_vat_workflow','!=','local_completed'),'|',('eta_vat_missing','=',True),('eta_receipt_vat_missing','=',True)]</field>
         <field name="context">{'create':False,'eta_vat_lane':'all'}</field>
-        <field name="help" type="html"><p>Red means VAT is missing or an approved receipt needs correction; amber means review or correction is in progress; green means a linked correction is complete. Review saved VAT checks the archived receipt locally. Correct VAT prepares drafts for review.</p></field>
+        <field name="help" type="html"><p>Choose Not sent to add VAT before sending, or ETA approved to add 14% VAT in Odoo only. Previously created correction documents stay available for accounting review. No new credit notes are created for the local-only amendment.</p></field>
     </record>
     <record id="action_eta_vat_unsent" model="ir.actions.act_window">
         <field name="name">VAT — Not sent: add VAT to the same invoice</field><field name="res_model">account.move</field>
@@ -142,7 +143,7 @@
         <field name="context">{'create':False,'eta_vat_lane':'unsent'}</field>
     </record>
     <record id="action_eta_vat_approved" model="ir.actions.act_window">
-        <field name="name">VAT — ETA approved: credit and replace</field><field name="res_model">account.move</field>
+        <field name="name">VAT — ETA approved: add VAT in Odoo</field><field name="res_model">account.move</field>
         <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
         <field name="search_view_id" ref="eta_workspace_invoice_search"/>
         <field name="domain">[('eta_vat_workflow','=','approved')]</field>
@@ -178,7 +179,7 @@
     <menuitem id="menu_eta_drafts" name="Drafts — not submitted" parent="menu_account_eta_jobs" action="action_eta_draft_invoices" sequence="4" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <menuitem id="menu_eta_vat_issues" name="VAT issues and corrections" parent="menu_account_eta_jobs" action="action_eta_vat_issues" sequence="5" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <menuitem id="menu_eta_vat_unsent" name="VAT — Not sent: add VAT" parent="menu_account_eta_jobs" action="action_eta_vat_unsent" sequence="51" groups="tradeline_eta_reliability.group_eta_workspace"/>
-    <menuitem id="menu_eta_vat_approved" name="VAT — Approved: credit and replace" parent="menu_account_eta_jobs" action="action_eta_vat_approved" sequence="52" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_vat_approved" name="VAT — Approved: add VAT in Odoo" parent="menu_account_eta_jobs" action="action_eta_vat_approved" sequence="52" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <menuitem id="menu_eta_vat_started" name="VAT — Corrections already started" parent="menu_account_eta_jobs" action="action_eta_vat_in_progress" sequence="53" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <menuitem id="menu_eta_job_status" name="Queue status details" parent="menu_account_eta_jobs" action="action_eta_invoice_log" sequence="6" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <record id="view_eta_vat_review_invoice" model="ir.ui.view">
@@ -189,7 +190,7 @@
                 <div class="my-2" groups="tradeline_eta_reliability.group_eta_workspace">
                     <field name="eta_vat_workflow" invisible="1"/>
                     <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
-                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected')"/>
+                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected','local_corrected')"/>
                     <field name="eta_vat_workflow_note" nolabel="1" invisible="not eta_vat_workflow"/>
                     <field name="eta_vat_review_note" nolabel="1" invisible="eta_vat_workflow"/>
                 </div>

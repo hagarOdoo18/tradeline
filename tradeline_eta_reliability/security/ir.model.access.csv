@@ -8,4 +8,5 @@ access_eta_vat_correction_invoice,ETA VAT correction invoice user,model_tradelin
 access_eta_tax_type_invoice,ETA tax type invoice user,egyptian_electronic_invoice.model_account_tax_type_code,account.group_account_invoice,1,0,0,0
 access_eta_tax_subtype_invoice,ETA tax subtype invoice user,egyptian_electronic_invoice.model_account_tax_sub_type_code,account.group_account_invoice,1,0,0,0
 access_eta_activity_invoice,ETA activity invoice user,egyptian_electronic_invoice.model_res_company_activity,account.group_account_invoice,1,0,0,0
+access_eta_local_vat_central,Local VAT preview central accounting,model_tradeline_eta_local_vat_correction,tradeline_eta_reliability.group_eta_workspace,1,1,1,1
 access_eta_uom_invoice,ETA unit invoice user,egyptian_electronic_invoice.model_eta_uom,account.group_account_invoice,1,0,0,0

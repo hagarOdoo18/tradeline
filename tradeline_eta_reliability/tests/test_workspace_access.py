@@ -48,7 +48,7 @@ class TestEtaWorkspaceAccess(TransactionCase):
     def test_branch_keeps_standard_invoice_form_without_central_controls(self):
         move = self.env['account.move'].with_user(self.branch)
         view = etree.fromstring(move.get_view(view_type='form')['arch'])
-        self.assertTrue(view.xpath("//field[@name='eta_staff_state']"))
+        self.assertFalse(view.xpath("//field[@name='eta_staff_state']"))
         self.assertFalse(view.xpath("//button[@name='action_eta_status_details']"))
         self.assertFalse(view.xpath("//button[@name='action_eta_correct_vat']"))
         self.assertFalse(view.xpath("//widget[@name='eta_connection_health']"))

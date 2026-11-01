@@ -23,7 +23,7 @@
                 <div class="d-flex flex-wrap gap-2 mb-2" aria-label="VAT correction work lists">
                     <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_issues')">All VAT issues</button>
                     <button type="button" class="btn btn-sm btn-outline-primary" t-on-click="() => this.open('vat_unsent')">1. Not sent — add VAT</button>
-                    <button type="button" class="btn btn-sm btn-outline-danger" t-on-click="() => this.open('vat_approved')">2. Approved — credit and replace</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" t-on-click="() => this.open('vat_approved')">2. ETA approved — Odoo VAT only</button>
                     <button type="button" class="btn btn-sm btn-outline-warning" t-on-click="() => this.open('vat_in_progress')">Corrections already started</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_rejected')">ETA invalid</button>
                     <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_review')">Delivery / receipt review</button>

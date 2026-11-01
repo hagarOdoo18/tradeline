@@ -41,7 +41,8 @@ class EtaVatReviewMove(models.Model):
     eta_receipt_vat_egp = fields.Float(string='Original receipt VAT (EGP)', readonly=True, copy=False, digits=(16, 5))
     eta_vat_review_state = fields.Selection([
         ('missing', 'VAT missing — sending blocked'),
-        ('approved_missing', 'Approved without VAT — correct it'),
+        ('approved_missing', 'Odoo VAT missing — ETA approved'),
+        ('local_corrected', 'VAT added in Odoo — ETA unchanged'),
         ('rejected_missing', 'No VAT on rejected receipt — correct invoice'),
         ('receipt_missing', 'No VAT on ETA receipt — reconcile its status'),
         ('receipt_vat', 'VAT confirmed on ETA receipt'),
@@ -63,7 +64,10 @@ class EtaVatReviewMove(models.Model):
                  'e_invoice_uuid', 'l10n_eg_uuid', 'e_invoice_sent', 'e_invoice_status', 'l10n_eg_eta_json_doc_id',
                  'eta_job_ids.state', 'eta_job_ids.attempts', 'eta_job_ids.attempted_at', 'eta_job_ids.safe_to_retry',
                  'eta_receipt_vat_uuid', 'eta_receipt_vat_missing', 'eta_receipt_vat_checked_at',
-                 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
+                 'eta_local_vat_applied_at', 'eta_local_vat_applied_by', 'eta_local_vat_audit_id',
+                 'eta_local_vat_receipt_uuid', 'eta_local_vat_net_amount', 'eta_local_vat_tax_amount',
+                 'eta_local_vat_gross_amount', 'amount_untaxed', 'amount_tax', 'amount_total',
+                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
                  'eta_vat_correction_ids.e_invoice_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid')
     def _compute_eta_vat_review(self):
@@ -96,6 +100,8 @@ class EtaVatReviewMove(models.Model):
             state, note = 'ready', _('VAT is present in the current invoice. ETA receipt and validation checks still apply.')
             if move.move_type != 'out_invoice':
                 state, note = 'other', _('Credit notes preserve the taxes of the original receipt they reverse.')
+            elif move._eta_local_vat_is_current(vat_missing=missing):
+                state, note = 'local_corrected', _('14% VAT was added to Odoo accounting. The original ETA receipt is unchanged. No credit note, replacement or resend is required for this local amendment.')
             elif audited and receipt_missing:
                 if completed:
                     state, note = 'corrected', _('The linked credit and VAT replacement are approved by ETA. The original receipt is preserved.')
@@ -104,14 +110,14 @@ class EtaVatReviewMove(models.Model):
                 else:
                     state = ('approved_missing' if move.e_invoice_status == 'Valid'
                         else 'rejected_missing' if move.e_invoice_status in ('Invalid', 'Rejected') else 'receipt_missing')
-                    note = (_('The saved ETA receipt contains no positive VAT. Use Correct VAT to prepare linked correction drafts; keep the original receipt.')
+                    note = (_('The saved ETA receipt contains no positive VAT. Use Add 14% VAT in Odoo to preview an accounting-only correction. No ETA credit note, replacement or resend will be created.')
                         if state == 'approved_missing' else _('The ETA receipt contains no positive VAT. Correct VAT verifies the latest authority status before reopening or replacing the invoice; an unresolved send is never replayed.'))
             elif missing and sent:
                 state = 'source_changed' if audited else 'receipt_review'
                 note = (_('The saved receipt includes VAT but the current accounting record does not. Finance must reconcile the difference before any correction.')
                     if audited else _('No matching saved ETA receipt is available. Check ETA status to retrieve the signed document. An unresolved send must be reconciled before a correction or resend.'))
             elif missing:
-                state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Use Correct VAT, review the draft, and post it again.')
+                state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Add VAT in Odoo, review the invoice totals, and Sync again.')
             elif audited:
                 state, note = 'receipt_vat', _('Positive VAT is confirmed on the matching ETA receipt. No missing-VAT correction is required.')
             move.eta_vat_amount = amount
@@ -266,7 +272,7 @@ class EtaVatSubmissionGate(models.Model):
         move = self.move_id
         if move.move_type == 'out_invoice':
             if move.eta_vat_missing:
-                raise UserError(_('VAT is missing. This customer invoice cannot be sent to ETA. Use Correct VAT, review the draft, and post it again.'))
+                raise UserError(_('VAT is missing. Add VAT in Odoo, review the invoice totals, and Sync again. Nothing was sent to ETA.'))
             document = json.loads(self.payload)['documents'][0]
             if document_vat(document) <= 0:
                 raise UserError(_('The prepared ETA document has no positive VAT. Regenerate it from the corrected invoice before sending.'))
