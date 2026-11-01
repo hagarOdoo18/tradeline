@@ -485,3 +485,20 @@ class TestEtaDraftCorrection(TransactionCase):
         with self.assertRaisesRegex(UserError, 'receipt|unresolved'):
             move.button_draft()
         self.assertEqual(move.state, 'posted')
+
+    def test_alignment_uses_original_period_and_replacement_uses_today(self):
+        move = self.vat_invoice()
+        receipt = self.receipt(move)
+        move.button_draft()
+        original_date = fields.Date.today() - timedelta(days=10)
+        move.write({'invoice_date': original_date, 'date': original_date})
+        move.invoice_line_ids.tax_ids = self.vat
+        move.action_post()
+        move.write({'e_invoice_uuid': receipt['uuid'], 'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        move.eta_job_ids.state = 'valid'
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt):
+            self.vat_wizard(move).action_prepare()
+        alignment = move.eta_vat_correction_ids.filtered(lambda record: record.move_type == 'entry')
+        self.assertEqual(alignment.date, original_date)
+        for record in move.eta_vat_correction_ids.filtered(lambda record: record.move_type != 'entry'):
+            self.assertEqual(record.invoice_date, fields.Date.today())
