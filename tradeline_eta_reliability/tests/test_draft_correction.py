@@ -16,6 +16,7 @@ class TestEtaDraftCorrection(TransactionCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        cls.original_company = cls.env.company
         cls.env.ref('base.EGP').active = True
         partner_values = {'name': 'VAT correction QA company', 'is_company': True,
             'vat': '123456789', 'country_id': cls.env.ref('base.eg').id}
@@ -502,3 +503,18 @@ class TestEtaDraftCorrection(TransactionCase):
         self.assertEqual(alignment.date, original_date)
         for record in move.eta_vat_correction_ids.filtered(lambda record: record.move_type != 'entry'):
             self.assertEqual(record.invoice_date, fields.Date.today())
+
+    def test_correction_keeps_invoice_company_when_another_company_is_active(self):
+        move = self.vat_invoice()
+        receipt = self.receipt(move)
+        move.button_draft()
+        move.invoice_line_ids.tax_ids = self.vat
+        move.action_post()
+        move.write({'e_invoice_uuid': receipt['uuid'], 'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        move.eta_job_ids.state = 'valid'
+        wizard = self.vat_wizard(move).with_context(allowed_company_ids=[self.original_company.id, self.company.id])
+        self.assertNotEqual(wizard.env.company, move.company_id)
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt):
+            wizard.action_prepare()
+        self.assertEqual(len(move.eta_vat_correction_ids), 3)
+        self.assertEqual(move.eta_vat_correction_ids.company_id, move.company_id)

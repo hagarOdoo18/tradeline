@@ -366,7 +366,8 @@ class EtaVatCorrection(models.TransientModel):
             ('company_id', '=', move.company_id.id), ('type', '=', 'general')], limit=1)
         if not journal or journal.company_id != move.company_id or journal.type != 'general':
             raise UserError(_('Select a general journal for the adjustment of the earlier Odoo tax edit.'))
-        return self.env['account.move'].with_context(skip_invoice_sync=True).create({'move_type': 'entry', 'journal_id': journal.id,
+        return self.env['account.move'].with_company(move.company_id).with_context(skip_invoice_sync=True).create({
+            'move_type': 'entry', 'journal_id': journal.id, 'company_id': move.company_id.id,
             'date': move.date, 'ref': _('ETA VAT alignment: %s', move.name),
             'eta_vat_original_id': move.id, 'line_ids': commands})
 
