@@ -155,6 +155,9 @@ class EtaHistoricalRecovery(models.Model):
         self.env.cr.execute("""SELECT j.id FROM tradeline_eta_job j JOIN account_move m ON m.id=j.move_id
             JOIN res_company c ON c.id=m.company_id
             WHERE j.state IN ('unknown','blocked','invalid') AND coalesce(j.historical_fingerprint,'')=''
+            AND (j.state<>'unknown' OR (j.attempted_at IS NULL AND j.duplicate_retry_at IS NULL
+                AND coalesce(j.attempts,0)=0 AND coalesce(j.duplicate_payload_hash,'')=''))
+            AND (j.next_attempt IS NULL OR j.next_attempt<=now() AT TIME ZONE 'UTC')
             AND m.state='posted' AND m.move_type IN ('out_invoice','out_refund')
             AND coalesce(c.client_id,'')<>'' AND coalesce(c.client_secret,'')<>''
             AND (%s::int[] IS NULL OR m.id=ANY(%s))
@@ -497,6 +500,20 @@ class EtaHistoricalRecovery(models.Model):
 
     def _review_historical(self, client, verified=None):
         self.ensure_one(); move = self.move_id
+        if (self.duplicate_retry_at or self.duplicate_payload_hash
+                or (self.attempted_at or self.attempts) and not self.safe_to_retry
+                   and (self.state == 'unknown' or not move.e_invoice_uuid)):
+            # Historical absence or an older approval cannot resolve a newer
+            # durable attempt. Return it to the exact-request GET-only path;
+            # retain the signed bytes, attempt and every future retry gate.
+            deadline = self.next_attempt
+            if self.duplicate_retry_at and (not deadline or deadline < self.duplicate_retry_at):
+                deadline = self.duplicate_retry_at
+            self.write({'state': 'unknown', 'historical_review': False,
+                        'historical_submission_verified': False,
+                        'next_attempt': deadline or fields.Datetime.now(),
+                        'last_error': self.last_error or 'Submission outcome remains uncertain. Automatic reconciliation continues; no duplicate was sent.'})
+            return
         try:
             if move.state != 'posted' or move.move_type not in ('out_invoice', 'out_refund') or not move.invoice_date:
                 raise UserError(_('A posted customer invoice or credit note with its original invoice date is required.'))
@@ -661,10 +678,14 @@ class EtaHistoricalRecovery(models.Model):
                     self._historical_hold(self.last_error)
                     return
             if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected and not schema_rejected:
-                anchor = self.attempted_at or move.e_invoice_date or move.create_date
-                if anchor and anchor > fields.Datetime.now() - timedelta(hours=24):
-                    self.write({'state': 'review', 'next_attempt': anchor + timedelta(hours=24), 'last_error': 'A recent uncertain submission is in the 24-hour reconciliation window. Automatic checks continue; nothing was resent.'})
-                    return
+                # A legacy sent marker does not become proof of failure after
+                # 24 hours. Preserve it until an actual outcome is identified.
+                deadline = fields.Datetime.now() + timedelta(minutes=15)
+                self.write({'state': 'unknown', 'historical_review': False,
+                            'historical_submission_verified': False,
+                            'next_attempt': max(self.next_attempt or deadline, deadline),
+                            'last_error': 'A prior submission outcome remains uncertain. Automatic reconciliation continues; nothing was resent.'})
+                return
             if optional_id_rejected:
                 self.omit_optional_receiver_id = True
             self._historical_archive(proof, receipts, 'Queue source-complete invoice after complete authority history and fresh delta'
@@ -692,6 +713,10 @@ class EtaHistoricalRecovery(models.Model):
     def _refresh(self, client):
         if self.duplicate_retry_at and not self.move_id.e_invoice_uuid:
             return self._reconcile_duplicate_cooldown(client)
+        if self.state == 'unknown' and (self.attempted_at or self.attempts) and not self.safe_to_retry:
+            # A legacy historical flag must not override the durable attempt.
+            self.historical_review = False
+            return super()._refresh(client)
         if self.state == 'review' or self.historical_review:
             return self._review_historical(client)
         return super()._refresh(client)

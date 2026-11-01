@@ -189,7 +189,7 @@ class EtaJob(models.Model):
     def _refresh(self, client):
         self.ensure_one()
         move = self.move_id
-        if move.e_invoice_uuid:
+        if move.e_invoice_uuid and not (self.state == 'unknown' and (self.attempted_at or self.attempts)):
             if self.submission_uuid:
                 result = client.request('GET', '/api/v1.0/documentsubmissions/%s' % self.submission_uuid,
                                         params={'pageNo': 1, 'pageSize': 100})
@@ -228,7 +228,8 @@ class EtaJob(models.Model):
             self._delay('ETA returned multiple pages for this internal ID. Review is required.', seconds=900, state='unknown')
             return
         if (not matches and continuation == 'EndofResultSet' and self.first_submission_candidate
-                and not self.attempted_at and stop == scan_end):
+                and not (self.attempted_at or self.attempts or self.duplicate_retry_at
+                         or self.duplicate_payload_hash or move.e_invoice_sent) and stop == scan_end):
             # The original signer committed its payload before POST. A recent
             # document with neither payload nor native/custom receipt is a first
             # submission only after ETA confirms this internal ID is absent.
@@ -733,6 +734,10 @@ class EtaJob(models.Model):
 
     def action_recheck(self):
         for job in self:
+            if job.state == 'unknown':
+                # Refresh/Sync cannot replace an unresolved attempt with an
+                # older linked receipt or reset its future reconciliation gate.
+                continue
             move = job.move_id
             native_history = bool(move.l10n_eg_uuid and move.l10n_eg_uuid != move.e_invoice_uuid)
             held_history = bool(job.historical_fingerprint and job.state in ('blocked', 'invalid'))
