@@ -96,6 +96,17 @@ class TestEtaDraftCorrection(TransactionCase):
         self.assertIn('added', wizard.price_treatment)
         self.assertEqual(before, (move.state, move.amount_total, move.invoice_date, move.eta_job_ids.state))
 
+    def test_correction_replaces_native_lowercase_vat_instead_of_adding_it_twice(self):
+        move=self.vat_invoice()
+        move.button_draft()
+        native=self.vat.copy({'name':'Native VAT QA','type_code_id':False,'l10n_eg_eta_code':'t1_v009'})
+        move.invoice_line_ids.tax_ids=native
+        wizard=self.vat_wizard(move)
+        self.assertAlmostEqual(wizard.preview_tax,12.28,places=2)
+        wizard._apply_vat(move)
+        self.assertEqual(move.invoice_line_ids.tax_ids,self.vat)
+        self.assertAlmostEqual(move.amount_tax,12.28,places=2)
+
     def invoice(self):
         move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
             'partner_id': self.partner.id, 'invoice_date': fields.Date.today(),

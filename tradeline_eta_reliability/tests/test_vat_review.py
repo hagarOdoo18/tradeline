@@ -91,6 +91,21 @@ class TestEtaVatReview(TransactionCase):
         self.assertNotEqual(move.amount_tax, 0)
         self.assertTrue(move.eta_vat_missing)
 
+    def test_native_lowercase_vat_code_is_recognized_without_legacy_metadata(self):
+        self.vat.write({'type_code_id':False,'l10n_eg_eta_code':'t1_v009'})
+        move=self.invoice(vat=True)
+        self.assertFalse(move.eta_vat_missing)
+        self.assertNotIn(move,self.env['account.move'].search([('eta_vat_missing','=',True)]))
+        job=move.eta_job_ids
+        job.payload=json.dumps({'documents':[self.payload(move,14)]})
+        self.assertTrue(job._preflight_submission(MagicMock()))
+
+    def test_native_t10_fees_cannot_be_mistaken_for_t1_vat(self):
+        self.vat.write({'type_code_id':False,'l10n_eg_eta_code':'t10_mn01'})
+        move=self.invoice(vat=True)
+        self.assertTrue(move.eta_vat_missing)
+        self.assertIn(move,self.env['account.move'].search([('eta_vat_missing','=',True)]))
+
     def test_positive_vat_reaches_remaining_identity_and_history_checks(self):
         move = self.invoice(vat=True)
         job = move.eta_job_ids

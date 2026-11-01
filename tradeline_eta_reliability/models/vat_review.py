@@ -51,7 +51,7 @@ class EtaVatReviewMove(models.Model):
     @api.model
     def _eta_vat_taxes(self):
         return self.env['account.tax'].sudo().with_context(active_test=False).search([
-            '|', ('type_code_id.code', '=', 'T1'), ('l10n_eg_eta_code', '=like', 'T1_%')])
+            '|', ('type_code_id.code', '=', 'T1'), ('l10n_eg_eta_code', '=ilike', r't1\_%')])
 
     @api.depends('move_type', 'state', 'line_ids.amount_currency', 'line_ids.tax_line_id',
                  'line_ids.tax_line_id.type_code_id.code', 'line_ids.tax_line_id.l10n_eg_eta_code',
