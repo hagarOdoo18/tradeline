@@ -94,7 +94,10 @@ class EtaImmediateDispatch(models.Model):
             if valid:
                 requests |= valid
                 continue
-            expiry = min(now + timedelta(hours=2), max(now, job.next_attempt or now) + timedelta(minutes=10))
+            # A later timeout/Retry-After can move next_attempt beyond ten
+            # minutes. Retain the click's bounded priority across that backoff;
+            # candidate selection still enforces the actual retry deadline.
+            expiry = now + timedelta(hours=2)
             requests |= Attachment.create({
                 'name': PRIORITY_REQUEST_NAME, 'res_model': self._name, 'res_id': job.id,
                 'company_id': job.company_id.id, 'public': False, 'mimetype': 'application/json',

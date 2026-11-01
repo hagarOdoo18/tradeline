@@ -347,6 +347,24 @@ class TestImmediateDispatch(TransactionCase):
         self.assertFalse(run.calls)
         self.assertEqual(before, job.read(list(before[0].keys())))
 
+    def test_manual_priority_survives_later_backoff_without_bypassing_it(self):
+        job = self.invoice().eta_job_ids
+        now = fields.Datetime.now()
+        job.write({'state': 'review', 'historical_fingerprint': 'QA baseline', 'failures': 3})
+        with patch(MODULE + '.fields.Datetime.now', return_value=now):
+            self.assertTrue(job.with_context(eta_queue_cron=True)._request_priority_dispatch())
+        # A later connection failure can move the safe retry beyond the
+        # original ten-minute marker; one click must retain its bounded priority.
+        job.next_attempt = now + timedelta(minutes=12)
+        before = job.read(['state', 'attempts', 'attempted_at', 'payload', 'next_attempt', 'failures'])
+        with patch(MODULE + '.fields.Datetime.now', return_value=now + timedelta(minutes=11)):
+            self.assertFalse(self.Job._priority_dispatch_candidate('all'))
+        with patch(MODULE + '.fields.Datetime.now', return_value=now + timedelta(minutes=13)):
+            self.assertEqual(self.Job._priority_dispatch_candidate('all'), job)
+        with patch(MODULE + '.fields.Datetime.now', return_value=now + timedelta(hours=2, seconds=1)):
+            self.assertFalse(self.Job._priority_dispatch_candidate('all'))
+        self.assertEqual(before, job.read(list(before[0].keys())))
+
     def test_manual_dispatch_precedes_cron_wakeup_and_carries_durable_intent(self):
         move = self.invoice(); callbacks = []
         with patch.object(type(self.env.cr.postcommit), 'add', autospec=True,
