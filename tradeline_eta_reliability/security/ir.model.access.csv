@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_eta_job_manager,ETA jobs accounting manager,model_tradeline_eta_job,account.group_account_manager,1,1,0,0
 access_eta_job_admin,ETA jobs administrator,model_tradeline_eta_job,base.group_system,1,1,1,0
+access_eta_vat_correction_manager,ETA VAT correction manager,model_tradeline_eta_vat_correction,account.group_account_manager,1,1,1,1

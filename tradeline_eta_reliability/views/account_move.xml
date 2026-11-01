@@ -1,0 +1,50 @@
+<odoo>
+    <record id="view_move_form_draft_correction" model="ir.ui.view">
+        <field name="name">account.move.form.eta.draft.correction</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="egyptian_electronic_invoice.e_invoice_view_move_form_inherit"/>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_eta_correct_vat" string="Correct VAT" type="object"
+                        groups="account.group_account_manager"
+                        invisible="state != 'posted' or move_type != 'out_invoice'"/>
+            </xpath>
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <field name="eta_vat_correction_ids" invisible="1"/>
+                <button name="action_eta_vat_documents" string="VAT Corrections" type="object"
+                        class="oe_stat_button" icon="fa-files-o" invisible="not eta_vat_correction_ids"/>
+            </xpath>
+            <xpath expr="//field[@name='invoice_origin']" position="after">
+                <field name="eta_vat_original_id" invisible="not eta_vat_original_id"/>
+            </xpath>
+            <xpath expr="//field[@name='invoice_line_ids']" position="attributes">
+                <attribute name="readonly">state != 'draft'</attribute>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_eta_vat_correction_form" model="ir.ui.view">
+        <field name="name">tradeline.eta.vat.correction.form</field>
+        <field name="model">tradeline.eta.vat.correction</field>
+        <field name="arch" type="xml">
+            <form string="Correct VAT">
+                <p>Choose the correct VAT tax. An unsent or ETA-invalid invoice reopens in draft with VAT applied.</p>
+                <p>For an ETA-valid invoice, prepare a linked credit note and replacement invoice. The credit note
+                    matches the original ETA receipt. If Odoo was edited after submission, an accounting adjustment
+                    draft reconciles that earlier edit. Review and post all drafts, sending the credit note before
+                    the replacement. The original receipt is preserved.</p>
+                <group>
+                    <field name="move_id"/>
+                    <field name="company_id" invisible="1"/>
+                    <field name="tax_id" options="{'no_create': True}"/>
+                    <field name="adjustment_journal_id" options="{'no_create': True}"/>
+                    <field name="reason"/>
+                </group>
+                <footer>
+                    <button name="action_prepare" string="Prepare VAT Correction" type="object" class="btn-primary"/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
