@@ -72,6 +72,13 @@
         <field name="context">{'create': False, 'group_by': 'invoice_date:day'}</field>
         <field name="help" type="html"><p>All customer invoices and credits, including drafts, earlier ETA receipts and invoices without a queue record. Search any invoice number.</p></field>
     </record>
+    <record id="action_eta_today_window" model="ir.actions.act_window">
+        <field name="name">ETA — Today</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_today_activity','=',True)]</field>
+        <field name="context">{'create':False,'group_by':['state','e_invoice_status']}</field>
+    </record>
     <record id="action_eta_today" model="ir.actions.server">
         <field name="name">Today — all invoice activity</field>
         <field name="model_id" ref="account.model_account_move"/>

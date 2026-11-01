@@ -1,6 +1,6 @@
 # Reliable ETA processing
 
-## ETA workspace and VAT policy (18.0.1.0.37)
+## ETA workspace and VAT policy (18.0.1.0.38)
 
 Find any invoice searches all allowed dates/statuses, including invoice number,
 branch reference, a pasted full display label, and an Odoo invoice link. A unique

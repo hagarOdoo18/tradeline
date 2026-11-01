@@ -35,7 +35,8 @@ class EtaInvoiceWorkspace(models.Model):
         if not matches:
             raise UserError(_('No invoice found for “%s” in your allowed companies and branches. Check the number or branch reference.', query))
         action = self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_all_invoices')
-        action.update(name=_('Invoice search: %s', query), domain=domain,
+        title = _('Invoice search: %s', query)
+        action.update(name=title, display_name=title, domain=domain,
             context={'create': False, 'group_by': []})
         if len(matches) == 1:
             action.update(view_mode='form', views=[(False, 'form')], res_id=matches.id)
