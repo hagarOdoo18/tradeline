@@ -90,6 +90,9 @@ class EtaVatWorkspace(models.Model):
             (COALESCE(account_move.e_invoice_uuid,'') <> '' AND COALESCE(account_move.l10n_eg_uuid,'') <> ''
                 AND account_move.e_invoice_uuid <> account_move.l10n_eg_uuid)
             OR account_move.e_invoice_status IN ('Submitted','Rejected','Cancelled')
+            OR (account_move.e_invoice_status='Valid' AND EXISTS (
+                SELECT 1 FROM account_edi_document wf_native_pending
+                WHERE wf_native_pending.move_id=account_move.id AND wf_native_pending.state IN ('to_send','to_cancel')))
             OR EXISTS (SELECT 1 FROM tradeline_eta_job wf_uncertain WHERE wf_uncertain.move_id=account_move.id
                 AND (wf_uncertain.state IN ('unknown','accepted','review') OR wf_uncertain.historical_review IS TRUE
                     OR wf_uncertain.duplicate_retry_at IS NOT NULL OR COALESCE(wf_uncertain.duplicate_payload_hash,'') <> ''
@@ -118,7 +121,13 @@ class EtaVatWorkspace(models.Model):
             AND NOT EXISTS (SELECT 1 FROM ir_attachment wf_archive WHERE wf_archive.res_model='account.move'
                 AND wf_archive.res_id=account_move.id AND wf_archive.mimetype='application/json'
                 AND wf_archive.name LIKE 'ETA_%%.json'))""")
-        local_done = SQL("""(NOT %s AND account_move.state='posted'
+        # Most historical invoices have no local amendment. A CASE is needed:
+        # PostgreSQL can reorder AND conditions and otherwise probe tax lines
+        # before discovering the cheap NULL audit stamps on every ledger row.
+        local_done = SQL("""CASE WHEN account_move.eta_local_vat_applied_at IS NULL
+                OR account_move.eta_local_vat_applied_by IS NULL
+                OR account_move.eta_local_vat_audit_id IS NULL THEN FALSE
+            ELSE (NOT %s AND account_move.state='posted'
             AND account_move.e_invoice_status='Valid' AND account_move.eta_submission_pending IS NOT TRUE
             AND account_move.eta_vat_original_id IS NULL
             AND NOT EXISTS (SELECT 1 FROM account_move wf_local_credit WHERE wf_local_credit.state <> 'cancel'
@@ -146,11 +155,11 @@ class EtaVatWorkspace(models.Model):
                 WHERE wf_local.id=account_move.eta_local_vat_audit_id
                     AND wf_local.res_model='account.move' AND wf_local.res_id=account_move.id
                     AND wf_local.company_id=account_move.company_id
-                    AND wf_local.res_field='eta_local_vat_audit_file' AND wf_local.public IS NOT TRUE))""", missing)
+                    AND wf_local.res_field='eta_local_vat_audit_file' AND wf_local.public IS NOT TRUE)) END""", missing)
         return SQL("""CASE
-            WHEN account_move.move_type='out_invoice' AND %s THEN 'local_completed'
-            WHEN account_move.move_type <> 'out_invoice' OR account_move.state = 'cancel'
-                OR NOT (%s OR account_move.eta_receipt_vat_missing IS TRUE) THEN NULL
+            WHEN account_move.move_type <> 'out_invoice' OR account_move.state = 'cancel' THEN NULL
+            WHEN %s THEN 'local_completed'
+            WHEN NOT (%s OR account_move.eta_receipt_vat_missing IS TRUE) THEN NULL
             WHEN %s AND %s AND NOT %s THEN 'completed'
             WHEN %s AND %s THEN 'in_progress'
             WHEN %s THEN 'review'
@@ -236,7 +245,18 @@ class EtaVatWorkspace(models.Model):
         if not conditions:
             domain = [('id', '=', 0)]
         else:
-            query = self._search([])
+            # These are necessary conditions, not alternate route definitions.
+            # Bound the expensive correlated expression before looking at the
+            # historical ledger. Empty-route membership must retain all rows.
+            scope = []
+            if False not in values:
+                scope = [('move_type', '=', 'out_invoice'), ('state', '!=', 'cancel')]
+                if set(keys) == {'approved'}:
+                    scope += [('state', '=', 'posted'), ('e_invoice_status', '=', 'Valid'),
+                              ('eta_receipt_vat_missing', '=', True)]
+                elif set(keys) == {'local_completed'}:
+                    scope += [('eta_local_vat_applied_at', '!=', False)]
+            query = self._search(scope)
             query.add_where(SQL('(%s)', SQL(' OR ').join(conditions)))
             domain = [('id', 'in', query)]
         return ['!'] + domain if operator in ('!=', 'not in') else domain
