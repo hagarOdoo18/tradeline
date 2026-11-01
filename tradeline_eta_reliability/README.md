@@ -101,7 +101,8 @@ accounting entries or submits documents to ETA.
   by legacy resets are recovered from the retained attachment and verified at
   ETA. If the posted Odoo amounts were changed after submission, a separate
   draft general-journal adjustment preserves the accounting and tax-grid
-  balances instead of duplicating VAT. Original payments remain untouched.
+  balances instead of duplicating VAT. The adjustment uses the original
+  accounting date, subject to normal fiscal locks. Original payments remain untouched.
 
 Open **VAT Corrections** to review the drafts. Post the credit note and any
 adjustment, wait until the credit note is Valid at ETA, then post the replacement.
