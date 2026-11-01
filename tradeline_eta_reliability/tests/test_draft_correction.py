@@ -80,6 +80,20 @@ class TestEtaDraftCorrection(TransactionCase):
         else:
             self.product.e_invoicing_code = 'VAT-QA-ITEM'
 
+    def test_vat_preview_shows_included_and_added_prices_without_posting_or_reset(self):
+        move = self.invoice()
+        before = (move.state, move.amount_total, move.invoice_date, move.eta_job_ids.state)
+        wizard = self.env['tradeline.eta.vat.correction'].create({'move_id': move.id, 'tax_id': self.vat.id})
+        self.assertAlmostEqual(wizard.preview_total, 100, places=2)
+        self.assertAlmostEqual(wizard.preview_tax, 12.28, places=2)
+        self.assertIn('included', wizard.price_treatment)
+        self.vat.price_include_override = 'tax_excluded'
+        wizard.invalidate_recordset()
+        self.assertAlmostEqual(wizard.preview_total, 114, places=2)
+        self.assertAlmostEqual(wizard.preview_difference, 14, places=2)
+        self.assertIn('added', wizard.price_treatment)
+        self.assertEqual(before, (move.state, move.amount_total, move.invoice_date, move.eta_job_ids.state))
+
     def invoice(self):
         move = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
             'partner_id': self.partner.id, 'invoice_date': fields.Date.today(),

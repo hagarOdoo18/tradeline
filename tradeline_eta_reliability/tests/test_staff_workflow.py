@@ -1,0 +1,301 @@
+import json
+from contextlib import ExitStack, contextmanager, nullcontext
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
+
+from lxml import etree
+from odoo import Command, fields
+from odoo.exceptions import AccessError, UserError
+from odoo.tests import TransactionCase, tagged
+from odoo.tests.common import new_test_user
+
+from ..models.client import EtaError
+from ..models.eta_job import STAFF_SEND, STAFF_STATUS
+from ..models.staff_workflow import REQUEST_NAME, StatusClient
+
+MODULE = 'odoo.addons.tradeline_eta_reliability.models.staff_workflow'
+
+
+@tagged('post_install', '-at_install')
+class TestEtaStaffWorkflow(TransactionCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.company = cls.env.company
+        values = {'vat': '123456789'}
+        for name, value in [('company_size', 'small'), ('company_device', 1)]:
+            if name in cls.company.partner_id._fields:
+                values[name] = value
+        cls.company.partner_id.with_context(no_vat_validation=True).write(values)
+        cls.company.write({'client_id': 'staff-qa', 'client_secret': 'qa-only-secret', 'config_type': 'uat',
+                           'config_version': '1.0', 'signature_tool': 'python'})
+        cls.env.ref('base.EGP').active = True
+        cls.receivable = cls.env['account.account'].create({'name': 'Staff QA receivable', 'code': 'STFAR',
+            'account_type': 'asset_receivable', 'reconcile': True, 'company_ids': [Command.set(cls.company.ids)]})
+        cls.income = cls.env['account.account'].create({'name': 'Staff QA income', 'code': 'STFINC',
+            'account_type': 'income', 'company_ids': [Command.set(cls.company.ids)]})
+        cls.partner = cls.env['res.partner'].create({'name': 'Staff QA buyer',
+            'property_account_receivable_id': cls.receivable.id})
+        cls.journal = cls.env['account.journal'].create({'name': 'Staff QA sales', 'code': 'STF',
+            'type': 'sale', 'company_id': cls.company.id, 'edi_format_ids': [Command.clear()]})
+        cls.clerk = new_test_user(cls.env, login='eta_staff_workflow_clerk', groups='account.group_account_invoice',
+            company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
+
+    def setUp(self):
+        super().setUp()
+        self.Job = self.env['tradeline.eta.job']
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        guard = patch('requests.sessions.Session.request', side_effect=AssertionError('Staff test attempted real HTTP'))
+        guard.start(); self.addCleanup(guard.stop)
+
+    def invoice(self):
+        move = self.env['account.move'].with_context(eta_queue_cron=True).create({
+            'move_type': 'out_invoice', 'journal_id': self.journal.id, 'partner_id': self.partner.id,
+            'currency_id': self.env.ref('base.EGP').id, 'invoice_date': fields.Date.today(),
+            'invoice_line_ids': [Command.create({'name': 'Staff QA item', 'account_id': self.income.id,
+                'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
+        move.action_post()
+        return move
+
+    @contextmanager
+    def owned_worker(self, client=None):
+        """Exercise the real worker on rollback-only fixtures, with fake transport."""
+        client = client or MagicMock(company=self.company)
+        client.staff_error = False
+        self.env.flush_all()
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(self.env.registry, 'cursor', side_effect=lambda: nullcontext(self.env.cr)))
+            stack.enter_context(patch.object(self.env.cr, 'commit', side_effect=self.env.flush_all))
+            stack.enter_context(patch.object(self.env.cr, 'rollback', side_effect=self.env.flush_all))
+            stack.enter_context(patch(MODULE + '.EtaClient', return_value=client))
+            yield client
+
+    def accept(self, job, client):
+        def prepare(row):
+            row.write({'payload': json.dumps({'documents': [{'internalID': row.move_id.name,
+                'dateTimeIssued': row.move_id._eta_issue_timestamp(), 'invoiceLines': [{'quantity': 1}],
+                'signatures': [{'value': 'qa-only'}]}]}), 'payload_hash': 'qa'})
+        def request(method, path, **kwargs):
+            self.assertEqual(method, 'POST')
+            self.assertEqual(path, '/api/v1/documentsubmissions')
+            self.assertEqual(job.state, 'unknown', 'The uncertainty marker must precede POST')
+            self.assertEqual(job.attempts, 1)
+            return {'acceptedDocuments': [{'internalId': job.move_id.name, 'uuid': 'staff-qa-receipt'}],
+                    'submissionUUID': 'staff-qa-submission'}
+        client.request.side_effect = request
+        return (patch.object(type(job), '_prepare', autospec=True, side_effect=prepare),
+                patch.object(type(job), '_preflight_submission', return_value=True))
+
+    def test_normal_invoice_user_requests_direct_operation_without_queue_wakeup_or_http(self):
+        move = self.invoice().with_user(self.clerk)
+        with patch.object(type(self.Job), '_request_priority_dispatch', side_effect=AssertionError('Queued manual send')), \
+                patch.object(type(self.Job), '_schedule_immediate_dispatch', side_effect=AssertionError('Postcommit queue dispatch')):
+            action = move.action_eta_send_now()
+        self.assertEqual(action['tag'], 'tradeline_eta_staff_operation')
+        attachment = self.env['ir.attachment'].browse(action['params']['request_id'])
+        data = json.loads(attachment.raw)
+        self.assertEqual((data['uid'], data['mode'], data['invoice']), (self.clerk.id, 'send', move.id))
+        self.assertEqual(attachment.name, REQUEST_NAME); self.assertFalse(attachment.public)
+        self.assertEqual(move.eta_job_ids.attempts, 0)
+
+    def test_direct_send_posts_while_backlog_global_lock_is_owned_and_cron_disabled(self):
+        move = self.invoice(); job = move.eta_job_ids
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').active = False
+        unrelated = self.invoice().eta_job_ids
+        with self.env.registry.cursor() as other:
+            other.execute('SELECT pg_advisory_lock(741181,1)')
+            try:
+                client = MagicMock(company=self.company)
+                prepare, preflight = self.accept(job, client)
+                with self.owned_worker(client), prepare, preflight:
+                    done, message = job._staff_dispatch('send')
+                self.assertTrue(done); self.assertFalse(message)
+            finally:
+                other.execute('SELECT pg_advisory_unlock(741181,1)')
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(job.attempts, 1)
+        self.assertEqual(unrelated.state, 'queued'); self.assertFalse(unrelated.attempts)
+        self.assertEqual(move.amount_total, 100)
+
+    def test_same_invoice_worker_lock_prevents_a_second_manual_post(self):
+        job = self.invoice().eta_job_ids
+        with self.env.registry.cursor() as other:
+            other.execute('SELECT pg_advisory_lock(741180,%s)', [job.id])
+            try:
+                with self.owned_worker() as client:
+                    done, message = job._staff_dispatch('send')
+                self.assertFalse(done); self.assertTrue(message); client.request.assert_not_called()
+            finally:
+                other.execute('SELECT pg_advisory_unlock(741180,%s)', [job.id])
+
+    def test_invoice_user_executes_saved_intent_and_replay_cannot_submit_again(self):
+        self.clerk.partner_id.email = False
+        move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
+        action = move.action_eta_send_now()
+        client = MagicMock(company=self.company)
+        prepare, preflight = self.accept(job, client)
+        with self.owned_worker(client), prepare, preflight:
+            result = move.action_eta_execute_staff_request(action['params']['request_id'])
+            replay = move.action_eta_execute_staff_request(action['params']['request_id'])
+        self.assertIn('Received by ETA', result['title'])
+        self.assertIn('already started', replay['title'])
+        self.assertEqual(client.request.call_count, 1); self.assertEqual(job.attempts, 1)
+        audit = json.loads(self.env['ir.attachment'].browse(action['params']['request_id']).raw)
+        self.assertEqual(audit['state'], 'finished'); self.assertEqual(audit['uid'], self.clerk.id)
+
+    def test_company_eta_cooldown_applies_to_other_invoice_and_transport(self):
+        job = self.invoice().eta_job_ids
+        deadline = fields.Datetime.now() + timedelta(minutes=3)
+        self.company.eta_authority_retry_at = deadline
+        self.assertFalse(job._staff_prepare_send())
+        from ..models.client import EtaClient
+        client = EtaClient(self.company)
+        try:
+            with self.assertRaises(EtaError) as caught:
+                client.request('POST', '/api/v1/documentsubmissions')
+            self.assertEqual(caught.exception.status, 429)
+        finally:client.close()
+
+    def test_direct_valid_duplicate_warning_enters_full_history_review(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'valid-old', 'e_invoice_status': 'Valid'})
+        job.write({'state': 'valid', 'last_error': 'Multiple currently Valid ETA receipts use this invoice number.'})
+        self.assertTrue(job._staff_prepare_send())
+        self.assertEqual(job.state, 'review'); self.assertTrue(job.historical_review)
+        self.assertEqual(move.e_invoice_uuid, 'valid-old')
+
+    def test_company_manual_lane_is_bounded_without_taking_backlog_lock(self):
+        job = self.invoice().eta_job_ids
+        with self.env.registry.cursor() as other:
+            other.execute('SELECT pg_advisory_lock(741182,%s)', [self.company.id])
+            try:
+                done, message = job._staff_dispatch('send')
+                self.assertFalse(done); self.assertIn('manual ETA operation', message)
+            finally:
+                other.execute('SELECT pg_advisory_unlock(741182,%s)', [self.company.id])
+
+    def test_explicit_retry_can_bring_forward_local_backoff_but_preserves_authority_waits(self):
+        job = self.invoice().eta_job_ids
+        future = fields.Datetime.now() + timedelta(minutes=5)
+        job.write({'next_attempt': future, 'last_error': 'The signing service is unavailable'})
+        self.assertTrue(job._staff_prepare_send()); self.assertFalse(job.next_attempt)
+        for values in ({'authority_retry_at': future}, {'authority_retry_at': False, 'duplicate_retry_at': future},
+                       {'duplicate_retry_at': False, 'last_error': 'ETA returned HTTP 429.'}):
+            job.write(dict(values, next_attempt=future))
+            self.assertFalse(job._staff_prepare_send()); self.assertEqual(job.next_attempt, future)
+
+    def test_unknown_attempt_is_checked_without_another_post_or_loss_of_signed_request(self):
+        job = self.invoice().eta_job_ids
+        payload = json.dumps({'documents': [{'internalID': job.move_id.name, 'signatures': [{'value': 'saved'}]}]})
+        job.write({'state': 'unknown', 'attempts': 1, 'attempted_at': fields.Datetime.now(), 'payload': payload,
+                   'next_attempt': fields.Datetime.now() + timedelta(minutes=20)})
+        client = MagicMock(company=self.company)
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        with self.owned_worker(client):
+            job._staff_dispatch('send')
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job.payload, payload); self.assertEqual(job.attempts, 1)
+        self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+
+    def test_status_check_never_prepares_or_posts_and_failed_check_preserves_schedule(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'known', 'e_invoice_status': 'Submitted'})
+        future = fields.Datetime.now() + timedelta(minutes=5)
+        job.write({'state': 'accepted', 'next_attempt': future})
+        client = MagicMock(company=self.company)
+        client.request.side_effect = EtaError('ETA returned HTTP 503.', status=503)
+        with self.owned_worker(client), patch.object(type(job), '_submit', side_effect=AssertionError('Status submitted')):
+            self.assertFalse(self.Job._process_id(job.id, client, staff_operation=STAFF_STATUS))
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(job.next_attempt, future)
+        self.assertIn('503', client.staff_error)
+
+    def test_status_only_client_rejects_document_post_and_cancel(self):
+        client = StatusClient(self.company)
+        try:
+            for method in ('POST', 'PUT', 'DELETE'):
+                with self.assertRaisesRegex(UserError, 'cannot submit or cancel'):
+                    client.request(method, '/api/v1/documentsubmissions')
+        finally: client.close()
+
+    def test_status_does_not_queue_unsent_or_clear_duplicate_review(self):
+        job = self.invoice().eta_job_ids
+        with self.assertRaisesRegex(UserError, 'No ETA receipt'):
+            job._staff_check_status(MagicMock())
+        self.assertEqual(job.state, 'queued')
+        job.write({'state': 'review', 'last_error': 'Multiple currently Valid ETA receipts use this invoice number.'})
+        before = job.read(['state', 'last_error', 'attempts', 'payload'])
+        with self.assertRaisesRegex(UserError, 'complete receipt reconciliation'):
+            job._staff_check_status(MagicMock())
+        self.assertEqual(before, job.read(list(before[0])))
+
+    def test_missing_rolled_back_cross_user_expired_and_public_intents_cannot_execute(self):
+        move = self.invoice()
+        with self.assertRaisesRegex(UserError, 'undo click'):
+            with self.env.cr.savepoint():
+                rolled_back = move.action_eta_send_now()['params']['request_id']
+                raise UserError('undo click')
+        with self.owned_worker(), self.assertRaises(AccessError):
+            move.action_eta_execute_staff_request(rolled_back)
+        action = move.with_user(self.clerk).action_eta_send_now()
+        request = self.env['ir.attachment'].browse(action['params']['request_id'])
+        original = json.loads(request.raw)
+        for change in ({'uid': -1}, {'company': -1}, {'database': 'copied-stage'}, {'invoice': -1},
+                       {'expires_at': fields.Datetime.to_string(fields.Datetime.now() - timedelta(seconds=1))}):
+            request.raw = json.dumps(dict(original, **change)).encode()
+            with self.owned_worker(), self.assertRaises(AccessError):
+                move.with_user(self.clerk).action_eta_execute_staff_request(request.id)
+        request.write({'raw': json.dumps(original).encode(), 'public': True})
+        with self.owned_worker(), self.assertRaises(AccessError):
+            move.with_user(self.clerk).action_eta_execute_staff_request(request.id)
+
+    def test_completed_intent_cannot_be_replayed_and_copied_database_cannot_send(self):
+        move = self.invoice().with_user(self.clerk)
+        request = self.env['ir.attachment'].browse(move.action_eta_send_now()['params']['request_id'])
+        data = json.loads(request.raw); data['state'] = 'finished'; request.raw = json.dumps(data).encode()
+        with self.owned_worker(), patch.object(type(self.Job), '_staff_dispatch') as dispatch:
+            result = move.action_eta_execute_staff_request(request.id)
+        dispatch.assert_not_called(); self.assertIn('already started', result['title'])
+        request = self.env['ir.attachment'].browse(move.action_eta_send_now()['params']['request_id'])
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', 'production-other')
+        with self.owned_worker(), self.assertRaisesRegex(UserError, 'not enabled'):
+            move.action_eta_execute_staff_request(request.id)
+
+    def test_readonly_user_cannot_send_and_invoice_record_rules_precede_elevation(self):
+        move = self.invoice()
+        readonly = new_test_user(self.env, login='eta_staff_viewer', groups='account.group_account_readonly')
+        with self.assertRaises(AccessError):move.with_user(readonly).action_eta_send_now()
+        rule = self.env['ir.rule'].create({'name': 'Staff QA restrict invoice',
+            'model_id': self.env['ir.model']._get_id('account.move'), 'domain_force': "[('id', '!=', %s)]" % move.id})
+        with self.assertRaises(AccessError):move.with_user(self.clerk).action_eta_send_now()
+        rule.unlink()
+
+    def test_id_review_with_zero_failures_is_visible_in_attention_search(self):
+        job = self.invoice().eta_job_ids
+        job.write({'state': 'review', 'failures': 0, 'last_error': 'National ID is required for this invoice.'})
+        self.assertTrue(job.needs_attention)
+        self.assertIn(job, self.Job.search([('id', '=', job.id), ('needs_attention', '=', True)]))
+        self.assertIn('Customer identification', job.staff_summary)
+
+    def test_staff_views_support_invoice_search_badges_and_branch_grouping(self):
+        move = self.invoice(); model = self.Job.with_user(self.clerk)
+        rows = model.read_group([('id', '=', move.eta_job_ids.id)], ['journal_id'], ['journal_id'])
+        self.assertEqual(rows[0]['journal_id'][0], self.journal.id)
+        search = etree.fromstring(model.get_view(view_id=self.env.ref('tradeline_eta_reliability.eta_job_search').id,
+            view_type='search')['arch'])
+        self.assertTrue(search.xpath("//field[@name='invoice_number']"))
+        form = etree.fromstring(move.with_user(self.clerk).get_view(view_type='form')['arch'])
+        self.assertTrue(form.xpath("//button[@name='action_eta_send_now']"))
+        self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@widget='badge']"))
+
+    def test_separate_accounting_root_keeps_invoicing_hidden_even_if_reenabled(self):
+        accounting = self.env.ref('accountant.menu_accounting', raise_if_not_found=False)
+        if not accounting:
+            accounting = self.env['ir.ui.menu'].create({'name': 'QA existing Accounting'})
+            self.env['ir.model.data'].create({'module': 'accountant', 'name': 'menu_accounting',
+                'model': 'ir.ui.menu', 'res_id': accounting.id})
+        menu = self.env['ir.ui.menu']; menu._eta_place_staff_menu()
+        invoicing = self.env.ref('account.menu_finance')
+        self.assertFalse(invoicing.active)
+        self.assertEqual(self.env.ref('tradeline_eta_reliability.menu_account_eta_jobs').parent_id, accounting)
+        invoicing.active = True
+        for debug in (False, True):
+            self.assertNotIn(invoicing.id, menu.with_user(self.clerk)._visible_menu_ids(debug=debug))
+

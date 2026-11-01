@@ -17,6 +17,7 @@ from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
 from .processing_window import EtaStopped, check_processing_window
+from .eta_job import STAFF_SEND
 
 
 class AccountMove(models.Model):
@@ -342,7 +343,7 @@ class AccountMove(models.Model):
             issued = cairo.localize(midnight, is_dst=False)
         return issued.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-    def _eta_queue_corrected_document(self):
+    def _eta_queue_corrected_document(self, *, staff_operation=None):
         """Explicit owner action; an unchanged or still-accepted document is never resent."""
         self.ensure_one()
         self.check_access('write')
@@ -355,9 +356,10 @@ class AccountMove(models.Model):
             check_processing_window(self.env)
         except EtaStopped as exc:
             raise UserError(_('ETA processing is paused. The invoice remains saved.')) from exc
-        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741181,1)')
-        if not self.env.cr.fetchone()[0]:
-            raise UserError(_('ETA is processing another request. Retry Sync shortly; nothing was resubmitted.'))
+        if staff_operation is not STAFF_SEND:
+            self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741181,1)')
+            if not self.env.cr.fetchone()[0]:
+                raise UserError(_('ETA is processing another request. Retry Sync shortly; nothing was resubmitted.'))
         self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [job.id])
         if not self.env.cr.fetchone()[0]:
             raise UserError(_('This invoice is already being processed. Nothing was resubmitted.'))

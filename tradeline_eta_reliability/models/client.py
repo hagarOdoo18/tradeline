@@ -75,6 +75,10 @@ class EtaClient:
         _TOKENS[key] = (self.token, self.token_until)
 
     def request(self, method, path, **kwargs):
+        deadline = getattr(self.company, 'eta_authority_retry_at', False)
+        if isinstance(deadline, datetime) and deadline > datetime.utcnow():
+            raise EtaError('ETA asked this company to wait before another request.', status=429,
+                           retry_after=max(1, int(math.ceil((deadline - datetime.utcnow()).total_seconds()))))
         self._authorize()
         if method == 'GET':
             gap = 2.1 if path.endswith('/search') else 0.6
