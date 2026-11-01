@@ -46,9 +46,9 @@ export class EtaConnectionHealth extends Component {
     vatLane() { return this.props.context?.eta_vat_lane || ""; }
     vatInstructions() {
         return ({
-            all: _t("Choose a VAT work list below. Reading this page creates no credit notes. Select one invoice and confirm Prepare VAT Correction to save correction drafts."),
+            all: _t("Choose Not sent to add VAT before sending, or ETA approved to add 14% VAT in Odoo only. Existing correction documents remain available for review."),
             unsent: _t("No ETA submission is recorded. Add VAT to the same invoice, review the total, confirm/post, then send. No credit note is needed."),
-            approved: _t("These originals are already approved by ETA without VAT. Prepare a credit and VAT replacement, review the drafts, then send the credit first. Send the replacement only after ETA approves the credit."),
+            approved: _t("These invoices are already approved by ETA. Click Add 14% VAT in Odoo, review the preview, then apply. The customer total stays unchanged. Nothing is sent, credited or replaced at ETA."),
             in_progress: _t("Correction documents already exist. Open existing corrections and follow the invoice's instructions. Do not create a second credit note. History includes cancelled or superseded drafts."),
             rejected: _t("ETA marked these invoices Invalid. Correct VAT verifies that rejection before reopening the original. A confirmed validation rejection does not require a credit note."),
             review: _t("The existing delivery or receipt needs reconciliation. Do not treat an unconfirmed submission as unsent, or create a credit before its outcome is confirmed.")

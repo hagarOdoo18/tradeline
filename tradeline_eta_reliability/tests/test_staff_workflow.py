@@ -388,6 +388,104 @@ class TestEtaStaffWorkflow(TransactionCase):
         form = etree.fromstring(move.with_user(self.clerk).get_view(view_type='form')['arch'])
         self.assertTrue(form.xpath("//button[@name='action_eta_send_now']"))
         self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@widget='badge']"))
+        self.assertTrue(form.xpath("//header/button[@name='action_eta_send_now'][@string='Sync']"))
+        self.assertFalse(form.xpath("//header/button[@name='action_eta_check_status_now']"))
+        self.assertFalse(form.xpath("//header/button[@name='action_eta_correct_vat']"))
+        self.assertTrue(form.xpath("//page//button[@name='action_eta_check_status_now'][@string='Update Status']"))
+        from odoo.tools.safe_eval import safe_eval
+        panel = form.xpath("//div[@role='status'][.//field[@name='eta_staff_reason']]")[0]
+        self.assertTrue(safe_eval(panel.get('invisible'), {}))
+
+    def test_familiar_customer_invoice_list_has_status_and_direct_row_operations(self):
+        ordinary = new_test_user(self.env, login='eta_old_list_invoice_clerk',
+            groups='account.group_account_invoice,tradeline_eta_reliability.group_eta_workspace', company_id=self.company.id,
+            company_ids=[Command.set(self.company.ids)])
+        self.assertFalse(ordinary.has_group('account.group_account_manager'))
+        self.assertFalse(ordinary.has_group('base.group_system'))
+        view_id = self.env.ref('account.view_out_invoice_tree').id
+        view = etree.fromstring(self.env['account.move'].with_user(ordinary).get_view(
+            view_id=view_id, view_type='list')['arch'])
+        status = view.xpath("//list/field[@name='eta_staff_state']")
+        self.assertEqual(len(status), 1)
+        self.assertFalse(status[0].get('optional'), 'Status must be visible without changing optional columns.')
+        self.assertEqual(status[0].getprevious().get('name'), 'name')
+        self.assertEqual(len(view.xpath("//list/button[@name='action_eta_send_now'][@string='Sync']")), 1)
+        self.assertFalse(view.xpath("//list/button[@name='action_eta_check_status_now']"))
+        self.assertTrue(view.xpath("//field[@name='eta_staff_reason'][@optional='hide']"))
+        viewer = new_test_user(self.env, login='eta_old_list_readonly', groups='account.group_account_readonly')
+        readonly = etree.fromstring(self.env['account.move'].with_user(viewer).get_view(
+            view_id=view_id, view_type='list')['arch'])
+        self.assertFalse(readonly.xpath("//field[@name='eta_staff_state']"))
+        self.assertFalse(readonly.xpath("//button[@name='action_eta_send_now']"))
+
+    def test_native_eta_notices_hide_without_changing_document_history(self):
+        move = self.invoice()
+        native = self.env['account.edi.document'].create({'move_id': move.id,
+            'edi_format_id': self.env.ref('l10n_eg_edi_eta.edi_eg_eta').id,
+            'state': 'to_send', 'error': 'Queue owns this invoice', 'blocking_level': 'info'})
+        before = native.read(['state', 'error', 'blocking_level', 'attachment_id'])
+        self.assertTrue(move.eta_native_edi_only)
+        self.assertTrue(move.eta_native_pending_only)
+        self.assertTrue(move.eta_native_error_only)
+        self.assertEqual(move.edi_state, 'to_send', 'The display change must not invent native delivery.')
+        self.assertEqual(before, native.read(['state', 'error', 'blocking_level', 'attachment_id']))
+        form = etree.fromstring(move.with_user(self.clerk).get_view(view_type='form')['arch'])
+        process = form.xpath("//button[@name='button_process_edi_web_services']/..")[0]
+        self.assertIn('eta_native_pending_only', process.get('invisible'))
+        for alert in form.xpath("//div[@role='alert'][.//field[@name='edi_error_message']]"):
+            self.assertIn('eta_native_error_only', alert.get('invisible'))
+
+    def test_cached_native_process_and_retry_use_the_same_durable_staff_send(self):
+        move = self.invoice()
+        native = self.env['account.edi.document'].create({'move_id': move.id,
+            'edi_format_id': self.env.ref('l10n_eg_edi_eta.edi_eg_eta').id,
+            'state': 'to_send', 'error': 'Keep original native message', 'blocking_level': 'info'})
+        original_error = native.error
+        for name in ('button_process_edi_web_services', 'action_retry_edi_documents_error'):
+            result = getattr(move.with_user(self.clerk), name)()
+            self.assertEqual(result['tag'], 'tradeline_eta_staff_operation')
+            self.assertEqual(result['params']['mode'], 'send')
+        self.assertEqual(move.eta_job_ids.state, 'queued')
+        self.assertFalse(move.eta_job_ids.attempts)
+        self.assertEqual(native.error, original_error)
+
+    def test_cached_native_button_checks_an_accepted_invoice_instead_of_resending(self):
+        move = self.invoice()
+        self.env['account.edi.document'].create({'move_id': move.id,
+            'edi_format_id': self.env.ref('l10n_eg_edi_eta.edi_eg_eta').id, 'state': 'to_send'})
+        move.eta_job_ids._apply_remote({'uuid': 'already-received', 'internalId': move.name,
+                                      'status': 'Submitted'})
+        result = move.with_user(self.clerk).button_process_edi_web_services()
+        self.assertEqual(result['params']['mode'], 'status')
+        self.assertEqual(move.eta_job_ids.state, 'accepted')
+        self.assertFalse(move.eta_job_ids.attempts)
+
+    def test_other_edi_notices_and_processing_are_preserved(self):
+        move = self.invoice()
+        eta = self.env.ref('l10n_eg_edi_eta.edi_eg_eta')
+        other = self.env['account.edi.format'].create({'name': 'Other EDI QA', 'code': 'other_controls_qa'})
+        self.env['account.edi.document'].create([
+            {'move_id': move.id, 'edi_format_id': eta.id, 'state': 'to_send',
+             'error': 'ETA note', 'blocking_level': 'info'},
+            {'move_id': move.id, 'edi_format_id': other.id, 'state': 'to_send',
+             'error': 'Other EDI note', 'blocking_level': 'info'}])
+        with patch.object(type(eta), '_needs_web_services', return_value=True):
+            move.invalidate_recordset(['eta_native_edi_only', 'eta_native_pending_only', 'eta_native_error_only'])
+            self.assertFalse(move.eta_native_edi_only)
+            self.assertFalse(move.eta_native_pending_only)
+            self.assertFalse(move.eta_native_error_only)
+        parent = 'odoo.addons.account_edi.models.account_move.AccountMove.button_process_edi_web_services'
+        with patch(parent, return_value='other-edi-result') as process:
+            self.assertEqual(move.button_process_edi_web_services(), 'other-edi-result')
+            process.assert_called_once()
+
+    def test_cached_native_cancellation_cannot_become_a_new_submission(self):
+        move = self.invoice()
+        self.env['account.edi.document'].create({'move_id': move.id,
+            'edi_format_id': self.env.ref('l10n_eg_edi_eta.edi_eg_eta').id, 'state': 'to_cancel'})
+        with self.assertRaisesRegex(UserError, 'cancellation request'):
+            move.with_user(self.clerk).button_process_edi_web_services()
+        self.assertFalse(move.eta_job_ids.attempts)
 
     def test_separate_accounting_root_keeps_invoicing_hidden_even_if_reenabled(self):
         accounting = self.env.ref('accountant.menu_accounting', raise_if_not_found=False)

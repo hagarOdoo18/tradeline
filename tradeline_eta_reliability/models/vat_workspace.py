@@ -5,7 +5,8 @@ from odoo.tools import SQL
 
 VAT_WORKFLOWS = [
     ('unsent', 'Not sent — fix VAT on this invoice'),
-    ('approved', 'Approved without VAT — credit and replacement required'),
+    ('approved', 'ETA approved — add VAT in Odoo only'),
+    ('local_completed', 'VAT added in Odoo — ETA unchanged'),
     ('in_progress', 'Correction documents already exist — open them'),
     ('rejected', 'ETA invalid — fix this invoice'),
     ('review', 'ETA outcome or receipt needs review'),
@@ -30,7 +31,10 @@ class EtaVatWorkspace(models.Model):
             'move_type', 'state', 'currency_id', 'e_invoice_status', 'e_invoice_sent',
             'e_invoice_uuid', 'l10n_eg_uuid', 'l10n_eg_submission_number', 'l10n_eg_eta_json_doc_id',
             'e_invoice_json', 'invoice_signed', 'eta_receipt_vat_missing', 'eta_receipt_vat_checked_at',
-            'eta_receipt_vat_uuid', 'eta_receipt_vat_egp', 'eta_vat_original_id'])
+            'eta_receipt_vat_uuid', 'eta_receipt_vat_egp', 'eta_vat_original_id',
+            'eta_local_vat_applied_at', 'eta_local_vat_applied_by', 'eta_local_vat_audit_id', 'eta_local_vat_receipt_uuid',
+            'eta_local_vat_net_amount', 'eta_local_vat_tax_amount', 'eta_local_vat_gross_amount',
+            'amount_untaxed', 'amount_tax', 'amount_total', 'eta_submission_pending'])
         self.env['account.move.line'].flush_model(['move_id', 'tax_line_id', 'amount_currency'])
         self.env['tradeline.eta.job'].flush_model([
             'move_id', 'state', 'historical_review', 'attempts', 'attempted_at', 'safe_to_retry',
@@ -114,7 +118,37 @@ class EtaVatWorkspace(models.Model):
             AND NOT EXISTS (SELECT 1 FROM ir_attachment wf_archive WHERE wf_archive.res_model='account.move'
                 AND wf_archive.res_id=account_move.id AND wf_archive.mimetype='application/json'
                 AND wf_archive.name LIKE 'ETA_%%.json'))""")
+        local_done = SQL("""(NOT %s AND account_move.state='posted'
+            AND account_move.e_invoice_status='Valid' AND account_move.eta_submission_pending IS NOT TRUE
+            AND account_move.eta_vat_original_id IS NULL
+            AND NOT EXISTS (SELECT 1 FROM account_move wf_local_credit WHERE wf_local_credit.state <> 'cancel'
+                AND (wf_local_credit.eta_vat_original_id=account_move.id OR wf_local_credit.reversed_entry_id=account_move.id))
+            AND NOT EXISTS (SELECT 1 FROM tradeline_eta_job wf_local_job WHERE wf_local_job.move_id=account_move.id
+                AND (wf_local_job.state <> 'valid' OR wf_local_job.historical_review IS TRUE
+                    OR wf_local_job.duplicate_retry_at IS NOT NULL OR COALESCE(wf_local_job.duplicate_payload_hash,'') <> ''))
+            AND NOT EXISTS (SELECT 1 FROM account_edi_document wf_local_edi WHERE wf_local_edi.move_id=account_move.id
+                AND wf_local_edi.state IN ('to_send','to_cancel'))
+            AND ROUND(account_move.eta_local_vat_net_amount / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+                = ROUND(account_move.amount_untaxed / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+            AND ROUND(account_move.eta_local_vat_tax_amount / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+                = ROUND(account_move.amount_tax / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+            AND ROUND(account_move.eta_local_vat_gross_amount / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+                = ROUND(account_move.amount_total / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
+            AND account_move.eta_local_vat_applied_at IS NOT NULL
+            AND account_move.eta_local_vat_applied_by IS NOT NULL
+            AND COALESCE(account_move.eta_local_vat_receipt_uuid,'') <> ''
+            AND account_move.eta_local_vat_receipt_uuid = COALESCE(
+                NULLIF(account_move.e_invoice_uuid,''),NULLIF(account_move.l10n_eg_uuid,''))
+            AND NOT (COALESCE(account_move.e_invoice_uuid,'') <> ''
+                AND COALESCE(account_move.l10n_eg_uuid,'') <> ''
+                AND account_move.e_invoice_uuid <> account_move.l10n_eg_uuid)
+            AND EXISTS (SELECT 1 FROM ir_attachment wf_local
+                WHERE wf_local.id=account_move.eta_local_vat_audit_id
+                    AND wf_local.res_model='account.move' AND wf_local.res_id=account_move.id
+                    AND wf_local.company_id=account_move.company_id
+                    AND wf_local.res_field='eta_local_vat_audit_file' AND wf_local.public IS NOT TRUE))""", missing)
         return SQL("""CASE
+            WHEN account_move.move_type='out_invoice' AND %s THEN 'local_completed'
             WHEN account_move.move_type <> 'out_invoice' OR account_move.state = 'cancel'
                 OR NOT (%s OR account_move.eta_receipt_vat_missing IS TRUE) THEN NULL
             WHEN %s AND %s AND NOT %s THEN 'completed'
@@ -124,7 +158,7 @@ class EtaVatWorkspace(models.Model):
             WHEN %s AND NOT %s THEN 'rejected'
             WHEN %s AND NOT %s THEN 'unsent'
             ELSE 'review' END""",
-            missing, receipt_zero, completed, uncertain, receipt_zero, active, uncertain,
+            local_done, missing, receipt_zero, completed, uncertain, receipt_zero, active, uncertain,
             receipt_zero, active, rejected, active, unsent, active)
 
     @api.depends('move_type', 'state', 'eta_vat_missing', 'e_invoice_status', 'e_invoice_sent',
@@ -133,7 +167,10 @@ class EtaVatWorkspace(models.Model):
                  'eta_receipt_vat_uuid', 'eta_receipt_vat_egp', 'eta_job_ids.state', 'eta_job_ids.historical_review',
                  'eta_job_ids.attempts', 'eta_job_ids.attempted_at', 'eta_job_ids.safe_to_retry',
                  'eta_job_ids.submission_uuid', 'eta_job_ids.duplicate_retry_at', 'eta_job_ids.duplicate_payload_hash',
-                 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.move_type',
+                 'eta_local_vat_applied_at', 'eta_local_vat_applied_by', 'eta_local_vat_audit_id',
+                 'eta_local_vat_receipt_uuid', 'eta_local_vat_net_amount', 'eta_local_vat_tax_amount',
+                 'eta_local_vat_gross_amount', 'amount_untaxed', 'amount_tax', 'amount_total',
+                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.move_type',
                  'eta_vat_correction_ids.e_invoice_status', 'eta_vat_correction_ids.e_invoice_uuid',
                  'eta_vat_correction_ids.l10n_eg_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid',
@@ -154,7 +191,7 @@ class EtaVatWorkspace(models.Model):
             if route == 'unsent':
                 note = _('Fix VAT on this existing invoice. If it is posted, Correct VAT reopens its draft safely. No credit note is needed because no submission is recorded.')
             elif route == 'approved':
-                note = _('ETA approved the original without VAT. Correct VAT must prepare a linked credit note and a VAT replacement; do not reset or resend the approved original.')
+                note = _('ETA approved the original without VAT. Click Add 14% VAT in Odoo, review the unchanged customer total, then apply. This changes Odoo accounting only; no ETA credit, replacement or resend is created.')
             elif route == 'rejected':
                 note = _('ETA marked the original invoice Invalid. Correct VAT verifies its latest outcome before reopening this existing invoice. No credit note is needed for a confirmed invalid submission.')
             elif route == 'in_progress':
@@ -171,6 +208,8 @@ class EtaVatWorkspace(models.Model):
                     note = _('Open the existing correction documents. Review/post the existing credit note first; wait for ETA approval before posting the VAT replacement. Do not prepare duplicate correction documents.')
                 else:
                     note = _('Correction documents already exist. Open them and have accounting reconcile the missing credit/replacement links before taking another action.')
+            elif route == 'local_completed':
+                note = _('14% VAT was added in Odoo. The customer total and ETA receipt were preserved. No further ETA action is needed for this local amendment.')
             elif route == 'completed':
                 note = _('The linked credit and VAT replacement are approved by ETA and positive VAT is verified on the replacement receipt. The original is preserved; no further correction is required.')
             elif route == 'review':

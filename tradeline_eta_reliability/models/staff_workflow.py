@@ -486,17 +486,7 @@ class EtaStaffMove(models.Model):
             data.update(state='finished', finished_at=fields.Datetime.to_string(fields.Datetime.now()), result=result)
             request.raw = json.dumps(data).encode()
             cr.commit()
-            # The receipt and audit result must not depend on staff having an
-            # outgoing email address or permission to notify invoice followers.
-            try:
-                with cr.savepoint():
-                    move.with_context(mail_notify_force_send=False, mail_post_autofollow=False).message_post(
-                        body=_('ETA %(operation)s requested by %(user)s: %(status)s. %(detail)s',
-                            operation=_('direct send') if data['mode'] == 'send' else _('status check'),
-                            user=env.user.display_name, status=result['title'], detail=result['message']),
-                        subtype_xmlid='mail.mt_note', author_id=env.user.partner_id.id,
-                        email_from=env.user.email or 'odoo@localhost')
-            except (AccessError, UserError):
-                _logger.info('ETA staff result retained in private audit; invoice note unavailable')
-            cr.commit()
+            # Keep ETA operation results in the private request audit, not the
+            # invoice's shared chatter/bus where branch followers can see them.
+            # The requesting accountant receives the result directly in the UI.
             return result

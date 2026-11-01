@@ -11,3 +11,6 @@ from . import test_vat_review
 from . import test_delivery_review
 from . import test_workspace_access
 from . import test_vat_workspace
+from . import test_rejection_presentation
+from . import test_branch_eta_access
+from . import test_local_vat

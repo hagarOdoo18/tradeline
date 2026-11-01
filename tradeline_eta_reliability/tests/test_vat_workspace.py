@@ -87,7 +87,7 @@ class TestEtaVatWorkspace(TransactionCase):
     def test_approved_zero_vat_requires_matching_current_persisted_receipt_facts(self):
         move = self.invoice(); self.receipt(move)
         self.assert_route(move, 'approved')
-        self.assertIn('credit note and a VAT replacement', move.eta_vat_workflow_note)
+        self.assertIn('Odoo accounting only', move.eta_vat_workflow_note)
         move.sudo().eta_receipt_vat_uuid = 'earlier-uuid'
         self.assert_route(move, 'review')
 

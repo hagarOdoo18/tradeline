@@ -113,8 +113,10 @@ class TestEtaReliability(TransactionCase):
         with patch('requests.sessions.Session.request', side_effect=AssertionError('Sync performed HTTP')):
             self.assertTrue(move.read(['show_reset_to_draft_button', 'eta_job_ids'])[0]['show_reset_to_draft_button'])
             self.assertEqual(move.eta_job_ids.read(['state'])[0]['state'], 'queued')
-            self.assertEqual(move.action_send_electronic_invoice()['tag'], 'display_notification')
-            move.action_update_electronic_invoice_status()
+            with self.assertRaises(AccessError):
+                move.action_send_electronic_invoice()
+            with self.assertRaises(AccessError):
+                move.action_update_electronic_invoice_status()
         menu = self.env.ref('tradeline_eta_reliability.menu_account_eta_jobs')
         self.assertNotIn(menu.id, self.env['ir.ui.menu'].with_user(user)._visible_menu_ids())
 
@@ -1073,7 +1075,9 @@ class TestEtaReliability(TransactionCase):
         client = MagicMock(); client.request.return_value = result
         with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
                 patch.object(type(move), '_eta_correction_document', return_value=original):
-            move.with_user(self.invoice_user()).action_send_electronic_invoice()
+            accountant = self.invoice_user()
+            accountant.groups_id |= self.env.ref('tradeline_eta_reliability.group_eta_workspace')
+            move.with_user(accountant).action_send_electronic_invoice()
         self.assertFalse(move.e_invoice_uuid)
         self.assertEqual(move.eta_job_ids.state, 'queued')
         self.assertEqual(move.amount_total, 100)

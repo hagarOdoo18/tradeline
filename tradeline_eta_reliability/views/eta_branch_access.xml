@@ -1,0 +1,49 @@
+<odoo>
+    <record id="view_move_form_branch_eta_visibility" model="ir.ui.view">
+        <field name="name">account.move.form.central.eta.visibility</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_move_form"/>
+        <field name="priority">999</field>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="before"><field name="eta_branch_hide_native_controls" invisible="1"/></xpath>
+            <xpath expr="//div[@role='status'][.//field[@name='eta_staff_reason']]" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//page[.//button[@name='action_generate_eta_json']]" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//button[@name='action_cancel_electronic_invoice']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//widget[@name='web_ribbon'][@invisible='valid_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//widget[@name='web_ribbon'][@invisible='invalid_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//widget[@name='web_ribbon'][@invisible='expired_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//widget[@name='web_ribbon'][@invisible='submitted_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//widget[@name='web_ribbon'][@invisible='cancelled_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//button[@name='button_cancel_posted_moves']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
+            <xpath expr="//button[@name='button_abandon_cancel_posted_posted_moves']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
+            <xpath expr="//button[@name='button_force_cancel']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
+            <xpath expr="//page[@name='page_edi_documents']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='edi_state']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
+            <xpath expr="//field[@name='eta_vat_original_id']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='expiration_duration']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='document_id']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+        </field>
+    </record>
+    <record id="view_invoice_list_branch_eta_visibility" model="ir.ui.view">
+        <field name="name">account.invoice.list.central.eta.visibility</field>
+        <field name="model">account.move</field><field name="inherit_id" ref="account.view_invoice_tree"/>
+        <field name="priority">999</field>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='e_invoice_status']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='expiration_duration']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='expired_flag']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//field[@name='e_invoice_sent']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+        </field>
+    </record>
+    <record id="view_invoice_search_branch_eta_visibility" model="ir.ui.view">
+        <field name="name">account.invoice.search.central.eta.visibility</field>
+        <field name="model">account.move</field><field name="inherit_id" ref="account.view_account_invoice_filter"/>
+        <field name="priority">999</field>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='submitted']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//filter[@name='valid']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//filter[@name='invalid']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//filter[@name='eta_missing_tracking']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+        </field>
+    </record>
+</odoo>

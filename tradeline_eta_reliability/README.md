@@ -244,7 +244,7 @@ polling after the direct operation, using the same single submission ledger.
 corrected submission. An uncertain attempt is matched to its retained request;
 a conflicting/history hold is preserved. Failed status reads do not change the
 submission state or automatic retry schedule. Every staff operation retains a
-private audit result and a readable invoice chatter entry.
+private audit result and an immediate persistent response to the requesting user. ETA technical notes are not published to branch invoice followers.
 
 Where the separate Accounting application exists, the ETA menu is placed there
 and the unwanted Invoicing app stays hidden, including developer mode and after
@@ -271,8 +271,7 @@ Instructions recognize an already-approved credit and prevent duplicate preparat
 
 ETA Status uses the dedicated central accounting group, without granting posting
 or company access. Menus, bookmarked actions, workspace views, health readings and
-recovery entry points enforce that role. Branch users retain normal invoicing and
-standard Send/Check controls. Membership is maintained separately from upgrades.
+recovery entry points enforce that role. Branch users retain normal financial invoice controls; ETA controls, fields, technical pages, ribbons and status summaries require explicit central membership, even in developer mode. Membership is maintained separately from upgrades.
 The connection component remains in the ETA workspace; the native invoice form
 has no dependency on its widget registration, avoiding stale-asset form crashes.
 The separate accounting_customization Apply 14% Tax implementation is unchanged.
@@ -282,3 +281,49 @@ receipts together as ETA rejected — needs correction. Local checks, generic
 HTTP failures, source/receipt conflicts and unresolved sends retain their
 separate labels. The upgrade refreshes only presentation labels in bounded
 batches; it does not reset transport states, retries, timestamps or invoices.
+
+Release 18.0.1.0.41 keeps the familiar customer invoice list and its saved
+filters/grouping. ETA status is visible beside the invoice number, with row
+Sync buttons using the existing direct-send operation. Optional
+issue and next-step columns are available without opening the ETA workspace.
+
+ETA-only native EDI processing notices and the duplicate native summary are
+hidden from the familiar invoice form; central accounting retains receipt-backed status in the old list and ETA workspace. Cached native Process
+now/Retry buttons route through the same durable staff operation; accepted and
+uncertain invoices receive status checks rather than another submission. Other
+EDI formats keep their controls. Ahmed Salama's preparation module, the queue,
+background processing, native receipt fields/archives and invoice header remain
+installed and unchanged. No module uninstallation or invoice migration occurs.
+
+The familiar invoice form has a single Sync button for direct sending. Its
+original E-Invoice Details / Update Status control remains GET-only. The added
+Correct VAT header button, duplicate status-check header and added ETA summary
+panel are removed from the visible invoice form; dedicated ETA work lists
+remain available to central accounting. Posting state and normal invoice
+controls are unchanged.
+
+
+The .41 release supersedes the earlier approved-invoice correction policy:
+**Actions > Apply 14% Tax** now previews an Odoo-only amendment for a finally
+approved ETA invoice. The ETA-approved VAT work list offers **Add 14% VAT in
+Odoo** with the same preview. Applying the amendment changes eligible product
+lines to the existing 14% company VAT while preserving the gross total,
+receivable lines, residuals, payment reconciliations and original ETA evidence.
+It creates no credit note, replacement, queue request or government operation.
+Mosad's original accounting_customization files remain unchanged; invoices
+without authority history continue to use that original tax action.
+
+The local path is blocked for closed periods, hashed/audit-protected entries,
+cash-basis or analytic allocations, unresolved/conflicting ETA outcomes,
+existing credit/correction documents, and tax choices that change customer
+gross totals. The preview is bound to its creator and invoice fingerprint;
+concurrent or stale changes fail atomically. Private immutable evidence records
+before/after tax and preservation hashes. Completed local corrections display
+VAT added in Odoo — ETA unchanged and leave the actionable VAT lists. Historical
+credit/replacement documents remain separately available for review; cached old
+public correction wizards cannot create new credits for submitted invoices.
+
+Confirmed historical rejections now use the needs-correction heading. This
+changes presentation only: duplicate/uncertainty holds and all actual transport
+state, retry timestamps and receipt evidence remain intact. The bounded .41
+migration refreshes staff labels without re-enrolling or replaying the backlog.
