@@ -33,6 +33,18 @@
     </t>
     <t t-name="tradeline_eta_reliability.WorkspaceList" t-inherit="web.ListView" t-inherit-mode="primary">
         <xpath expr="//div[@t-ref='root']" position="attributes"><attribute name="class">o_eta_workspace</attribute></xpath>
+        <xpath expr="//SearchBar" position="attributes"><attribute name="autofocus">false</attribute></xpath>
         <xpath expr="//t[@t-component='props.Renderer']" position="before"><EtaConnectionHealth/></xpath>
+    </t>
+    <t t-name="tradeline_eta_reliability.WorkspaceFilterBar" t-inherit="web.SearchBar" t-inherit-mode="primary">
+        <xpath expr="//t[@t-call='web.SearchBar.Input']" position="attributes">
+            <attribute name="t-call">tradeline_eta_reliability.WorkspaceFilterInput</attribute>
+        </xpath>
+    </t>
+    <t t-name="tradeline_eta_reliability.WorkspaceFilterInput" t-inherit="web.SearchBar.Input" t-inherit-mode="primary">
+        <xpath expr="//input" position="attributes">
+            <attribute name="placeholder">Filter this view (optional)…</attribute>
+            <attribute name="aria-label">Filter this view only</attribute>
+        </xpath>
     </t>
 </templates>
