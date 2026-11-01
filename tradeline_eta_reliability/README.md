@@ -83,3 +83,38 @@ and control characters retain their JSON escaping. The signing response's CMS
 SHA256 message-digest attribute must match those exact canonical UTF-8 bytes
 before the worker can send it. ETA remains responsible for certificate and
 cryptographic signature validation.
+
+## VAT corrections
+
+Accounting managers can use **Correct VAT** on a posted customer invoice and
+select the correct company VAT sales tax. Preparing a correction never posts
+accounting entries or submits documents to ETA.
+
+- Unsent invoices reopen in draft with VAT applied. Resetting clears stale
+  signatures and queued payloads, and archives the previous queue evidence.
+- An ETA-invalid invoice can reopen after a fresh authority response confirms
+  the rejection. Its full receipt is archived and reposting requires history
+  reconciliation before another submission.
+- An ETA-valid EGP invoice produces a linked draft credit note matching the
+  original authority amounts and a draft replacement containing VAT. The
+  credit note references the original ETA UUID. Existing receipt links erased
+  by legacy resets are recovered from the retained attachment and verified at
+  ETA. If the posted Odoo amounts were changed after submission, a separate
+  draft general-journal adjustment preserves the accounting and tax-grid
+  balances instead of duplicating VAT. Original payments remain untouched.
+
+Open **VAT Corrections** to review the drafts. Post the credit note and any
+adjustment, then post the replacement. The replacement queue waits for a fresh
+confirmation that its credit note is Valid at ETA. Normal durable submission,
+signing, uncertainty, and duplicate protections apply to both documents.
+Repeated preparation opens the existing correction documents.
+
+An unresolved transmission must be reconciled before editing. Foreign-currency
+corrections and invoices with earlier posted credit notes require Finance to
+review their exchange rates or remaining refundable amounts. Confirmed ETA
+cancellations retain the standard draft/cancel flow, with evidence archived;
+the cancelled invoice is not automatically queued for resubmission.
+
+Version 18.0.1.0.24 requires a module upgrade for the correction relation,
+manager wizard, access rule, and form views. No existing invoices are corrected
+automatically by the upgrade.
