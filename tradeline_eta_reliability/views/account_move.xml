@@ -119,13 +119,13 @@
             <xpath expr="//button[@name='button_process_edi_web_services']/.." position="attributes">
                 <attribute name="invisible" add="eta_native_pending_only" separator=" or "/>
             </xpath>
-            <xpath expr="//div[@role='alert'][contains(@class,'alert-danger')][.//field[@name='edi_error_message']]" position="attributes">
+            <xpath expr="//div[@role='alert'][hasclass('alert-danger')][.//field[@name='edi_error_message']]" position="attributes">
                 <attribute name="invisible" add="eta_native_error_only" separator=" or "/>
             </xpath>
-            <xpath expr="//div[@role='alert'][contains(@class,'alert-warning')][.//field[@name='edi_error_message']]" position="attributes">
+            <xpath expr="//div[@role='alert'][hasclass('alert-warning')][.//field[@name='edi_error_message']]" position="attributes">
                 <attribute name="invisible" add="eta_native_error_only" separator=" or "/>
             </xpath>
-            <xpath expr="//div[@role='alert'][contains(@class,'alert-info')][.//field[@name='edi_error_message']]" position="attributes">
+            <xpath expr="//div[@role='alert'][hasclass('alert-info')][.//field[@name='edi_error_message']]" position="attributes">
                 <attribute name="invisible" add="eta_native_error_only" separator=" or "/>
             </xpath>
             <xpath expr="//field[@name='edi_state']" position="attributes">

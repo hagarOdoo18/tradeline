@@ -67,20 +67,31 @@ class EtaLocalVatMove(models.Model):
             ('res_model', '=', 'account.move'), ('res_id', '=', self.id),
             ('name', '=like', 'ETA_%.json'), ('mimetype', '=', 'application/json')], limit=1))
 
+    def _eta_apply14_requires_review(self):
+        self.ensure_one()
+        return self._eta_local_vat_has_history() and not self._eta_can_reset_unsent()
+
     def action_apply_14_tax(self):
         # Keep Mosad's implementation byte-for-byte. It remains the path only
         # for invoices with no authority history to preserve.
-        if self.filtered(lambda move: move._eta_local_vat_has_history()):
+        if self.filtered(lambda move: move._eta_apply14_requires_review()):
             if len(self) != 1:
                 raise UserError(_('Select one previously sent invoice at a time to preview its local VAT correction.'))
-            return self.action_eta_local_vat_preview()
+            return self.action_eta_correct_vat()
         return super().action_apply_14_tax()
 
     def action_eta_correct_vat(self):
         self.ensure_one()
-        if self._eta_local_vat_has_history():
+        history = self._eta_local_vat_has_history()
+        if self.e_invoice_status == 'Valid' and history:
             return self.action_eta_local_vat_preview()
-        return super().action_eta_correct_vat()
+        if history and not self._eta_can_reset_unsent() and self.e_invoice_status not in ('Invalid', 'Rejected'):
+            raise UserError(_('The earlier ETA submission is not finally approved or confirmed invalid. Check its status before correcting VAT. No invoice was reset or resent.'))
+        action = super().action_eta_correct_vat()
+        tax = self._eta_local_vat_tax()
+        if tax:
+            action['context'] = dict(action.get('context', {}), default_tax_id=tax.id)
+        return action
 
     def _eta_local_vat_is_current(self, vat_missing=None):
         """UI hook: local accounting corrected, without rewriting receipt facts."""
@@ -378,10 +389,17 @@ class EtaLocalVatLegacyWizardGuard(models.TransientModel):
 
     def action_prepare(self):
         self.ensure_one()
-        if (self.move_id._eta_local_vat_has_history()
+        if (self.move_id.e_invoice_status == 'Valid' and self.move_id._eta_local_vat_has_history()
                 and self.env.context.get('_eta_legacy_credit_route') is not _LEGACY_CREDIT_ROUTE):
             return self.move_id.action_eta_local_vat_preview()
         return super().action_prepare()
+
+    def _receipt(self):
+        receipt, document = super()._receipt()
+        if (receipt.get('status') == 'Valid'
+                and self.env.context.get('_eta_legacy_credit_route') is not _LEGACY_CREDIT_ROUTE):
+            raise UserError(_('ETA now confirms this invoice is approved. Refresh its ETA status, then open the local 14% VAT preview. No credit note, replacement, or resend was created.'))
+        return receipt, document
 
 
 class EtaLocalVatAuditAttachment(models.Model):

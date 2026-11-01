@@ -1,0 +1,8 @@
+<odoo>
+    <record id="accounting_customization.action_apply_14_tax_invoice" model="ir.actions.server">
+        <field name="code"><![CDATA[
+if records:
+    action = records.action_apply_14_tax()
+        ]]></field>
+    </record>
+</odoo>
