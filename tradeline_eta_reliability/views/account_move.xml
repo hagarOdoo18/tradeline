@@ -22,7 +22,7 @@
                         icon="fa-refresh" groups="account.group_account_invoice"
                         invisible="state != 'posted' or move_type not in ('out_invoice', 'out_refund')"/>
                 <button name="action_eta_correct_vat" string="Correct VAT" type="object"
-                        groups="account.group_account_invoice"
+                        groups="tradeline_eta_reliability.group_eta_workspace"
                         invisible="state != 'posted' or move_type != 'out_invoice'"/>
             </xpath>
             <xpath expr="//sheet" position="before">
@@ -43,14 +43,14 @@
                         <span>Last confirmed check: <field name="eta_staff_checked_at"/></span>
                         <span>Next automatic check: <field name="eta_staff_next_attempt"/></span>
                         <button name="action_eta_status_details" string="ETA details and issues" type="object" class="btn-link"
-                            groups="account.group_account_invoice,account.group_account_readonly"/>
+                            groups="tradeline_eta_reliability.group_eta_workspace"/>
                     </div>
                 </div>
             </xpath>
             <xpath expr="//div[@name='button_box']" position="inside">
                 <field name="eta_vat_correction_ids" invisible="1"/>
                 <button name="action_eta_vat_documents" string="VAT Corrections" type="object"
-                        class="oe_stat_button" icon="fa-files-o" invisible="not eta_vat_correction_ids"/>
+                        class="oe_stat_button" icon="fa-files-o" groups="tradeline_eta_reliability.group_eta_workspace" invisible="not eta_vat_correction_ids"/>
             </xpath>
             <xpath expr="//field[@name='invoice_origin']" position="after">
                 <field name="eta_vat_original_id" invisible="not eta_vat_original_id"/>

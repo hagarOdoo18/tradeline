@@ -23,8 +23,16 @@
                 <field name="eta_vat_amount" optional="hide"/>
                 <field name="eta_receipt_vat_egp" optional="hide"/>
                 <field name="eta_receipt_vat_checked_at" optional="hide"/>
-                <button name="action_eta_correct_vat" type="object" string="Correct VAT" icon="fa-percent"
-                    groups="account.group_account_invoice" invisible="state != 'posted' or move_type != 'out_invoice'"/>
+                <field name="eta_vat_workflow" column_invisible="True"/>
+                <field name="eta_vat_workflow_note" string="What to do" optional="hide"/>
+                <button name="action_eta_start_vat_correction" type="object" string="Add VAT — same invoice" icon="fa-percent"
+                    groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('unsent','rejected')"/>
+                <button name="action_eta_start_vat_correction" type="object" string="Prepare credit + replacement" icon="fa-files-o"
+                    groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow != 'approved'"/>
+                <button name="action_eta_vat_documents" type="object" string="Open existing corrections" icon="fa-folder-open"
+                    groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('in_progress','completed')"/>
+                <button name="action_eta_vat_history" type="object" string="History" icon="fa-history"
+                    groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('in_progress','completed')"/>
                 <field name="move_type" column_invisible="True"/>
             </list>
         </field>
@@ -47,6 +55,9 @@
                 <filter name="vat_missing" string="Current invoice has no VAT" domain="[('eta_vat_missing','=',True)]"/>
                 <filter name="receipt_no_vat" string="Saved receipt has no VAT" domain="[('eta_receipt_vat_missing','=',True),('eta_receipt_vat_checked_at','!=',False)]"/>
                 <filter name="correction" string="VAT correction documents" domain="[('eta_vat_original_id','!=',False)]"/>
+                <filter name="vat_not_sent" string="Not sent — add VAT" domain="[('eta_vat_workflow','=','unsent')]"/>
+                <filter name="vat_approved_correction" string="Approved — credit and replace" domain="[('eta_vat_workflow','=','approved')]"/>
+                <filter name="vat_started" string="Corrections already started" domain="[('eta_vat_workflow','=','in_progress')]"/>
                 <separator/>
                 <filter name="invoice_period" string="Invoice date" date="invoice_date"/>
                 <filter name="sent_period" string="Submission time" date="e_invoice_date"/>
@@ -84,7 +95,7 @@
         <field name="model_id" ref="account.model_account_move"/>
         <field name="state">code</field>
         <field name="code">action = model.action_eta_today()</field>
-        <field name="groups_id" eval="[(4, ref('account.group_account_invoice')), (4, ref('account.group_account_readonly'))]"/>
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_eta_reliability.group_eta_workspace')])]"/>
     </record>
     <record id="action_eta_backlog" model="ir.actions.act_window">
         <field name="name">ETA — Backlog and active processing</field><field name="res_model">tradeline.eta.job</field>
@@ -119,34 +130,73 @@
         <field name="name">ETA — VAT issues and corrections</field><field name="res_model">account.move</field>
         <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
         <field name="search_view_id" ref="eta_workspace_invoice_search"/>
-        <field name="domain">[('move_type','=','out_invoice'),('state','=','posted'),'|',('eta_vat_missing','=',True),('eta_receipt_vat_missing','=',True)]</field>
-        <field name="context">{'create':False}</field>
+        <field name="domain">[('move_type','=','out_invoice'),('state','in',['draft','posted']),'|',('eta_vat_missing','=',True),('eta_receipt_vat_missing','=',True)]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'all'}</field>
         <field name="help" type="html"><p>Red means VAT is missing or an approved receipt needs correction; amber means review or correction is in progress; green means a linked correction is complete. Review saved VAT checks the archived receipt locally. Correct VAT prepares drafts for review.</p></field>
     </record>
+    <record id="action_eta_vat_unsent" model="ir.actions.act_window">
+        <field name="name">VAT — Not sent: add VAT to the same invoice</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_vat_workflow','=','unsent')]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'unsent'}</field>
+    </record>
+    <record id="action_eta_vat_approved" model="ir.actions.act_window">
+        <field name="name">VAT — ETA approved: credit and replace</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_vat_workflow','=','approved')]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'approved'}</field>
+    </record>
+    <record id="action_eta_vat_in_progress" model="ir.actions.act_window">
+        <field name="name">VAT — Corrections already started</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_vat_workflow','=','in_progress')]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'in_progress'}</field>
+    </record>
+    <record id="action_eta_vat_rejected" model="ir.actions.act_window">
+        <field name="name">VAT — ETA invalid: correct the original</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_vat_workflow','=','rejected')]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'rejected'}</field>
+    </record>
+    <record id="action_eta_vat_review" model="ir.actions.act_window">
+        <field name="name">VAT — Delivery or receipt review</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('eta_vat_workflow','=','review')]</field>
+        <field name="context">{'create':False,'eta_vat_lane':'review'}</field>
+    </record>
     <record id="menu_account_eta_jobs" model="ir.ui.menu"><field name="action" eval="False"/></record>
-    <menuitem id="menu_eta_today" name="Today — all invoice activity" parent="menu_account_eta_jobs" action="action_eta_today" sequence="0" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_all_invoices" name="All invoices — by day" parent="menu_account_eta_jobs" action="action_eta_all_invoices" sequence="1" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_backlog" name="Backlog and active processing" parent="menu_account_eta_jobs" action="action_eta_backlog" sequence="2" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_sent_history" name="Sent history" parent="menu_account_eta_jobs" action="action_eta_sent_history" sequence="3" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_approved" name="Approved invoices" parent="menu_account_eta_jobs" action="action_eta_approved_invoices" sequence="3" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_drafts" name="Drafts — not submitted" parent="menu_account_eta_jobs" action="action_eta_draft_invoices" sequence="4" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_vat_issues" name="VAT issues and corrections" parent="menu_account_eta_jobs" action="action_eta_vat_issues" sequence="5" groups="account.group_account_invoice"/>
-    <menuitem id="menu_eta_job_status" name="Queue status details" parent="menu_account_eta_jobs" action="action_eta_invoice_log" sequence="6" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_today" name="Today — all invoice activity" parent="menu_account_eta_jobs" action="action_eta_today" sequence="0" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_all_invoices" name="All invoices — by day" parent="menu_account_eta_jobs" action="action_eta_all_invoices" sequence="1" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_backlog" name="Backlog and active processing" parent="menu_account_eta_jobs" action="action_eta_backlog" sequence="2" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_sent_history" name="Sent history" parent="menu_account_eta_jobs" action="action_eta_sent_history" sequence="3" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_approved" name="Approved invoices" parent="menu_account_eta_jobs" action="action_eta_approved_invoices" sequence="3" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_drafts" name="Drafts — not submitted" parent="menu_account_eta_jobs" action="action_eta_draft_invoices" sequence="4" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_vat_issues" name="VAT issues and corrections" parent="menu_account_eta_jobs" action="action_eta_vat_issues" sequence="5" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_vat_unsent" name="VAT — Not sent: add VAT" parent="menu_account_eta_jobs" action="action_eta_vat_unsent" sequence="51" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_vat_approved" name="VAT — Approved: credit and replace" parent="menu_account_eta_jobs" action="action_eta_vat_approved" sequence="52" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_vat_started" name="VAT — Corrections already started" parent="menu_account_eta_jobs" action="action_eta_vat_in_progress" sequence="53" groups="tradeline_eta_reliability.group_eta_workspace"/>
+    <menuitem id="menu_eta_job_status" name="Queue status details" parent="menu_account_eta_jobs" action="action_eta_invoice_log" sequence="6" groups="tradeline_eta_reliability.group_eta_workspace"/>
     <record id="view_eta_vat_review_invoice" model="ir.ui.view">
         <field name="name">account.move.eta.vat.review</field><field name="model">account.move</field>
         <field name="inherit_id" ref="view_move_form_draft_correction"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='eta_staff_reason']" position="before">
-                <widget name="eta_connection_health" groups="account.group_account_invoice,account.group_account_readonly"/>
-                <div class="my-2">
+                <div class="my-2" groups="tradeline_eta_reliability.group_eta_workspace">
+                    <field name="eta_vat_workflow" invisible="1"/>
                     <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
                         decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected')"/>
-                    <field name="eta_vat_review_note" nolabel="1"/>
+                    <field name="eta_vat_workflow_note" nolabel="1" invisible="not eta_vat_workflow"/>
+                    <field name="eta_vat_review_note" nolabel="1" invisible="eta_vat_workflow"/>
                 </div>
             </xpath>
             <xpath expr="//button[@name='action_eta_status_details']" position="after">
                 <button name="action_eta_review_saved_vat" type="object" string="Review saved VAT" class="btn-link"
-                    groups="account.group_account_invoice,account.group_account_readonly"/>
+                    groups="tradeline_eta_reliability.group_eta_workspace"/>
             </xpath>
         </field>
     </record>

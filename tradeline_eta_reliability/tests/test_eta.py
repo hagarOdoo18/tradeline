@@ -116,7 +116,7 @@ class TestEtaReliability(TransactionCase):
             self.assertEqual(move.action_send_electronic_invoice()['tag'], 'display_notification')
             move.action_update_electronic_invoice_status()
         menu = self.env.ref('tradeline_eta_reliability.menu_account_eta_jobs')
-        self.assertIn(menu.id, self.env['ir.ui.menu'].with_user(user)._visible_menu_ids())
+        self.assertNotIn(menu.id, self.env['ir.ui.menu'].with_user(user)._visible_menu_ids())
 
     def test_invoice_user_cannot_rewrite_transport_ledger(self):
         user = self.invoice_user()

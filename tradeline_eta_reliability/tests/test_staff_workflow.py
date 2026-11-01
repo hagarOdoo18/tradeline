@@ -38,7 +38,7 @@ class TestEtaStaffWorkflow(TransactionCase):
             'property_account_receivable_id': cls.receivable.id})
         cls.journal = cls.env['account.journal'].create({'name': 'Staff QA sales', 'code': 'STF',
             'type': 'sale', 'company_id': cls.company.id, 'edi_format_ids': [Command.clear()]})
-        cls.clerk = new_test_user(cls.env, login='eta_staff_workflow_clerk', groups='account.group_account_invoice',
+        cls.clerk = new_test_user(cls.env, login='eta_staff_workflow_clerk', groups='account.group_account_invoice,tradeline_eta_reliability.group_eta_workspace',
             company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
 
     def setUp(self):

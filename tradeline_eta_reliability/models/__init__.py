@@ -14,3 +14,5 @@ from . import ir_ui_menu
 from . import vat_review
 from . import connection_health
 from . import workspace
+from . import workspace_access
+from . import vat_workspace
