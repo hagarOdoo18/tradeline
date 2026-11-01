@@ -94,8 +94,9 @@ class EtaMeasuredJob(models.Model):
         return result
 
     def _apply_remote(self, data):
+        already_approved = self.state == 'valid'
         result = super()._apply_remote(data)
-        if data.get('status') == 'Valid' and not self.first_approval_observed_at:
+        if data.get('status') == 'Valid' and not already_approved and not self.first_approval_observed_at:
             now = fields.Datetime.now()
             self.first_approval_observed_at = now
             if self.attempted_at:
