@@ -200,15 +200,91 @@ class TestEtaLocalVat(TransactionCase):
         self.assertEqual(move._eta_local_vat_financial_snapshot(), before)
         self.assertFalse(move.eta_local_vat_applied_at)
 
-    def test_local_rejected_unknown_or_active_retry_history_never_uses_legacy_fallback(self):
+    def test_local_unknown_or_active_retry_history_never_uses_legacy_fallback(self):
         move = self.invoice()
-        for status, state in [('Invalid', 'invalid'), ('Submitted', 'accepted'), ('Valid', 'unknown')]:
+        for status, state in [('Submitted', 'accepted'), ('Valid', 'unknown')]:
             with self.subTest(status=status, state=state):
                 move.e_invoice_status = status
                 move.eta_job_ids.sudo().state = state
                 with patch.object(type(move), 'button_draft', side_effect=AssertionError('Legacy reset called')):
                     with self.assertRaisesRegex(UserError, 'finally approved'):
                         move.with_user(self.clerk).action_apply_14_tax()
+
+    def test_local_confirmed_invalid_retains_same_invoice_vat_correction_without_credit(self):
+        move = self.invoice()
+        move.e_invoice_status = 'Invalid'
+        move.eta_job_ids.sudo().state = 'invalid'
+        document = json.loads(move.l10n_eg_eta_json_doc_id.raw)['request']
+        receipt = {'uuid': move.e_invoice_uuid, 'internalId': move.name, 'status': 'Invalid', 'document': document}
+        action = move.with_user(self.clerk).action_apply_14_tax()
+        self.assertEqual(action['res_model'], 'tradeline.eta.vat.correction')
+        self.assertEqual(action['context']['default_tax_id'], self.vat.id)
+        wizard = self.env['tradeline.eta.vat.correction'].with_user(self.clerk).create({
+            'move_id': move.id, 'tax_id': self.vat.id})
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt) as request, \
+                patch.object(type(move), '_post', side_effect=AssertionError('Invalid correction posted without review')):
+            result = wizard.action_prepare()
+        request.assert_called_once_with('GET', '/api/v1.0/documents/%s/raw' % receipt['uuid'])
+        self.assertEqual(result['res_id'], move.id)
+        self.assertEqual(move.state, 'draft')
+        self.assertEqual(move.amount_total, 100)
+        self.assertAlmostEqual(move.amount_tax, 12.28, places=2)
+        self.assertFalse(move.reversal_move_ids)
+        self.assertFalse(move.eta_vat_correction_ids)
+
+    def test_local_stale_invalid_freshly_valid_receipt_cannot_enter_credit_or_enqueue_path(self):
+        move = self.invoice()
+        move.e_invoice_status = 'Invalid'
+        move.eta_job_ids.sudo().state = 'invalid'
+        receipt = {'uuid': move.e_invoice_uuid, 'internalId': move.name, 'status': 'Valid',
+            'document': json.loads(move.l10n_eg_eta_json_doc_id.raw)['request']}
+        wizard = self.env['tradeline.eta.vat.correction'].with_user(self.clerk).create({
+            'move_id': move.id, 'tax_id': self.vat.id})
+        before = (move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot())
+        with patch('odoo.addons.tradeline_eta_reliability.models.draft_correction.EtaClient.request', return_value=receipt), \
+                patch.object(type(move), '_eta_enqueue', side_effect=AssertionError('Stale valid receipt enqueued')), \
+                patch.object(type(move), '_reverse_moves', side_effect=AssertionError('New credit created')):
+            with self.assertRaisesRegex(UserError, 'now confirms this invoice is approved'):
+                with self.env.cr.savepoint():
+                    wizard.with_context(_eta_legacy_credit_route=True).action_prepare()
+        self.assertEqual((move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot()), before)
+        self.assertFalse(move.reversal_move_ids)
+        self.assertFalse(move.eta_vat_correction_ids)
+
+    def test_local_prepared_unsent_payload_retains_safe_same_invoice_vat_path(self):
+        move = self.env['account.move'].with_context(eta_queue_cron=True).create({
+            'move_type': 'out_invoice', 'journal_id': self.journal.id, 'partner_id': self.partner.id,
+            'invoice_date': fields.Date.today(), 'currency_id': self.company.currency_id.id,
+            'invoice_line_ids': [Command.create({'product_id': self.product.id, 'account_id': self.income.id,
+                'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
+        move.action_post()
+        move.eta_job_ids.sudo().write({'state': 'queued', 'payload': '{"documents":[]}',
+            'payload_hash': 'prepared-only-no-post', 'attempts': 0, 'attempted_at': False, 'historical_review': False})
+        self.assertTrue(move._eta_local_vat_has_history())
+        self.assertTrue(move._eta_can_reset_unsent())
+        self.assertFalse(move._eta_apply14_requires_review())
+        action = move.with_user(self.clerk).action_eta_correct_vat()
+        self.assertEqual(action['res_model'], 'tradeline.eta.vat.correction')
+        wizard = self.env['tradeline.eta.vat.correction'].with_user(self.clerk).create({
+            'move_id': move.id, 'tax_id': self.vat.id})
+        with patch.object(type(wizard), '_receipt', side_effect=AssertionError('Unsent correction requested ETA receipt')):
+            wizard.action_prepare()
+        self.assertEqual(move.state, 'draft')
+        self.assertEqual(move.amount_total, 100)
+        self.assertAlmostEqual(move.amount_tax, 12.28, places=2)
+        self.assertFalse(move.reversal_move_ids)
+
+    def test_local_cached_unknown_request_blocks_before_receipt_http(self):
+        move = self.invoice()
+        move.eta_job_ids.sudo().state = 'unknown'
+        move.e_invoice_status = 'Submitted'
+        wizard = self.env['tradeline.eta.vat.correction'].with_user(self.clerk).create({
+            'move_id': move.id, 'tax_id': self.vat.id})
+        before = (move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot())
+        with patch.object(type(wizard), '_receipt', side_effect=AssertionError('Unknown request was polled from a correction')):
+            with self.assertRaisesRegex(UserError, 'unresolved'):
+                wizard.action_prepare()
+        self.assertEqual((move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot()), before)
 
     def test_local_cached_old_vat_wizard_routes_to_preview_without_creating_credit(self):
         move = self.invoice()
