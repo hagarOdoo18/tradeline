@@ -58,6 +58,26 @@ class TestEtaBranchPrivacy(TransactionCase):
             self.assertFalse(form.xpath("//widget[contains(@title,'E-I')]"))
             self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_reason']]"))
             self.assertFalse(form.xpath("//page[@name='page_edi_documents']"))
+            self.assertFalse(form.xpath("//page[@name='page_eta_e_invoice']"))
+            self.assertFalse(form.xpath("//page[.//field[starts-with(@name,'l10n_eg_')]]"))
+            self.assertFalse(form.xpath("//button[@name='action_post_sign_invoices' or @name='action_get_eta_invoice_pdf']"))
+            bindings = self.env['ir.actions.actions'].with_user(user).get_bindings('account.move')
+            sign_id = self.env.ref('l10n_eg_edi_eta.action_sign_invoices').id
+            self.assertFalse(any(action['id'] == sign_id for action in bindings.get('action', [])))
+
+    def test_branch_compiled_native_eta_metadata_is_hidden_even_through_sudo(self):
+        for user in (self.branch, self.branch_admin):
+            Move = self.env['account.move'].with_user(user)
+            for caller in (Move, Move.sudo()):
+                form = etree.fromstring(caller.get_view(view_type='form')['arch'])
+                self.assertFalse(form.xpath("//page[@name='page_eta_e_invoice']"))
+                self.assertFalse(form.xpath("//button[@name='action_post_sign_invoices' or @name='action_get_eta_invoice_pdf']"))
+                for field in form.xpath('//field'):
+                    if field.get('name', '').startswith(('eta_', 'l10n_eg_', 'e_invoice_')):
+                        self.assertIn(field.get('invisible'), ('1', 'True', 'true'), field.get('name'))
+                sign_id = self.env.ref('l10n_eg_edi_eta.action_sign_invoices').id
+                bindings = caller.env['ir.actions.actions'].get_bindings('account.move')
+                self.assertFalse(any(action['id'] == sign_id for action in bindings.get('action', [])))
 
     def test_central_clerk_keeps_eta_controls_without_accounting_manager(self):
         self.assertFalse(self.central.has_group('account.group_account_manager'))
@@ -65,6 +85,8 @@ class TestEtaBranchPrivacy(TransactionCase):
         self.assertTrue(form.xpath("//button[@name='action_eta_send_now'][@string='Sync']"))
         self.assertTrue(form.xpath("//page//button[@name='action_eta_check_status_now'][@string='Update Status']"))
         self.assertTrue(form.xpath("//widget[@title='E-I Valid']"))
+        self.assertTrue(form.xpath("//page[@name='page_eta_e_invoice']"))
+        self.assertTrue(form.xpath("//button[@name='action_get_eta_invoice_pdf']"))
 
     def test_branch_invoice_and_credit_lists_hide_eta_columns_and_filters(self):
         for user in (self.branch, self.branch_admin):
@@ -86,7 +108,8 @@ class TestEtaBranchPrivacy(TransactionCase):
         actions = ('action_eta_send_now', 'action_eta_check_status_now',
                    'action_send_electronic_invoice', 'action_update_electronic_invoice_status',
                    'action_cancel_electronic_invoice', 'action_generate_eta_json',
-                   'action_sign_invoice', 'action_update_electronic_invoice_pdf')
+                   'action_sign_invoice', 'action_update_electronic_invoice_pdf',
+                   'action_post_sign_invoices', 'action_get_eta_invoice_pdf')
         for user in (self.branch, self.branch_admin):
             for caller in (move.with_user(user), move.with_user(user).sudo()):
                 for name in actions:

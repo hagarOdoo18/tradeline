@@ -1,4 +1,7 @@
 <odoo>
+    <record id="l10n_eg_edi_eta.action_sign_invoices" model="ir.actions.server">
+        <field name="groups_id" eval="[(6, 0, [ref('tradeline_eta_reliability.group_eta_workspace')])]"/>
+    </record>
     <record id="view_move_form_branch_eta_visibility" model="ir.ui.view">
         <field name="name">account.move.form.central.eta.visibility</field>
         <field name="model">account.move</field>
@@ -17,6 +20,9 @@
             <xpath expr="//button[@name='button_cancel_posted_moves']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
             <xpath expr="//button[@name='button_abandon_cancel_posted_posted_moves']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
             <xpath expr="//button[@name='button_force_cancel']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
+            <xpath expr="//page[@name='page_eta_e_invoice']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//button[@name='action_post_sign_invoices']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//button[@name='action_get_eta_invoice_pdf']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//page[@name='page_edi_documents']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//field[@name='edi_state']" position="attributes"><attribute name="invisible" add="eta_branch_hide_native_controls" separator=" or "/></xpath>
             <xpath expr="//field[@name='eta_vat_original_id']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
