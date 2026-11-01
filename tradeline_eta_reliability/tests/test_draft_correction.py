@@ -469,7 +469,9 @@ class TestEtaDraftCorrection(TransactionCase):
         credit = move._reverse_moves([{'date': move.date}], cancel=False)
         credit.action_post()
         lines = (move | credit).line_ids.filtered(lambda line: line.account_id == self.receivable)
-        lines.reconcile()
+        unmatched = lines.filtered(lambda line: not line.reconciled)
+        if unmatched:
+            unmatched.reconcile()
         matches = lines.matched_debit_ids | lines.matched_credit_ids
         self.assertTrue(matches)
         user = new_test_user(self.env, login='eta_no_unreconcile', groups='account.group_account_invoice',
