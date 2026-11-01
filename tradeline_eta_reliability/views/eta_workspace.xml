@@ -115,7 +115,7 @@
         <field name="inherit_id" ref="view_move_form_draft_correction"/>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='eta_staff_reason']" position="before">
-                <widget name="eta_connection_health"/>
+                <widget name="eta_connection_health" groups="account.group_account_invoice,account.group_account_readonly"/>
                 <div class="my-2">
                     <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','source_changed')"
                         decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','corrected')"/>
@@ -129,11 +129,10 @@
             <field name="name">ETA: review VAT on today's saved receipts</field>
             <field name="model_id" ref="account.model_account_move"/>
             <field name="state">code</field><field name="code">model._cron_eta_review_recent_vat()</field>
-            <field name="interval_number">5</field><field name="interval_type">minutes</field>
+            <field name="interval_number">1</field><field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
     </data>
-    <function model="account.move" name="_cron_eta_review_recent_vat"/>
     <data noupdate="1">
         <record id="cron_eta_connection_probe" model="ir.cron">
             <field name="name">ETA: read-only connection health check</field>

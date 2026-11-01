@@ -1,6 +1,6 @@
 # Reliable ETA processing
 
-## ETA workspace and VAT policy (18.0.1.0.32)
+## ETA workspace and VAT policy (18.0.1.0.33)
 
 Accounting > ETA Status now provides All invoices, Backlog and active processing,
 Sent history, Drafts, VAT issues and queue details. All invoices includes documents
@@ -19,8 +19,9 @@ notes preserve the original receipt's taxes and can reverse an untaxed original.
 
 VAT issues distinguishes a missing current tax from a confirmed untaxed receipt.
 Review saved VAT reads the matching private archive without HTTP or queue edits.
-A separate bounded audit reviews up to 200 of today's saved approved receipts
-every five minutes; new full approval responses are audited immediately. The
+A separate bounded audit reviews up to 100 of today's saved approved receipts
+each minute; new full approval responses are audited immediately. Receipt bodies
+are evicted from the environment cache after review; upgrades do not scan them. The
 original receipt and invoice stay unchanged. Correct VAT prepares reviewable
 credit/replacement drafts and waits for ETA approval of the credit. Untaxed
 foreign-currency originals are supported only when their posted conversion and

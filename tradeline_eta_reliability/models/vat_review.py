@@ -56,6 +56,7 @@ class EtaVatReviewMove(models.Model):
     @api.depends('move_type', 'state', 'line_ids.amount_currency', 'line_ids.tax_line_id',
                  'line_ids.tax_line_id.type_code_id.code', 'line_ids.tax_line_id.l10n_eg_eta_code',
                  'e_invoice_uuid', 'l10n_eg_uuid', 'e_invoice_sent', 'e_invoice_status',
+                 'eta_job_ids.state', 'eta_job_ids.attempts', 'eta_job_ids.attempted_at', 'eta_job_ids.safe_to_retry',
                  'eta_receipt_vat_uuid', 'eta_receipt_vat_missing', 'eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
                  'eta_vat_correction_ids.e_invoice_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
@@ -67,7 +68,9 @@ class EtaVatReviewMove(models.Model):
             missing = move.move_type == 'out_invoice' and move.currency_id.is_zero(amount)
             uuid = move.e_invoice_uuid or move.l10n_eg_uuid
             audited = bool(uuid and move.eta_receipt_vat_uuid == uuid and move.eta_receipt_vat_checked_at)
-            sent = bool(uuid or move.e_invoice_sent)
+            job = move.eta_job_ids
+            sent = bool(uuid or move.e_invoice_sent or job.state in ('unknown', 'accepted')
+                or job and (job.attempts or job.attempted_at) and not job.safe_to_retry)
             docs = move.eta_vat_correction_ids.filtered(lambda record: record.state != 'cancel')
             credits = docs.filtered(lambda record: record.move_type == 'out_refund')
             replacements = docs.filtered(lambda record: record.move_type == 'out_invoice')
@@ -89,7 +92,7 @@ class EtaVatReviewMove(models.Model):
             elif missing and sent:
                 state = 'source_changed' if audited else 'receipt_review'
                 note = (_('The saved receipt includes VAT but the current accounting record does not. Finance must reconcile the difference before any correction.')
-                    if audited else _('Review VAT on the saved receipt or Check ETA status. Current Odoo tax alone does not prove what ETA received.'))
+                    if audited else _('Check ETA status and reconcile the earlier request before changing or resending this invoice. Current Odoo tax alone does not prove what ETA received.'))
             elif missing:
                 state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Use Correct VAT, review the draft, and post it again.')
             move.eta_vat_amount = amount
@@ -146,6 +149,10 @@ class EtaVatReviewMove(models.Model):
                 checked += bool(move._eta_record_receipt_vat(uuid, document))
             except (ValueError, TypeError, AttributeError):
                 continue
+            finally:
+                # Do not retain a batch of large receipt bodies in an Odoo.sh
+                # worker's environment cache after extracting four audit facts.
+                attachment.invalidate_recordset(['raw', 'datas', 'db_datas'])
         return checked
 
     def action_eta_review_saved_vat(self):
@@ -165,7 +172,7 @@ class EtaVatReviewMove(models.Model):
         start = start.astimezone(pytz.utc).replace(tzinfo=None)
         moves = self.sudo().search([('move_type', '=', 'out_invoice'), ('state', '=', 'posted'),
             ('e_invoice_status', '=', 'Valid'), ('e_invoice_date', '>=', start),
-            ('l10n_eg_eta_json_doc_id', '!=', False), ('eta_receipt_vat_checked_at', '=', False)], limit=200)
+            ('l10n_eg_eta_json_doc_id', '!=', False), ('eta_receipt_vat_checked_at', '=', False)], limit=100)
         moves._eta_review_saved_vat()
 
 

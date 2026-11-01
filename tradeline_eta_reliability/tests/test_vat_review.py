@@ -18,6 +18,10 @@ from ..models.client import EtaError
 class TestEtaVatReview(TransactionCase):
     def setUp(self):
         super().setUp()
+        # Other disposable fixtures can have their own ETA credentials. Keep
+        # this probe fixture company-scoped while production probes all issuers.
+        self.env['res.company'].sudo().search([('id', '!=', self.company.id)]).write({
+            'client_id': False, 'client_secret': False})
         # Keep the real VAT gate; identity/history have their own full suites.
         guard = patch.object(EtaVatCorrectionTransport, '_preflight_submission', return_value=True)
         guard.start()
@@ -103,6 +107,8 @@ class TestEtaVatReview(TransactionCase):
 
     def test_unknown_and_valid_receipt_checks_are_not_blocked_by_missing_vat(self):
         move = self.invoice()
+        move.eta_job_ids.write({'state':'unknown','attempts':1,'attempted_at':fields.Datetime.now()})
+        self.assertEqual(move.eta_vat_review_state,'receipt_review')
         move.write({'e_invoice_uuid': 'existing', 'e_invoice_status': 'Valid'})
         with patch.object(type(move.eta_job_ids), '_refresh') as refresh:
             move.eta_job_ids._submit(MagicMock())
