@@ -283,6 +283,9 @@ class TestEtaVatReview(TransactionCase):
         self.assertNotIn(unrelated, found)
         self.assertEqual(action['context']['group_by'], ['state', 'e_invoice_status'])
         self.assertIn(('invoice_date', '=', str(day)), action['domain'])
+        self.assertEqual(action['name'], action['display_name'])
+        self.assertEqual(action['id'], self.env.ref('tradeline_eta_reliability.action_eta_today_window').id)
+        self.assertEqual(found, self.env['account.move'].with_user(self.clerk).search([('eta_today_activity','=',True)]))
 
     def test_document_vat_rejects_nonfinite_other_tax_and_zero(self):
         for value in ('NaN', 'Infinity', 0, -1):

@@ -28,6 +28,8 @@ def document_vat(document):
 class EtaVatReviewMove(models.Model):
     _inherit = 'account.move'
 
+    eta_today_activity = fields.Boolean(compute='_compute_eta_today_activity', search='_search_eta_today_activity')
+
     eta_vat_amount = fields.Monetary(string='Current invoice VAT', compute='_compute_eta_vat_review', compute_sudo=True)
     eta_vat_missing = fields.Boolean(string='Missing VAT', compute='_compute_eta_vat_review',
         compute_sudo=True, search='_search_eta_vat_missing')
@@ -184,23 +186,39 @@ class EtaVatReviewMove(models.Model):
         return False
 
     @api.model
+    def _eta_today_domain(self):
+        day = fields.Date.context_today(self.with_context(tz='Africa/Cairo'))
+        zone = pytz.timezone('Africa/Cairo')
+        start = zone.localize(datetime.combine(day, time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
+        end = zone.localize(datetime.combine(day + timedelta(days=1), time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
+        start, end = fields.Datetime.to_string(start), fields.Datetime.to_string(end)
+        return [('move_type', 'in', ['out_invoice', 'out_refund']), '|', '|', '|',
+            ('invoice_date', '=', fields.Date.to_string(day)),
+            '&', ('create_date', '>=', start), ('create_date', '<', end),
+            '&', ('e_invoice_date', '>=', start), ('e_invoice_date', '<', end),
+            '&', ('eta_job_ids.attempted_at', '>=', start), ('eta_job_ids.attempted_at', '<', end)]
+    def _compute_eta_today_activity(self):
+        today = self.filtered_domain(self._eta_today_domain())
+        for move in self:
+            move.eta_today_activity = move in today
+
+    @api.model
+    def _search_eta_today_activity(self, operator, value):
+        if operator not in ('=', '!=') or value not in (True, False):
+            raise ValueError('Use boolean equality for today activity.')
+        domain = self._eta_today_domain()
+        return domain if bool(value) == (operator == '=') else ['!'] + domain
+
+    @api.model
     def action_eta_today(self):
         if not (self.env.su or self.env.user.has_group('account.group_account_readonly')
                 or self.env.user.has_group('account.group_account_invoice')):
             raise AccessError(_('Accounting access is required to view ETA invoices.'))
         self.check_access('read')
         day = fields.Date.context_today(self.with_context(tz='Africa/Cairo'))
-        zone = pytz.timezone('Africa/Cairo')
-        start = zone.localize(datetime.combine(day, time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
-        end = zone.localize(datetime.combine(day + timedelta(days=1), time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
-        start, end = fields.Datetime.to_string(start), fields.Datetime.to_string(end)
-        domain = [('move_type', 'in', ['out_invoice', 'out_refund']), '|', '|', '|',
-            ('invoice_date', '=', fields.Date.to_string(day)),
-            '&', ('create_date', '>=', start), ('create_date', '<', end),
-            '&', ('e_invoice_date', '>=', start), ('e_invoice_date', '<', end),
-            '&', ('eta_job_ids.attempted_at', '>=', start), ('eta_job_ids.attempted_at', '<', end)]
-        action = self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_all_invoices')
-        action.update(name=_('ETA — Today (%s)', day), domain=domain,
+        action = self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_today_window')
+        title = _('ETA — Today (%s)', day)
+        action.update(name=title, display_name=title, domain=self._eta_today_domain(),
             context={'create': False, 'group_by': ['state', 'e_invoice_status']})
         return action
 
