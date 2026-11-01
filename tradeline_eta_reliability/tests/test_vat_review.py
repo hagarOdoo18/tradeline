@@ -241,6 +241,49 @@ class TestEtaVatReview(TransactionCase):
         self.assertFalse(move._eta_record_receipt_vat('real-receipt', doc))
         self.assertFalse(move.eta_receipt_vat_checked_at)
 
+    def test_visible_historical_vat_is_classified_from_archive_without_manual_review(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'historical-vat', 'e_invoice_status': 'Valid'})
+        attachment = self.env['ir.attachment'].create({'name': 'ETA_historical-vat.json',
+            'res_model': 'account.move', 'res_id': move.id, 'company_id': self.company.id,
+            'mimetype': 'application/json', 'raw': json.dumps({'request': self.payload(move),
+                'response': {'l10n_eg_uuid': 'historical-vat'}}).encode()})
+        move.l10n_eg_eta_json_doc_id = attachment
+        before = (move.amount_total, move.eta_job_ids.attempts, move.eta_job_ids.payload)
+        self.assertFalse(move.eta_receipt_vat_checked_at)
+        with patch('odoo.addons.tradeline_eta_reliability.models.client.EtaClient.request') as request:
+            self.assertEqual(move.with_user(self.clerk).eta_vat_review_state, 'approved_missing')
+            request.assert_not_called()
+        self.assertFalse(move.eta_receipt_vat_checked_at, 'Rendering must not write audit facts')
+        self.assertEqual(before, (move.amount_total, move.eta_job_ids.attempts, move.eta_job_ids.payload))
+        move.l10n_eg_eta_json_doc_id = attachment.copy({'raw': json.dumps({'request': self.payload(move, 14),
+            'response': {'l10n_eg_uuid': 'historical-vat'}}).encode()})
+        self.assertEqual(move.eta_vat_review_state, 'source_changed')
+        move.l10n_eg_eta_json_doc_id = attachment.copy({'raw': json.dumps({'request': self.payload(move),
+            'response': {'l10n_eg_uuid': 'different-uuid'}}).encode()})
+        self.assertEqual(move.eta_vat_review_state, 'receipt_review')
+
+    def test_today_includes_drafts_older_submissions_and_attempts_with_cairo_day(self):
+        day = fields.Date.context_today(self.env['account.move'].with_context(tz='Africa/Cairo'))
+        old = day - timedelta(days=30)
+        dated, submitted, attempted, unrelated = [self.invoice(vat=True) for _ in range(4)]
+        for move in dated | submitted | attempted | unrelated:
+            move.e_invoice_date = False
+            self.env.cr.execute('UPDATE account_move SET invoice_date=%s, create_date=%s WHERE id=%s',
+                [old, str(old) + ' 00:00:00', move.id])
+        self.env.cr.execute('UPDATE account_move SET invoice_date=%s WHERE id=%s', [day, dated.id])
+        (dated | submitted | attempted | unrelated).invalidate_recordset(['invoice_date', 'create_date'])
+        submitted.e_invoice_date = fields.Datetime.now()
+        attempted.eta_job_ids.attempted_at = fields.Datetime.now()
+        draft = self.env['account.move'].create({'move_type': 'out_invoice', 'journal_id': self.journal.id,
+            'partner_id': self.partner.id, 'invoice_date': False})
+        action = self.env['account.move'].with_user(self.clerk).with_context(tz='Pacific/Honolulu').action_eta_today()
+        found = self.env['account.move'].with_user(self.clerk).search(action['domain'])
+        self.assertTrue((dated | submitted | attempted | draft) <= found)
+        self.assertNotIn(unrelated, found)
+        self.assertEqual(action['context']['group_by'], ['state', 'e_invoice_status'])
+        self.assertIn(('invoice_date', '=', str(day)), action['domain'])
+
     def test_document_vat_rejects_nonfinite_other_tax_and_zero(self):
         for value in ('NaN', 'Infinity', 0, -1):
             self.assertLessEqual(document_vat({'taxTotals': [{'taxType': 'T1', 'amount': value}]}), 0)

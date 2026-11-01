@@ -3,7 +3,8 @@
         <div class="border-bottom bg-light px-3 py-2" aria-live="polite">
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <strong>ETA workspace</strong>
-                <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('all_invoices')">All invoices</button>
+                <button class="btn btn-sm btn-outline-primary" t-on-click="() => this.open('today')">Today</button>
+                <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('all_invoices')">All invoices by day</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('backlog')">Backlog</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('sent_history')">Sent history</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('draft_invoices')">Drafts</button>
@@ -18,7 +19,7 @@
                 <span>Average send response: <t t-esc="duration(row.send_seconds)"/> (<t t-esc="row.send_count"/> samples)</span>
                 <span>Average observed approval: <t t-esc="duration(row.approval_seconds)"/> (<t t-esc="row.approval_count"/> samples)</span>
             </div>
-            <div class="text-muted small">Connection checked once a minute; display refreshes every 30 seconds. Averages use the last hour. Approval delay includes status-check intervals. Search by invoice number above; expand a status group to see its invoices.</div>
+            <div class="text-muted small">Today includes invoices dated or created today, and older invoices sent or attempted today (Cairo time). All invoices groups by invoice day. Search by invoice number above. Connection checked every minute; display refreshes every 30 seconds. Averages use the last hour; approval delay includes status-check intervals.</div>
         </div>
     </t>
     <t t-name="tradeline_eta_reliability.WorkspaceList" t-inherit="web.ListView" t-inherit-mode="primary">
