@@ -81,7 +81,8 @@ class MeasuredSubmissionClient:
 class EtaMeasuredJob(models.Model):
     _inherit = 'tradeline.eta.job'
 
-    send_response_seconds = fields.Float(readonly=True, groups='account.group_account_invoice,account.group_account_readonly')
+    send_response_seconds = fields.Float(readonly=True, digits=(16, 5), groups='account.group_account_invoice,account.group_account_readonly')
+    send_response_measured_at = fields.Datetime(readonly=True)
     first_approval_observed_at = fields.Datetime(readonly=True)
     approval_delay_seconds = fields.Float(readonly=True)
 
@@ -89,7 +90,7 @@ class EtaMeasuredJob(models.Model):
         measured = MeasuredSubmissionClient(client)
         result = super()._submit(measured)
         if measured.seconds is not None:
-            self.send_response_seconds = measured.seconds
+            self.write({'send_response_seconds': measured.seconds, 'send_response_measured_at': fields.Datetime.now()})
         return result
 
     def _apply_remote(self, data):
@@ -122,8 +123,7 @@ class EtaMeasuredJob(models.Model):
             elif checked < now-timedelta(minutes=3):
                 state = 'stale'
             common = [('company_id','=',company.id)]
-            send = self.read_group(common+[('attempted_at','>=',now-timedelta(hours=1)),
-                ('send_response_seconds','>',0)], ['send_response_seconds:avg'], [])
+            send = self.read_group(common+[('send_response_measured_at','>=',now-timedelta(hours=1))], ['send_response_seconds:avg'], [])
             approval = self.read_group(common+[('first_approval_observed_at','>=',now-timedelta(hours=1)),
                 ('approval_delay_seconds','>',0)], ['approval_delay_seconds:avg'], [])
             rows.append({'company_id':company.id, 'company':company.name, 'state':state,

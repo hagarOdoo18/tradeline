@@ -1,6 +1,6 @@
 # Reliable ETA processing
 
-## ETA workspace and VAT policy (18.0.1.0.33)
+## ETA workspace and VAT policy (18.0.1.0.34)
 
 Accounting > ETA Status now provides All invoices, Backlog and active processing,
 Sent history, Drafts, VAT issues and queue details. All invoices includes documents
