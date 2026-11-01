@@ -142,6 +142,133 @@ class TestCertificateRecovery(TransactionCase):
             stack.enter_context(patch.object(type(self.job), '_historical_matches', return_value=True))
             yield client, candidates, signer
 
+    def legacy_acceptance(self):
+        received = datetime.fromisoformat(self.raw['dateTimeReceived']).replace(tzinfo=None)
+        marker = received.replace(microsecond=0) + timedelta(seconds=1)
+        self.job.write({'attempted_at': False, 'attempts': 0, 'payload': False, 'payload_hash': False,
+            'historical_fingerprint': self.job._historical_financial_fingerprint(), 'historical_review': False})
+        self.move.e_invoice_date = marker
+        # The old sender passed a plain string, so mail retained escaped HTML,
+        # including its malformed closing span. Match that real legacy format.
+        message = self.move.message_post(body="<b>E-Invoice Sync to Taxes system  accepted with UUID:</b>"
+            "<span  style='color:green'>%s</span?" % self.raw['uuid'],
+            message_type='notification', subtype_xmlid='mail.mt_note')
+        self.env.flush_all()
+        self.env.cr.execute('UPDATE mail_message SET create_date=%s,write_date=%s,date=%s WHERE id=%s',
+            [marker - timedelta(microseconds=500000), marker - timedelta(microseconds=500000), marker, message.id])
+        message.invalidate_recordset()
+        return message, marker
+
+    def test_old_legacy_acknowledgement_recovers_without_changing_original_source(self):
+        message, marker = self.legacy_acceptance()
+        before = (self.move.invoice_date, self.move.date, self.move.amount_total,
+            self.move.e_invoice_json, self.move.static_signature, self.move.e_invoice_date)
+        with self.routes() as (client, candidates, signer):
+            self.job._prove_expired_certificate_recovery(client)
+            evidence = self.job._certificate_recovery_proof()['legacy_acceptance']
+            self.assertEqual(evidence['message_id'], message.id)
+            self.assertIn('.500000', evidence['create_date'])
+            self.assertEqual(before, (self.move.invoice_date, self.move.date, self.move.amount_total,
+                self.move.e_invoice_json, self.move.static_signature, self.move.e_invoice_date))
+            self.job._review_historical(client)
+            self.assertEqual(self.job.state, 'queued')
+            self.job._prepare()
+            self.assertTrue(self.job._preflight_submission(client))
+            self.assertGreaterEqual(candidates.call_count, 3)
+            self.assertEqual(signer.call_count, 2)
+            client.request.assert_not_called()
+
+    def test_legacy_acknowledgement_never_tolerates_newer_native_attempt_even_one_microsecond(self):
+        self.legacy_acceptance()
+        received = datetime.fromisoformat(self.raw['dateTimeReceived']).replace(tzinfo=None)
+        self.job.attempted_at = received + timedelta(microseconds=1)
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'newer retained submission attempt'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_acceptance_requires_unattempted_import_and_complete_retained_signed_evidence(self):
+        self.legacy_acceptance()
+        for field, bad, good in [('attempts', 1, 0), ('historical_fingerprint', False, self.job.historical_fingerprint),
+                ('payload', json.dumps({'documents': [self.raw['document']]}), False)]:
+            with self.subTest(field=field), self.routes() as (client, _candidates, signer):
+                self.job[field] = bad
+                with self.assertRaisesRegex(UserError, 'newer retained submission attempt'):
+                    self.job._prove_expired_certificate_recovery(client)
+                self.job[field] = good
+                signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_time_window_cannot_hide_another_later_request(self):
+        _message, marker = self.legacy_acceptance()
+        for changed in (marker + timedelta(seconds=1), fields.Datetime.now()):
+            with self.subTest(marker=changed), self.routes() as (client, _candidates, signer):
+                self.move.e_invoice_date = changed
+                with self.assertRaisesRegex(UserError, 'old acknowledgement window'):
+                    self.job._prove_expired_certificate_recovery(client)
+                signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_acceptance_from_recent_job_is_not_an_old_import(self):
+        _message, marker = self.legacy_acceptance()
+        self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id=%s',
+            [marker + timedelta(hours=1), self.job.id])
+        self.job.invalidate_recordset(['create_date'])
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'old acknowledgement window'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_acceptance_requires_one_exact_unedited_message_on_this_invoice(self):
+        message, _marker = self.legacy_acceptance()
+        original = {'body': message.body, 'res_id': message.res_id, 'message_type': message.message_type}
+        variants = [{'body': 'Other note about ' + self.raw['uuid']}, {'res_id': self.move.id + 1},
+                    {'message_type': 'comment'}]
+        for changed in variants:
+            with self.subTest(changed=changed), self.routes() as (client, _candidates, signer):
+                message.write(changed)
+                with self.assertRaisesRegex(UserError, 'legacy acceptance message'):
+                    self.job._prove_expired_certificate_recovery(client)
+                message.write(original)
+                signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_acceptance_edited_or_mistimed_message_is_held(self):
+        message, marker = self.legacy_acceptance()
+        for column in ('write_date', 'date'):
+            with self.subTest(column=column), self.routes() as (client, _candidates, signer):
+                self.env.cr.execute('UPDATE mail_message SET ' + column + '=%s WHERE id=%s',
+                    [marker + timedelta(seconds=3), message.id])
+                message.invalidate_recordset()
+                with self.assertRaisesRegex(UserError, 'acceptance message'):
+                    self.job._prove_expired_certificate_recovery(client)
+                self.env.cr.execute('UPDATE mail_message SET write_date=create_date,date=%s WHERE id=%s', [marker, message.id])
+                message.invalidate_recordset()
+                signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_acceptance_ambiguous_messages_are_held(self):
+        message, _marker = self.legacy_acceptance()
+        message.copy()
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'missing or ambiguous'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_message_change_after_proof_blocks_before_resigning(self):
+        message, _marker = self.legacy_acceptance()
+        with self.routes() as (client, _candidates, signer):
+            self.job._prove_expired_certificate_recovery(client)
+            message.body = str(message.body) + ' edited'
+            with self.assertRaisesRegex(UserError, 'legacy acceptance evidence changed'):
+                self.job._prepare()
+            self.assertEqual(signer.call_count, 1)
+            client.request.assert_not_called()
+
+    def test_legacy_acceptance_does_not_clear_duplicate_retry_markers(self):
+        self.legacy_acceptance()
+        self.job.duplicate_retry_at = fields.Datetime.now() + timedelta(minutes=10)
+        with self.routes() as (client, _candidates, signer):
+            with self.assertRaisesRegex(UserError, 'duplicate/uncertain submission marker'):
+                self.job._prove_expired_certificate_recovery(client)
+            signer.assert_not_called(); client.request.assert_not_called()
+
     def test_actual_signer_is_selected_by_issuer_serial_and_ski_not_arbitrary_certificate(self):
         now = datetime.now(timezone.utc)
         for ski in (False, True):

@@ -9,6 +9,9 @@ import ast
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from html import unescape
+
+from lxml import html
 
 from asn1crypto import cms
 from cryptography import x509
@@ -281,11 +284,67 @@ class EtaCertificateRecovery(models.Model):
                 if not received:
                     raise ValueError('The retained attempt has no identity-matched Invalid receipt')
                 latest = max(received)
-                for marker in (self.attempted_at, move.e_invoice_date):
-                    if marker and (utc(marker) if marker.tzinfo else marker.replace(tzinfo=timezone.utc)) > latest:
+                # Native attempted_at is committed BEFORE POST. Never apply a
+                # tolerance to it, even when the signed bytes are unchanged.
+                if self.attempted_at and self.attempted_at.replace(tzinfo=timezone.utc) > latest:
+                    raise ValueError('A newer retained submission attempt is not covered by the older Invalid receipt')
+                if move.e_invoice_date and move.e_invoice_date.replace(tzinfo=timezone.utc) > latest:
+                    if (self.attempted_at or self.attempts or self.payload or self.payload_hash
+                            or not self.historical_fingerprint or not move.e_invoice_sent
+                            or not move.invoice_signed or not move.static_signature or not retained
+                            or known != {move.e_invoice_uuid} or correlated != known):
                         raise ValueError('A newer retained submission attempt is not covered by the older Invalid receipt')
+                    return self._certificate_legacy_acceptance(move.e_invoice_date, latest, move.e_invoice_uuid)
         except (ValueError, TypeError, KeyError, IndexError, SyntaxError) as exc:
             raise UserError(_('Reconcile the outstanding signed/uncertain request before certificate recovery (%s). Nothing was changed.', str(exc))) from exc
+
+    def _certificate_legacy_message(self, message, uuid):
+        """Freeze an exact, unedited old acknowledgement; never a loose UUID hit."""
+        text = ' '.join(html.fromstring(unescape(str(message.body))).text_content().split())
+        if (message.model != 'account.move' or message.res_id != self.move_id.id
+                or message.message_type != 'notification' or message.subtype_id != self.env.ref('mail.mt_note')
+                or text != 'E-Invoice Sync to Taxes system accepted with UUID:' + uuid
+                or not message.create_date or message.write_date != message.create_date or not message.date):
+            raise ValueError('An unedited exact legacy acceptance message is required')
+        return {'message_id': message.id, 'uuid': uuid,
+            'body_hash': hashlib.sha256(str(message.body).encode()).hexdigest(),
+            **{name: message[name].replace(tzinfo=timezone.utc).isoformat()
+               for name in ('create_date', 'write_date', 'date')}}
+
+    def _certificate_legacy_acceptance(self, marker, received, uuid):
+        """Legacy e_invoice_date was written AFTER acceptance, unlike attempted_at.
+
+        Only old, never-natively-attempted imports can use this subsecond
+        acknowledgement evidence. Complete authority history and exact
+        signed-request correlation remain required; this never clears a POST.
+        """
+        marker = marker.replace(tzinfo=timezone.utc)
+        if (not timedelta(0) < marker - received <= timedelta(seconds=1)
+                or not self.create_date
+                or self.create_date.replace(tzinfo=timezone.utc) - marker < timedelta(days=1)):
+            raise ValueError('The legacy acceptance time is outside the old acknowledgement window')
+        messages = self.env['mail.message'].sudo().search([
+            ('model', '=', 'account.move'), ('res_id', '=', self.move_id.id), ('body', 'ilike', uuid)])
+        exact = []
+        for message in messages:
+            text = ' '.join(html.fromstring(unescape(str(message.body))).text_content().split())
+            if text == 'E-Invoice Sync to Taxes system accepted with UUID:' + uuid:
+                exact.append(message)
+        if len(exact) != 1:
+            raise ValueError('The legacy acceptance message is missing or ambiguous')
+        evidence = self._certificate_legacy_message(exact[0], uuid)
+        if any(abs(marker - utc(evidence[name])) > timedelta(seconds=1) for name in ('create_date', 'date')):
+            raise ValueError('The old acceptance message does not corroborate the legacy time')
+        return dict(evidence, marker_utc=marker.isoformat(), received_utc=received.isoformat())
+
+    def _check_certificate_legacy_acceptance(self, evidence):
+        try:
+            message = self.env['mail.message'].sudo().browse(evidence['message_id']).exists()
+            frozen = self._certificate_legacy_message(message, evidence['uuid']) if message else None
+            if not frozen or any(evidence.get(k) != v for k, v in frozen.items()):
+                raise ValueError('The retained acknowledgement changed')
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise UserError(_('The legacy acceptance evidence changed or is unavailable. IT must reconcile it before any certificate retry.')) from exc
 
     def _check_certificate_recovery_proof(self, proof, source):
         now = datetime.now(timezone.utc)
@@ -301,6 +360,8 @@ class EtaCertificateRecovery(models.Model):
             valid = False
         if not valid:
             raise UserError(_('The certificate recovery proof expired or its source/configuration changed. Recheck the complete authority history and fixed signer; do not resend it manually.'))
+        if proof.get('legacy_acceptance'):
+            self._check_certificate_legacy_acceptance(proof['legacy_acceptance'])
         if proof.get('catalogue_recovery'):
             self._certificate_catalogue_evidence(source, proof['created_utc'], proof.get('catalogue_approvals', []))
 
@@ -391,7 +452,7 @@ class EtaCertificateRecovery(models.Model):
         receipts = self._history_candidates(client, history)
         if not self._certificate_receipts_eligible(receipts):
             raise UserError(_('Certificate recovery requires exclusively Invalid receipts with only expired-certificate error 4159, optionally CV302 with fresh catalogue proof. Reconcile approvals, pending or other errors first.'))
-        self._assert_certificate_attempt_reconciled(receipts)
+        legacy_acceptance = self._assert_certificate_attempt_reconciled(receipts)
         catalogue_recovery = any('CV302' in leaf_codes(r.get('validationResults', {})) for r in receipts)
         catalogue = self._certificate_catalogue_evidence(source) if catalogue_recovery else []
         expired = set(); now = datetime.now(timezone.utc)
@@ -451,6 +512,7 @@ class EtaCertificateRecovery(models.Model):
             'source_hash': self._certificate_source_hash(source), 'fresh_certificate': fresh,
             'expired_certificate_fingerprints': sorted(expired), 'original_receipts': receipts,
             'catalogue_recovery': catalogue_recovery, 'catalogue_approvals': catalogue,
+            'legacy_acceptance': legacy_acceptance,
             'preview_document': preview, 'preview_only': True, 'document_posts': 0}
         self.env['ir.attachment'].sudo().create({'name': 'ETA_certificate_recovery_proof_%s_%s.json' % (self.id, fresh['fingerprint'][:16]),
             'res_model': self._name, 'res_id': self.id, 'company_id': self.company_id.id,
