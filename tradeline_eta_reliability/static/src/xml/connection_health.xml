@@ -1,12 +1,21 @@
 <templates xml:space="preserve">
     <t t-name="tradeline_eta_reliability.ConnectionHealth">
         <div class="border-bottom bg-light px-3 py-2" aria-live="polite">
+            <form class="d-flex flex-wrap align-items-center gap-2 mb-2" t-on-submit.prevent="findInvoice">
+                <label class="fw-bold" for="eta_find_any_invoice">Find any invoice</label>
+                <input id="eta_find_any_invoice" type="search" class="form-control form-control-sm flex-grow-1"
+                    style="min-width:220px;max-width:540px" placeholder="Invoice number, branch reference, or paste its link"
+                    t-model="state.query"/>
+                <button type="submit" class="btn btn-sm btn-primary" t-att-disabled="state.finding || !state.query.trim()">Find invoice</button>
+                <span class="small text-muted">Searches all dates and statuses.</span>
+            </form>
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
                 <strong>ETA workspace</strong>
                 <button class="btn btn-sm btn-outline-primary" t-on-click="() => this.open('today')">Today</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('all_invoices')">All invoices by day</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('backlog')">Backlog</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('sent_history')">Sent history</button>
+                <button class="btn btn-sm btn-outline-success" t-on-click="() => this.open('approved_invoices')">Approved invoices</button>
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('draft_invoices')">Drafts</button>
                 <button class="btn btn-sm btn-outline-danger" t-on-click="() => this.open('vat_issues')">VAT issues</button>
             </div>

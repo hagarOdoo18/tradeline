@@ -1,6 +1,25 @@
 # Reliable ETA processing
 
-## ETA workspace and VAT policy (18.0.1.0.36)
+## ETA workspace and VAT policy (18.0.1.0.37)
+
+Find any invoice searches all allowed dates/statuses, including invoice number,
+branch reference, a pasted full display label, and an Odoo invoice link. A unique
+match opens the invoice directly; page-specific domains never hide the result.
+Approved invoices provides the explicit success log grouped by submission day.
+
+An authenticated complete receipt search can classify a retained unknown request
+as ETA receipt not found — delivery review. Its private proof binds the database,
+invoice, actual signed-payload SHA, attempt marker and search window. The worker's
+unknown state and duplicate-prevention rules do not change. Staff see the dated
+search result and need for ETA delivery confirmation. Ordinary RPC writes cannot
+forge the proof. A schema initialization copies only existing state values into
+the staff grouping column, avoiding a signed-payload recomputation on upgrade.
+
+Credit drafts preserve configured zero-rate tax codes from the authority receipt.
+Foreign-currency alignment drafts carry the original currencies and exact offsets
+for both company balances and currency amounts. Receivable differences, changed
+receipt FX rates, currency-only residuals and inconsistent signs remain blocked
+for Finance. No correction document is posted or submitted during preparation.
 
 Today combines invoices dated or created on the current Cairo day with older
 invoices submitted or attempted that day. It groups drafts and posted documents

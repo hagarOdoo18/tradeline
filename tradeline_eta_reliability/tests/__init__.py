@@ -8,3 +8,4 @@ from . import test_catalogue_budget
 from . import test_draft_correction
 from . import test_staff_workflow
 from . import test_vat_review
+from . import test_delivery_review

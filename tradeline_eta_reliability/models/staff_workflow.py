@@ -5,20 +5,24 @@ that intent in a second RPC. Transport uses the existing isolated worker and
 per-invoice lock, but never takes the backlog's global transport lock or selects
 other jobs. Neither RPC commits the user's invoice editing transaction.
 """
+import hashlib
 import json
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 from odoo.osv import expression
+from odoo.tools.sql import column_exists, create_column, table_exists
 
 from .client import EtaClient, EtaError
 from .eta_job import EtaJob, STATES, STAFF_SEND, STAFF_STATUS
 from .processing_window import EtaStopped, check_processing_window
 
 REQUEST_NAME = 'ETA_staff_operation.json'
+STAFF_STATES = STATES + [('delivery_review', 'ETA receipt not found — delivery review')]
+DELIVERY_PROOF_FIELDS = frozenset({'delivery_review_proof', 'staff_state'})
 _logger = logging.getLogger(__name__)
 
 
@@ -32,10 +36,125 @@ class StatusClient(EtaClient):
 class EtaStaffJob(models.Model):
     _inherit = 'tradeline.eta.job'
 
+    def _auto_init(self):
+        # A new stored compute normally schedules every retained job, which
+        # would prefetch signed payloads during a busy production upgrade.
+        # Existing jobs start with their exact current transport label; only
+        # the few audited requests need a subsequent presentation recompute.
+        if (table_exists(self.env.cr, self._table)
+                and not column_exists(self.env.cr, self._table, 'staff_state')):
+            create_column(self.env.cr, self._table, 'staff_state', 'varchar', 'ETA status')
+            self.env.cr.execute('UPDATE tradeline_eta_job SET staff_state=state')
+        return super()._auto_init()
+
+    # This is presentation only. The transport state remains unknown and keeps
+    # every retained request marker. A small stored selection permits honest
+    # staff grouping without changing the worker's scheduling or retry policy.
+    staff_state = fields.Selection(STAFF_STATES, string='ETA status',
+        compute='_compute_staff_display_state', compute_sudo=True, store=True, index=True)
+    delivery_review_proof = fields.Text(readonly=True, copy=False, groups='account.group_account_manager')
+
     journal_id = fields.Many2one(related='move_id.journal_id', string='Branch / sales journal', readonly=True, store=True)
     invoice_number = fields.Char(related='move_id.name', string='Invoice number', readonly=True)
     invoice_total = fields.Monetary(related='move_id.amount_total', string='Invoice total', readonly=True)
     currency_id = fields.Many2one(related='move_id.currency_id', readonly=True)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        if not self.env.su and any(DELIVERY_PROOF_FIELDS.intersection(values) for values in vals_list):
+            raise AccessError(_('Delivery review findings can only be recorded by verified receipt reconciliation.'))
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if not self.env.su and DELIVERY_PROOF_FIELDS.intersection(vals):
+            raise AccessError(_('Delivery review findings can only be recorded by verified receipt reconciliation.'))
+        return super().write(vals)
+
+    @api.depends('state', 'payload', 'payload_hash', 'attempts', 'attempted_at',
+                 'move_id', 'move_id.name', 'company_id', 'safe_to_retry',
+                 'duplicate_retry_at', 'duplicate_payload_hash', 'delivery_review_proof')
+    def _compute_staff_display_state(self):
+        for job in self:
+            job.staff_state = 'delivery_review' if job._delivery_review_details() else job.state
+
+    def _delivery_review_details(self, proof=None):
+        """A historical search observation, bound to this exact retained request."""
+        self.ensure_one()
+        job = self.sudo()
+        if (job.state != 'unknown' or not job.payload or not job.payload_hash or not job.attempted_at or not job.attempts
+                or job.safe_to_retry or job.duplicate_retry_at or job.duplicate_payload_hash):
+            return False
+        try:
+            proof = json.loads(job.delivery_review_proof or '{}') if proof is None else proof
+            if (not isinstance(proof, dict) or proof.get('version') != 1
+                    or proof.get('source') != 'eta_documents_search'
+                    or proof.get('pagination_complete') is not True
+                    or type(proof.get('receipt_count')) is not int or proof['receipt_count'] != 0
+                    or proof.get('receipts') != [] or proof.get('database') != self.env.cr.dbname
+                    or proof.get('job') != job.id or proof.get('invoice') != job.move_id.id
+                    or proof.get('company_id') != job.company_id.id or proof.get('internalId') != job.move_id.name
+                    or type(proof.get('attempts')) is not int or proof['attempts'] != job.attempts
+                    or proof.get('payload_sha256') != job.payload_hash
+                    or hashlib.sha256(job.payload.encode()).hexdigest() != job.payload_hash):
+                return False
+
+            def utc(value):
+                parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+
+            attempted, start, end, checked = (utc(proof[key]) for key in
+                ('attempted_at', 'search_start_utc', 'search_end_utc', 'checked_at_utc'))
+            if (attempted != job.attempted_at or not start <= attempted <= end <= checked
+                    or not timedelta(0) < end-start <= timedelta(days=30)):
+                return False
+            return {'checked': checked, 'start': start, 'end': end}
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+            return False
+
+    def _record_delivery_receipt_absence(self, proof):
+        """Private, audited classification after a complete authenticated search.
+
+        Administrative reconciliation supplies the actual search result. This
+        method cannot authorize a retry, remove uncertainty or alter money.
+        """
+        self.ensure_one()
+        if not self.env.su:
+            raise AccessError(_('Verified administrative receipt reconciliation is required.'))
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [self.id])
+        if not self.env.cr.fetchone()[0]:
+            raise UserError(_('This invoice is being checked by ETA. Retry the review shortly.'))
+        self.env.cr.execute('SELECT id FROM tradeline_eta_job WHERE id=%s FOR UPDATE NOWAIT', [self.id])
+        self.invalidate_recordset()
+        details = self._delivery_review_details(proof)
+        now = fields.Datetime.now()
+        if (not details or not timedelta(seconds=-30) <= now-details['checked'] <= timedelta(hours=1)):
+            raise UserError(_('The complete ETA search proof is missing, stale or does not match the retained request. Nothing changed.'))
+        encoded = json.dumps(proof, sort_keys=True, ensure_ascii=False)
+        self.env['ir.attachment'].sudo().create({
+            'name': 'ETA_delivery_review_%s_%s.json' % (self.id, details['checked'].strftime('%Y%m%dT%H%M%S')),
+            'res_model': self._name, 'res_id': self.id, 'company_id': self.company_id.id,
+            'public': False, 'mimetype': 'application/json', 'raw': encoded.encode()})
+        self.write({'delivery_review_proof': encoded})
+        return True
+
+    @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
+                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy',
+                 'duplicate_retry_at', 'safe_to_retry', 'staff_state', 'delivery_review_proof')
+    def _compute_monitoring(self):
+        super()._compute_monitoring()
+        for job in self:
+            details = job._delivery_review_details()
+            if not details:
+                continue
+            def cairo(value):
+                return fields.Datetime.context_timestamp(job.with_context(tz='Africa/Cairo'), value).strftime('%d %b %Y %H:%M')
+            reason = _('ETA receipt search completed %(checked)s (Cairo). No receipt was found in the checked period '
+                       '%(start)s to %(end)s. Delivery of the retained request remains unconfirmed.',
+                       checked=cairo(details['checked']), start=cairo(details['start']), end=cairo(details['end']))
+            job.staff_summary = reason
+            job.reason_summary = reason
+            job.required_action = _('Accounting or IT must obtain ETA delivery confirmation for this invoice before retrying. '
+                                    'Automatic receipt checks continue; no extra invoice has been sent.')
 
     def _apply_ir_rules(self, query, mode='read'):
         super()._apply_ir_rules(query, mode)
@@ -179,19 +298,19 @@ class EtaStaffMove(models.Model):
     # Sales/POS readers may read invoices without access to the private job
     # model. Like standard related fields, compute only this permitted invoice's
     # summary under sudo; the invoice's own read rules still apply first.
-    eta_staff_state = fields.Selection(STATES, compute='_compute_eta_staff_status', compute_sudo=True, string='ETA status')
+    eta_staff_state = fields.Selection(STAFF_STATES, compute='_compute_eta_staff_status', compute_sudo=True, string='ETA status')
     eta_staff_reason = fields.Text(compute='_compute_eta_staff_status', compute_sudo=True, string='What happened')
     eta_staff_next_step = fields.Text(compute='_compute_eta_staff_status', compute_sudo=True, string='What to do')
     eta_staff_checked_at = fields.Datetime(related='eta_job_ids.checked_at', string='Last confirmed check', readonly=True)
     eta_staff_next_attempt = fields.Datetime(related='eta_job_ids.next_attempt', string='Next automatic check', readonly=True)
 
-    @api.depends('eta_job_ids.state', 'eta_job_ids.last_error', 'eta_job_ids.checked_at',
+    @api.depends('eta_job_ids.state', 'eta_job_ids.staff_state', 'eta_job_ids.last_error', 'eta_job_ids.checked_at',
                  'eta_job_ids.next_attempt', 'e_invoice_uuid', 'e_invoice_status', 'e_invoice_sent', 'l10n_eg_uuid')
     def _compute_eta_staff_status(self):
         for move in self:
             job = move.eta_job_ids
             if job:
-                move.eta_staff_state = job.state
+                move.eta_staff_state = job.staff_state
                 move.eta_staff_reason = job.staff_summary
                 move.eta_staff_next_step = job.required_action
             elif move.e_invoice_uuid or move.l10n_eg_uuid:
