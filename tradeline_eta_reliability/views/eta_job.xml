@@ -75,7 +75,8 @@
                 <separator/>
                 <filter name="today" string="Today's invoices" domain="[('invoice_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
                 <separator/>
-                <filter name="correction" string="Needs correction" domain="[('state', 'in', ['blocked', 'invalid'])]"/>
+                <filter name="correction" string="Needs correction" domain="[('staff_state', 'in', ['blocked', 'invalid'])]"/>
+                <filter name="eta_rejected" string="ETA rejected — needs correction" domain="[('staff_state', '=', 'invalid')]"/>
                 <separator/>
                 <filter name="customer_issue" string="Customer ID issues" domain="['|', '|', '|', ('last_error', 'ilike', 'national ID'), ('last_error', 'ilike', 'receiver ID'), ('last_error', 'ilike', 'tax ID'), ('last_error', 'ilike', 'NI30')]"/>
                 <filter name="product_issue" string="Product code issues" domain="['|', ('last_error', 'ilike', 'CV302'), ('last_error', 'ilike', 'itemCode')]"/>

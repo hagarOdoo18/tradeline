@@ -276,3 +276,9 @@ standard Send/Check controls. Membership is maintained separately from upgrades.
 The connection component remains in the ETA workspace; the native invoice form
 has no dependency on its widget registration, avoiding stale-asset form crashes.
 The separate accounting_customization Apply 14% Tax implementation is unchanged.
+
+Release 18.0.1.0.40 groups confirmed ETA intake refusals and final Invalid
+receipts together as ETA rejected — needs correction. Local checks, generic
+HTTP failures, source/receipt conflicts and unresolved sends retain their
+separate labels. The upgrade refreshes only presentation labels in bounded
+batches; it does not reset transport states, retries, timestamps or invoices.

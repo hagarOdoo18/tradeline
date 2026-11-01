@@ -72,10 +72,63 @@ class EtaStaffJob(models.Model):
 
     @api.depends('state', 'payload', 'payload_hash', 'attempts', 'attempted_at',
                  'move_id', 'move_id.name', 'company_id', 'safe_to_retry',
-                 'duplicate_retry_at', 'duplicate_payload_hash', 'delivery_review_proof')
+                 'duplicate_retry_at', 'duplicate_payload_hash', 'delivery_review_proof',
+                 'last_error', 'move_id.e_invoice_status', 'move_id.e_invoice_issue',
+                 'move_id.e_invoice_uuid', 'move_id.l10n_eg_uuid')
     def _compute_staff_display_state(self):
         for job in self:
-            job.staff_state = 'delivery_review' if job._delivery_review_details() else job.state
+            job.staff_state = ('delivery_review' if job._delivery_review_details() else
+                'invalid' if job._staff_has_confirmed_rejection() else job.state)
+
+    def _staff_has_confirmed_rejection(self):
+        """Presentation only: both intake refusals and final Invalid receipts.
+
+        A refused intake has no accepted UUID, but it was still sent to ETA.
+        The transport deliberately stays blocked; this label cannot authorize a
+        retry or alter a receipt. Generic errors, attempts and HTTP failures do
+        not prove an ETA document rejection.
+        """
+        self.ensure_one()
+        if self.state != 'blocked':
+            return False
+        move = self.move_id
+        if (move.e_invoice_status == 'Invalid'
+                and (move.e_invoice_uuid or move.l10n_eg_uuid)
+                and not (move.e_invoice_uuid and move.l10n_eg_uuid
+                         and move.e_invoice_uuid != move.l10n_eg_uuid)):
+            return True
+        return bool(self.safe_to_retry and self.attempts and self.attempted_at
+            and move.e_invoice_status == 'Error'
+            and self.last_error and self.last_error.startswith('ETA rejected the submission (')
+            and move.e_invoice_issue == self.last_error)
+
+    @api.model
+    def _refresh_blocked_staff_rejection_labels(self):
+        """Upgrade-only, bounded presentation backfill; keep transport untouched."""
+        if not self.env.su:
+            raise AccessError(_('Administrative presentation refresh required.'))
+        self.flush_model(['state', 'staff_state', 'safe_to_retry', 'attempts', 'attempted_at', 'move_id', 'last_error'])
+        self.env['account.move'].flush_model(['e_invoice_status', 'e_invoice_issue', 'e_invoice_uuid', 'l10n_eg_uuid'])
+        last_id = changed = 0
+        while True:
+            self.env.cr.execute("""SELECT id FROM tradeline_eta_job
+                WHERE state='blocked' AND id > %s ORDER BY id LIMIT 250
+                FOR UPDATE SKIP LOCKED""", [last_id])
+            ids = [row[0] for row in self.env.cr.fetchall()]
+            if not ids:
+                break
+            jobs = self.with_context(prefetch_fields=False).browse(ids)
+            jobs.fetch(['state', 'staff_state', 'safe_to_retry', 'attempts', 'attempted_at', 'move_id', 'last_error'])
+            jobs.mapped('move_id').fetch(['e_invoice_status', 'e_invoice_issue', 'e_invoice_uuid', 'l10n_eg_uuid'])
+            for job in jobs:
+                label = 'invalid' if job._staff_has_confirmed_rejection() else 'blocked'
+                self.env.cr.execute("""UPDATE tradeline_eta_job SET staff_state=%s
+                    WHERE id=%s AND state='blocked' AND staff_state IS DISTINCT FROM %s""",
+                    [label, job.id, label])
+                changed += self.env.cr.rowcount
+            jobs.invalidate_recordset(['staff_state'])
+            last_id = ids[-1]
+        return changed
 
     def _delivery_review_details(self, proof=None):
         """A historical search observation, bound to this exact retained request."""

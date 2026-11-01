@@ -86,6 +86,64 @@ class TestEtaStaffWorkflow(TransactionCase):
         return (patch.object(type(job), '_prepare', autospec=True, side_effect=prepare),
                 patch.object(type(job), '_preflight_submission', return_value=True))
 
+    def test_intake_rejection_groups_with_eta_rejections_without_changing_transport(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        reason = 'ETA rejected the submission (1). {"code":"1","details":[{"code":"CF305"}]}'
+        job.write({'state': 'blocked', 'safe_to_retry': True, 'attempts': 1,
+                   'attempted_at': fields.Datetime.now(), 'last_error': reason,
+                   'payload': 'retained-request', 'payload_hash': 'retained-hash'})
+        move.write({'e_invoice_status': 'Error', 'e_invoice_issue': reason})
+        self.assertEqual(job.staff_state, 'invalid')
+        self.assertEqual(move.eta_staff_state, 'invalid')
+        keep = ['state', 'payload', 'payload_hash', 'attempts', 'attempted_at',
+                'safe_to_retry', 'next_attempt', 'write_date']
+        self.env.flush_all()
+        before = job.read(keep)
+        self.env.cr.execute("UPDATE tradeline_eta_job SET staff_state='blocked' WHERE id=%s", [job.id])
+        job.invalidate_recordset(['staff_state'])
+        self.assertEqual(job.staff_state, 'blocked')
+        self.assertGreaterEqual(self.Job._refresh_blocked_staff_rejection_labels(), 1)
+        self.assertEqual(job.staff_state, 'invalid')
+        self.assertEqual(before, job.read(keep))
+        self.assertIn(job.id, self.Job.search([('staff_state', '=', 'invalid')]).ids)
+        self.assertEqual(move.e_invoice_status, 'Error')
+        with self.assertRaises(AccessError):
+            self.Job.with_user(self.clerk)._refresh_blocked_staff_rejection_labels()
+
+    def test_attempt_or_error_alone_never_claims_an_eta_rejection(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        reason = 'ETA rejected the submission (1). {"code":"1"}'
+        job.write({'state': 'blocked', 'safe_to_retry': True, 'attempts': 1,
+                   'attempted_at': fields.Datetime.now(), 'last_error': reason})
+        move.write({'e_invoice_status': 'Error', 'e_invoice_issue': reason})
+        self.assertEqual(job.staff_state, 'invalid')
+        for values in ({'last_error': 'Receiver Id is required'}, {'safe_to_retry': False},
+                       {'attempts': 0}, {'attempted_at': False}):
+            old = {name: job[name] for name in values}
+            job.write(values)
+            self.assertEqual(job.staff_state, 'blocked')
+            job.write(old)
+        move.e_invoice_issue = 'Different or stale rejection'
+        self.assertEqual(job.staff_state, 'blocked')
+        move.e_invoice_issue = reason
+        job.state = 'unknown'
+        self.assertEqual(job.staff_state, 'unknown')
+
+    def test_current_invalid_receipt_does_not_disappear_into_generic_blocked_group(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        job.write({'state': 'blocked', 'last_error': 'Reconcile duplicate receipt before retrying.'})
+        move.write({'e_invoice_status': 'Invalid', 'e_invoice_uuid': 'current-invalid-receipt'})
+        self.assertEqual(job.staff_state, 'invalid')
+        self.assertEqual(job.state, 'blocked')
+        move.l10n_eg_uuid = 'conflicting-other-receipt'
+        self.assertEqual(job.staff_state, 'blocked')
+        move.l10n_eg_uuid = False
+        move.e_invoice_status = 'Valid'
+        self.assertEqual(job.staff_state, 'blocked')
+
     def test_normal_invoice_user_requests_direct_operation_without_queue_wakeup_or_http(self):
         move = self.invoice().with_user(self.clerk)
         with patch.object(type(self.Job), '_request_priority_dispatch', side_effect=AssertionError('Queued manual send')), \
