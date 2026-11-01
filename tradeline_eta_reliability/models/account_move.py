@@ -32,7 +32,7 @@ class AccountMove(models.Model):
 
     def _eta_enqueue(self, reconcile=False):
         Job = self.env['tradeline.eta.job'].sudo()
-        newly_queued = False
+        newly_queued = Job.browse()
         for move in self.filtered(lambda m: m.state == 'posted' and m.move_type in ('out_invoice', 'out_refund')):
             if not move.company_id.client_id or not move.company_id.client_secret:
                 continue
@@ -54,9 +54,14 @@ class AccountMove(models.Model):
                             values.update(payload=payload, payload_hash=hashlib.sha256(payload.encode()).hexdigest())
                     except (ValueError, SyntaxError, TypeError):
                         pass
-                Job.create(values)
-                newly_queued |= values['state'] == 'queued'
-            elif move.e_invoice_uuid and job.state not in ('valid', 'invalid', 'blocked'):
+                job = Job.create(values)
+                if values['state'] == 'queued':
+                    newly_queued |= job
+            elif (move.e_invoice_uuid and job.state == 'queued' and not job.attempted_at
+                    and not job.duplicate_retry_at and not job.duplicate_payload_hash
+                    and not job.historical_review):
+                # An older linked receipt cannot resolve a newer uncertain
+                # attempt or replace a complete-history review with one poll.
                 job.write({'state': 'accepted'})
         if newly_queued and not self.env.context.get('eta_queue_cron'):
             cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
@@ -69,21 +74,27 @@ class AccountMove(models.Model):
                     check_processing_window(self.env)
                 except EtaStopped:
                     return
-                # Odoo commits this trigger with the invoice and wakes the
-                # native scheduler postcommit. No authority HTTP runs here.
+                # No authority HTTP or manual commit in the posting transaction.
+                # The short postcommit attempt and native fallback share the
+                # same durable job, transport lock and uncertainty safeguards.
                 cron.sudo()._trigger()
+                newly_queued._schedule_immediate_dispatch()
 
     def action_send_electronic_invoice(self):
-        """Manual and legacy callers enter the same durable queue as the cron."""
+        """Request immediate safe dispatch of the same durable job as the cron."""
         if any(m.state != 'posted' or m.move_type not in ('out_invoice', 'out_refund') for m in self):
             raise UserError(_('Only posted customer invoices and credit notes can be queued for ETA.'))
         self.check_access('write')
         for move in self.filtered(lambda m: m.e_invoice_uuid and m.e_invoice_status == 'Invalid'):
             move._eta_queue_corrected_document()
         self._eta_enqueue(reconcile=True)
+        requested = self.env['tradeline.eta.job'].sudo().search([('move_id', 'in', self.ids)])._request_priority_dispatch()
         return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-            'title': _('ETA submission queued'),
-            'message': _('Existing ETA IDs will be checked before any submission.'), 'type': 'info',
+            'title': _('Priority ETA sync requested') if requested else _('ETA sync checked'),
+            'message': (_('An immediate safe attempt is requested after saving. If transport is busy or ETA requires a wait, this invoice keeps priority. Status updates automatically.')
+                        if requested else _('The invoice is saved. Check its current ETA status and any correction or retry message.')),
+            'type': 'info',
+            'next': {'type': 'ir.actions.client', 'tag': 'reload'},
         }}
 
     def _eta_correction_document(self):
@@ -334,6 +345,22 @@ class AccountMove(models.Model):
             raise AccessError(_('An accounting manager must approve a corrected ETA submission.'))
         self._eta_enqueue()
         job = self.eta_job_ids.sudo().with_company(self.company_id)
+        job.ensure_one()
+        try:
+            check_processing_window(self.env)
+        except EtaStopped as exc:
+            raise UserError(_('ETA processing is paused. The invoice remains saved.')) from exc
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741181,1)')
+        if not self.env.cr.fetchone()[0]:
+            raise UserError(_('ETA is processing another request. Retry Sync shortly; nothing was resubmitted.'))
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [job.id])
+        if not self.env.cr.fetchone()[0]:
+            raise UserError(_('This invoice is already being processed. Nothing was resubmitted.'))
+        job.invalidate_recordset(); self.invalidate_recordset()
+        if (job.state == 'unknown' or job.attempted_at and not job.safe_to_retry
+                or job.duplicate_retry_at or job.duplicate_payload_hash
+                or job.next_attempt and job.next_attempt > fields.Datetime.now()):
+            raise UserError(_('ETA reconciliation or a retry deadline is pending. Nothing was resubmitted.'))
         client = EtaClient(self.company_id.sudo())
         try:
             result = client.request('GET', '/api/v1.0/documents/%s/raw' % self.e_invoice_uuid)
