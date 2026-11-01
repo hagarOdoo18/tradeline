@@ -117,7 +117,7 @@ review their exchange rates or remaining refundable amounts. Confirmed ETA
 cancellations retain the standard draft/cancel flow, with evidence archived;
 the cancelled invoice is not automatically queued for resubmission.
 
-Version 18.0.1.0.25 requires a module upgrade for the correction relation,
+Version 18.0.1.0.26 requires a module upgrade for the correction relation,
 wizard, access rules, and form views. No existing invoices are corrected
 automatically by the upgrade.
 
@@ -136,3 +136,6 @@ Job creation, deletion, direct state edits and private payload access remain
 restricted. Validated actions update only the required transport fields after
 checking access to every selected invoice. Receipt, uncertainty, retry,
 accounting-lock and duplicate safeguards still apply.
+
+Resetting wholly unmatched invoices does not require the branch module's
+separate Unreconcile permission. Removing existing payment matches still does.
