@@ -441,10 +441,28 @@ class TestEtaDraftCorrection(TransactionCase):
             combined = (move | credit | alignment).line_ids.filtered(lambda line: tag in line.tax_tag_ids)
             self.assertAlmostEqual(sum(line.balance * (-1 if line.tax_tag_invert else 1) for line in combined), 0, places=2)
 
-    def test_non_manager_cannot_prepare_vat_correction(self):
+    def test_invoice_user_can_prepare_vat_correction_without_administrator(self):
         user = new_test_user(self.env, login='vat_correction_clerk', groups='account.group_account_invoice',
             company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
-        move = self.vat_invoice()
+        self.assertFalse(user.has_group('base.group_system'))
+        self.assertFalse(user.has_group('account.group_account_manager'))
+        move = self.invoice().with_user(user)
+        self.assertTrue(move.show_reset_to_draft_button)
+        self.assertEqual(move.action_eta_correct_vat()['res_model'], 'tradeline.eta.vat.correction')
+        wizard = self.env['tradeline.eta.vat.correction'].with_user(user).create({
+            'move_id': move.id, 'tax_id': self.vat.id})
+        action = wizard.action_prepare()
+        self.assertEqual(action['res_id'], move.id)
+        self.assertEqual(move.state, 'draft')
+        self.assertGreater(move.amount_tax, 0)
+        move.action_post()
+        self.assertEqual(move.state, 'posted')
+        self.assertEqual(move.eta_job_ids.state, 'queued')
+
+    def test_non_accountant_cannot_prepare_vat_correction(self):
+        user = new_test_user(self.env, login='vat_correction_unprivileged', groups='base.group_user',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
+        move = self.invoice()
         with self.assertRaises(AccessError):
             self.env['tradeline.eta.vat.correction'].with_user(user).create({'move_id': move.id, 'tax_id': self.vat.id})
 
