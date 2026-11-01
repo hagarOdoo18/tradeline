@@ -7,3 +7,4 @@ from . import test_immediate_dispatch
 from . import test_catalogue_budget
 from . import test_draft_correction
 from . import test_staff_workflow
+from . import test_vat_review

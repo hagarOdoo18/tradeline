@@ -1,0 +1,146 @@
+<odoo>
+    <record id="eta_workspace_invoice_list" model="ir.ui.view">
+        <field name="name">account.move.eta.workspace.list</field>
+        <field name="model">account.move</field>
+        <field name="arch" type="xml">
+            <list create="0" delete="0" default_order="invoice_date desc,id desc" js_class="eta_workspace_list">
+                <field name="name" string="Invoice"/>
+                <field name="state" widget="badge"/>
+                <field name="journal_id" string="Branch / sales journal"/>
+                <field name="partner_id" string="Customer"/>
+                <field name="invoice_date"/>
+                <field name="e_invoice_date" string="First ETA submission time" optional="show"/>
+                <field name="eta_staff_state" widget="badge" string="ETA status"
+                    decoration-success="eta_staff_state == 'valid'" decoration-danger="eta_staff_state in ('blocked','invalid')"
+                    decoration-warning="eta_staff_state == 'unknown'" decoration-info="eta_staff_state in ('queued','accepted','review')"/>
+                <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','source_changed')"
+                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','corrected')"/>
+                <field name="amount_total"/>
+                <field name="currency_id" optional="hide"/>
+                <field name="company_id" groups="base.group_multi_company"/>
+                <field name="eta_staff_reason" string="Issue / explanation" optional="hide"/>
+                <field name="eta_vat_review_note" optional="hide"/>
+                <field name="eta_vat_amount" optional="hide"/>
+                <field name="eta_receipt_vat_egp" optional="hide"/>
+                <field name="eta_receipt_vat_checked_at" optional="hide"/>
+                <button name="action_eta_correct_vat" type="object" string="Correct VAT" icon="fa-percent"
+                    groups="account.group_account_invoice" invisible="state != 'posted' or move_type != 'out_invoice'"/>
+                <button name="action_eta_review_saved_vat" type="object" string="Review saved VAT" icon="fa-search"
+                    groups="account.group_account_invoice,account.group_account_readonly" invisible="state != 'posted'"/>
+                <field name="move_type" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+    <record id="eta_workspace_invoice_search" model="ir.ui.view">
+        <field name="name">account.move.eta.workspace.search</field>
+        <field name="model">account.move</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name" string="Invoice number"/>
+                <field name="partner_id" string="Customer"/>
+                <field name="journal_id"/>
+                <filter name="drafts" string="Drafts — not submitted" domain="[('state','=','draft')]"/>
+                <filter name="posted" string="Posted invoices" domain="[('state','=','posted')]"/>
+                <separator/>
+                <filter name="untracked" string="Posted without ETA tracking" domain="[('state','=','posted'),('eta_job_ids','=',False),('e_invoice_uuid','=',False),('l10n_eg_uuid','=',False),('e_invoice_sent','=',False)]"/>
+                <filter name="sent" string="Sent / receipt recorded" domain="['|','|',('e_invoice_sent','=',True),('e_invoice_uuid','!=',False),('l10n_eg_uuid','!=',False)]"/>
+                <filter name="approved" string="Approved by ETA" domain="[('e_invoice_status','=','Valid')]"/>
+                <separator/>
+                <filter name="vat_missing" string="Current invoice has no VAT" domain="[('eta_vat_missing','=',True)]"/>
+                <filter name="receipt_no_vat" string="Saved receipt has no VAT" domain="[('eta_receipt_vat_missing','=',True),('eta_receipt_vat_checked_at','!=',False)]"/>
+                <filter name="correction" string="VAT correction documents" domain="[('eta_vat_original_id','!=',False)]"/>
+                <separator/>
+                <filter name="invoice_period" string="Invoice date" date="invoice_date"/>
+                <filter name="sent_period" string="Submission time" date="e_invoice_date"/>
+                <filter name="created_period" string="Created time" date="create_date"/>
+                <group expand="0" string="Group By">
+                    <filter name="branch" string="Branch / sales journal" context="{'group_by':'journal_id'}"/>
+                    <filter name="accounting_state" string="Draft / posted" context="{'group_by':'state'}"/>
+                    <filter name="eta_receipt_state" string="ETA receipt status" context="{'group_by':'e_invoice_status'}"/>
+                    <filter name="invoice_day" string="Invoice day" context="{'group_by':'invoice_date:day'}"/>
+                    <filter name="sent_day" string="Submission day" context="{'group_by':'e_invoice_date:day'}"/>
+                    <filter name="sent_hour" string="Submission hour" context="{'group_by':'e_invoice_date:hour'}"/>
+                    <filter name="created_day" string="Created day" context="{'group_by':'create_date:day'}"/>
+                    <filter name="company" string="Company" context="{'group_by':'company_id'}" groups="base.group_multi_company"/>
+                </group>
+            </search>
+        </field>
+    </record>
+    <record id="action_eta_all_invoices" model="ir.actions.act_window">
+        <field name="name">ETA — All invoices</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('move_type','in',['out_invoice','out_refund'])]</field>
+        <field name="context">{'create': False}</field>
+        <field name="help" type="html"><p>All customer invoices and credits, including drafts, earlier ETA receipts and invoices without a queue record. Search any invoice number.</p></field>
+    </record>
+    <record id="action_eta_backlog" model="ir.actions.act_window">
+        <field name="name">ETA — Backlog and active processing</field><field name="res_model">tradeline.eta.job</field>
+        <field name="view_mode">list,form</field><field name="search_view_id" ref="eta_job_search"/>
+        <field name="domain">[('state','!=','valid')]</field><field name="context">{'group_by':'state'}</field>
+        <field name="help" type="html"><p>The backlog includes earlier records being verified, invoices waiting to send, unresolved submissions and correction holds. Draft invoices appear under Drafts, before they enter processing.</p></field>
+    </record>
+    <record id="action_eta_sent_history" model="ir.actions.act_window">
+        <field name="name">ETA — Sent history</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('move_type','in',['out_invoice','out_refund']),'|','|',('e_invoice_sent','=',True),('e_invoice_uuid','!=',False),('l10n_eg_uuid','!=',False)]</field>
+        <field name="context">{'group_by':'e_invoice_date:day','create':False}</field>
+        <field name="help" type="html"><p>Invoices with a recorded submission or receipt, including earlier native ETA records. Submission time is the first recorded ETA acceptance time, not a log of every retry. Older records with no retained time are grouped under Undefined.</p></field>
+    </record>
+    <record id="action_eta_draft_invoices" model="ir.actions.act_window">
+        <field name="name">ETA — Drafts, not submitted</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('move_type','in',['out_invoice','out_refund']),('state','=','draft')]</field>
+        <field name="context">{'group_by':'journal_id','create':False}</field>
+    </record>
+    <record id="action_eta_vat_issues" model="ir.actions.act_window">
+        <field name="name">ETA — VAT issues and corrections</field><field name="res_model">account.move</field>
+        <field name="view_mode">list,form</field><field name="view_id" ref="eta_workspace_invoice_list"/>
+        <field name="search_view_id" ref="eta_workspace_invoice_search"/>
+        <field name="domain">[('move_type','=','out_invoice'),('state','=','posted'),'|',('eta_vat_missing','=',True),('eta_receipt_vat_missing','=',True)]</field>
+        <field name="context">{'create':False}</field>
+        <field name="help" type="html"><p>Red means VAT is missing or an approved receipt needs correction; amber means review or correction is in progress; green means a linked correction is complete. Review saved VAT checks the archived receipt locally. Correct VAT prepares drafts for review.</p></field>
+    </record>
+    <record id="menu_account_eta_jobs" model="ir.ui.menu"><field name="action" eval="False"/></record>
+    <menuitem id="menu_eta_all_invoices" name="All invoices" parent="menu_account_eta_jobs" action="action_eta_all_invoices" sequence="1" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_backlog" name="Backlog and active processing" parent="menu_account_eta_jobs" action="action_eta_backlog" sequence="2" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_sent_history" name="Sent history" parent="menu_account_eta_jobs" action="action_eta_sent_history" sequence="3" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_drafts" name="Drafts — not submitted" parent="menu_account_eta_jobs" action="action_eta_draft_invoices" sequence="4" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_vat_issues" name="VAT issues and corrections" parent="menu_account_eta_jobs" action="action_eta_vat_issues" sequence="5" groups="account.group_account_invoice"/>
+    <menuitem id="menu_eta_job_status" name="Queue status details" parent="menu_account_eta_jobs" action="action_eta_invoice_log" sequence="6" groups="account.group_account_invoice"/>
+    <record id="view_eta_vat_review_invoice" model="ir.ui.view">
+        <field name="name">account.move.eta.vat.review</field><field name="model">account.move</field>
+        <field name="inherit_id" ref="view_move_form_draft_correction"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='eta_staff_reason']" position="before">
+                <widget name="eta_connection_health"/>
+                <div class="my-2">
+                    <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','source_changed')"
+                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','corrected')"/>
+                    <field name="eta_vat_review_note" nolabel="1"/>
+                </div>
+            </xpath>
+        </field>
+    </record>
+    <data noupdate="1">
+        <record id="cron_eta_vat_receipt_review" model="ir.cron">
+            <field name="name">ETA: review VAT on today's saved receipts</field>
+            <field name="model_id" ref="account.model_account_move"/>
+            <field name="state">code</field><field name="code">model._cron_eta_review_recent_vat()</field>
+            <field name="interval_number">5</field><field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+    <function model="account.move" name="_cron_eta_review_recent_vat"/>
+    <data noupdate="1">
+        <record id="cron_eta_connection_probe" model="ir.cron">
+            <field name="name">ETA: read-only connection health check</field>
+            <field name="model_id" ref="base.model_res_company"/>
+            <field name="state">code</field><field name="code">model._cron_eta_connection_probe()</field>
+            <field name="interval_number">1</field><field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

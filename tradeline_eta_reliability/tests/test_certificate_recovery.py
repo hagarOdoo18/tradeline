@@ -86,6 +86,10 @@ class TestCertificateRecovery(TransactionCase):
 
     def setUp(self):
         super().setUp()
+        # Certificate/history proofs use intentionally tax-free legacy fixtures.
+        # The independent VAT policy suite exercises the mandatory final gate.
+        vat = patch.object(type(self.env['tradeline.eta.job']), '_assert_positive_vat_submission', return_value=True)
+        vat.start(); self.addCleanup(vat.stop)
         params = self.env['ir.config_parameter'].sudo()
         for suffix in ('enabled_database', 'historical_recovery_database'):
             params.set_param('tradeline_eta_reliability.' + suffix, self.env.cr.dbname)

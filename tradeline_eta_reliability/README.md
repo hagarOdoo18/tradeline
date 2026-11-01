@@ -1,5 +1,45 @@
 # Reliable ETA processing
 
+## ETA workspace and VAT policy (18.0.1.0.32)
+
+Accounting > ETA Status now provides All invoices, Backlog and active processing,
+Sent history, Drafts, VAT issues and queue details. All invoices includes documents
+without jobs; Sent history includes earlier native receipts. Search by invoice
+number and group by branch, accounting state, invoice day or submission day/hour.
+The recorded submission time is the first retained acceptance time, not a log of
+every retry. Old receipts without a retained time remain visible under Undefined.
+
+Before any new customer-invoice POST, the final preflight requires positive T1
+VAT both in the current tax ledger and in the prepared document. Other taxes,
+zero-rate entries and a previously prepared tax-free request do not satisfy this
+rule. This applies to the worker, direct send, corrected retries and delegated
+native EDI. Read-only receipt reconciliation still runs first, so late approvals
+and uncertain earlier submissions are recovered without another POST. Credit
+notes preserve the original receipt's taxes and can reverse an untaxed original.
+
+VAT issues distinguishes a missing current tax from a confirmed untaxed receipt.
+Review saved VAT reads the matching private archive without HTTP or queue edits.
+A separate bounded audit reviews up to 200 of today's saved approved receipts
+every five minutes; new full approval responses are audited immediately. The
+original receipt and invoice stay unchanged. Correct VAT prepares reviewable
+credit/replacement drafts and waits for ETA approval of the credit. Untaxed
+foreign-currency originals are supported only when their posted conversion and
+restored credit exactly match the original receipt; unresolved FX differences
+remain held for Finance. A correction is marked complete only after approval of
+the credit and a receipt-verified VAT-bearing replacement.
+
+The connection banner appears on workspace lists and invoice forms and refreshes
+cached readings every 30 seconds. A dedicated once-a-minute job calls only the
+authenticated GET /api/v1.0/documenttypes lookup. It observes the exact enabled
+database, processing cutoff and ETA retry deadline and never submits documents.
+It distinguishes availability, slow responses, access failures, connection
+failures, pauses, disabled copies and stale checks. Network send-response and
+first-observed approval timings are measured separately; rolling one-hour
+averages use invoices visible to the current reader. Approval delay includes
+polling time. No samples means Collecting samples, not zero delay. No historical
+approval timing is invented and a successful lookup is not a guarantee that a
+particular invoice will be accepted.
+
 Posted customer invoices and credit notes enter one durable submission queue.
 Both the standard EDI dispatcher and the custom Submit button use this queue
 when the invoice company has the existing custom ETA credentials configured.

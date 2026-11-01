@@ -18,6 +18,12 @@ from ..models.catalogue_recovery import approval_identity, approved_usage
 
 @tagged('post_install', '-at_install')
 class TestHistoricalRecovery(TransactionCase):
+    def setUp(self):
+        super().setUp()
+        # Isolate authority-history proofs from the separately tested VAT gate.
+        vat = patch.object(type(self.env['tradeline.eta.job']), '_assert_positive_vat_submission', return_value=True)
+        vat.start(); self.addCleanup(vat.stop)
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()

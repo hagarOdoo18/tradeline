@@ -1,5 +1,6 @@
 """VAT corrections with preserved authority receipts and transport evidence."""
 import json
+import math
 from collections import defaultdict
 from datetime import timedelta
 
@@ -320,13 +321,28 @@ class EtaVatCorrection(models.TransientModel):
     def _restore_credit_lines(self, credit, document):
         """Reverse the submitted values, even if Odoo taxes were edited later."""
         move = self.move_id
-        if move.currency_id != self.env.ref('base.EGP') or move.company_id.currency_id != move.currency_id:
+        foreign = move.currency_id != self.env.ref('base.EGP')
+        rate = 1.0
+        if move.company_id.currency_id != self.env.ref('base.EGP'):
             raise UserError(_('Foreign-currency VAT corrections need an accountant to verify the original exchange-rate treatment.'))
         source = move.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
         target = credit.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
         old_lines = document.get('invoiceLines', [])
         if len(source) != len(old_lines) or len(target) != len(source):
             raise UserError(_('The current products do not match the original ETA lines. Finance must reconcile the source first.'))
+        if foreign:
+            units = [old.get('unitValue', {}) for old in old_lines]
+            rates = [float(unit.get('currencyExchangeRate') or 0) for unit in units]
+            if (not rates or any(not math.isfinite(value) or value <= 0 or abs(value-rates[0]) > .000001 for value in rates)
+                    or any(unit.get('currencySold') != move.currency_id.name for unit in units)
+                    or not move.currency_id.is_zero(move.amount_tax)
+                    or any(float(item.get('amount') or 0) for old in old_lines for item in old.get('taxableItems', []))):
+                raise UserError(_('Finance must reconcile this foreign-currency receipt and taxes before preparing an automatic correction.'))
+            rate = rates[0]
+            actual_rate = abs(move.amount_total_signed / move.amount_total) if move.amount_total else 0
+            if abs(actual_rate-rate) > .00001:
+                raise UserError(_('The posted exchange rate differs from the original ETA receipt. Finance must reconcile the difference first.'))
+            credit.invoice_currency_rate = 1 / rate
         for original, line, old in zip(source, target, old_lines):
             if (original.product_id.e_invoicing_code != old.get('itemCode')
                     or abs(original.quantity - float(old.get('quantity', 0))) > .000001):
@@ -355,10 +371,11 @@ class EtaVatCorrection(models.TransientModel):
             discount = float(old.get('discount', {}).get('rate', 0))
             if qty <= 0 or discount >= 100:
                 raise UserError(_('Finance must review non-positive quantities or fully discounted ETA correction lines.'))
-            unit = (float(old['netTotal']) + included) / qty / (1 - discount / 100)
+            unit = (float(old['netTotal']) + included) / rate / qty / (1 - discount / 100)
             line.write({'quantity': qty, 'discount': discount, 'price_unit': unit,
                         'tax_ids': [Command.set(taxes.ids)]})
-        if abs(credit.amount_total - float(document['totalAmount'])) >= .01:
+        original_total = abs(credit.amount_total_signed) if foreign else credit.amount_total
+        if abs(original_total - float(document['totalAmount'])) >= .01:
             raise UserError(_('The credit note does not match the original ETA total. Finance must verify its tax mapping.'))
 
     def _alignment_entry(self, credit):
@@ -390,6 +407,8 @@ class EtaVatCorrection(models.TransientModel):
                 'tax_tag_invert': invert, 'analytic_distribution': json.loads(analytics)}))
         if not commands:
             return self.env['account.move']
+        if move.currency_id != move.company_id.currency_id:
+            raise UserError(_('The foreign-currency correction does not exactly offset the posted ledger. Finance must reconcile it before preparing replacement drafts.'))
         journal = self.adjustment_journal_id or self.env['account.journal'].search([
             ('company_id', '=', move.company_id.id), ('type', '=', 'general')], limit=1)
         if not journal or journal.company_id != move.company_id or journal.type != 'general':

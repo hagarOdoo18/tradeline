@@ -11,3 +11,5 @@ from . import immediate_dispatch
 from . import draft_correction
 from . import staff_workflow
 from . import ir_ui_menu
+from . import vat_review
+from . import connection_health
