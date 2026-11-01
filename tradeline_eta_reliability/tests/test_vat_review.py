@@ -155,6 +155,13 @@ class TestEtaVatReview(TransactionCase):
             self.company._cron_eta_connection_probe()
         self.assertEqual(self.company.eta_health_state, 'access')
 
+    def test_zero_duration_measurement_is_a_real_sample_not_missing_data(self):
+        job = self.invoice(vat=True).eta_job_ids
+        job.write({'send_response_measured_at':fields.Datetime.now(), 'send_response_seconds':0})
+        rows = self.env['tradeline.eta.job'].with_user(self.clerk).get_staff_connection_status()
+        self.assertGreaterEqual(rows[0]['send_count'],1)
+        self.assertIsNot(rows[0]['send_seconds'],False)
+
     def test_manual_bypass_worker_holds_missing_vat_without_post(self):
         move = self.invoice()
         job = move.eta_job_ids
