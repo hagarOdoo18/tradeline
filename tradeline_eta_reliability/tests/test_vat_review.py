@@ -50,7 +50,7 @@ class TestEtaVatReview(TransactionCase):
         tax_type = tax_type or cls.env['account.tax.type.code'].create({'code': 'T1', 'ar_name': 'VAT'})
         cls.vat = cls.env['account.tax'].create({'name': 'VAT review 14%', 'amount': 14,
             'company_id': cls.company.id, 'type_tax_use': 'sale', 'type_code_id': tax_type.id})
-        cls.clerk = new_test_user(cls.env, login='eta_vat_review_clerk', groups='account.group_account_invoice',
+        cls.clerk = new_test_user(cls.env, login='eta_vat_review_clerk', groups='account.group_account_invoice,tradeline_eta_reliability.group_eta_workspace',
             company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
 
     def invoice(self, vat=False, kind='out_invoice'):
@@ -318,3 +318,18 @@ class TestEtaVatReview(TransactionCase):
         with self.assertRaisesRegex(UserError, 'No invoice found'):
             lookup.action_eta_find_invoice(move.name)
         rule.unlink()
+
+    def test_core_invoice_form_does_not_require_custom_connection_widget(self):
+        # An already-open browser may have its pre-upgrade backend bundle.
+        # A fresh server form arch must still open invoices/credit drafts.
+        combined = self.env.ref('account.view_move_form').get_combined_arch()
+        combined = etree.fromstring(combined.encode()) if isinstance(combined, str) else combined
+        self.assertFalse(combined.xpath("//widget[@name='eta_connection_health']"),
+                         'No role may receive a mandatory custom widget on the core form.')
+        form = etree.fromstring(self.env['account.move'].with_user(self.clerk).get_view(view_type='form')['arch'])
+        self.assertFalse(form.xpath("//widget[@name='eta_connection_health']"))
+        from odoo.tools import file_open
+        with file_open('tradeline_eta_reliability/static/src/xml/connection_health.xml', 'rb') as source:
+            templates = etree.parse(source)
+        self.assertTrue(templates.xpath("//t[@t-name='tradeline_eta_reliability.WorkspaceList']//EtaConnectionHealth"),
+                        'Keep connection health in the dedicated ETA workspace.')

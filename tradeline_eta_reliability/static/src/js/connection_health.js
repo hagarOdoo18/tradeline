@@ -43,6 +43,17 @@ export class EtaConnectionHealth extends Component {
         return value >= 60 ? _t("%s min", (value / 60).toFixed(1)) : _t("%s sec", Number(value).toFixed(2));
     }
     checked(value) { return value ? new Date(value.replace(" ", "T") + "Z").toLocaleTimeString() : "—"; }
+    vatLane() { return this.props.context?.eta_vat_lane || ""; }
+    vatInstructions() {
+        return ({
+            all: _t("Choose a VAT work list below. Reading this page creates no credit notes. Select one invoice and confirm Prepare VAT Correction to save correction drafts."),
+            unsent: _t("No ETA submission is recorded. Add VAT to the same invoice, review the total, confirm/post, then send. No credit note is needed."),
+            approved: _t("These originals are already approved by ETA without VAT. Prepare a credit and VAT replacement, review the drafts, then send the credit first. Send the replacement only after ETA approves the credit."),
+            in_progress: _t("Correction documents already exist. Open existing corrections and follow the invoice's instructions. Do not create a second credit note. History includes cancelled or superseded drafts."),
+            rejected: _t("ETA marked these invoices Invalid. Correct VAT verifies that rejection before reopening the original. A confirmed validation rejection does not require a credit note."),
+            review: _t("The existing delivery or receipt needs reconciliation. Do not treat an unconfirmed submission as unsent, or create a credit before its outcome is confirmed.")
+        })[this.vatLane()] || "";
+    }
     async findInvoice() {
         if (!this.state.query.trim() || this.state.finding) { return; }
         this.state.finding = true;

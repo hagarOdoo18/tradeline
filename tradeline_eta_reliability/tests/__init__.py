@@ -9,3 +9,5 @@ from . import test_draft_correction
 from . import test_staff_workflow
 from . import test_vat_review
 from . import test_delivery_review
+from . import test_workspace_access
+from . import test_vat_workspace

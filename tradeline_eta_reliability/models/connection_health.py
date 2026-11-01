@@ -105,6 +105,7 @@ class EtaMeasuredJob(models.Model):
 
     @api.model
     def get_staff_connection_status(self):
+        self.env['res.users']._eta_check_workspace_access()
         if not (self.env.su or self.env.user.has_group('account.group_account_invoice')
                 or self.env.user.has_group('account.group_account_readonly')):
             raise AccessError(_('Accounting access is required.'))

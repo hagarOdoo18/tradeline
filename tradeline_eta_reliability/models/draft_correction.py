@@ -427,6 +427,7 @@ class EtaVatCorrection(models.TransientModel):
 
     def action_prepare(self):
         self.ensure_one()
+        self.env['res.users']._eta_check_workspace_access()
         self.check_access('write')
         if not (self.env.is_superuser() or self.env.user.has_group('account.group_account_invoice')):
             raise AccessError(_('Invoice access is required to prepare an ETA VAT correction.'))

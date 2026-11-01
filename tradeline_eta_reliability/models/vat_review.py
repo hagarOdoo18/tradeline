@@ -211,6 +211,7 @@ class EtaVatReviewMove(models.Model):
 
     @api.model
     def action_eta_today(self):
+        self.env['res.users']._eta_check_workspace_access()
         if not (self.env.su or self.env.user.has_group('account.group_account_readonly')
                 or self.env.user.has_group('account.group_account_invoice')):
             raise AccessError(_('Accounting access is required to view ETA invoices.'))

@@ -260,3 +260,19 @@ Release validation includes the complete ETA suite plus staff access, busy
 backlog transport, same-invoice locking, GET-only checking, uncertainty,
 authority deadlines, saved-intent rollback/replay and menu-visibility tests.
 Test transport is mocked; synthetic tax documents are never sent to ETA.
+
+
+Release 18.0.1.0.39 separates VAT work into never-submitted invoices (correct the
+same invoice), verified ETA-approved zero-VAT receipts (credit and replacement),
+existing correction documents, confirmed ETA Invalid, and delivery/receipt review.
+Opening a work list never creates or posts documents. Existing corrections open
+active documents by default; History includes cancelled and superseded drafts.
+Instructions recognize an already-approved credit and prevent duplicate preparation.
+
+ETA Status uses the dedicated central accounting group, without granting posting
+or company access. Menus, bookmarked actions, workspace views, health readings and
+recovery entry points enforce that role. Branch users retain normal invoicing and
+standard Send/Check controls. Membership is maintained separately from upgrades.
+The connection component remains in the ETA workspace; the native invoice form
+has no dependency on its widget registration, avoiding stale-asset form crashes.
+The separate accounting_customization Apply 14% Tax implementation is unchanged.

@@ -19,6 +19,17 @@
                 <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('draft_invoices')">Drafts</button>
                 <button class="btn btn-sm btn-outline-danger" t-on-click="() => this.open('vat_issues')">VAT issues</button>
             </div>
+            <div t-if="vatLane()" class="border rounded bg-white p-2 mb-2">
+                <div class="d-flex flex-wrap gap-2 mb-2" aria-label="VAT correction work lists">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_issues')">All VAT issues</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary" t-on-click="() => this.open('vat_unsent')">1. Not sent — add VAT</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger" t-on-click="() => this.open('vat_approved')">2. Approved — credit and replace</button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" t-on-click="() => this.open('vat_in_progress')">Corrections already started</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_rejected')">ETA invalid</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" t-on-click="() => this.open('vat_review')">Delivery / receipt review</button>
+                </div>
+                <div class="small" t-esc="vatInstructions()"/>
+            </div>
             <div t-if="state.failed" class="text-warning">Connection readings could not be refreshed. Last displayed readings may be stale.</div>
             <div t-else="" t-foreach="state.rows" t-as="row" t-key="row.company_id" class="d-flex flex-wrap gap-3 align-items-center small mb-1">
                 <strong t-esc="row.company"/>
@@ -34,7 +45,7 @@
     <t t-name="tradeline_eta_reliability.WorkspaceList" t-inherit="web.ListView" t-inherit-mode="primary">
         <xpath expr="//div[@t-ref='root']" position="attributes"><attribute name="class">o_eta_workspace</attribute></xpath>
         <xpath expr="//SearchBar" position="attributes"><attribute name="autofocus">false</attribute></xpath>
-        <xpath expr="//t[@t-component='props.Renderer']" position="before"><EtaConnectionHealth/></xpath>
+        <xpath expr="//t[@t-component='props.Renderer']" position="before"><EtaConnectionHealth context="props.context"/></xpath>
     </t>
     <t t-name="tradeline_eta_reliability.WorkspaceFilterBar" t-inherit="web.SearchBar" t-inherit-mode="primary">
         <xpath expr="//t[@t-call='web.SearchBar.Input']" position="attributes">

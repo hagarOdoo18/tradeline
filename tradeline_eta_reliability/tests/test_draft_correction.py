@@ -556,7 +556,7 @@ class TestEtaDraftCorrection(TransactionCase):
             self.assertAlmostEqual(sum(line.balance * (-1 if line.tax_tag_invert else 1) for line in combined), 0, places=2)
 
     def test_invoice_user_can_prepare_vat_correction_without_administrator(self):
-        user = new_test_user(self.env, login='vat_correction_clerk', groups='account.group_account_invoice',
+        user = new_test_user(self.env, login='vat_correction_clerk', groups='account.group_account_invoice,tradeline_eta_reliability.group_eta_workspace',
             company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
         self.assertFalse(user.has_group('base.group_system'))
         self.assertFalse(user.has_group('account.group_account_manager'))
