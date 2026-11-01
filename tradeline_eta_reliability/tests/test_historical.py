@@ -178,8 +178,138 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(job.state, 'queued'); self.assertTrue(job.omit_optional_receiver_id)
         self.assertTrue(job.historical_submission_verified)
         self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+
         client.request.assert_not_called()
         self.assertTrue(self.env['ir.attachment'].search_count([('res_model', '=', 'account.move'), ('res_id', '=', move.id)]))
+
+    def test_enrollment_preserves_a_durable_unknown_attempt_and_future_retry(self):
+        move = self.invoice(age=3); job = move.eta_job_ids
+        payload = json.dumps({'documents': [self.document(move)]})
+        job.write({'state': 'unknown', 'payload': payload,
+                   'payload_hash': hashlib.sha256(payload.encode()).hexdigest(),
+                   'attempted_at': fields.Datetime.now()-timedelta(hours=25), 'attempts': 1,
+                   'next_attempt': fields.Datetime.now()+timedelta(minutes=20),
+                   'last_error': 'Lost response; original outcome is unknown.'})
+        keys = ['state','payload','payload_hash','attempted_at','attempts','next_attempt',
+                'last_error','historical_fingerprint','historical_review']
+        before = job.read(keys)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Enrollment sent HTTP')):
+            job._enroll_historical(move_ids=move.ids)
+        self.assertEqual(before, job.read(keys))
+
+    def test_enrollment_preserves_documented_duplicate_cooldown_and_retained_bytes(self):
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
+        for offset in (-1, 20):
+            move = self.invoice(); job = move.eta_job_ids
+            payload = json.dumps({'documents': [self.document(move)]})
+            digest = hashlib.sha256(payload.encode()).hexdigest()
+            deadline = fields.Datetime.now()+timedelta(minutes=offset)
+            job.write({'state': 'unknown', 'payload': payload, 'payload_hash': digest,
+                       'attempted_at': fields.Datetime.now()-timedelta(hours=1), 'attempts': 1,
+                       'duplicate_retry_at': deadline, 'duplicate_payload_hash': digest,
+                       'next_attempt': deadline, 'last_error': 'ETA DuplicateSubmission cooldown.'})
+            keys = ['state','payload','payload_hash','attempted_at','attempts','next_attempt',
+                    'duplicate_retry_at','duplicate_payload_hash','last_error','historical_fingerprint']
+            before = job.read(keys)
+            with patch('requests.sessions.Session.request', side_effect=AssertionError('Enrollment sent HTTP')):
+                job._enroll_historical(move_ids=move.ids)
+            self.assertEqual(before, job.read(keys))
+
+    def test_historical_absence_after_25_hours_cannot_release_an_uncertain_attempt(self):
+        move = self.invoice(age=3); job = move.eta_job_ids
+        payload = json.dumps({'documents': [self.document(move)]})
+        attempted = fields.Datetime.now()-timedelta(hours=25)
+        job.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest(),
+                   'attempted_at': attempted, 'attempts': 1, 'last_error': 'Lost response.'})
+        before = (move.invoice_date,move.amount_total,move.amount_tax,job.payload,job.payload_hash,job.attempted_at,job.attempts)
+        job, client, candidates = self.review(move)
+        self.assertEqual(job.state, 'unknown'); self.assertFalse(job.historical_submission_verified)
+        self.assertEqual(before,(move.invoice_date,move.amount_total,move.amount_tax,job.payload,job.payload_hash,job.attempted_at,job.attempts))
+        candidates.assert_not_called(); client.request.assert_not_called()
+
+    def test_older_approval_cannot_replace_a_newer_uncertain_request_during_history_review(self):
+        move = self.invoice(age=3); job = move.eta_job_ids
+        current = self.document(move); current['signatures'] = [{'signatureType':'I','value':'new-request'}]
+        old = json.loads(json.dumps(current)); old['signatures'][0]['value'] = 'old-request'
+        payload = json.dumps({'documents':[current]})
+        job.write({'payload':payload,'payload_hash':hashlib.sha256(payload.encode()).hexdigest(),
+                   'attempted_at':fields.Datetime.now(),'attempts':1})
+        receipt = {'uuid':'old-approval','internalId':move.name,'status':'Valid','document':old}
+        with patch.object(self,'document',return_value=current):
+            job, client, candidates = self.review(move,[receipt])
+        self.assertEqual(job.state,'unknown'); self.assertEqual(job.payload,payload)
+        self.assertEqual(job.attempts,1); self.assertFalse(move.e_invoice_uuid)
+        candidates.assert_not_called(); client.request.assert_not_called()
+
+    def test_legacy_sent_flag_does_not_expire_into_permission_to_submit(self):
+        move = self.invoice(age=3); job = move.eta_job_ids
+        payload = json.dumps({'documents':[self.document(move)]})
+        move.write({'e_invoice_sent':True,'e_invoice_date':fields.Datetime.now()-timedelta(hours=25)})
+        job.write({'payload':payload,'payload_hash':hashlib.sha256(payload.encode()).hexdigest()})
+        job, client, _ = self.review(move)
+        self.assertEqual(job.state,'unknown'); self.assertEqual(job.payload,payload)
+        self.assertTrue(move.e_invoice_sent); self.assertFalse(job.attempted_at)
+        self.assertFalse(job.historical_submission_verified); client.request.assert_not_called()
+
+    def test_manual_refresh_cannot_route_a_linked_unknown_attempt_into_history(self):
+        move = self.invoice(); self.native_conflict(move); job = move.eta_job_ids
+        job.write({'state':'unknown','payload':'retained signed request','attempts':1,
+                   'attempted_at':fields.Datetime.now(),'historical_review':True,
+                   'next_attempt':fields.Datetime.now()+timedelta(minutes=20)})
+        keys=['state','payload','attempts','attempted_at','next_attempt','historical_review',
+              'historical_submission_verified','duplicate_retry_at','duplicate_payload_hash']
+        before=job.read(keys)
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Manual refresh sent HTTP')):
+            job.action_recheck()
+        self.assertEqual(before,job.read(keys))
+
+    def test_unknown_attempt_uses_request_reconciliation_despite_a_legacy_history_flag(self):
+        move=self.invoice();job=move.eta_job_ids
+        payload=json.dumps({'documents':[self.document(move)]})
+        job.write({'state':'unknown','payload':payload,'attempted_at':fields.Datetime.now(),
+                   'attempts':1,'historical_review':True})
+        client=MagicMock()
+        client.request.return_value={'result':[],'metadata':{'continuationToken':'EndofResultSet'}}
+        with patch.object(type(job),'_review_historical',side_effect=AssertionError('Uncertain attempt entered history')):
+            job._refresh(client)
+        self.assertEqual(job.state,'unknown');self.assertEqual(job.payload,payload)
+        self.assertFalse(job.historical_review);self.assertEqual(job.attempts,1)
+        self.assertTrue(client.request.called)
+        self.assertTrue(all(c.args[0]=='GET' for c in client.request.call_args_list))
+
+    def test_enrollment_preserves_attempt_count_when_timestamp_is_unavailable(self):
+        move=self.invoice();job=move.eta_job_ids
+        job.write({'state':'unknown','attempts':1,'first_submission_candidate':True})
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.historical_recovery_database',self.env.cr.dbname)
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Enrollment sent HTTP')):
+            job._enroll_historical(move_ids=move.ids)
+        self.assertEqual(job.state,'unknown');self.assertFalse(job.historical_fingerprint)
+        self.assertEqual(job.attempts,1);self.assertFalse(job.attempted_at)
+
+    def test_history_cannot_clear_attempt_count_when_timestamp_is_missing(self):
+        move=self.invoice();job=move.eta_job_ids
+        payload=json.dumps({'documents':[self.document(move)]})
+        job.write({'attempts':1,'payload':payload,'first_submission_candidate':True})
+        job,client,candidates=self.review(move)
+        self.assertEqual(job.state,'unknown');self.assertEqual(job.attempts,1)
+        self.assertFalse(job.attempted_at);self.assertEqual(job.payload,payload)
+        self.assertFalse(job.historical_submission_verified)
+        client.request.assert_not_called();candidates.assert_not_called()
+
+    def test_explicitly_rejected_unsent_job_still_enters_complete_history_recovery(self):
+        move=self.invoice();job=move.eta_job_ids
+        job.write({'state':'blocked','safe_to_retry':True,'attempted_at':fields.Datetime.now(),
+                   'attempts':1,'last_error':'ETA rejected the submission (2). {"code":"2"}'})
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.historical_recovery_database',self.env.cr.dbname)
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Enrollment sent HTTP')):
+            job._enroll_historical(move_ids=move.ids)
+        self.assertEqual(job.state,'review');self.assertTrue(job.historical_fingerprint)
+        self.assertTrue(job.safe_to_retry);self.assertEqual(job.attempts,1)
 
     def test_optional_id_recovery_rejects_mixed_product_errors_and_required_ids(self):
         move = self.invoice(); source = self.document(move); source['receiver']['id'] = '1'; job = move.eta_job_ids
@@ -202,8 +332,9 @@ class TestHistoricalRecovery(TransactionCase):
         job.write({'attempted_at': fields.Datetime.now(), 'payload': json.dumps({'documents': [source]}),
             'last_error': 'ETA rejected the submission (1). ' + json.dumps({'code': '1', 'details': [{'code': 'NI310'}]})})
         with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move)
-        self.assertEqual(job.state, 'review'); self.assertFalse(job.omit_optional_receiver_id)
-        self.assertIn('uncertain', job.last_error); client.request.assert_not_called()
+        self.assertEqual(job.state, 'unknown'); self.assertFalse(job.omit_optional_receiver_id)
+        self.assertTrue(job.last_error.startswith('ETA rejected the submission (1).'))
+        self.assertTrue(job.attempted_at); client.request.assert_not_called()
         job.write({'safe_to_retry': True, 'last_error': 'ETA rejected the submission (1). ' + json.dumps({'code': '1', 'details': [{'code': 'NI310'}]})})
         with patch.object(self, 'document', return_value=source):job, client, _ = self.review(move, proof=False)
         self.assertEqual(job.state, 'review'); self.assertFalse(job.omit_optional_receiver_id)
@@ -243,7 +374,7 @@ class TestHistoricalRecovery(TransactionCase):
         move = self.invoice(); job = move.eta_job_ids
         job.attempted_at = fields.Datetime.now(); before = job.attempted_at
         job, _, _ = self.review(move)
-        self.assertEqual(job.state, 'review'); self.assertEqual(job.attempted_at, before)
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job.attempted_at, before)
         self.assertFalse(job.historical_submission_verified)
 
     def test_manual_retry_cannot_bypass_incomplete_historical_proof(self):
@@ -777,7 +908,7 @@ class TestHistoricalRecovery(TransactionCase):
         job.write({'payload': payload, 'attempted_at': attempted, 'safe_to_retry': False})
         with patch.object(self, 'document', return_value=source):
             job, client, _ = self.review(move)
-        self.assertEqual(job.state, 'review'); self.assertEqual(job.attempted_at, attempted)
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job.attempted_at, attempted)
         self.assertEqual(job.payload, payload); self.assertIn('uncertain', job.last_error)
         client.request.assert_not_called()
 

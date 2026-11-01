@@ -20,6 +20,41 @@ from ..models.eta_monitoring import error_details
 
 @tagged('post_install', '-at_install')
 class TestEtaReliability(TransactionCase):
+
+    def test_first_submission_candidate_cannot_override_other_transmission_markers(self):
+        cases=[({'attempts':1},{}),
+               ({'duplicate_retry_at':fields.Datetime.now()+timedelta(minutes=5),
+                 'duplicate_payload_hash':'retained'},{}),
+               ({},{'e_invoice_sent':True})]
+        for job_values,move_values in cases:
+            move=self.invoice();job=move.eta_job_ids
+            job.write(dict({'state':'unknown','first_submission_candidate':True},**job_values))
+            if move_values:move.write(move_values)
+            client=MagicMock()
+            client.request.return_value={'result':[],'metadata':{'continuationToken':'EndofResultSet'}}
+            job._refresh(client)
+            self.assertEqual(job.state,'unknown')
+            self.assertTrue(all(c.args[0]=='GET' for c in client.request.call_args_list))
+
+    def test_known_old_uuid_cannot_poll_away_a_new_uncertain_request(self):
+        move=self.invoice();job=move.eta_job_ids
+        move.write({'e_invoice_uuid':'old-known','e_invoice_status':'Invalid'})
+        payload=json.dumps({'documents':[{'internalID':move.name,'issuer':{'id':self.company.vat},'totalAmount':100,'signatures':[{'value':'new'}]}]})
+        job.write({'state':'unknown','payload':payload,'attempted_at':fields.Datetime.now(),'attempts':1})
+        client=MagicMock()
+        def response(method,path,**kwargs):
+            self.assertEqual(method,'GET')
+            if path.endswith('/search'):
+                return {'result':[{'uuid':'old-known','internalId':move.name}],
+                        'metadata':{'continuationToken':'EndofResultSet'}}
+            return {'uuid':'old-known','internalId':move.name,'status':'Valid',
+                    'document':{'internalID':move.name,'issuer':{'id':self.company.vat},'totalAmount':100,'signatures':[{'value':'old'}]}}
+        client.request.side_effect=response
+        job._refresh(client)
+        self.assertEqual(job.state,'unknown');self.assertEqual(job.payload,payload)
+        self.assertEqual(move.e_invoice_uuid,'old-known');self.assertEqual(move.e_invoice_status,'Invalid')
+        self.assertTrue(client.request.call_args_list[0].args[1].endswith('/search'))
+
     def setUp(self):
         super().setUp()
         # These transport/date tests isolate the POST state machine. The real
