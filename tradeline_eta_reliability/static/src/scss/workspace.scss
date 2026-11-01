@@ -1,0 +1,14 @@
+.o_eta_workspace .o_list_table {
+    td[name="eta_vat_review_state"] { min-width: 220px; }
+    td[name="eta_staff_state"], td[name="state"] { white-space: normal; }
+    td[name="name"] { min-width: 170px; }
+    td[name="eta_vat_review_state"] .badge,
+    td[name="eta_staff_state"] .badge,
+    td[name="vat_review_state"] .badge {
+        white-space: normal !important;
+        text-overflow: clip;
+        overflow: visible;
+        text-align: left;
+        line-height: 1.35;
+    }
+}

@@ -22,6 +22,7 @@
         </div>
     </t>
     <t t-name="tradeline_eta_reliability.WorkspaceList" t-inherit="web.ListView" t-inherit-mode="primary">
+        <xpath expr="//div[@t-ref='root']" position="attributes"><attribute name="class">o_eta_workspace</attribute></xpath>
         <xpath expr="//t[@t-component='props.Renderer']" position="before"><EtaConnectionHealth/></xpath>
     </t>
 </templates>
