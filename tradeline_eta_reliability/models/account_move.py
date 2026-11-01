@@ -224,6 +224,7 @@ class AccountMove(models.Model):
         # Tax journal items are global. Keep each posted tax total, while moving
         # only the rounding residual between its own lines to satisfy ETA's
         # one-cent monetary tolerance. Never alter a posted journal item.
+        foreign = self.currency_id != self.env.ref('base.EGP')
         vat_groups = defaultdict(list)
         for posted in source:
             for tax, values in details['tax_details_per_record'].get(posted, {}).get('tax_details', {}).items():
@@ -240,11 +241,14 @@ class AccountMove(models.Model):
                 else:
                     shift = -min(-residual, entry[4] - entry[2])
                 entry[4] += shift; residual -= shift
-            if abs(residual) > D('.000001'):
+            # FX conversion of an already rounded currency tax can leave a
+            # sub-half-piaster residual even after all lines reach ETA's safe
+            # VAT range. Keep posted header totals; the final per-tax and gross
+            # checks below still reject differences of .005 EGP or more.
+            if abs(residual) > D('.000001') and (not foreign or abs(residual) >= D('.005')):
                 raise UserError(_('Posted VAT differs from its recorded tax rate. Finance must reconcile the posted tax ledger.'))
             for values, _old, _lower, _upper, amount in entries:
                 values['tax_amount'] = Q(amount)
-        foreign = self.currency_id != self.env.ref('base.EGP')
         nonzero = source.filtered(lambda line: line.amount_currency)
         if foreign:
             rate = (sum(abs(D(line.balance)) for line in nonzero) / sum(abs(D(line.amount_currency)) for line in nonzero)
@@ -306,8 +310,8 @@ class AccountMove(models.Model):
         if abs(totals['net'] - D(expected_net)) >= D('.005') or abs(totals['total'] - D(expected_total)) >= D('.005'):
             raise UserError(_('ETA product coverage does not reconcile posted accounting values. Check non-product lines and manual adjustments.'))
         document.update(totalSalesAmount=Q(totals['sales']), totalDiscountAmount=Q(totals['discount']),
-                        netAmount=Q(totals['net']), totalAmount=Q(totals['total']),
-                        taxTotals=([{'taxType': key, 'amount': Q(value)} for key, value in type_totals.items()]
+                        netAmount=Q(expected_net), totalAmount=Q(expected_total),
+                        taxTotals=([{'taxType': key, 'amount': Q(value)} for key, value in ledger.items()]
                                    or [item for item in document.get('taxTotals', []) if not item.get('amount')]))
         return document
 

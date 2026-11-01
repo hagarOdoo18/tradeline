@@ -114,6 +114,32 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual({x['taxType'] for x in doc['taxTotals']}, {'T1', 'T4'})
         self.assertAlmostEqual(doc['totalAmount'], 13861804.194, places=3)
 
+    def test_wh_usd_0114_converted_tax_rounding_keeps_posted_headers_and_balances(self):
+        self.env['res.currency.rate'].search([
+            ('currency_id', '=', self.usd.id), ('company_id', '=', self.company.id)]).write({'rate': .0179})
+        m = self.invoice(self.usd, [(1, 1499.9892, 0, self.vat | self.wht)])
+        self.assertAlmostEqual(abs(m.amount_untaxed_signed), 73507.263, places=3)
+        vat = abs(sum(m.line_ids.filtered(lambda l: l.tax_line_id == self.vat).mapped('balance')))
+        self.assertAlmostEqual(vat, 10291.006, places=3)
+        doc = self.reconcile(m)
+        self.assertEqual(doc['totalAmount'], abs(m.amount_total_signed))
+        self.assertEqual(doc['netAmount'], abs(m.amount_untaxed_signed))
+        self.assertEqual(next(t['amount'] for t in doc['taxTotals'] if t['taxType'] == 'T1'), vat)
+        line = doc['invoiceLines'][0]
+        allocated = next(t['amount'] for t in line['taxableItems'] if t['taxType'] == 'T1')
+        self.assertLess(abs(allocated - vat), .005)
+        self.assertLessEqual(abs(allocated - line['netTotal'] * .14), .00901)
+        self.assertLess(abs(line['total'] - doc['totalAmount']), .005)
+        self.assertEqual(line['unitValue']['currencyExchangeRate'], 55.86592)
+
+    def test_foreign_vat_difference_over_half_piaster_remains_blocked(self):
+        m = self.invoice(self.usd, [(1, 11400, 0, self.vat)])
+        details = m._prepare_invoice_aggregated_taxes(round_from_tax_lines=True)
+        source = m.invoice_line_ids.filtered(lambda line: line.product_id)
+        details['tax_details_per_record'][source]['tax_details'][self.vat]['tax_amount'] += .04
+        with patch.object(type(m), '_prepare_invoice_aggregated_taxes', return_value=details), self.assertRaisesRegex(UserError, 'posted tax ledger'):
+            self.reconcile(m)
+
     def test_egp_discount_included_tax_and_multiple_lines_use_posted_totals(self):
         m = self.invoice(specs=[(2, 114, 10, self.vat), (3, 225, 0, self.vat)])
         doc = self.reconcile(m)
