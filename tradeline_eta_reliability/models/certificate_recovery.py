@@ -139,7 +139,7 @@ class EtaCertificateRecovery(models.Model):
             evidence = []
             for code in codes:
                 scope, key = self._catalogue_cache_key(code)
-                current = json.loads(params.get_param(key, 'null'))
+                current = self._catalogue_read_evidence(key)
                 saved = retained[code]['approval'] if retained is not None else current
                 age = created - utc(saved['captured_utc'])
                 if (saved.get('scope') != scope or saved.get('approved') is not True

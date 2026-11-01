@@ -7,9 +7,11 @@ from urllib.parse import quote
 
 from odoo import api, fields, models
 
-from .client import EtaError
+from .client import EtaError, EtaCataloguePending
 from .processing_window import check_processing_window
 from .submission_safety import taxpayer
+
+CATALOGUE_CONTINUATION = 'ETA_catalogue_continuation.json'
 
 
 def active_now(record, now):
@@ -66,6 +68,90 @@ class EtaCatalogueRecovery(models.Model):
         scope = self.company_id.config_type + '|' + taxpayer(self.company_id.vat) + '|EGS|' + code
         return scope, 'tradeline_eta_reliability.catalogue_proof.' + hashlib.sha256(scope.encode()).hexdigest()
 
+    def _catalogue_read_evidence(self, key):
+        # Evidence may be committed by another foreground/native worker. Read
+        # the actual row instead of a process-local get_param cache entry.
+        if self.env.context.get('eta_catalogue_nonblocking'):
+            # Odoo uses REPEATABLE READ: the invoice's snapshot cannot see an
+            # independently committed publication/approval from this step.
+            with self.env.registry.cursor() as cr:
+                cr.execute('SELECT value FROM ir_config_parameter WHERE key=%s', [key])
+                row = cr.fetchone()
+        else:
+            self.env['ir.config_parameter'].sudo().flush_model(['key', 'value'])
+            self.env.cr.execute('SELECT value FROM ir_config_parameter WHERE key=%s', [key])
+            row = self.env.cr.fetchone()
+        try:
+            return json.loads(row[0]) if row else None
+        except (ValueError, TypeError):
+            return None
+
+    def _catalogue_store_evidence(self, key, proof):
+        # Only actual scoped GET evidence survives a deferred invoice rollback.
+        # Never commit the invoice transaction or any source/payload fields.
+        with self.env.registry.cursor() as cr:
+            cache_env = api.Environment(cr, self.env.uid, {})
+            cache_env['ir.config_parameter'].sudo().set_param(key, json.dumps(proof, ensure_ascii=False))
+            cache_env.flush_all()
+            cr.commit()
+
+    def _defer_catalogue_lookup(self, pending):
+        self.ensure_one()
+        now = fields.Datetime.now()
+        due = max(self.next_attempt or now, now + timedelta(seconds=pending.retry_after))
+        values = {'next_attempt': due}
+        if self.state == 'queued':
+            values.update(state='review', historical_review=True, historical_submission_verified=False)
+        if not self.last_error and self.state != 'unknown':
+            values['last_error'] = str(pending)
+        # Keep attempts/failures, all request bytes, uncertainty and cooldown
+        # markers. This scheduled wait is not a new technical failure.
+        self.write(values)
+        if self.state != 'review':
+            return
+        Attachment = self.env['ir.attachment'].sudo()
+        marker = Attachment.search([('res_model', '=', self._name), ('res_id', '=', self.id),
+            ('company_id', '=', self.company_id.id), ('name', '=', CATALOGUE_CONTINUATION),
+            ('public', '=', False)], order='id desc', limit=1)
+        raw = json.dumps({'database': self.env.cr.dbname, 'job': self.id, 'company': self.company_id.id,
+            'requested_at': fields.Datetime.to_string(now), 'not_before': fields.Datetime.to_string(due),
+            'expires_at': fields.Datetime.to_string(now + timedelta(minutes=10)), 'phase': pending.phase}).encode()
+        if marker:
+            marker.raw = raw
+        else:
+            Attachment.create({'name': CATALOGUE_CONTINUATION, 'res_model': self._name, 'res_id': self.id,
+                'company_id': self.company_id.id, 'public': False, 'mimetype': 'application/json', 'raw': raw})
+
+    def _catalogue_continuation_candidate(self, kind):
+        if kind != 'all':
+            return self.browse()
+        now = fields.Datetime.now()
+        self.flush_model(['state', 'next_attempt', 'company_id'])
+        self.env['ir.attachment'].sudo().flush_model(['res_model', 'res_id', 'company_id', 'name', 'public', 'create_date', 'write_date'])
+        self.env.cr.execute("""SELECT a.id,j.id FROM ir_attachment a
+            JOIN tradeline_eta_job j ON a.res_id=j.id AND a.company_id=j.company_id
+            WHERE a.res_model=%s AND a.name=%s AND NOT a.public AND j.state='review'
+              AND a.write_date >= %s AND (j.next_attempt IS NULL OR j.next_attempt<=%s)
+            ORDER BY a.write_date,a.id LIMIT 100""", [self._name, CATALOGUE_CONTINUATION, now-timedelta(minutes=10), now])
+        candidates = []
+        for aid, jid in self.env.cr.fetchall():
+            attachment = self.env['ir.attachment'].sudo().browse(aid)
+            job = self.sudo().browse(jid)
+            try:
+                data = json.loads(attachment.raw)
+                requested = fields.Datetime.to_datetime(data['requested_at'])
+                due = fields.Datetime.to_datetime(data['not_before'])
+                expiry = fields.Datetime.to_datetime(data['expires_at'])
+                if (data['database'] == self.env.cr.dbname and data['job'] == job.id
+                        and data['company'] == job.company_id.id and requested <= due <= now < expiry
+                        and timedelta(0) < expiry-requested <= timedelta(minutes=10)
+                        and data['phase'] in ('publication', 'usage')):
+                    candidates.append((data['phase'] != 'usage', aid, job))
+            except (ValueError, TypeError, KeyError):
+                continue
+        # Finish already-started publication/usage pairs before opening more.
+        return min(candidates, key=lambda item: item[:2])[2] if candidates else self.browse()
+
     def _catalogue_get(self, client, path, **kwargs):
         # The caller owns the existing global transport lock. Keep the
         # catalogue's stricter ten-second family limit across clients/workers.
@@ -82,6 +168,8 @@ class EtaCatalogueRecovery(models.Model):
         wait = max(0, deadline - time.time())
         if wait > 10.2:
             raise EtaError('ETA catalogue cooldown is active.', retry_after=min(3600, int(wait) + 1))
+        if wait > 0 and self.env.context.get('eta_catalogue_nonblocking'):
+            raise EtaCataloguePending(wait, 'usage' if '/codetypes/requests/' in path else 'publication')
         time.sleep(wait)
         check_processing_window(self.env)
         def save_deadline(value):
@@ -105,8 +193,8 @@ class EtaCatalogueRecovery(models.Model):
         now = datetime.now(timezone.utc)
         proof = None
         try:
-            saved = json.loads(params.get_param(key, 'null'))
-            if saved and saved.get('scope') == scope:
+            saved = self._catalogue_read_evidence(key)
+            if saved and saved.get('scope') == scope and type(saved.get('approved')) is bool:
                 age = now - datetime.fromisoformat(saved['captured_utc'])
                 ttl = timedelta(hours=6) if saved.get('approved') else timedelta(minutes=10)
                 if timedelta(0) <= age < ttl:
@@ -114,20 +202,40 @@ class EtaCatalogueRecovery(models.Model):
         except (ValueError, TypeError, KeyError):
             pass
         if proof is None:
+            nonblocking = self.env.context.get('eta_catalogue_nonblocking')
+            partial_key = key.replace('.catalogue_proof.', '.catalogue_partial.')
+            partial = self._catalogue_read_evidence(partial_key) if nonblocking else None
+            publication = None
             try:
-                publication = self._catalogue_get(client, '/api/v1.0/codetypes/EGS/codes/' + quote(code, safe=''))
-            except EtaError as exc:
-                if exc.status != 404:
-                    raise
-                publication = {}
+                captured = datetime.fromisoformat(partial['captured_utc'])
+                if (partial['database'] == self.env.cr.dbname and partial['scope'] == scope
+                        and timedelta(0) <= now-captured < timedelta(minutes=5)
+                        and isinstance(partial['publication'], dict) and partial['publication']):
+                    publication = partial['publication']
+                    now = captured # The complete proof retains its oldest GET time.
+            except (ValueError, TypeError, KeyError):
+                pass
+            if publication is None:
+                try:
+                    publication = self._catalogue_get(client, '/api/v1.0/codetypes/EGS/codes/' + quote(code, safe=''))
+                except EtaError as exc:
+                    if exc.status != 404:
+                        raise
+                    publication = {}
+                if nonblocking and publication:
+                    self._catalogue_store_evidence(partial_key, {'database': self.env.cr.dbname,
+                        'scope': scope, 'captured_utc': now.isoformat(), 'publication': publication})
             usage = (self._catalogue_get(client, '/api/v1.0/codetypes/requests/my',
                          params={'ItemCode': code, 'Pn': 1, 'Ps': 100}) if publication else {})
             proof = {'scope': scope, 'captured_utc': now.isoformat(),
                      'publication': publication, 'usage': usage,
-                     'approved': bool(approved_usage(publication, usage, code, rin, now))}
-            params.set_param(key, json.dumps(proof, ensure_ascii=False))
+                     'approved': bool(approved_usage(publication, usage, code, rin, datetime.now(timezone.utc)))}
+            if nonblocking:
+                self._catalogue_store_evidence(key, proof)
+            else:
+                params.set_param(key, json.dumps(proof, ensure_ascii=False))
         approved = bool(proof.get('approved') and approved_usage(
-            proof.get('publication'), proof.get('usage'), code, rin, now))
+            proof.get('publication'), proof.get('usage'), code, rin, datetime.now(timezone.utc)))
         if approved:
             self.env['ir.attachment'].sudo().create({'name': 'ETA_catalogue_approval_%s_%s.json' % (self.id, code),
                 'res_model': 'account.move', 'res_id': self.move_id.id, 'company_id': self.company_id.id,
@@ -145,7 +253,7 @@ class EtaCatalogueRecovery(models.Model):
             if not self._catalogue_code_approved(client, code):
                 return False
             _scope, key = self._catalogue_cache_key(code)
-            proof = json.loads(self.env['ir.config_parameter'].sudo().get_param(key, '{}'))
+            proof = self._catalogue_read_evidence(key) or {}
             proofs.append((code, approval_identity(proof)))
         digest = hashlib.sha256(json.dumps(proofs).encode()).hexdigest()
         if self.catalogue_evidence_hash == digest and self.catalogue_evidence_at:

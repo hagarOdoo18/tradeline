@@ -7,7 +7,7 @@ from odoo import Command, fields
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
-from ..models.client import EtaError
+from ..models.client import EtaError, EtaCataloguePending
 from ..models.processing_window import EtaStopped
 
 
@@ -145,6 +145,17 @@ class TestNativeBatching(TransactionCase):
         with self.native_harness(jobs, processor=process):
             self.Job.with_context(ir_cron_progress_id=123)._cron_process()
         self.assertEqual(observations, [1, 2])
+
+    def test_catalogue_gap_rolls_back_then_commits_normal_deferral_without_failure(self):
+        with self.isolated_worker(state='review') as run:
+            pending = EtaCataloguePending(9, 'usage')
+            run.job._refresh.side_effect = pending
+            run.job._defer_catalogue_lookup = MagicMock()
+            self.assertTrue(self.Job._process_id(1, run.client))
+            run.job._defer_catalogue_lookup.assert_called_once_with(pending)
+            run.job._delay.assert_not_called()
+            self.assertGreaterEqual(run.cr.rollback.call_count, 2)
+            self.assertGreaterEqual(run.cr.commit.call_count, 2)
 
     def test_worker_binds_transport_guards_to_the_owned_cursor_and_restores_client(self):
         from ..models.client import EtaClient
