@@ -141,11 +141,11 @@ Resetting wholly unmatched invoices does not require the branch module's
 separate Unreconcile permission. Removing existing payment matches still does.
 
 
-## Accounting staff workflow (18.0.1.0.27)
+## Accounting staff workflow (18.0.1.0.28)
 
 Accounting > ETA Status provides invoice-number, customer, journal/branch and
 original-message searches; status badges and grouping by status, journal,
-company and queued day. Clear Needs attention to include approved invoices.
+company and queued day. Invoice-number searches include every status by default. Use Needs attention to focus on exceptions.
 Customer-ID holds remain visible even when historical review has no failed
 network requests. Each invoice also displays its explanation, next step and
 last confirmed check. Reading these screens never makes a network request.

@@ -94,4 +94,30 @@
             </form>
         </field>
     </record>
+    <record id="view_invoice_list_eta_staff_status" model="ir.ui.view">
+        <field name="name">account.invoice.list.eta.staff.status</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_out_invoice_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <field name="eta_staff_state" string="ETA status" widget="badge" optional="show"
+                    decoration-success="eta_staff_state == 'valid'"
+                    decoration-danger="eta_staff_state in ('blocked', 'invalid')"
+                    decoration-warning="eta_staff_state == 'unknown'"
+                    decoration-info="eta_staff_state in ('queued', 'accepted', 'review')"/>
+            </xpath>
+        </field>
+    </record>
+    <record id="view_invoice_search_eta_untracked" model="ir.ui.view">
+        <field name="name">account.invoice.search.eta.untracked</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_account_invoice_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <separator/>
+                <filter name="eta_missing_tracking" string="ETA: no tracking or receipt"
+                    domain="[('state', '=', 'posted'), ('move_type', 'in', ['out_invoice', 'out_refund']), ('eta_job_ids', '=', False), ('e_invoice_uuid', '=', False), ('l10n_eg_uuid', '=', False), ('e_invoice_sent', '=', False)]"/>
+            </xpath>
+        </field>
+    </record>
 </odoo>

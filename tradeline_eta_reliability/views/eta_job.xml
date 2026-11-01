@@ -105,10 +105,10 @@
         <field name="res_model">tradeline.eta.job</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="eta_job_search"/>
-        <field name="context">{'search_default_attention': 1, 'group_by': 'state'}</field>
+        <field name="context">{'group_by': 'state'}</field>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">No ETA invoices currently need attention in your selected companies.</p>
-            <p>This live log shows the current reason and next step for each invoice. Clear the Needs attention filter to see all submission records, including approved invoices.</p>
+            <p class="o_view_nocontent_smiling_face">No invoices match these filters.</p>
+            <p>Search by invoice number across all statuses. Choose Needs attention to focus on issues, or group by branch, company or status.</p>
         </field>
     </record>
     <menuitem id="menu_eta_jobs" name="ETA Submission Jobs" parent="tradeline_operations_monitor.menu_operations_root" action="action_eta_jobs" groups="account.group_account_manager" sequence="16"/>

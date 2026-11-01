@@ -14,7 +14,7 @@ from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
-from .eta_job import EtaJob, STAFF_SEND, STAFF_STATUS
+from .eta_job import EtaJob, STATES, STAFF_SEND, STAFF_STATUS
 from .processing_window import EtaStopped, check_processing_window
 
 REQUEST_NAME = 'ETA_staff_operation.json'
@@ -89,6 +89,8 @@ class EtaStaffJob(models.Model):
             # The base refresh only GETs. Historical recovery may otherwise
             # turn verified absence into a queued submission during a refresh.
             return EtaJob._refresh(self, client)
+        if self.move_id.l10n_eg_uuid:
+            return self._apply_remote(client.request('GET', '/api/v1.0/documents/%s/raw' % self.move_id.l10n_eg_uuid))
         raise UserError(_('No ETA receipt or unresolved transmitted request is recorded. '
                           'Use Send to ETA now to submit this invoice.'))
 
@@ -96,13 +98,15 @@ class EtaStaffJob(models.Model):
         """One reserved manual lane per company; unrelated backlog keeps running."""
         self.ensure_one()
         check_processing_window(self.env)
-        self.env.cr.execute('SELECT pg_try_advisory_lock(741182,%s)', [self.company_id.id])
+        company_id = self.company_id.id
+        self.env.cr.execute('SELECT pg_try_advisory_lock(741182,%s)', [company_id])
         if not self.env.cr.fetchone()[0]:
             return False, _('Another manual ETA operation is running for this company. Retry shortly.')
-        client = (StatusClient if mode == 'status' else EtaClient)(self.company_id.sudo())
+        client = None
         operations = 0
         started = time.monotonic()
         try:
+            client = (StatusClient if mode == 'status' else EtaClient)(self.company_id.sudo())
             for _turn in range(3 if mode == 'send' else 1):
                 job_id = self.id
                 self.env.cr.rollback(); self.env.invalidate_all()
@@ -132,10 +136,13 @@ class EtaStaffJob(models.Model):
                     break
             return bool(operations), False
         finally:
-            client.close()
-            self.env.cr.rollback()
-            self.env.cr.execute('SELECT pg_advisory_unlock(741182,%s)', [client.company.id])
-            self.env.cr.commit()
+            try:
+                if client is not None:
+                    client.close()
+            finally:
+                self.env.cr.rollback()
+                self.env.cr.execute('SELECT pg_advisory_unlock(741182,%s)', [company_id])
+                self.env.cr.commit()
 
 
 class EtaStaffCompany(models.Model):
@@ -148,11 +155,32 @@ class EtaStaffCompany(models.Model):
 class EtaStaffMove(models.Model):
     _inherit = 'account.move'
 
-    eta_staff_state = fields.Selection(related='eta_job_ids.state', string='ETA status', readonly=True)
-    eta_staff_reason = fields.Text(related='eta_job_ids.staff_summary', string='What happened', readonly=True)
-    eta_staff_next_step = fields.Text(related='eta_job_ids.required_action', string='What to do', readonly=True)
+    eta_staff_state = fields.Selection(STATES, compute='_compute_eta_staff_status', string='ETA status')
+    eta_staff_reason = fields.Text(compute='_compute_eta_staff_status', string='What happened')
+    eta_staff_next_step = fields.Text(compute='_compute_eta_staff_status', string='What to do')
     eta_staff_checked_at = fields.Datetime(related='eta_job_ids.checked_at', string='Last confirmed check', readonly=True)
     eta_staff_next_attempt = fields.Datetime(related='eta_job_ids.next_attempt', string='Next automatic check', readonly=True)
+
+    @api.depends('eta_job_ids.state', 'eta_job_ids.last_error', 'eta_job_ids.checked_at',
+                 'eta_job_ids.next_attempt', 'e_invoice_uuid', 'e_invoice_status', 'e_invoice_sent', 'l10n_eg_uuid')
+    def _compute_eta_staff_status(self):
+        for move in self:
+            job = move.eta_job_ids
+            if job:
+                move.eta_staff_state = job.state
+                move.eta_staff_reason = job.staff_summary
+                move.eta_staff_next_step = job.required_action
+            elif move.e_invoice_uuid or move.l10n_eg_uuid:
+                status = move.e_invoice_status
+                move.eta_staff_state = ('valid' if status == 'Valid' else 'invalid'
+                    if status in ('Invalid', 'Rejected', 'Cancelled') else 'accepted')
+                move.eta_staff_reason = _('An earlier ETA receipt is recorded on this invoice (%s).', status or _('received'))
+                move.eta_staff_next_step = _('Use Check ETA status to refresh the existing receipt. Do not send another copy.')
+            else:
+                move.eta_staff_state = 'unknown' if move.e_invoice_sent else False
+                move.eta_staff_reason = (_('An earlier submission is recorded without a linked receipt. Verification is required.')
+                    if move.e_invoice_sent else _('No ETA tracking record is present for this invoice.'))
+                move.eta_staff_next_step = _('Send to ETA now verifies earlier records before submitting when safe.')
 
     def _eta_staff_access(self):
         self.ensure_one()
@@ -167,7 +195,7 @@ class EtaStaffMove(models.Model):
     def _eta_staff_request(self, mode):
         self._eta_staff_access()
         # Enroll just this invoice without postcommit queue dispatch/wakeups.
-        if mode == 'send':
+        if mode == 'send' or not self.eta_job_ids and (self.e_invoice_uuid or self.l10n_eg_uuid):
             self.with_context(eta_queue_cron=True)._eta_enqueue(reconcile=True)
         job = self.eta_job_ids.sudo()
         if not job:
@@ -244,7 +272,12 @@ class EtaStaffMove(models.Model):
             data['state'] = 'started'
             request.raw = json.dumps(data).encode()
             cr.commit()
-            done, message = job._staff_dispatch(data['mode'])
+            try:
+                done, message = job._staff_dispatch(data['mode'])
+            except EtaStopped:
+                done, message = False, _('ETA processing was paused by the owner. Nothing further was sent.')
+            except EtaError as exc:
+                done, message = False, str(exc)
             cr.rollback(); env.invalidate_all()
             result = {'title': dict(job._fields['state']._description_selection(env)).get(job.state),
                       'message': message or job.staff_summary, 'type': 'success' if job.state == 'valid'
