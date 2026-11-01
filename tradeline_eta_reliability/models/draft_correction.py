@@ -170,7 +170,7 @@ class AccountMoveDraftCorrection(models.Model):
                     cancelled |= move
                 else:
                     raise UserError(_('This invoice has an ETA receipt or an unresolved submission. Refresh ETA status first. '
-                                      'Use Correct VAT to prepare a credit note and VAT replacement for an accepted invoice.'))
+                                      'For a finally approved invoice, use Actions > Apply 14% Tax to preview an Odoo-only VAT correction. For other outcomes, check the ETA status first.'))
             if not move._check_edi_documents_for_reset_to_draft():
                 raise UserError(_('Another electronic invoicing service requires cancellation before this invoice can be reset.'))
         # Check the entire selection before the legacy implementation clears ETA fields.

@@ -4,6 +4,7 @@ from unittest.mock import patch
 from odoo import Command, fields
 from odoo.tests import TransactionCase, tagged
 from odoo.tests.common import new_test_user
+from odoo.tools import SQL
 
 
 @tagged('post_install', '-at_install')
@@ -90,6 +91,50 @@ class TestEtaVatWorkspace(TransactionCase):
         self.assertIn('Odoo accounting only', move.eta_vat_workflow_note)
         move.sudo().eta_receipt_vat_uuid = 'earlier-uuid'
         self.assert_route(move, 'review')
+
+    def test_native_pending_delivery_is_review_even_with_a_valid_receipt(self):
+        move = self.invoice(); self.receipt(move)
+        self.assert_route(move, 'approved')
+        edi_format = self.env['account.edi.format'].search([('code','=','eg_eta')], limit=1)
+        self.assertTrue(edi_format)
+        document = self.env['account.edi.document'].create({
+            'move_id': move.id, 'edi_format_id': edi_format.id, 'state': 'to_send'})
+        self.assert_route(move, 'review')
+        document.state = 'to_cancel'
+        self.assert_route(move, 'review')
+        document.state = 'sent'
+        self.assert_route(move, 'approved')
+
+    def test_unstamped_and_noncustomer_rows_skip_local_amendment_tax_probes(self):
+        healthy = self.invoice(vat=True)
+        credit = self.invoice(kind='out_refund')
+        self.env['account.move']._eta_flush_vat_workflow()
+        for move, expected_aggregate_loops in ((healthy, 1), (credit, 0)):
+            self.env.cr.execute(SQL(
+                'EXPLAIN (ANALYZE, FORMAT JSON) SELECT %s FROM account_move WHERE id=%s',
+                move._eta_vat_workflow_sql(), move.id))
+            plan = self.env.cr.fetchone()[0][0]['Plan']
+            nodes = [plan]
+            aggregate_loops = 0
+            while nodes:
+                node = nodes.pop()
+                nodes.extend(node.get('Plans', []))
+                if node['Node Type'] == 'Aggregate':
+                    aggregate_loops += node['Actual Loops']
+            self.assertEqual(aggregate_loops, expected_aggregate_loops,
+                'Only the current-invoice VAT probe may run; local amendment probes require audit stamps.')
+
+    def test_positive_route_scope_keeps_inverse_and_empty_route_membership(self):
+        approved = self.invoice(); self.receipt(approved)
+        healthy = self.invoice(vat=True)
+        credit = self.invoice(kind='out_refund')
+        model = self.env['account.move']
+        scope = [('id','in',(approved | healthy | credit).ids)]
+        for operator, value in (('!=','approved'), ('not in',['approved'])):
+            self.assertEqual(model.search(scope + [('eta_vat_workflow',operator,value)]), healthy | credit)
+        self.assertEqual(model.search(scope + [('eta_vat_workflow','in',['approved',False])]),
+                         approved | healthy | credit)
+        self.assertFalse(model.search(scope + [('eta_vat_workflow','not in',['approved',False])]))
 
     def test_unknown_historical_or_conflicting_receipt_is_never_an_unsent_invoice(self):
         for change in ({'state':'unknown','attempts':1,'attempted_at':fields.Datetime.now()},
