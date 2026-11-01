@@ -12,7 +12,7 @@ import requests
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 
-from .client import EtaClient, EtaError
+from .client import EtaClient, EtaError, EtaCataloguePending
 from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
@@ -386,7 +386,7 @@ class EtaJob(models.Model):
     def _process_id(self, job_id, client):
         """Return whether an owned processing result/deferral was committed."""
         with self.env.registry.cursor() as cr:
-            env = api.Environment(cr, self.env.uid, dict(self.env.context))
+            env = api.Environment(cr, self.env.uid, dict(self.env.context, eta_catalogue_nonblocking=True))
             committed = False
             try:
                 check_processing_window(env)
@@ -435,6 +435,18 @@ class EtaJob(models.Model):
                 # planned pause into a data error or schedule more work.
                 cr.rollback()
                 return committed
+            except EtaCataloguePending as pending:
+                cr.rollback()
+                try:
+                    check_processing_window(env, drain_seconds=0)
+                except EtaStopped:
+                    return committed
+                job.invalidate_recordset()
+                job._defer_catalogue_lookup(pending)
+                cr.commit()
+                env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
+                cr.commit()
+                committed = True
             except (psycopg2.Error, requests.RequestException, EtaError, UserError, ValueError) as exc:
                 cr.rollback()
                 try:
@@ -520,6 +532,9 @@ class EtaJob(models.Model):
                     and job.historical_reviewed_at >= now - timedelta(minutes=5)]
         if verified:
             return min(verified, key=lambda job: (job.historical_reviewed_at, job.id))
+        continuation = self._catalogue_continuation_candidate(kind)
+        if continuation:
+            return continuation
         for offset in range(len(NATIVE_SCHEDULE)):
             matches = [job for job in due if job.state == NATIVE_SCHEDULE[(turn + offset) % len(NATIVE_SCHEDULE)]]
             if matches:

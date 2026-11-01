@@ -1,6 +1,7 @@
 """Bounded ETA transport. Never logs tokens, signing PINs, or invoice bodies."""
 import time
 import hashlib
+import math
 from datetime import datetime
 
 import requests
@@ -16,6 +17,14 @@ class EtaError(Exception):
         self.status = status
         self.retry_after = retry_after
         self.code = code
+
+
+class EtaCataloguePending(EtaError):
+    """An ordinary catalogue family gap, not an HTTP/validation failure."""
+    def __init__(self, wait, phase):
+        super().__init__('Automatic product-code verification is waiting for its request window.',
+                         retry_after=max(1, int(math.ceil(wait))))
+        self.phase = phase
 
 
 class EtaClient:
