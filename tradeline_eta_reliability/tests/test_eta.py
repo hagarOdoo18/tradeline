@@ -470,6 +470,124 @@ class TestEtaReliability(TransactionCase):
         self.assertTrue(job.next_attempt)
         self.assertEqual(job.failures, 1)
 
+    def _uncertain_request(self, exc):
+        move = self.invoice()
+        job = move.eta_job_ids
+        payload = json.dumps({'documents': [{'internalID': move.name,
+            'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
+        job.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
+        client = MagicMock(); client.request.side_effect = exc
+        # TransactionCase.assertRaises adds an automatic rollback. The real
+        # worker's pre-POST commit survives, so retain this simulated marker.
+        with patch.object(self.env.cr, 'commit'):
+            try:
+                job._submit(client)
+            except type(exc) as caught:
+                self.assertIs(caught, exc)
+            else:
+                self.fail('The simulated request did not fail')
+        self.assertEqual(client.request.call_count, 1)
+        self.assertEqual(client.request.call_args.args[0], 'POST')
+        return job
+
+    def _uncertain_evidence(self, job):
+        return self.env['ir.attachment'].sudo().search([
+            ('res_model', '=', job._name), ('res_id', '=', job.id),
+            ('name', '=like', 'ETA_uncertain_request_failure_%')], order='id')
+
+    def test_uncertain_http_failure_is_private_and_survives_get_only_reconciliation(self):
+        exc = EtaError('private response body and customer ID', 422, code='RequestRejected')
+        job = self._uncertain_request(exc)
+        before = (job.payload, job.payload_hash, job.attempted_at, job.attempts,
+                  job.move_id.invoice_date, job.move_id.amount_total, job.safe_to_retry)
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        record = self._uncertain_evidence(job)
+        self.assertEqual(len(record), 1)
+        self.assertFalse(record.public)
+        self.assertEqual(record.company_id, job.company_id)
+        data = json.loads(record.raw)
+        self.assertEqual((data['http_status'], data['error_code']), (422, 'RequestRejected'))
+        self.assertFalse(data['delivery_proven']); self.assertFalse(data['retry_authorized'])
+        client = MagicMock()
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        job._refresh(client)
+        self.assertEqual(job.state, 'unknown')
+        self.assertTrue(all(c.args[0] == 'GET' for c in client.request.call_args_list))
+        self.assertEqual(before, (job.payload, job.payload_hash, job.attempted_at, job.attempts,
+            job.move_id.invoice_date, job.move_id.amount_total, job.safe_to_retry))
+        self.assertEqual(json.loads(record.raw), data)
+        self.assertNotIn('private response', record.raw.decode())
+
+    def test_uncertain_timeout_records_type_without_message_or_claiming_http_status(self):
+        exc = requests.Timeout('secret URL, token and request body')
+        job = self._uncertain_request(exc)
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        data = json.loads(self._uncertain_evidence(job).raw)
+        self.assertEqual(data['exception_type'], 'Timeout')
+        self.assertIsNone(data['http_status']); self.assertIsNone(data['error_code'])
+        self.assertNotIn('secret', json.dumps(data))
+        self.assertEqual((job.state, job.attempts), ('unknown', 1))
+
+    def test_untagged_reconciliation_error_cannot_fabricate_original_failure_evidence(self):
+        job = self.invoice().eta_job_ids
+        job.write({'state': 'unknown', 'attempts': 1, 'attempted_at': fields.Datetime.now(), 'payload': 'kept'})
+        self.assertFalse(job._preserve_uncertain_request_failure(EtaError('later GET failed', 503)))
+        self.assertFalse(self._uncertain_evidence(job))
+
+    def test_uncertain_evidence_rejects_wrong_job_attempt_time_and_retained_request(self):
+        exc = EtaError('failure', 503); job = self._uncertain_request(exc)
+        original = dict(exc.eta_submission_failure)
+        for key, value in [('job', job.id + 1), ('attempts', 2), ('attempted_at', '2000-01-01 00:00:00'),
+                           ('payload_sha256', 'different-request')]:
+            exc.eta_submission_failure = dict(original, **{key: value})
+            self.assertFalse(job._preserve_uncertain_request_failure(exc))
+        self.assertFalse(self._uncertain_evidence(job))
+        exc.eta_submission_failure = original
+        job.state = 'queued'
+        self.assertFalse(job._preserve_uncertain_request_failure(exc))
+
+    def test_first_uncertain_request_failure_is_not_overwritten(self):
+        exc = EtaError('first', 422, code='FirstCode'); job = self._uncertain_request(exc)
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        record = self._uncertain_evidence(job); before = record.raw
+        later = EtaError('later', 503, code='DifferentCode')
+        later.eta_submission_failure = dict(exc.eta_submission_failure)
+        self.assertFalse(job._preserve_uncertain_request_failure(later))
+        self.assertEqual(self._uncertain_evidence(job), record)
+        self.assertEqual(record.raw, before)
+
+    def test_another_attempt_has_separate_diagnostic_without_authorizing_it(self):
+        exc = EtaError('first', 422); job = self._uncertain_request(exc)
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        first = self._uncertain_evidence(job).raw
+        job.write({'attempts': 2, 'attempted_at': job.attempted_at + timedelta(minutes=10)})
+        exc.eta_submission_failure.update(attempts=2, attempted_at=fields.Datetime.to_string(job.attempted_at))
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        records = self._uncertain_evidence(job)
+        self.assertEqual(len(records), 2); self.assertEqual(records[0].raw, first)
+        self.assertTrue(all(not json.loads(record.raw)['retry_authorized'] for record in records))
+        self.assertFalse(job.safe_to_retry)
+
+    def test_diagnostic_storage_failure_cannot_replace_uncertainty_or_leak_details(self):
+        exc = requests.Timeout('private HTTP details'); job = self._uncertain_request(exc)
+        before = (job.payload, job.payload_hash, job.attempted_at, job.attempts)
+        with patch.object(type(self.env['ir.attachment']), 'create', side_effect=ValidationError('private storage details')), \
+                self.assertLogs('odoo.addons.tradeline_eta_reliability.models.eta_job', level='WARNING') as logs:
+            self.assertFalse(job._preserve_uncertain_request_failure(exc))
+        self.assertNotIn('private', '\n'.join(logs.output))
+        job._delay('Submission outcome needs reconciliation.', seconds=900, state='unknown')
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.next_attempt)
+        self.assertEqual(before, (job.payload, job.payload_hash, job.attempted_at, job.attempts))
+        self.assertFalse(self._uncertain_evidence(job))
+
+    def test_uncertain_evidence_sanitizes_external_error_code_and_status(self):
+        exc = EtaError('private message', 999, code='unsafe code contains a token')
+        job = self._uncertain_request(exc)
+        self.assertTrue(job._preserve_uncertain_request_failure(exc))
+        data = json.loads(self._uncertain_evidence(job).raw)
+        self.assertIsNone(data['http_status']); self.assertIsNone(data['error_code'])
+        self.assertNotIn('private', json.dumps(data)); self.assertNotIn('token', json.dumps(data))
+
     def test_accepted_post_is_saved_with_uuid(self):
         move = self.invoice()
         job = move.eta_job_ids
