@@ -222,7 +222,7 @@ class EtaStaffMove(models.Model):
         job = self.eta_job_ids.sudo()
         if not job:
             raise UserError(_('No ETA submission is recorded. Use Send to ETA now to submit this invoice.'))
-        if not had_job and self.e_invoice_uuid and self.e_invoice_status == 'Valid':
+        if not had_job and (self.e_invoice_uuid or self.l10n_eg_uuid) and self.e_invoice_status == 'Valid':
             # Enrollment for a manual check must not downgrade an approval
             # already recorded by the earlier integration if that check fails.
             job.state = 'valid'
