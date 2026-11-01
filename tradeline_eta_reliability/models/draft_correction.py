@@ -237,7 +237,7 @@ class EtaVatCorrection(models.TransientModel):
             move = wizard.move_id
             for line in move.invoice_line_ids.filtered(lambda item: item.display_type == 'product'):
                 taxes = line.tax_ids.filtered(lambda tax: tax.type_code_id.code != 'T1'
-                    and not (tax.l10n_eg_eta_code or '').startswith('T1_')) | wizard.tax_id
+                    and not (tax.l10n_eg_eta_code or '').upper().startswith('T1_')) | wizard.tax_id
                 values = taxes.compute_all(line.price_unit * (1 - line.discount / 100),
                     currency=move.currency_id, quantity=line.quantity, product=line.product_id,
                     partner=move.partner_id, is_refund=move.move_type == 'out_refund')
@@ -316,7 +316,7 @@ class EtaVatCorrection(models.TransientModel):
     def _apply_vat(self, move):
         for line in move.invoice_line_ids.filtered(lambda line: line.display_type == 'product'):
             line.tax_ids = (line.tax_ids.filtered(lambda tax: tax.type_code_id.code != 'T1'
-                and not (tax.l10n_eg_eta_code or '').startswith('T1_')) | self.tax_id)
+                and not (tax.l10n_eg_eta_code or '').upper().startswith('T1_')) | self.tax_id)
 
     def _restore_credit_lines(self, credit, document):
         """Reverse the submitted values, even if Odoo taxes were edited later."""
