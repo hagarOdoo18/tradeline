@@ -4,6 +4,7 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { listView } from "@web/views/list/list_view";
 import { ListController } from "@web/views/list/list_controller";
+import { SearchBar } from "@web/search/search_bar/search_bar";
 import { _t } from "@web/core/l10n/translation";
 
 export class EtaConnectionHealth extends Component {
@@ -52,9 +53,12 @@ export class EtaConnectionHealth extends Component {
     }
     open(suffix) { return this.action.doAction("tradeline_eta_reliability.action_eta_" + suffix); }
 }
+class EtaWorkspaceFilterBar extends SearchBar {
+    static template = "tradeline_eta_reliability.WorkspaceFilterBar";
+}
 class EtaWorkspaceListController extends ListController {
     static template = "tradeline_eta_reliability.WorkspaceList";
-    static components = { ...ListController.components, EtaConnectionHealth };
+    static components = { ...ListController.components, SearchBar: EtaWorkspaceFilterBar, EtaConnectionHealth };
 }
 registry.category("views").add("eta_workspace_list", { ...listView, Controller: EtaWorkspaceListController });
 registry.category("view_widgets").add("eta_connection_health", { component: EtaConnectionHealth });
