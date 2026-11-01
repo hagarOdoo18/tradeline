@@ -37,5 +37,6 @@
         'security/security.xml',
         'views/account_move.xml',
         'views/sale_order.xml',
+        'views/apply_tax_server_action.xml',
     ],
 }

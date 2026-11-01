@@ -8,6 +8,7 @@ import logging
 from odoo.tools import float_is_zero, float_compare
 from odoo.tools.misc import formatLang
 from collections import defaultdict, deque
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -713,6 +714,71 @@ class AccountMove(models.Model):
         appear frozen for up to several minutes.
         """
         return super(AccountMove, self).action_post()
+
+    def action_apply_14_tax(self):
+        """Server action: apply 14% VAT to non-service product lines
+        on invoices linked to a sale order or POS order."""
+        tax_14 = self.env['account.tax'].search([
+            ('amount', '=', 14),
+            ('type_tax_use', '=', 'sale'),
+            ('amount_type', '=', 'percent'),
+            ('company_id', '=', self.env.company.id),
+        ], limit=1)
+        if not tax_14:
+            raise UserError(
+                _("No 14%% sale tax found for company %s.") % self.env.company.name
+            )
+
+        updated_count = 0
+        skipped_count = 0
+
+        for move in self:
+            # Only process customer invoices / credit notes
+            if move.move_type not in ('out_invoice', 'out_refund'):
+                skipped_count += 1
+                continue
+
+            # Check if invoice is related to a sale order or POS order
+            has_sale_order = any(
+                line.sale_line_ids for line in move.invoice_line_ids
+            )
+            has_pos_order = (
+                'pos_order_ids' in move._fields and move.pos_order_ids
+            )
+            if not has_sale_order and not has_pos_order:
+                skipped_count += 1
+                continue
+
+            lines_to_update = self.env['account.move.line']
+            for line in move.invoice_line_ids:
+                if not line.product_id:
+                    continue
+                if line.product_id.type == 'service':
+                    continue
+                if tax_14 in line.tax_ids:
+                    continue
+                lines_to_update |= line
+
+            if lines_to_update:
+                was_posted = move.state == 'posted'
+                if was_posted:
+                    move.button_draft()
+
+                for line in lines_to_update:
+                    line.with_context(check_move_validity=False).write({
+                        'tax_ids': [(4, tax_14.id)]
+                    })
+
+                if was_posted:
+                    move.action_post()
+
+                updated_count += 1
+                move.message_post(
+                    body=_("Applied 14%% tax to %d line(s).") % len(lines_to_update)
+                )
+            else:
+                skipped_count += 1
+
 
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
