@@ -17,7 +17,14 @@ class TestEtaDraftCorrection(TransactionCase):
     def setUpClass(cls):
         super().setUpClass()
         cls.env.ref('base.EGP').active = True
+        partner_values = {'name': 'VAT correction QA company', 'is_company': True,
+            'vat': '123456789', 'country_id': cls.env.ref('base.eg').id}
+        for name, value in [('company_size', 'small'), ('company_device', 1)]:
+            if name in cls.env['res.partner']._fields:
+                partner_values[name] = value
+        company_partner = cls.env['res.partner'].with_context(no_vat_validation=True).create(partner_values)
         cls.company = cls.env['res.company'].create({'name': 'VAT correction QA company',
+            'partner_id': company_partner.id,
             'currency_id': cls.env.ref('base.EGP').id, 'country_id': cls.env.ref('base.eg').id,
             'activity_code_id': cls.env.company.activity_code_id.id,
             'type_code_id': cls.env.company.type_code_id.id, 'sub_type_code_id': cls.env.company.sub_type_code_id.id})
