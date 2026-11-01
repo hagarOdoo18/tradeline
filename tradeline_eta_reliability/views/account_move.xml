@@ -5,9 +5,12 @@
         <field name="inherit_id" ref="egyptian_electronic_invoice.e_invoice_view_move_form_inherit"/>
         <field name="priority">90</field>
         <field name="arch" type="xml">
+            <xpath expr="//button[@name='action_send_electronic_invoice']" position="attributes">
+                <attribute name="groups">account.group_account_invoice</attribute>
+            </xpath>
             <xpath expr="//header" position="inside">
                 <button name="action_eta_correct_vat" string="Correct VAT" type="object"
-                        groups="account.group_account_manager"
+                        groups="account.group_account_invoice"
                         invisible="state != 'posted' or move_type != 'out_invoice'"/>
             </xpath>
             <xpath expr="//div[@name='button_box']" position="inside">

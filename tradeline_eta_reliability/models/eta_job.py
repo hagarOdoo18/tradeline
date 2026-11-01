@@ -77,13 +77,15 @@ class EtaJob(models.Model):
 
     def action_approve_current_issue_date(self):
         """Explicit date treatment for a document known not to be accepted at ETA."""
-        if not (self.env.is_superuser() or self.env.user.has_group('account.group_account_manager')
+        if not (self.env.is_superuser() or self.env.user.has_group('account.group_account_invoice')
                 or self.env.user.has_group('base.group_system')):
-            raise AccessError(_('An accounting manager must approve the ETA issue-date treatment.'))
-        self.check_access('write')
-        for job in self:
+            raise AccessError(_('Invoice access is required to approve the ETA issue-date treatment.'))
+        self.check_access('read')
+        self.move_id.check_access('write')
+        # Only this validated transition may update the private transport ledger.
+        # Check every selected invoice before elevating or changing any job.
+        for job in self.sudo():
             move = job.move_id
-            move.check_access('write')
             self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [job.id])
             if not self.env.cr.fetchone()[0]:
                 raise UserError(_('This invoice is being processed. Refresh its status before approving a retry.'))
@@ -733,7 +735,9 @@ class EtaJob(models.Model):
         return (self.last_error or '').startswith(DUPLICATE_REVIEW_PREFIX)
 
     def action_recheck(self):
-        for job in self:
+        self.check_access('read')
+        self.move_id.check_access('write')
+        for job in self.sudo():
             if job.state == 'unknown':
                 # Refresh/Sync cannot replace an unresolved attempt with an
                 # older linked receipt or reset its future reconciliation gate.

@@ -28,7 +28,7 @@
             <form create="0" delete="0" edit="0">
                 <header>
                     <button name="action_open_invoice" type="object" string="Open invoice" class="btn-primary"/>
-                    <button name="action_approve_current_issue_date" type="object" string="Approve current ETA issue date" groups="account.group_account_manager,base.group_system" invisible="state not in ('queued', 'blocked')"/>
+                    <button name="action_approve_current_issue_date" type="object" string="Approve current ETA issue date" groups="account.group_account_invoice,base.group_system" invisible="state not in ('queued', 'blocked')"/>
                     <button name="action_recheck" type="object" string="Refresh / retry unsent documents"/>
                 </header>
                 <sheet>
@@ -97,5 +97,6 @@
         </field>
     </record>
     <menuitem id="menu_eta_jobs" name="ETA Submission Jobs" parent="tradeline_operations_monitor.menu_operations_root" action="action_eta_jobs" groups="account.group_account_manager" sequence="16"/>
+    <menuitem id="menu_account_eta_jobs" name="ETA Submission Jobs" parent="account.menu_finance" action="action_eta_invoice_log" groups="account.group_account_invoice" sequence="95"/>
     <menuitem id="menu_operations_eta_log" name="ETA Invoice Log" parent="tradeline_operations_monitor.menu_operations_root" action="action_eta_invoice_log" groups="base.group_system" sequence="15"/>
 </odoo>

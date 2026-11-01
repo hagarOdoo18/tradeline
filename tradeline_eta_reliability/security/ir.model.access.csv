@@ -1,4 +1,11 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_eta_job_invoice,ETA jobs invoice user,model_tradeline_eta_job,account.group_account_invoice,1,0,0,0
+access_eta_job_readonly,ETA jobs readonly accountant,model_tradeline_eta_job,account.group_account_readonly,1,0,0,0
 access_eta_job_manager,ETA jobs accounting manager,model_tradeline_eta_job,account.group_account_manager,1,1,0,0
 access_eta_job_admin,ETA jobs administrator,model_tradeline_eta_job,base.group_system,1,1,1,0
 access_eta_vat_correction_manager,ETA VAT correction manager,model_tradeline_eta_vat_correction,account.group_account_manager,1,1,1,1
+access_eta_vat_correction_invoice,ETA VAT correction invoice user,model_tradeline_eta_vat_correction,account.group_account_invoice,1,1,1,1
+access_eta_tax_type_invoice,ETA tax type invoice user,egyptian_electronic_invoice.model_account_tax_type_code,account.group_account_invoice,1,0,0,0
+access_eta_tax_subtype_invoice,ETA tax subtype invoice user,egyptian_electronic_invoice.model_account_tax_sub_type_code,account.group_account_invoice,1,0,0,0
+access_eta_activity_invoice,ETA activity invoice user,egyptian_electronic_invoice.model_res_company_activity,account.group_account_invoice,1,0,0,0
+access_eta_uom_invoice,ETA unit invoice user,egyptian_electronic_invoice.model_eta_uom,account.group_account_invoice,1,0,0,0

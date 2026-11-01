@@ -345,8 +345,9 @@ class AccountMove(models.Model):
     def _eta_queue_corrected_document(self):
         """Explicit owner action; an unchanged or still-accepted document is never resent."""
         self.ensure_one()
-        if not self.env.is_superuser() and not self.env.user.has_group('account.group_account_manager'):
-            raise AccessError(_('An accounting manager must approve a corrected ETA submission.'))
+        self.check_access('write')
+        if not self.env.is_superuser() and not self.env.user.has_group('account.group_account_invoice'):
+            raise AccessError(_('Invoice access is required to approve a corrected ETA submission.'))
         self._eta_enqueue()
         job = self.eta_job_ids.sudo().with_company(self.company_id)
         job.ensure_one()

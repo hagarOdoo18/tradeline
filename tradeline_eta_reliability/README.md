@@ -29,7 +29,7 @@ database name. A staging copy retains a mismatched name and cannot submit.
 Existing uncertain
 historical documents must be reconciled before being enrolled for submission.
 Invalid documents are not automatically resubmitted, renumbered or cancelled.
-After correcting source data, an accounting manager can use the invoice's
+After correcting source data, an invoice user can use the invoice's
 existing Submit action. The authority must still report Invalid, and the
 document must have changed beyond its date/signature. The rejected document is
 retained as a company-owned attachment before a corrected version enters the
@@ -59,7 +59,7 @@ perform HTTP calls, retry documents or alter accounting data. The original
 ETA message remains available on each row's detail form. Original invoice dates
 stay unchanged; eligible date holds may use the explicitly approved ETA date treatment.
 
-An accounting manager can explicitly approve the current ETA issue date for a
+An invoice user can explicitly approve the current ETA issue date for a
 queued or blocked document with no accepted/uncertain government receipt. The
 original accounting invoice date and amounts remain unchanged. Approval is
 recorded on the job and the prior payload/error is retained on the invoice as
@@ -86,7 +86,7 @@ cryptographic signature validation.
 
 ## VAT corrections
 
-Accounting managers can use **Correct VAT** on a posted customer invoice and
+Invoice users can use **Correct VAT** on a posted customer invoice and
 select the correct company VAT sales tax. Preparing a correction never posts
 accounting entries or submits documents to ETA.
 
@@ -117,6 +117,22 @@ review their exchange rates or remaining refundable amounts. Confirmed ETA
 cancellations retain the standard draft/cancel flow, with evidence archived;
 the cancelled invoice is not automatically queued for resubmission.
 
-Version 18.0.1.0.24 requires a module upgrade for the correction relation,
-manager wizard, access rule, and form views. No existing invoices are corrected
+Version 18.0.1.0.25 requires a module upgrade for the correction relation,
+wizard, access rules, and form views. No existing invoices are corrected
 automatically by the upgrade.
+
+## Staff access
+
+The Invoicing group can open invoices, sync and refresh ETA status, retry
+corrected rejections, explicitly approve current ETA issue-date treatment, and
+prepare VAT corrections without Accounting Administrator or Settings access.
+Accounting > ETA Submission Jobs opens the invoice log without exposing the
+administrator-only Operations Monitor app. Existing invoice write permissions
+and selected-company rules apply before any job action runs. Read-only
+accountants may view jobs but cannot change their processing.
+
+Staff have read access to the ETA job and tax/activity/unit reference codes.
+Job creation, deletion, direct state edits and private payload access remain
+restricted. Validated actions update only the required transport fields after
+checking access to every selected invoice. Receipt, uncertainty, retry,
+accounting-lock and duplicate safeguards still apply.

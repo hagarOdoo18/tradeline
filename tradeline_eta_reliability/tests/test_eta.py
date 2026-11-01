@@ -100,6 +100,94 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(len(move.eta_job_ids), 1)
         self.assertEqual(move.eta_job_ids.state, 'queued')
 
+    def invoice_user(self):
+        user = new_test_user(self.env, login='eta_invoice_clerk', groups='account.group_account_invoice',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
+        self.assertFalse(user.has_group('base.group_system'))
+        self.assertFalse(user.has_group('account.group_account_manager'))
+        return user
+
+    def test_invoice_user_can_read_reset_dependencies_and_sync(self):
+        user = self.invoice_user()
+        move = self.invoice().with_user(user)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Sync performed HTTP')):
+            self.assertTrue(move.read(['show_reset_to_draft_button', 'eta_job_ids'])[0]['show_reset_to_draft_button'])
+            self.assertEqual(move.eta_job_ids.read(['state'])[0]['state'], 'queued')
+            self.assertEqual(move.action_send_electronic_invoice()['tag'], 'display_notification')
+            move.action_update_electronic_invoice_status()
+        menu = self.env.ref('tradeline_eta_reliability.menu_account_eta_jobs')
+        self.assertIn(menu.id, self.env['ir.ui.menu'].with_user(user)._visible_menu_ids())
+
+    def test_invoice_user_cannot_rewrite_transport_ledger(self):
+        user = self.invoice_user()
+        job = self.invoice().eta_job_ids.with_user(user)
+        for operation in ('write', 'create', 'unlink'):
+            self.assertFalse(job.check_access_rights(operation, raise_exception=False))
+        with self.assertRaises(AccessError):
+            job.write({'state': 'valid', 'move_id': job.move_id.id})
+        with self.assertRaises(AccessError):
+            job.read(['payload'])
+
+    def test_invoice_user_can_read_eta_metadata_without_configuration_access(self):
+        user = self.invoice_user()
+        for model in ('account.tax.type.code', 'account.tax.sub.type.code', 'res.company.activity', 'eta.uom'):
+            records = self.env[model].with_user(user)
+            records.search([], limit=1).read(['code'])
+            self.assertFalse(records.check_access_rights('write', raise_exception=False))
+
+    def test_readonly_accountant_can_view_but_cannot_recheck(self):
+        user = new_test_user(self.env, login='eta_readonly', groups='account.group_account_readonly',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
+        job = self.invoice().eta_job_ids.with_user(user)
+        self.assertEqual(job.read(['state'])[0]['state'], 'queued')
+        for action in ('action_recheck', 'action_approve_current_issue_date'):
+            with self.assertRaises(AccessError):
+                getattr(job, action)()
+
+    def test_invoice_user_can_recheck_and_approve_recorded_date(self):
+        user = self.invoice_user()
+        move = self.invoice(invoice_date=fields.Date.today() - timedelta(days=45))
+        job = move.eta_job_ids
+        job.write({'state': 'blocked', 'payload': 'prior-request', 'last_error': 'prior-error'})
+        job.with_user(user).action_recheck()
+        self.assertEqual(job.state, 'queued')
+        job.with_user(user).action_approve_current_issue_date()
+        self.assertEqual(job.issue_date_policy, 'current')
+        self.assertEqual(job.issue_date_approved_by, user)
+        self.assertNotEqual(move.invoice_date, fields.Date.today())
+        self.assertTrue(self.env['ir.attachment'].search_count([
+            ('res_model', '=', 'account.move'), ('res_id', '=', move.id),
+            ('name', '=', 'ETA_issue_date_approval_%s.json' % job.id)]))
+
+    def test_invoice_user_actions_enforce_invoice_record_rules_before_elevation(self):
+        user = self.invoice_user()
+        move = self.invoice()
+        job = move.eta_job_ids
+        self.env['ir.rule'].create({'name': 'ETA QA inaccessible invoice',
+            'model_id': self.env['ir.model']._get_id('account.move'),
+            'domain_force': "[('id', '!=', %s)]" % move.id})
+        for action in ('action_recheck', 'action_approve_current_issue_date'):
+            with self.assertRaises(AccessError):
+                getattr(job.with_user(user), action)()
+        for action in ('action_send_electronic_invoice', 'action_update_electronic_invoice_status'):
+            with self.assertRaises(AccessError):
+                getattr(move.with_user(user), action)()
+        self.assertEqual(job.state, 'queued')
+        self.assertEqual(job.issue_date_policy, 'invoice')
+
+    def test_invoice_user_job_actions_enforce_selected_company(self):
+        user = self.invoice_user()
+        job = self.invoice().eta_job_ids
+        other = self.env['res.company'].create({'name': 'ETA permissions other company',
+            'activity_code_id': self.company.activity_code_id.id,
+            'type_code_id': self.company.type_code_id.id, 'sub_type_code_id': self.company.sub_type_code_id.id})
+        user.company_ids |= other
+        hidden = job.with_user(user).with_context(allowed_company_ids=other.ids)
+        self.assertFalse(hidden.search([('id', '=', job.id)]))
+        for action in ('action_recheck', 'action_approve_current_issue_date'):
+            with self.assertRaises(AccessError):
+                getattr(hidden, action)()
+
     def _id_rule_partner(self, **values):
         details = dict(company_type='person', mobile_type='local', vat=False,
                        display_name='ID rule test buyer', country_id=SimpleNamespace(code='EG'),
@@ -985,7 +1073,7 @@ class TestEtaReliability(TransactionCase):
         client = MagicMock(); client.request.return_value = result
         with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
                 patch.object(type(move), '_eta_correction_document', return_value=original):
-            move.action_send_electronic_invoice()
+            move.with_user(self.invoice_user()).action_send_electronic_invoice()
         self.assertFalse(move.e_invoice_uuid)
         self.assertEqual(move.eta_job_ids.state, 'queued')
         self.assertEqual(move.amount_total, 100)
