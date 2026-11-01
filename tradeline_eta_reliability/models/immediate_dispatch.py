@@ -139,9 +139,11 @@ class EtaImmediateDispatch(models.Model):
         now = fields.Datetime.now()
         if ordinary and (ordinary.state == 'unknown'
                 or ordinary.state == 'queued' and not ordinary.historical_fingerprint
-                or ordinary.state == 'accepted' and (not ordinary.checked_at or ordinary.checked_at < now - timedelta(minutes=5))
                 or ordinary.state == 'queued' and ordinary.historical_reviewed_at and ordinary.historical_reviewed_at >= now - timedelta(minutes=5)):
             return ordinary
+        # A continuous backlog of stale status polls must not starve an
+        # explicit send request. Fresh invoices, uncertain outcomes and newly
+        # verified submissions above still retain their protective precedence.
         return self._priority_dispatch_candidate(kind) or ordinary
 
     def _dispatch_immediately(self):
