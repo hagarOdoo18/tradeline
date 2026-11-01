@@ -171,7 +171,12 @@ class EtaImmediateDispatch(models.Model):
                 company = job.company_id.sudo()
                 if company.id not in clients:
                     clients[company.id] = EtaClient(company)
-                if not self._process_id(job.id, clients[company.id]):
+                job_id, client = job.id, clients[company.id]
+                # Do not retain selection/configuration relation locks while
+                # the nested worker uses its own transaction. Keep only the
+                # session-scoped global transport lock across this handoff.
+                self.env.cr.rollback()
+                if not self._process_id(job_id, client):
                     break
                 done += 1
         finally:

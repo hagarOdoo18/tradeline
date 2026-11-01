@@ -371,3 +371,16 @@ class TestImmediateDispatch(TransactionCase):
                 patch.object(type(self.Job), '_dispatch_immediately') as dispatch:
             dispatch_after_commit(registry, self.env.uid, tuple(job.ids), tuple(requests))
         dispatch.assert_not_called()
+
+    def test_immediate_dispatch_releases_selected_relation_locks_before_owned_worker(self):
+        job = self.invoice().eta_job_ids
+        observations = []
+        def process(row, client):
+            observations.append(self.env.cr.rollback.call_count)
+            row.write({'state': 'accepted', 'next_attempt': fields.Datetime.now() + timedelta(minutes=5)})
+            return True
+        with self.dispatch_harness(processor=process):
+            self.assertEqual(job._dispatch_immediately(), 1)
+        # One rollback refreshes selection, the other releases its relation
+        # locks before entering _process_id on a different connection.
+        self.assertEqual(observations, [2])
