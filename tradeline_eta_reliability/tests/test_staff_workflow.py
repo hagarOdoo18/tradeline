@@ -274,6 +274,9 @@ class TestEtaStaffWorkflow(TransactionCase):
         with self.assertRaises(AccessError):move.with_user(readonly).action_eta_send_now()
         rule = self.env['ir.rule'].create({'name': 'Staff QA restrict invoice',
             'model_id': self.env['ir.model']._get_id('account.move'), 'domain_force': "[('id', '!=', %s)]" % move.id})
+        self.assertFalse(self.Job.with_user(self.clerk).search([('move_id', '=', move.id)]),
+                         'ETA status must inherit invoice record rules, including branch restrictions')
+        with self.assertRaises(AccessError):move.eta_job_ids.with_user(self.clerk).read(['staff_summary'])
         with self.assertRaises(AccessError):move.with_user(self.clerk).action_eta_send_now()
         rule.unlink()
 
