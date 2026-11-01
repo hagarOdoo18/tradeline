@@ -141,7 +141,7 @@ Resetting wholly unmatched invoices does not require the branch module's
 separate Unreconcile permission. Removing existing payment matches still does.
 
 
-## Accounting staff workflow (18.0.1.0.29)
+## Accounting staff workflow (18.0.1.0.30)
 
 Accounting > ETA Status provides invoice-number, customer, journal/branch and
 original-message searches; status badges and grouping by status, journal,

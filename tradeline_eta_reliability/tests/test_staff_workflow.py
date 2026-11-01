@@ -298,6 +298,15 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(move.eta_job_ids.state, 'valid')
         self.assertFalse(move.eta_job_ids.attempts)
 
+    def test_earlier_native_only_approval_is_not_downgraded_by_status_enrollment(self):
+        move = self.invoice()
+        move.eta_job_ids.unlink()
+        move.write({'e_invoice_status': 'Valid', 'l10n_eg_uuid': 'earlier-native-approval'})
+        self.assertEqual(move.eta_staff_state, 'valid')
+        move.with_user(self.clerk).action_eta_check_status_now()
+        self.assertEqual(move.eta_job_ids.state, 'valid')
+        self.assertFalse(move.e_invoice_uuid)
+
     def test_staff_views_support_invoice_search_badges_and_branch_grouping(self):
         move = self.invoice(); model = self.Job.with_user(self.clerk)
         rows = model.read_group([('id', '=', move.eta_job_ids.id)], ['journal_id'], ['journal_id'])
