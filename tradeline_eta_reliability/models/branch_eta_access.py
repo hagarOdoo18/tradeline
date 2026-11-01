@@ -53,6 +53,14 @@ class EtaBranchInvoiceAccess(models.Model):
         self._eta_require_central_staff()
         return super().action_generate_eta_json()
 
+    def action_post_sign_invoices(self):
+        self._eta_require_central_staff()
+        return super().action_post_sign_invoices()
+
+    def action_get_eta_invoice_pdf(self):
+        self._eta_require_central_staff()
+        return super().action_get_eta_invoice_pdf()
+
     def action_sign_invoice(self):
         self._eta_require_central_staff()
         return super().action_sign_invoice()
