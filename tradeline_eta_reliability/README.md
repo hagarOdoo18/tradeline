@@ -1,6 +1,18 @@
 # Reliable ETA processing
 
-## ETA workspace and VAT policy (18.0.1.0.35)
+## ETA workspace and VAT policy (18.0.1.0.36)
+
+Today combines invoices dated or created on the current Cairo day with older
+invoices submitted or attempted that day. It groups drafts and posted documents
+by accounting state and ETA status. All invoices opens grouped by invoice day;
+submission day/hour and created day remain available in Group By. Today computes
+its date bounds on the server, independently of the viewer's timezone.
+
+Visible historical invoices with missing current VAT are classified immediately
+from an identity-matched saved document, without an HTTP call or write while
+rendering. Missing or conflicting receipts say Receipt unavailable — reconcile
+ETA; staff are not asked to interpret tax fields. The bounded background audit
+prioritizes older missing-VAT archives before the remaining approvals from today.
 
 Accounting > ETA Status now provides All invoices, Backlog and active processing,
 Sent history, Drafts, VAT issues and queue details. All invoices includes documents
@@ -19,8 +31,8 @@ notes preserve the original receipt's taxes and can reverse an untaxed original.
 
 VAT issues distinguishes a missing current tax from a confirmed untaxed receipt.
 Review saved VAT reads the matching private archive without HTTP or queue edits.
-A separate bounded audit reviews up to 100 of today's saved approved receipts
-each minute; new full approval responses are audited immediately. Receipt bodies
+A separate bounded audit reviews up to 100 saved receipts each minute, prioritizing
+missing-VAT records; new full approval responses are audited immediately. Receipt bodies
 are evicted from the environment cache after review; upgrades do not scan them. The
 original receipt and invoice stay unchanged. Correct VAT prepares reviewable
 credit/replacement drafts and waits for ETA approval of the credit. Untaxed

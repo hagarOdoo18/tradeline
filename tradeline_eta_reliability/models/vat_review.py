@@ -1,6 +1,6 @@
 """VAT submission policy and receipt-backed staff review; no automatic corrections."""
 import json
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
 import pytz
@@ -40,7 +40,7 @@ class EtaVatReviewMove(models.Model):
     eta_vat_review_state = fields.Selection([
         ('missing', 'VAT missing — sending blocked'),
         ('approved_missing', 'Approved without VAT — correct it'),
-        ('receipt_review', 'Sent invoice — review VAT'),
+        ('receipt_review', 'Receipt unavailable — reconcile ETA'),
         ('source_changed', 'Current VAT differs from saved receipt'),
         ('correcting', 'VAT correction in progress'),
         ('corrected', 'VAT correction completed'),
@@ -55,7 +55,7 @@ class EtaVatReviewMove(models.Model):
 
     @api.depends('move_type', 'state', 'line_ids.amount_currency', 'line_ids.tax_line_id',
                  'line_ids.tax_line_id.type_code_id.code', 'line_ids.tax_line_id.l10n_eg_eta_code',
-                 'e_invoice_uuid', 'l10n_eg_uuid', 'e_invoice_sent', 'e_invoice_status',
+                 'e_invoice_uuid', 'l10n_eg_uuid', 'e_invoice_sent', 'e_invoice_status', 'l10n_eg_eta_json_doc_id',
                  'eta_job_ids.state', 'eta_job_ids.attempts', 'eta_job_ids.attempted_at', 'eta_job_ids.safe_to_retry',
                  'eta_receipt_vat_uuid', 'eta_receipt_vat_missing', 'eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
@@ -67,10 +67,20 @@ class EtaVatReviewMove(models.Model):
             amount = abs(sum(move.line_ids.filtered(lambda line: line.tax_line_id in taxes).mapped('amount_currency')))
             missing = move.move_type == 'out_invoice' and move.currency_id.is_zero(amount)
             uuid = move.e_invoice_uuid or move.l10n_eg_uuid
-            audited = bool(uuid and move.eta_receipt_vat_uuid == uuid and move.eta_receipt_vat_checked_at)
+            conflicting = bool(move.e_invoice_uuid and move.l10n_eg_uuid and move.e_invoice_uuid != move.l10n_eg_uuid)
+            audited = bool(uuid and not conflicting and move.eta_receipt_vat_uuid == uuid and move.eta_receipt_vat_checked_at)
+            receipt_missing = move.eta_receipt_vat_missing
             job = move.eta_job_ids
             sent = bool(uuid or move.e_invoice_sent or job.state in ('unknown', 'accepted')
                 or job and (job.attempts or job.attempted_at) and not job.safe_to_retry)
+            if missing and sent and not audited:
+                # Resolve a visible historical tax issue from its saved signed
+                # document immediately. Never ask staff to interpret VAT or
+                # make a government request while rendering an invoice list.
+                saved = move._eta_saved_vat_document()
+                if saved:
+                    audited = True
+                    receipt_missing = document_vat(saved[1]) <= 0
             docs = move.eta_vat_correction_ids.filtered(lambda record: record.state != 'cancel')
             credits = docs.filtered(lambda record: record.move_type == 'out_refund')
             replacements = docs.filtered(lambda record: record.move_type == 'out_invoice')
@@ -81,7 +91,7 @@ class EtaVatReviewMove(models.Model):
             state, note = 'ready', _('VAT is present in the current invoice. ETA receipt and validation checks still apply.')
             if move.move_type != 'out_invoice':
                 state, note = 'other', _('Credit notes preserve the taxes of the original receipt they reverse.')
-            elif audited and move.eta_receipt_vat_missing:
+            elif audited and receipt_missing:
                 if completed:
                     state, note = 'corrected', _('The linked credit and VAT replacement are approved by ETA. The original receipt is preserved.')
                 elif docs:
@@ -92,7 +102,7 @@ class EtaVatReviewMove(models.Model):
             elif missing and sent:
                 state = 'source_changed' if audited else 'receipt_review'
                 note = (_('The saved receipt includes VAT but the current accounting record does not. Finance must reconcile the difference before any correction.')
-                    if audited else _('Check ETA status and reconcile the earlier request before changing or resending this invoice. Current Odoo tax alone does not prove what ETA received.'))
+                    if audited else _('No matching saved ETA receipt is available. Check ETA status to retrieve the signed document. An unresolved send must be reconciled before a correction or resend.'))
             elif missing:
                 state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Use Correct VAT, review the draft, and post it again.')
             move.eta_vat_amount = amount
@@ -124,6 +134,7 @@ class EtaVatReviewMove(models.Model):
     def _eta_record_receipt_vat(self, uuid, document):
         self.ensure_one()
         if (not uuid or uuid not in (self.e_invoice_uuid, self.l10n_eg_uuid)
+                or self.e_invoice_uuid and self.l10n_eg_uuid and self.e_invoice_uuid != self.l10n_eg_uuid
                 or not isinstance(document, dict) or document.get('internalID') != self.name
                 or taxpayer(document.get('issuer', {}).get('id')) != taxpayer(self.company_id.vat)):
             return False
@@ -136,24 +147,55 @@ class EtaVatReviewMove(models.Model):
         """Read the immutable matching native archive; no HTTP or queue changes."""
         checked = 0
         for move in self:
-            attachment = move.sudo().l10n_eg_eta_json_doc_id
-            if (not attachment or attachment.res_model != 'account.move'
-                    or attachment.res_id != move.id or attachment.company_id and attachment.company_id != move.company_id):
-                continue
-            try:
-                saved = json.loads(attachment.raw)
-                uuid = saved.get('response', {}).get('l10n_eg_uuid')
-                document = saved.get('request')
-                if isinstance(document, str):
-                    document = json.loads(document)
-                checked += bool(move._eta_record_receipt_vat(uuid, document))
-            except (ValueError, TypeError, AttributeError):
-                continue
-            finally:
-                # Do not retain a batch of large receipt bodies in an Odoo.sh
-                # worker's environment cache after extracting four audit facts.
-                attachment.invalidate_recordset(['raw', 'datas', 'db_datas'])
+            saved = move._eta_saved_vat_document()
+            if saved:
+                checked += bool(move._eta_record_receipt_vat(*saved))
         return checked
+
+    def _eta_saved_vat_document(self):
+        """Read only an identity-matched archive; no writes or network access."""
+        self.ensure_one()
+        attachment = self.sudo().l10n_eg_eta_json_doc_id
+        if (self.e_invoice_uuid and self.l10n_eg_uuid and self.e_invoice_uuid != self.l10n_eg_uuid
+                or not attachment or attachment.res_model != 'account.move'
+                or attachment.res_id != self.id or attachment.company_id and attachment.company_id != self.company_id):
+            return False
+        try:
+            saved = json.loads(attachment.raw)
+            uuid = saved.get('response', {}).get('l10n_eg_uuid')
+            document = saved.get('request')
+            if isinstance(document, str):
+                document = json.loads(document)
+            if (uuid and uuid in (self.e_invoice_uuid, self.l10n_eg_uuid)
+                    and isinstance(document, dict) and document.get('internalID') == self.name
+                    and taxpayer(document.get('issuer', {}).get('id')) == taxpayer(self.company_id.vat)):
+                return uuid, document
+        except (ValueError, TypeError, AttributeError):
+            pass
+        finally:
+            attachment.invalidate_recordset(['raw', 'datas', 'db_datas'])
+        return False
+
+    @api.model
+    def action_eta_today(self):
+        if not (self.env.su or self.env.user.has_group('account.group_account_readonly')
+                or self.env.user.has_group('account.group_account_invoice')):
+            raise AccessError(_('Accounting access is required to view ETA invoices.'))
+        self.check_access('read')
+        day = fields.Date.context_today(self.with_context(tz='Africa/Cairo'))
+        zone = pytz.timezone('Africa/Cairo')
+        start = zone.localize(datetime.combine(day, time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
+        end = zone.localize(datetime.combine(day + timedelta(days=1), time.min), is_dst=False).astimezone(pytz.utc).replace(tzinfo=None)
+        start, end = fields.Datetime.to_string(start), fields.Datetime.to_string(end)
+        domain = [('move_type', 'in', ['out_invoice', 'out_refund']), '|', '|', '|',
+            ('invoice_date', '=', fields.Date.to_string(day)),
+            '&', ('create_date', '>=', start), ('create_date', '<', end),
+            '&', ('e_invoice_date', '>=', start), ('e_invoice_date', '<', end),
+            '&', ('eta_job_ids.attempted_at', '>=', start), ('eta_job_ids.attempted_at', '<', end)]
+        action = self.env['ir.actions.actions']._for_xml_id('tradeline_eta_reliability.action_eta_all_invoices')
+        action.update(name=_('ETA — Today (%s)', day), domain=domain,
+            context={'create': False, 'group_by': ['state', 'e_invoice_status']})
+        return action
 
     def action_eta_review_saved_vat(self):
         self.check_access('read')
@@ -170,9 +212,12 @@ class EtaVatReviewMove(models.Model):
         day = fields.Date.context_today(self.with_context(tz='Africa/Cairo'))
         start = pytz.timezone('Africa/Cairo').localize(datetime.combine(day, time.min), is_dst=False)
         start = start.astimezone(pytz.utc).replace(tzinfo=None)
-        moves = self.sudo().search([('move_type', '=', 'out_invoice'), ('state', '=', 'posted'),
-            ('e_invoice_status', '=', 'Valid'), ('e_invoice_date', '>=', start),
-            ('l10n_eg_eta_json_doc_id', '!=', False), ('eta_receipt_vat_checked_at', '=', False)], limit=100)
+        pending = [('move_type', '=', 'out_invoice'), ('state', '=', 'posted'),
+            ('l10n_eg_eta_json_doc_id', '!=', False), ('eta_receipt_vat_checked_at', '=', False)]
+        moves = self.sudo().search(pending + [('eta_vat_missing', '=', True)], limit=100)
+        if len(moves) < 100:
+            moves |= self.sudo().search(pending + [('id', 'not in', moves.ids),
+                ('e_invoice_status', '=', 'Valid'), ('e_invoice_date', '>=', start)], limit=100-len(moves))
         moves._eta_review_saved_vat()
 
 
