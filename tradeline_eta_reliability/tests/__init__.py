@@ -6,3 +6,4 @@ from . import test_native_batching
 from . import test_immediate_dispatch
 from . import test_catalogue_budget
 from . import test_draft_correction
+from . import test_staff_workflow

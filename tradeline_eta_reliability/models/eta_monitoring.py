@@ -64,6 +64,7 @@ class EtaJobMonitoring(models.Model):
     invoice_date = fields.Date(related='move_id.invoice_date', readonly=True)
     customer_id = fields.Many2one(related='move_id.partner_id', readonly=True)
     reason_summary = fields.Text(string='Why it is waiting / held', compute='_compute_monitoring')
+    staff_summary = fields.Text(string='Issue / explanation', compute='_compute_monitoring')
     required_action = fields.Text(string='Next step', compute='_compute_monitoring')
     waiting_minutes = fields.Integer(string='Waiting (minutes)', compute='_compute_monitoring')
     needs_attention = fields.Boolean(compute='_compute_monitoring', search='_search_needs_attention')
@@ -74,14 +75,20 @@ class EtaJobMonitoring(models.Model):
             [('safe_to_retry', '=', True), ('last_error', '=like', 'ETA rejected the submission (%')],
             [('last_error', '=like', '{"status": "Invalid"%')],
             [('last_error', '=like', '{"status":"Invalid"%')],
+            [('last_error', 'ilike', 'national ID')],
+            [('last_error', 'ilike', 'receiver ID')],
+            [('last_error', 'ilike', 'customer ID')],
+            [('last_error', 'ilike', 'tax ID')],
+            [('last_error', 'ilike', 'NI303')],
+            [('last_error', 'ilike', 'NI304')],
+            [('last_error', 'ilike', 'SF307')],
+            [('last_error', 'ilike', 'CF305')],
+            [('last_error', 'ilike', 'CV302')],
         ])])
 
     def _has_recorded_rejection(self):
         self.ensure_one()
-        raw = self.last_error or ''
-        return (self.state == 'review' and (
-            self.safe_to_retry and raw.startswith('ETA rejected the submission (')
-            or raw.startswith(('{"status": "Invalid"', '{"status":"Invalid"'))))
+        return bool(self.filtered_domain(self._recorded_rejection_domain()))
 
     @api.model
     def _attention_domain(self, now=None):
@@ -236,7 +243,27 @@ class EtaJobMonitoring(models.Model):
                 reason = detail or (_('ETA marked this invoice invalid; detailed validation information needs review.')
                                     if job.state == 'invalid' else _('Processing is held for correction or review.'))
                 action = ' '.join(actions) or _('Review the detailed error and correct the source issue before an accounting manager queues a verified retry.')
-            job.reason_summary = reason
+            base_reason = reason
+            if job.state == 'unknown':
+                reason = _('We could not confirm whether ETA received the previous request. Check it before sending another copy.')
+            if job.state in ('blocked', 'invalid', 'review', 'queued') and actions:
+                if any(word in lower for word in ('national id', 'receiver id', 'customer id', 'tax id')) or any(code.startswith('NI') for code in codes) or codes.intersection({'SF307', 'CF305'}):
+                    reason = _('Customer identification needs attention. Verify the customer type and the real national or tax ID.')
+                elif 'CV302' in codes:
+                    reason = _('An invoice product code needs ETA approval or correction.')
+                elif 'CF313' in codes or 'outside the configured eta submission window' in lower:
+                    reason = _('The invoice is outside the ETA submission date window. Review the permitted date treatment.')
+            if any(word in lower for word in ('communication failed', 'connection', 'timed out', 'timeout', 'unreadable response')) and job.state in ('queued', 'accepted', 'review'):
+                reason = (_('ETA communication could not be completed. The invoice details may be correct; the latest ETA result is unconfirmed.'))
+                action = _('Check ETA status now. Automatic recovery continues. A connection failure alone does not establish that ETA is down.')
+            elif 'http 429' in lower:
+                reason = _('ETA asked us to slow down. This invoice is waiting for the required retry time.')
+            elif any(word in lower for word in ('signer is unavailable', 'signing service is unavailable')):
+                reason = _('The company signing service is unavailable. IT needs to restore signing; invoice data may be correct.')
+            elif 'authentication' in lower or 'http 401' in lower or 'http 403' in lower:
+                reason = _('ETA login or access failed. Ask your accounting administrator to check the company connection.')
+            job.reason_summary = base_reason
+            job.staff_summary = reason
             job.required_action = action
             job.waiting_minutes = minutes if job.state != 'valid' else 0
             job.needs_attention = (job.state in ('blocked', 'invalid') or date_review or duplicate_review

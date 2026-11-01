@@ -219,6 +219,34 @@ class EtaVatCorrection(models.TransientModel):
     adjustment_journal_id = fields.Many2one('account.journal', string='Adjustment journal', check_company=True,
         domain="[('company_id', '=', company_id), ('type', '=', 'general')]")
     reason = fields.Char(required=True, default='Correct missing VAT')
+    currency_id = fields.Many2one(related='move_id.currency_id')
+    original_total = fields.Monetary(related='move_id.amount_total', currency_field='currency_id')
+    preview_untaxed = fields.Monetary(compute='_compute_vat_preview', currency_field='currency_id')
+    preview_tax = fields.Monetary(compute='_compute_vat_preview', currency_field='currency_id')
+    preview_total = fields.Monetary(compute='_compute_vat_preview', currency_field='currency_id')
+    preview_difference = fields.Monetary(compute='_compute_vat_preview', currency_field='currency_id')
+    price_treatment = fields.Char(compute='_compute_vat_preview')
+
+    @api.depends('tax_id', 'tax_id.price_include', 'tax_id.amount', 'move_id',
+                 'move_id.invoice_line_ids.price_unit', 'move_id.invoice_line_ids.quantity',
+                 'move_id.invoice_line_ids.discount', 'move_id.invoice_line_ids.tax_ids')
+    def _compute_vat_preview(self):
+        for wizard in self:
+            untaxed = total = 0
+            move = wizard.move_id
+            for line in move.invoice_line_ids.filtered(lambda item: item.display_type == 'product'):
+                taxes = line.tax_ids.filtered(lambda tax: tax.type_code_id.code != 'T1'
+                    and not (tax.l10n_eg_eta_code or '').startswith('T1_')) | wizard.tax_id
+                values = taxes.compute_all(line.price_unit * (1 - line.discount / 100),
+                    currency=move.currency_id, quantity=line.quantity, product=line.product_id,
+                    partner=move.partner_id, is_refund=move.move_type == 'out_refund')
+                untaxed += values['total_excluded']; total += values['total_included']
+            wizard.preview_untaxed = untaxed
+            wizard.preview_total = total
+            wizard.preview_tax = total - untaxed
+            wizard.preview_difference = total - move.amount_total
+            wizard.price_treatment = (_('VAT is included in the entered line prices.') if wizard.tax_id.price_include
+                else _('VAT is added to the entered line prices. Review the new customer total.'))
 
     def _lock_invoice(self):
         move = self.move_id

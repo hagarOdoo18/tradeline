@@ -139,3 +139,52 @@ accounting-lock and duplicate safeguards still apply.
 
 Resetting wholly unmatched invoices does not require the branch module's
 separate Unreconcile permission. Removing existing payment matches still does.
+
+
+## Accounting staff workflow (18.0.1.0.27)
+
+Accounting > ETA Status provides invoice-number, customer, journal/branch and
+original-message searches; status badges and grouping by status, journal,
+company and queued day. Clear Needs attention to include approved invoices.
+Customer-ID holds remain visible even when historical review has no failed
+network requests. Each invoice also displays its explanation, next step and
+last confirmed check. Reading these screens never makes a network request.
+
+**Send to ETA now** starts a separate invoice-specific operation. It does not
+select a queue position, wait for cron activation, or acquire the background
+worker's global transport lock. The browser first saves a private five-minute
+intent, then executes it in a second RPC. The intent binds database, company,
+invoice and requesting user; started/finished intents cannot be replayed.
+The existing per-invoice lock and isolated pre-POST uncertainty commit remain
+mandatory. One manual operation per company is allowed concurrently with the
+backlog. ETA rate-limit deadlines are shared across company transport callers.
+Copied databases and owner pauses remain prohibited from sending.
+
+Direct sending can bring forward local connection/signing backoff, but cannot
+bypass authority cooldowns, source validation, receipt conflicts or unresolved
+transmitted requests. It performs at most three verification/send transitions
+for the selected invoice, with a soft 45-second start budget. An in-flight HTTP
+request retains its existing bounded timeout. A successful submission means
+Received by ETA, not final approval. The durable worker continues recovery and
+polling after the direct operation, using the same single submission ledger.
+
+**Check ETA status** uses a GET-only document client and cannot arm a first or
+corrected submission. An uncertain attempt is matched to its retained request;
+a conflicting/history hold is preserved. Failed status reads do not change the
+submission state or automatic retry schedule. Every staff operation retains a
+private audit result and a readable invoice chatter entry.
+
+Where the separate Accounting application exists, the ETA menu is placed there
+and the unwanted Invoicing app stays hidden, including developer mode and after
+an unrelated module re-enables its root. Community-only installations retain
+their sole accounting root. Operations Monitor access remains unchanged.
+
+**Correct VAT** previews the selected tax's price-included or price-added
+treatment, new totals and change to the customer total before creating drafts.
+Preparing corrections still does not post accounting entries or send to ETA;
+the linked credit must be approved before the replacement can be posted.
+
+Release validation includes the complete ETA suite plus staff access, busy
+backlog transport, same-invoice locking, GET-only checking, uncertainty,
+authority deadlines, saved-intent rollback/replay and menu-visibility tests.
+Test transport is mocked; synthetic tax documents are never sent to ETA.

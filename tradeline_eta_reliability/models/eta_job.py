@@ -17,10 +17,13 @@ from .client import EtaClient, EtaError, EtaCataloguePending
 from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
-STATES = [('queued', 'Queued'), ('unknown', 'Checking uncertain submission'),
-          ('accepted', 'Awaiting ETA validation'), ('valid', 'Valid'),
-          ('invalid', 'Rejected by ETA'), ('blocked', 'Needs correction'),
-          ('review', 'Historical verification queued')]
+STATES = [('queued', 'Waiting to send'), ('unknown', 'Previous attempt unconfirmed'),
+          ('accepted', 'Received by ETA — awaiting approval'), ('valid', 'Approved by ETA'),
+          ('invalid', 'ETA rejected — needs correction'), ('blocked', 'Needs correction'),
+          ('review', 'Checking earlier ETA records')]
+# Private capabilities, never RPC context flags. Background scheduling is unchanged.
+STAFF_SEND = object()
+STAFF_STATUS = object()
 # Releases 23/24 correct refresh routing and an unused description prerequisite.
 # Keep the policy revision: unchanged correction holds must not all retry after
 # these fixes. Description holds can enter a bounded, explicitly selected review.
@@ -55,6 +58,7 @@ class EtaJob(models.Model):
     processing_revision = fields.Char(readonly=True)
     duplicate_retry_at = fields.Datetime(readonly=True)
     duplicate_payload_hash = fields.Char(readonly=True)
+    authority_retry_at = fields.Datetime(string='ETA requires waiting until', readonly=True)
     omit_optional_receiver_id = fields.Boolean(readonly=True,
         help='Omit an authority-rejected optional personal ID only below EGP 25,000. The customer record is preserved.')
     issue_date_policy = fields.Selection([
@@ -349,6 +353,9 @@ class EtaJob(models.Model):
                             'last_error': 'ETA DuplicateSubmission cooldown. The same signed request will be reconciled after Retry-After before any retry.'})
                 return
             if exc.status in (401, 429):
+                if exc.status == 429:
+                    self.authority_retry_at = fields.Datetime.now() + timedelta(seconds=exc.retry_after)
+                    self.company_id.eta_authority_retry_at = self.authority_retry_at
                 self._delay(exc, seconds=exc.retry_after, state='queued')
                 return
             if exc.status in (400, 403, 404):
@@ -439,7 +446,7 @@ class EtaJob(models.Model):
             return False
 
     @api.model
-    def _process_id(self, job_id, client):
+    def _process_id(self, job_id, client, *, staff_operation=None):
         """Return whether an owned processing result/deferral was committed."""
         with self.env.registry.cursor() as cr:
             env = api.Environment(cr, self.env.uid, dict(self.env.context, eta_catalogue_nonblocking=True))
@@ -463,8 +470,9 @@ class EtaJob(models.Model):
             original_company = client.company
             try:
                 job.invalidate_recordset()
-                if (job.state not in ('queued', 'accepted', 'unknown', 'review')
-                        or job.next_attempt and job.next_attempt > fields.Datetime.now()):
+                staff = staff_operation is STAFF_SEND or staff_operation is STAFF_STATUS
+                if (not staff and (job.state not in ('queued', 'accepted', 'unknown', 'review')
+                        or job.next_attempt and job.next_attempt > fields.Datetime.now())):
                     return False
                 cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [job.move_id.id])
                 job.move_id.invalidate_recordset()
@@ -475,6 +483,15 @@ class EtaJob(models.Model):
                 client.company = job.company_id
                 if job.move_id.state != 'posted':
                     job.write({'state': 'blocked', 'last_error': 'Invoice is no longer posted.'})
+                elif staff_operation is STAFF_STATUS:
+                    job._staff_check_status(client)
+                elif staff_operation is STAFF_SEND:
+                    if not job._staff_prepare_send():
+                        return False
+                    if job.state == 'queued':
+                        job._submit(client)
+                    elif job.state in ('accepted', 'unknown', 'review', 'valid'):
+                        job._refresh(client)
                 elif job.state == 'queued':
                     job._submit(client)
                 else:
@@ -505,11 +522,20 @@ class EtaJob(models.Model):
                 committed = True
             except (psycopg2.Error, requests.RequestException, EtaError, UserError, ValueError) as exc:
                 cr.rollback()
+                if staff_operation is STAFF_STATUS:
+                    # A failed read must not requeue, block, clear or postpone
+                    # the automatic submission workflow.
+                    client.staff_error = (str(exc) if isinstance(exc, (EtaError, UserError))
+                                          else 'ETA status could not be confirmed. Retry the status check shortly.')
+                    return False
                 try:
                     check_processing_window(env, drain_seconds=0)
                 except EtaStopped:
                     return committed
                 job.invalidate_recordset()
+                if isinstance(exc, EtaError) and exc.status == 429:
+                    job.authority_retry_at = fields.Datetime.now() + timedelta(seconds=exc.retry_after)
+                    job.company_id.eta_authority_retry_at = job.authority_retry_at
                 if getattr(exc, 'eta_submission_failure', None):
                     job._preserve_uncertain_request_failure(exc)
                 # Rollback never removes the committed uncertain marker.
@@ -521,7 +547,8 @@ class EtaJob(models.Model):
                         job.write({'state': 'blocked', 'last_error': str(exc)[:500]})
                 else:
                     safe = ('Database concurrency conflict; retry scheduled.' if isinstance(exc, psycopg2.Error)
-                            else str(exc) if isinstance(exc, EtaError) else 'ETA communication failed; retry scheduled.')
+                            else str(exc) if isinstance(exc, EtaError) or staff_operation is STAFF_SEND and isinstance(exc, UserError)
+                            else 'ETA communication failed; retry scheduled.')
                     job._delay(safe, seconds=getattr(exc, 'retry_after', None))
                 cr.commit()
                 committed = True

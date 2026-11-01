@@ -9,3 +9,5 @@ from . import catalogue_recovery
 from . import certificate_recovery
 from . import immediate_dispatch
 from . import draft_correction
+from . import staff_workflow
+from . import ir_ui_menu
