@@ -31,8 +31,8 @@
                 <p>Choose the correct VAT tax. An unsent or ETA-invalid invoice reopens in draft with VAT applied.</p>
                 <p>For an ETA-valid invoice, prepare a linked credit note and replacement invoice. The credit note
                     matches the original ETA receipt. If Odoo was edited after submission, an accounting adjustment
-                    draft reconciles that earlier edit. Review and post all drafts, sending the credit note before
-                    the replacement. The original receipt is preserved.</p>
+                    draft reconciles that earlier edit. Review and post the credit note and any adjustment.
+                    Once the credit note is Valid at ETA, post the replacement. The original receipt is preserved.</p>
                 <group>
                     <field name="move_id"/>
                     <field name="company_id" invisible="1"/>

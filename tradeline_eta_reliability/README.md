@@ -104,7 +104,8 @@ accounting entries or submits documents to ETA.
   balances instead of duplicating VAT. Original payments remain untouched.
 
 Open **VAT Corrections** to review the drafts. Post the credit note and any
-adjustment, then post the replacement. The replacement queue waits for a fresh
+adjustment, wait until the credit note is Valid at ETA, then post the replacement.
+The replacement queue also requires a fresh
 confirmation that its credit note is Valid at ETA. Normal durable submission,
 signing, uncertainty, and duplicate protections apply to both documents.
 Repeated preparation opens the existing correction documents.

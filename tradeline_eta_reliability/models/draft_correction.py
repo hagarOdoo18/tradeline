@@ -51,6 +51,10 @@ class AccountMoveDraftCorrection(models.Model):
                 raise UserError(_('The original VAT correction credit note is missing. Reconcile the correction documents first.'))
             if any(record.state != 'posted' and record not in self for record in prerequisites):
                 raise UserError(_('Post the VAT correction credit note and any accounting adjustment before the replacement invoice.'))
+            credits = prerequisites.filtered(lambda record: record.move_type == 'out_refund')
+            if any(record.e_invoice_status != 'Valid' or record.eta_job_ids.sudo().state != 'valid'
+                   or not record.e_invoice_uuid for record in credits):
+                raise UserError(_('Wait until the VAT correction credit note is Valid at ETA before posting the replacement invoice.'))
         return super()._post(soft=soft)
 
     def _eta_controls_draft_reset(self):

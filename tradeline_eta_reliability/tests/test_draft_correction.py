@@ -401,7 +401,12 @@ class TestEtaDraftCorrection(TransactionCase):
         with self.assertRaisesRegex(UserError, 'credit note'):
             replacement.action_post()
         credit.action_post()
+        with self.assertRaisesRegex(UserError, 'Valid at ETA'):
+            replacement.action_post()
+        credit.write({'e_invoice_uuid': 'CORRECTION-CREDIT-UUID', 'e_invoice_status': 'Valid'})
+        credit.eta_job_ids.state = 'valid'
         replacement.action_post()
+        credit.e_invoice_status = 'Submitted'
         client = MagicMock()
         job = replacement.eta_job_ids
         self.assertFalse(job._preflight_submission(client))
@@ -422,6 +427,8 @@ class TestEtaDraftCorrection(TransactionCase):
         before = sorted((line.account_id.id, line.balance) for line in alignment.line_ids)
         alignment.action_post()
         credit.action_post()
+        credit.write({'e_invoice_uuid': 'CORRECTION-CREDIT-UUID', 'e_invoice_status': 'Valid'})
+        credit.eta_job_ids.state = 'valid'
         replacement.action_post()
         self.assertEqual(before, sorted((line.account_id.id, line.balance) for line in alignment.line_ids))
         for account in (self.receivable, self.income, self.tax_account):
