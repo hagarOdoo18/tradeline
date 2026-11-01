@@ -177,6 +177,15 @@ class TestEtaVatReview(TransactionCase):
         self.assertGreaterEqual(rows[0]['send_count'],1)
         self.assertIsNot(rows[0]['send_seconds'],False)
 
+    def test_rechecking_an_earlier_approval_does_not_invent_new_approval_latency(self):
+        move=self.invoice(vat=True)
+        move.write({'e_invoice_uuid':'earlier-approved','e_invoice_status':'Valid'})
+        job=move.eta_job_ids
+        job.write({'state':'valid','attempted_at':fields.Datetime.now()-timedelta(days=2)})
+        job._apply_remote({'uuid':'earlier-approved','internalId':move.name,'status':'Valid'})
+        self.assertFalse(job.first_approval_observed_at)
+        self.assertFalse(job.approval_delay_seconds)
+
     def test_manual_bypass_worker_holds_missing_vat_without_post(self):
         move = self.invoice()
         job = move.eta_job_ids
