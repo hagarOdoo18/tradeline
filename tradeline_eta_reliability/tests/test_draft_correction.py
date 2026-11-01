@@ -446,6 +446,9 @@ class TestEtaDraftCorrection(TransactionCase):
             company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
         self.assertFalse(user.has_group('base.group_system'))
         self.assertFalse(user.has_group('account.group_account_manager'))
+        unreconcile = self.env.ref('branch.group_unreconcile', raise_if_not_found=False)
+        if unreconcile:
+            self.assertNotIn(unreconcile, user.groups_id)
         move = self.invoice().with_user(user)
         self.assertTrue(move.show_reset_to_draft_button)
         self.assertEqual(move.action_eta_correct_vat()['res_model'], 'tradeline.eta.vat.correction')
@@ -458,6 +461,22 @@ class TestEtaDraftCorrection(TransactionCase):
         move.action_post()
         self.assertEqual(move.state, 'posted')
         self.assertEqual(move.eta_job_ids.state, 'queued')
+
+    def test_matched_payments_still_require_separate_unreconcile_permission(self):
+        if not self.env.ref('branch.group_unreconcile', raise_if_not_found=False):
+            self.skipTest('The separate branch payment permission is not installed.')
+        move = self.invoice()
+        credit = move._reverse_moves([{'date': move.date}], cancel=False)
+        credit.action_post()
+        lines = (move | credit).line_ids.filtered(lambda line: line.account_id == self.receivable)
+        lines.reconcile()
+        matches = lines.matched_debit_ids | lines.matched_credit_ids
+        self.assertTrue(matches)
+        user = new_test_user(self.env, login='eta_no_unreconcile', groups='account.group_account_invoice',
+            company_id=self.company.id, company_ids=[Command.set(self.company.ids)])
+        with self.assertRaisesRegex(AccessError, 'unreconcile payments'):
+            lines.with_user(user).remove_move_reconcile()
+        self.assertEqual(matches.exists(), matches)
 
     def test_non_accountant_cannot_prepare_vat_correction(self):
         user = new_test_user(self.env, login='vat_correction_unprivileged', groups='base.group_user',

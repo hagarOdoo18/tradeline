@@ -78,9 +78,10 @@ class AccountMoveLine(models.Model):
     branch_id = fields.Many2one('res.branch', related="move_id.branch_id",store=True,string="Branch")
 
     def remove_move_reconcile(self):
-        if not self.env.su and not self.env.user.has_group(
-                'branch.group_unreconcile'
-        ):
+        # Reset to Draft also calls this on wholly unmatched invoice lines.
+        # Require the separate payment permission only when a match is removed.
+        if ((self.matched_debit_ids or self.matched_credit_ids) and not self.env.su
+                and not self.env.user.has_group('branch.group_unreconcile')):
             raise AccessError(
                 "You are not allowed to unreconcile payments."
             )
