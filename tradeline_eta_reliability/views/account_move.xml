@@ -42,7 +42,8 @@
                     <div class="d-flex gap-4 flex-wrap small">
                         <span>Last confirmed check: <field name="eta_staff_checked_at"/></span>
                         <span>Next automatic check: <field name="eta_staff_next_attempt"/></span>
-                        <button name="action_eta_status_details" string="ETA details and issues" type="object" class="btn-link"/>
+                        <button name="action_eta_status_details" string="ETA details and issues" type="object" class="btn-link"
+                            groups="account.group_account_invoice,account.group_account_readonly"/>
                     </div>
                 </div>
             </xpath>

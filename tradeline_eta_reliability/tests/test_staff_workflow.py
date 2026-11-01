@@ -280,6 +280,19 @@ class TestEtaStaffWorkflow(TransactionCase):
         with self.assertRaises(AccessError):move.with_user(self.clerk).action_eta_send_now()
         rule.unlink()
 
+    def test_sales_or_pos_invoice_readers_do_not_need_private_eta_job_access(self):
+        move = self.invoice()
+        viewer = new_test_user(self.env, login='eta_invoice_only_viewer', groups='base.group_user')
+        group = self.env['res.groups'].create({'name': 'QA invoice-only reader', 'users': [Command.link(viewer.id)]})
+        self.env['ir.model.access'].create({'name': 'QA invoice read without private job access',
+            'model_id': self.env['ir.model']._get_id('account.move'), 'group_id': group.id,
+            'perm_read': True, 'perm_write': False, 'perm_create': False, 'perm_unlink': False})
+        self.assertFalse(self.Job.with_user(viewer).has_access('read'))
+        result = move.with_user(viewer).read(['eta_staff_state', 'eta_staff_reason'])[0]
+        self.assertEqual(result['eta_staff_state'], 'queued')
+        self.assertTrue(result['eta_staff_reason'])
+        with self.assertRaises(AccessError):move.with_user(viewer).action_eta_send_now()
+
     def test_id_review_with_zero_failures_is_visible_in_attention_search(self):
         job = self.invoice().eta_job_ids
         job.write({'state': 'review', 'failures': 0, 'last_error': 'National ID is required for this invoice.'})

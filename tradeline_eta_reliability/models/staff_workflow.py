@@ -176,9 +176,12 @@ class EtaStaffCompany(models.Model):
 class EtaStaffMove(models.Model):
     _inherit = 'account.move'
 
-    eta_staff_state = fields.Selection(STATES, compute='_compute_eta_staff_status', string='ETA status')
-    eta_staff_reason = fields.Text(compute='_compute_eta_staff_status', string='What happened')
-    eta_staff_next_step = fields.Text(compute='_compute_eta_staff_status', string='What to do')
+    # Sales/POS readers may read invoices without access to the private job
+    # model. Like standard related fields, compute only this permitted invoice's
+    # summary under sudo; the invoice's own read rules still apply first.
+    eta_staff_state = fields.Selection(STATES, compute='_compute_eta_staff_status', compute_sudo=True, string='ETA status')
+    eta_staff_reason = fields.Text(compute='_compute_eta_staff_status', compute_sudo=True, string='What happened')
+    eta_staff_next_step = fields.Text(compute='_compute_eta_staff_status', compute_sudo=True, string='What to do')
     eta_staff_checked_at = fields.Datetime(related='eta_job_ids.checked_at', string='Last confirmed check', readonly=True)
     eta_staff_next_attempt = fields.Datetime(related='eta_job_ids.next_attempt', string='Next automatic check', readonly=True)
 
