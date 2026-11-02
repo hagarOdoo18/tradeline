@@ -12,7 +12,8 @@
     # Check https://github.com/odoo/odoo/blob/12.0/odoo/addons/base/data/ir_module_category_data.xml
     # for the full list
     'category': 'Uncategorized',
-    'version': '0.2',
+    # The reviewed product view update is applied separately without a schema upgrade.
+    'version': '0.1',
 
     # any module necessary for this one to work correctly
     'depends': ['base', 'inventory_customization', 'shopify_odoo_connector'],

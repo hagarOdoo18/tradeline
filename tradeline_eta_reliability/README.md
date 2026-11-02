@@ -352,3 +352,9 @@ result. No preview is required, including Select all across pages. An interrupte
 connection reports only acknowledged results and refreshes the work list; invoices
 already carrying VAT are skipped on retry. Each bounded request retains ordinary
 transaction handling and per-invoice savepoints, without explicit commits or ETA jobs.
+
+The code-only deployment keeps installed schema versions (.45 on stage, .44 on
+production; bridge .1 and product 0.1). The reviewed fields, ACLs, dependencies
+and asset paths did not change. Git revisions and runtime capabilities identify
+this VAT release. Existing summary/product view changes were applied separately;
+the workspace's approved-invoice row button is updated after the new methods load.
