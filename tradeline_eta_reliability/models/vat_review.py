@@ -67,7 +67,7 @@ class EtaVatReviewMove(models.Model):
                  'eta_local_vat_applied_at', 'eta_local_vat_applied_by', 'eta_local_vat_audit_id',
                  'eta_local_vat_receipt_uuid', 'eta_local_vat_net_amount', 'eta_local_vat_tax_amount',
                  'eta_local_vat_gross_amount', 'amount_untaxed', 'amount_tax', 'amount_total',
-                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
+                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'edi_document_ids.edi_format_id.code', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
                  'eta_vat_correction_ids.e_invoice_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid')
     def _compute_eta_vat_review(self):

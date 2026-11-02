@@ -92,11 +92,23 @@ class TestEtaVatWorkspace(TransactionCase):
         move.sudo().eta_receipt_vat_uuid = 'earlier-uuid'
         self.assert_route(move, 'review')
 
-    def test_native_pending_delivery_is_review_even_with_a_valid_receipt(self):
+    def test_native_egyptian_pending_flags_keep_approved_local_vat_route(self):
         move = self.invoice(); self.receipt(move)
         self.assert_route(move, 'approved')
         edi_format = self.env['account.edi.format'].search([('code','=','eg_eta')], limit=1)
         self.assertTrue(edi_format)
+        document = self.env['account.edi.document'].create({
+            'move_id': move.id, 'edi_format_id': edi_format.id, 'state': 'to_send'})
+        self.assert_route(move, 'approved')
+        document.state = 'to_cancel'
+        self.assert_route(move, 'approved')
+        document.state = 'sent'
+        self.assert_route(move, 'approved')
+
+    def test_other_edi_pending_delivery_still_requires_review(self):
+        move = self.invoice(); self.receipt(move)
+        edi_format = self.env['account.edi.format'].create({
+            'name': 'VAT lane other EDI QA', 'code': 'vat_lane_other_qa'})
         document = self.env['account.edi.document'].create({
             'move_id': move.id, 'edi_format_id': edi_format.id, 'state': 'to_send'})
         self.assert_route(move, 'review')

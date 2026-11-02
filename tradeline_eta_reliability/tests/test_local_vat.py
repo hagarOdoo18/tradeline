@@ -113,7 +113,7 @@ class TestEtaLocalVat(TransactionCase):
         transport = move._eta_local_vat_transport_snapshot()
         self.assertFalse(self.clerk.has_group('account.group_account_manager'))
         with ExitStack() as stack:
-            for name in ('button_draft', 'action_post', '_post', '_eta_enqueue'):
+            for name in ('button_draft', 'action_post', '_post', '_eta_enqueue', '_reverse_moves'):
                 stack.enter_context(patch.object(type(move), name, side_effect=AssertionError('Forbidden local VAT path: '+name)))
             wizard.action_apply()
         self.assertEqual(move.state, 'posted')
@@ -177,6 +177,56 @@ class TestEtaLocalVat(TransactionCase):
                 before = move.amount_residual
                 self.assert_apply_preserves(move, self.preview(move))
                 self.assertEqual(move.amount_residual, before)
+
+    def test_local_native_egyptian_pending_flags_preserve_paid_and_unpaid_invoices(self):
+        edi_format = self.env['account.edi.format'].search([('code', '=', 'eg_eta')], limit=1)
+        self.assertTrue(edi_format)
+        for state in ('to_send', 'to_cancel'):
+            for payment in (0, 40, 100):
+                with self.subTest(native_state=state, payment=payment):
+                    move = self.invoice()
+                    if payment:
+                        self.pay(move, payment)
+                    document = self.env['account.edi.document'].create({
+                        'move_id': move.id, 'edi_format_id': edi_format.id, 'state': state})
+                    native_fields = [name for name, field in document._fields.items()
+                                     if field.store and name != 'display_name']
+                    native_before = document.read(native_fields)[0]
+                    residual_before = move.amount_residual
+                    self.assertEqual(move.eta_vat_workflow, 'approved')
+                    action = move.with_user(self.clerk).action_apply_14_tax()
+                    self.assertEqual(action['res_model'], 'tradeline.eta.local.vat.correction')
+                    wizard = self.env[action['res_model']].with_user(self.clerk).browse(action['res_id'])
+                    self.assert_apply_preserves(move, wizard)
+                    self.assertEqual(document.read(native_fields)[0], native_before)
+                    self.assertEqual(move.amount_residual, residual_before)
+                    self.assertEqual(move.eta_vat_workflow, 'local_completed')
+                    document.state = 'to_cancel' if state == 'to_send' else 'to_send'
+                    self.assertTrue(move._eta_local_vat_is_current())
+                    self.assertEqual(move.eta_vat_workflow, 'local_completed')
+                    self.assertIn(move, self.env['account.move'].search([
+                        ('id', '=', move.id), ('eta_vat_workflow', '=', 'local_completed')]))
+
+    def test_local_other_edi_pending_flags_still_block_before_and_after_amendment(self):
+        edi_format = self.env['account.edi.format'].create({
+            'name': 'Local VAT other EDI QA', 'code': 'local_vat_other_qa'})
+        for state in ('to_send', 'to_cancel'):
+            with self.subTest(other_edi_state=state):
+                move = self.invoice()
+                document = self.env['account.edi.document'].create({
+                    'move_id': move.id, 'edi_format_id': edi_format.id, 'state': state})
+                before = (move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot())
+                with self.assertRaises(UserError):
+                    self.preview(move)
+                self.assertEqual((move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot()), before)
+                self.assertEqual(move.eta_vat_workflow, 'review')
+                document.state = 'sent'
+                self.assert_apply_preserves(move, self.preview(move))
+                document.state = state
+                self.assertFalse(move._eta_local_vat_is_current())
+                self.assertEqual(move.eta_vat_workflow, 'review')
+                self.assertNotIn(move, self.env['account.move'].search([
+                    ('id', '=', move.id), ('eta_vat_workflow', '=', 'local_completed')]))
 
     def test_local_foreign_currency_gross_and_original_fx_are_unchanged(self):
         usd = self.env.ref('base.USD')
