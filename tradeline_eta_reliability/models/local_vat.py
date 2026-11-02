@@ -110,7 +110,8 @@ class EtaLocalVatMove(models.Model):
                 or move.eta_submission_pending or move.eta_vat_original_id
                 or move.eta_vat_correction_ids.filtered(lambda item: item.state != 'cancel')
                 or move.reversal_move_ids.filtered(lambda item: item.state != 'cancel')
-                or move.edi_document_ids.filtered(lambda item: item.state in ('to_send', 'to_cancel'))
+                or move.edi_document_ids.filtered(lambda item: item.edi_format_id.code != 'eg_eta'
+                    and item.state in ('to_send', 'to_cancel'))
                 or not audit or audit.res_model != 'account.move' or audit.res_id != move.id
                 or audit.company_id != move.company_id or audit.public
                 or audit.res_field != 'eta_local_vat_audit_file' or vat_missing
@@ -140,6 +141,8 @@ class EtaLocalVatMove(models.Model):
         self._eta_local_vat_check_access()
         if self.move_type != 'out_invoice' or self.state != 'posted':
             raise UserError(_('Local VAT correction is available for a posted customer invoice.'))
+        # Native Egyptian to_send/to_cancel markers are not authority outcomes.
+        # An Odoo-only amendment preserves them exactly; it never processes EDI.
         uuid = self.e_invoice_uuid or self.l10n_eg_uuid
         job = self.eta_job_ids.sudo()
         if (not uuid or self.e_invoice_status != 'Valid'
@@ -147,7 +150,8 @@ class EtaLocalVatMove(models.Model):
                 or job and job.state != 'valid'
                 or job and (job.duplicate_retry_at or job.duplicate_payload_hash or job.historical_review)
                 or self.eta_submission_pending
-                or self.edi_document_ids.filtered(lambda doc: doc.state in ('to_send', 'to_cancel'))):
+                or self.edi_document_ids.filtered(lambda doc: doc.edi_format_id.code != 'eg_eta'
+                    and doc.state in ('to_send', 'to_cancel'))):
             raise UserError(_('The earlier ETA submission must be finally approved with no pending send, retry, or receipt conflict before a local-only amendment. No ETA operation was started.'))
         if self.eta_vat_original_id or self.eta_vat_correction_ids.filtered(lambda move: move.state != 'cancel') \
                 or self.reversal_move_ids.filtered(lambda move: move.state != 'cancel'):

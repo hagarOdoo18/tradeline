@@ -327,3 +327,12 @@ Confirmed historical rejections now use the needs-correction heading. This
 changes presentation only: duplicate/uncertainty holds and all actual transport
 state, retry timestamps and receipt evidence remain intact. The bounded .41
 migration refreshes staff labels without re-enrolling or replaying the backlog.
+
+
+Release 18.0.1.0.45 keeps confirmed ETA-approved zero-VAT invoices in the
+Odoo-only VAT list even when the native Egyptian EDI mirror says to_send or
+to_cancel. The local amendment preserves those native markers and all receipt,
+job and submission evidence byte-for-byte; it never processes those documents.
+Actual unresolved job attempts, duplicate/receipt conflicts, other EDI work,
+accounting locks and existing credit/correction documents keep their guards.
+Completed local amendments remain completed despite unchanged native ETA flags.

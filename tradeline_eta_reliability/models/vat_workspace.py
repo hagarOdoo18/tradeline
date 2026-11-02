@@ -92,7 +92,9 @@ class EtaVatWorkspace(models.Model):
             OR account_move.e_invoice_status IN ('Submitted','Rejected','Cancelled')
             OR (account_move.e_invoice_status='Valid' AND EXISTS (
                 SELECT 1 FROM account_edi_document wf_native_pending
-                WHERE wf_native_pending.move_id=account_move.id AND wf_native_pending.state IN ('to_send','to_cancel')))
+                JOIN account_edi_format wf_native_format ON wf_native_format.id=wf_native_pending.edi_format_id
+                WHERE wf_native_pending.move_id=account_move.id AND wf_native_pending.state IN ('to_send','to_cancel')
+                    AND wf_native_format.code IS DISTINCT FROM 'eg_eta'))
             OR EXISTS (SELECT 1 FROM tradeline_eta_job wf_uncertain WHERE wf_uncertain.move_id=account_move.id
                 AND (wf_uncertain.state IN ('unknown','accepted','review') OR wf_uncertain.historical_review IS TRUE
                     OR wf_uncertain.duplicate_retry_at IS NOT NULL OR COALESCE(wf_uncertain.duplicate_payload_hash,'') <> ''
@@ -135,8 +137,10 @@ class EtaVatWorkspace(models.Model):
             AND NOT EXISTS (SELECT 1 FROM tradeline_eta_job wf_local_job WHERE wf_local_job.move_id=account_move.id
                 AND (wf_local_job.state <> 'valid' OR wf_local_job.historical_review IS TRUE
                     OR wf_local_job.duplicate_retry_at IS NOT NULL OR COALESCE(wf_local_job.duplicate_payload_hash,'') <> ''))
-            AND NOT EXISTS (SELECT 1 FROM account_edi_document wf_local_edi WHERE wf_local_edi.move_id=account_move.id
-                AND wf_local_edi.state IN ('to_send','to_cancel'))
+            AND NOT EXISTS (SELECT 1 FROM account_edi_document wf_local_edi
+                JOIN account_edi_format wf_local_format ON wf_local_format.id=wf_local_edi.edi_format_id
+                WHERE wf_local_edi.move_id=account_move.id AND wf_local_edi.state IN ('to_send','to_cancel')
+                    AND wf_local_format.code IS DISTINCT FROM 'eg_eta')
             AND ROUND(account_move.eta_local_vat_net_amount / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
                 = ROUND(account_move.amount_untaxed / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
             AND ROUND(account_move.eta_local_vat_tax_amount / (SELECT rounding FROM res_currency WHERE id=account_move.currency_id))
@@ -179,7 +183,7 @@ class EtaVatWorkspace(models.Model):
                  'eta_local_vat_applied_at', 'eta_local_vat_applied_by', 'eta_local_vat_audit_id',
                  'eta_local_vat_receipt_uuid', 'eta_local_vat_net_amount', 'eta_local_vat_tax_amount',
                  'eta_local_vat_gross_amount', 'amount_untaxed', 'amount_tax', 'amount_total',
-                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.move_type',
+                 'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'edi_document_ids.edi_format_id.code', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.move_type',
                  'eta_vat_correction_ids.e_invoice_status', 'eta_vat_correction_ids.e_invoice_uuid',
                  'eta_vat_correction_ids.l10n_eg_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
                  'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid',
