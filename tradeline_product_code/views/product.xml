@@ -13,7 +13,7 @@
                     <page name="E-Invoicing Data" string="E-Invoicing Data" groups="tradeline_product_code.group_e_invoicing_data">
                         <group>
                             <group>
-                                <field name="e_invoicing_code"/>
+                                <field name="e_invoicing_code" readonly="0" placeholder="Enter the registered ETA product code"/>
                                 <field name="code_type"/>
                                 <field name="gs1_code"/>
                                 <field name="ar_description"/>
