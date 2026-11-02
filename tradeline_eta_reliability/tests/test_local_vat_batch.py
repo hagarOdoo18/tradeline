@@ -25,7 +25,27 @@ class TestEtaLocalVatBatch(local_vat_tests.TestEtaLocalVat):
                            'action_eta_local_vat_preview'):
                 stack.enter_context(patch.object(type(moves), method,
                     side_effect=AssertionError('Direct batch used forbidden path: ' + method)))
-            return moves.with_user(self.clerk).action_apply_14_tax()
+            moves = moves.with_user(self.clerk)
+            kickoff_fields = ['state', 'amount_total', 'amount_tax', 'eta_local_vat_audit_id',
+                              'e_invoice_uuid', 'eta_submission_pending']
+            before_kickoff = moves.read(kickoff_fields)
+            wizards_before = self.env['tradeline.eta.local.vat.correction'].search_count([])
+            kickoff = moves.action_apply_14_tax()
+            self.assertEqual(kickoff['tag'], 'tradeline_eta_local_vat_batch')
+            self.assertEqual(kickoff['params']['move_ids'], moves.ids)
+            self.assertEqual(kickoff['params']['batch_size'], 25)
+            self.assertEqual(moves.read(kickoff_fields), before_kickoff)
+            self.assertEqual(self.env['tradeline.eta.local.vat.correction'].search_count([]), wizards_before)
+            applied, skipped, blocked = 0, 0, []
+            self.batch_elapsed = []
+            for offset in range(0, len(moves), 25):
+                started = time.monotonic()
+                params = moves[offset:offset+25].action_eta_apply_local_vat_batch()['params']
+                self.batch_elapsed.append(time.monotonic()-started)
+                applied += params['applied_count']
+                skipped += params['skipped_count']
+                blocked.extend(params['blocked_items'])
+            return moves._eta_local_vat_batch_result(applied, skipped, blocked)
 
     def test_batch_paid_native_flags_apply_directly_without_transient_preview(self):
         moves = self.env['account.move']
@@ -103,6 +123,8 @@ class TestEtaLocalVatBatch(local_vat_tests.TestEtaLocalVat):
         with self.assertRaises(AccessError):
             (allowed | hidden).with_user(self.branch).with_context(
                 _eta_local_vat_edit=True, _eta_legacy_credit_route=True).action_eta_apply_local_vat()
+        with self.assertRaises(AccessError):
+            (allowed | hidden).with_user(self.branch).action_eta_apply_local_vat_batch()
         rule = self.env['ir.rule'].create({'name': 'Local VAT batch hidden invoice',
             'model_id': self.env['ir.model']._get_id('account.move'),
             'domain_force': "[('id','!=',%s)]" % hidden.id})
@@ -148,16 +170,26 @@ class TestEtaLocalVatBatch(local_vat_tests.TestEtaLocalVat):
             for key, value in original_values.items():
                 setattr(self, key, value)
 
-    def test_batch_338_real_amendments_finish_within_http_budget(self):
+    def test_batch_338_real_amendments_use_bounded_http_requests(self):
         moves = self.env['account.move']
         for _index in range(338):
             moves |= self.invoice()
         _logger.info('Created 338 invoice fixtures; starting direct Odoo-only amendment timer')
+        kickoff = moves.with_user(self.clerk).action_apply_14_tax()
+        self.assertEqual(kickoff['tag'], 'tradeline_eta_local_vat_batch')
+        self.assertFalse(moves.mapped('eta_local_vat_audit_id'), 'Starting the operation cannot amend a large selection in one request.')
+        with self.assertRaisesRegex(UserError, 'at most 25'):
+            moves.with_user(self.clerk).with_context(batch_size=10000).action_eta_apply_local_vat_batch()
+        self.assertFalse(moves.mapped('eta_local_vat_audit_id'))
+        self.assertTrue(all(not value for value in moves.mapped('amount_tax')))
         started = time.monotonic()
         result = self.direct(moves)
         elapsed = time.monotonic() - started
         _logger.info('Direct Odoo-only 338-invoice VAT amendment elapsed %.3fs', elapsed)
+        _logger.info('Direct Odoo-only VAT chunk requests: %s; slowest chunk %.3fs', len(self.batch_elapsed), max(self.batch_elapsed))
         self.assertIn('Applied: 338.', result['params']['message'])
         self.assertIn('Blocked: 0.', result['params']['message'])
         self.assertEqual(len(moves.mapped('eta_local_vat_audit_id')), 338)
-        self.assertLess(elapsed, 110, 'The direct batch must leave margin below a 120-second HTTP budget.')
+        self.assertEqual(len(self.batch_elapsed), 14)
+        self.assertLess(max(self.batch_elapsed), 20,
+            'Each bounded request must leave ample margin below the 120-second HTTP budget.')

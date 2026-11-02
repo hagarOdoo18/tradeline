@@ -345,3 +345,10 @@ Release 18.0.1.0.46 removes the added ETA summary panel and its detail/review
 buttons structurally from the familiar invoice form. Status remains in the
 old invoice list and dedicated workspace; Sync and the original Update Status
 location are retained. No hidden copy of the summary remains in form metadata.
+
+Release 18.0.1.0.47 processes a selected VAT list immediately in sequential
+requests of at most 25 invoices, with progress and a final applied/skipped/blocked
+result. No preview is required, including Select all across pages. An interrupted
+connection reports only acknowledged results and refreshes the work list; invoices
+already carrying VAT are skipped on retry. Each bounded request retains ordinary
+transaction handling and per-invoice savepoints, without explicit commits or ETA jobs.

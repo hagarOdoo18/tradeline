@@ -18,7 +18,7 @@
                 <attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute>
             </xpath>
             <xpath expr="//sheet" position="before">
-                <field name="eta_staff_state" invisible="1"/>
+                <field name="eta_staff_state" invisible="1" groups="tradeline_eta_reliability.group_eta_workspace"/>
             </xpath>
             <xpath expr="//field[@name='invoice_origin']" position="after">
                 <field name="eta_vat_original_id" invisible="not eta_vat_original_id"/>

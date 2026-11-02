@@ -12,7 +12,7 @@ class TestExistingVatActionBridge(TransactionCase):
 
     def test_existing_action_history_cannot_enter_original_reset_and_post(self):
         moves = self.env['account.move'].browse([987654321, 987654322])
-        expected = {'type': 'ir.actions.client', 'tag': 'tradeline_eta_local_vat_result'}
+        expected = {'type': 'ir.actions.client', 'tag': 'tradeline_eta_local_vat_batch'}
         with patch.object(type(moves), '_eta_apply14_requires_review', return_value=True), \
                 patch.object(type(moves), 'action_eta_apply_local_vat', return_value=expected), \
                 patch.object(OriginalAccountingMove, 'action_apply_14_tax', side_effect=AssertionError('Original historical reset route called')):
@@ -28,7 +28,7 @@ class TestExistingVatActionBridge(TransactionCase):
 
     def test_existing_server_action_returns_direct_batch_result_instead_of_discarding_it(self):
         moves = self.env['account.move'].browse([987654321, 987654322])
-        expected = {'type': 'ir.actions.client', 'tag': 'tradeline_eta_local_vat_result'}
+        expected = {'type': 'ir.actions.client', 'tag': 'tradeline_eta_local_vat_batch'}
         action = self.env.ref('accounting_customization.action_apply_14_tax_invoice').sudo()
         with patch.object(type(moves), '_eta_apply14_requires_review', return_value=True), \
                 patch.object(type(moves), 'action_eta_apply_local_vat', return_value=expected), \

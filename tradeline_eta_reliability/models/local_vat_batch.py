@@ -12,12 +12,23 @@ class EtaLocalVatBatch(models.Model):
     _inherit = 'account.move'
 
     def action_eta_apply_local_vat(self):
-        """Apply locally without a preview, government request, or transaction commit."""
+        """Start immediately; the client sends bounded direct RPCs, not ETA jobs."""
+        self._eta_local_vat_batch_access()
+        return {'type': 'ir.actions.client', 'tag': 'tradeline_eta_local_vat_batch',
+                'params': {'move_ids': self.ids, 'batch_size': 25}}
+
+    def _eta_local_vat_batch_access(self):
         self.env['res.users']._eta_check_workspace_access()
         if not self.env.user.has_group('account.group_account_invoice'):
             raise AccessError(_('Invoice accounting permissions are required to apply local VAT.'))
         # Do not expose even invoice names from a forged/inaccessible selection.
         self.check_access('read')
+
+    def action_eta_apply_local_vat_batch(self):
+        """One bounded transaction; no explicit commits or government requests."""
+        self._eta_local_vat_batch_access()
+        if len(self) > 25:
+            raise UserError(_('Process at most 25 invoices per request. Use Apply 14% VAT to process the full selection automatically.'))
         applied, skipped, failures = [], [], []
         for record in self:
             try:
@@ -39,13 +50,18 @@ class EtaLocalVatBatch(models.Model):
                 _logger.exception('Odoo-only VAT batch failed for invoice id=%s', record.id)
                 failures.append((record.id, record.name,
                     _('The amendment failed and was rolled back. Contact accounting support.')))
+        return self._eta_local_vat_batch_result(len(applied), len(skipped), [
+            {'id': item[0], 'invoice': item[1], 'reason': item[2]} for item in failures])
+
+    def _eta_local_vat_batch_result(self, applied, skipped, failures):
         message = _('Applied: %(applied)s. Already has VAT / skipped: %(skipped)s. Blocked: %(blocked)s.',
-                    applied=len(applied), skipped=len(skipped), blocked=len(failures))
+                    applied=applied, skipped=skipped, blocked=len(failures))
         if failures:
-            message += '\n' + '\n'.join('%s: %s' % (name, reason) for _id, name, reason in failures[:5])
+            message += '\n' + '\n'.join('%s: %s' % (item['invoice'], item['reason']) for item in failures[:5])
         params = {'title': _('14% VAT in Odoo only'), 'message': message,
                   'type': 'warning' if failures else 'success', 'sticky': bool(failures),
-                  'blocked_ids': [item[0] for item in failures]}
+                  'applied_count': applied, 'skipped_count': skipped, 'blocked_items': failures,
+                  'blocked_ids': [item['id'] for item in failures]}
         if failures:
             # The client calls doAction with this explicit action, avoiding
             # unsupported bare model/hash URLs. Ordinary record rules apply.
