@@ -919,14 +919,15 @@ class SaleOrderSync(models.TransientModel):
             return None
         title = ', '.join(line.get('title') for line in shipping_lines
                           if line.get('title'))
+        tax_id = instance.default_sale_tax_id.id
         return {
             'product_id': product.id,
             'name': title or product.display_name,
-            'price_unit': price,
+            'price_unit': price/1.14,
             'product_uom_qty': 1,
             'currency_id': currency.id,
             'discount': 0,
-            'tax_id': [(6, 0, [])],
+            'tax_id': [(6, 0, [tax_id])],
             'shopify_line_ref': '',
             'shopify_instance_id': instance.id,
             'order_id': sale_order.id,

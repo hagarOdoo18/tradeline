@@ -738,16 +738,18 @@ class AccountMove(models.Model):
                 skipped_count += 1
                 continue
 
-            # Check if invoice is related to a sale order or POS order
-            has_sale_order = any(
-                line.sale_line_ids for line in move.invoice_line_ids
-            )
-            has_pos_order = (
-                'pos_order_ids' in move._fields and move.pos_order_ids
-            )
-            if not has_sale_order and not has_pos_order:
-                skipped_count += 1
-                continue
+            # Credit notes always get the tax applied.
+            # Invoices must be related to a sale order or POS order.
+            if move.move_type != 'out_refund':
+                has_sale_order = any(
+                    line.sale_line_ids for line in move.invoice_line_ids
+                )
+                has_pos_order = (
+                    'pos_order_ids' in move._fields and move.pos_order_ids
+                )
+                if not has_sale_order and not has_pos_order:
+                    skipped_count += 1
+                    continue
 
             lines_to_update = self.env['account.move.line']
             for line in move.invoice_line_ids:
