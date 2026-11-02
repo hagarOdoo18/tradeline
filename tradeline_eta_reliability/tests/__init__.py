@@ -14,3 +14,4 @@ from . import test_vat_workspace
 from . import test_rejection_presentation
 from . import test_branch_eta_access
 from . import test_local_vat
+from . import test_local_vat_batch

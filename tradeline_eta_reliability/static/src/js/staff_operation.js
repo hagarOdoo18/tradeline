@@ -23,3 +23,17 @@ registry.category("actions").add("tradeline_eta_staff_operation", async (env, ac
         remove();
     }
 });
+
+registry.category("actions").add("tradeline_eta_local_vat_result", (env, action) => {
+    const params = action.params;
+    const buttons = params.blocked_ids?.length ? [{
+        name: _t("Open blocked invoices"),
+        onClick: () => env.services.action.doAction(params.blocked_action),
+    }] : [];
+    env.services.notification.add(params.message, {
+        title: params.title, type: params.type, sticky: true, buttons,
+    });
+    // Keep the accountant's filters while removing completed rows from the
+    // actionable VAT list. A result notification is the only intermediate UI.
+    return { type: "ir.actions.client", tag: "soft_reload" };
+});

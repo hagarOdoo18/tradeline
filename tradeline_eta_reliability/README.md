@@ -303,10 +303,11 @@ remain available to central accounting. Posting state and normal invoice
 controls are unchanged.
 
 
-The .41 release supersedes the earlier approved-invoice correction policy:
-**Actions > Apply 14% Tax** now previews an Odoo-only amendment for a finally
-approved ETA invoice. The ETA-approved VAT work list offers **Add 14% VAT in
-Odoo** with the same preview. Applying the amendment changes eligible product
+The .41 release supersedes the earlier approved-invoice correction policy.
+As of .46, **Actions > Apply 14% Tax** applies an Odoo-only amendment directly
+to all selected eligible ETA-approved invoices, including selection across pages.
+The ETA-approved VAT work list offers **Add 14% VAT in Odoo** on each row with
+the same direct behavior. Neither action opens a preview. The amendment changes eligible product
 lines to the existing 14% company VAT while preserving the gross total,
 receivable lines, residuals, payment reconciliations and original ETA evidence.
 It creates no credit note, replacement, queue request or government operation.
@@ -316,8 +317,11 @@ without authority history continue to use that original tax action.
 The local path is blocked for closed periods, hashed/audit-protected entries,
 cash-basis or analytic allocations, unresolved/conflicting ETA outcomes,
 existing credit/correction documents, and tax choices that change customer
-gross totals. The preview is bound to its creator and invoice fingerprint;
-concurrent or stale changes fail atomically. Private immutable evidence records
+gross totals. Each amendment locks and revalidates its invoice fingerprint;
+concurrent changes fail atomically. Each selected invoice has its own savepoint,
+so blocked records are reported without undoing successful eligible records.
+Mixed selections with authority history never enter the original reset/post path.
+Private immutable evidence records
 before/after tax and preservation hashes. Completed local corrections display
 VAT added in Odoo — ETA unchanged and leave the actionable VAT lists. Historical
 credit/replacement documents remain separately available for review; cached old
@@ -336,3 +340,8 @@ job and submission evidence byte-for-byte; it never processes those documents.
 Actual unresolved job attempts, duplicate/receipt conflicts, other EDI work,
 accounting locks and existing credit/correction documents keep their guards.
 Completed local amendments remain completed despite unchanged native ETA flags.
+
+Release 18.0.1.0.46 removes the added ETA summary panel and its detail/review
+buttons structurally from the familiar invoice form. Status remains in the
+old invoice list and dedicated workspace; Sync and the original Update Status
+location are retained. No hidden copy of the summary remains in form metadata.
