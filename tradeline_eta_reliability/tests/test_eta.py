@@ -496,6 +496,88 @@ class TestEtaReliability(TransactionCase):
         self.assertIn('receiverId', move.e_invoice_issue)
         self.assertEqual([c.args[0] for c in client.request.call_args_list], ['GET', 'GET'])
 
+    def _known_accepted_receipt(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'known-accepted-uuid', 'e_invoice_status': 'Submitted',
+                    'e_invoice_sent': True, 'eta_submission_pending': True})
+        job = move.eta_job_ids
+        payload = json.dumps({'documents': [{'internalID': move.name, 'signatures': [{'value': 'retained'}]}]})
+        job.write({'state': 'accepted', 'submission_uuid': 'known-submission', 'attempts': 1,
+                   'attempted_at': fields.Datetime.now(), 'payload': payload,
+                   'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
+        return move, job
+
+    def _known_receipt_result(self, move, status='Valid'):
+        return {'uuid': move.e_invoice_uuid, 'internalId': move.name, 'status': status,
+                'document': {'internalID': move.name, 'issuer': {'id': self.company.vat},
+                             'taxTotals': [{'taxType': 'T1', 'amount': 0}]}}
+
+    def test_accepted_known_receipt_without_archive_polls_raw_once_and_retains_request(self):
+        move, job = self._known_accepted_receipt()
+        eta = self.env.ref('l10n_eg_edi_eta.edi_eg_eta')
+        native = self.env['account.edi.document'].create({'move_id': move.id, 'edi_format_id': eta.id,
+            'state': 'to_send', 'error': 'Waiting for authority receipt', 'blocking_level': 'info'})
+        protected = job.read(['attempts', 'attempted_at', 'payload', 'payload_hash', 'submission_uuid'])[0]
+        financial = move._eta_local_vat_financial_snapshot()
+        client = MagicMock()
+        client.request.return_value = self._known_receipt_result(move)
+        with patch.object(type(job), '_submit', side_effect=AssertionError('Receipt polling submitted a document')):
+            job._refresh(client)
+        client.request.assert_called_once_with('GET', '/api/v1.0/documents/known-accepted-uuid/raw')
+        self.assertEqual(job.state, 'valid')
+        self.assertEqual(job.read(list(protected))[0], protected)
+        self.assertEqual(move._eta_local_vat_financial_snapshot(), financial)
+        self.assertTrue(move.l10n_eg_eta_json_doc_id)
+        self.assertEqual(json.loads(move.l10n_eg_eta_json_doc_id.raw)['request'], client.request.return_value['document'])
+        self.assertEqual(native.state, 'sent')
+        self.assertEqual(move.l10n_eg_uuid, 'known-accepted-uuid')
+
+    def test_direct_known_raw_receipt_identity_mismatch_cannot_change_accepted_invoice(self):
+        for mismatch in ('uuid', 'invoice', 'issuer'):
+            with self.subTest(mismatch=mismatch):
+                move, job = self._known_accepted_receipt()
+                response = self._known_receipt_result(move)
+                if mismatch == 'uuid': response['uuid'] = 'another-document'
+                elif mismatch == 'invoice': response['internalId'] = 'another-invoice'
+                else: response['document']['issuer']['id'] = '999999999'
+                before = (move._eta_local_vat_financial_snapshot(),
+                    job.read(['state','attempts','attempted_at','payload','payload_hash','submission_uuid'])[0])
+                client = MagicMock(); client.request.return_value = response
+                with self.assertRaises(UserError if mismatch == 'issuer' else EtaError):
+                    job._refresh(client)
+                self.assertEqual((move._eta_local_vat_financial_snapshot(),
+                    job.read(['state','attempts','attempted_at','payload','payload_hash','submission_uuid'])[0]), before)
+                self.assertFalse(move.l10n_eg_eta_json_doc_id)
+                client.request.assert_called_once_with('GET', '/api/v1.0/documents/known-accepted-uuid/raw')
+
+    def test_known_raw_failure_never_retries_posts_or_discards_retained_attempt(self):
+        failures = [requests.ConnectionError('Remote closed the connection'), requests.ReadTimeout('Read timed out')]
+        failures += [EtaError('ETA returned HTTP %s.' % code, status=code) for code in (401, 404, 429, 503)]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__, status=getattr(failure,'status',None)):
+                move, job = self._known_accepted_receipt()
+                before = job.read(['state','next_attempt','attempts','attempted_at','payload','payload_hash','submission_uuid'])[0]
+                financial = move._eta_local_vat_financial_snapshot()
+                client = MagicMock(); client.request.side_effect = failure
+                with self.assertRaises(type(failure)):
+                    job._refresh(client)
+                client.request.assert_called_once_with('GET', '/api/v1.0/documents/known-accepted-uuid/raw')
+                self.assertEqual(job.read(list(before))[0], before)
+                self.assertEqual(move._eta_local_vat_financial_snapshot(), financial)
+                self.assertEqual(move.e_invoice_uuid, 'known-accepted-uuid')
+
+    def test_cached_known_receipt_keeps_existing_submission_summary_poll(self):
+        move, job = self._known_accepted_receipt()
+        job._apply_remote(self._known_receipt_result(move))
+        job.state = 'accepted'
+        client = MagicMock()
+        client.request.return_value = {'documentSummary': [{'uuid':move.e_invoice_uuid,
+            'internalId':move.name,'status':'Valid'}]}
+        job._refresh(client)
+        client.request.assert_called_once_with('GET', '/api/v1.0/documentsubmissions/known-submission',
+                                               params={'pageNo':1,'pageSize':100})
+        self.assertEqual(job.state, 'valid')
+
     def test_old_invoice_is_blocked_without_rewriting_date(self):
         old = fields.Date.today() - timedelta(days=30)
         move = self.invoice(invoice_date=old)
