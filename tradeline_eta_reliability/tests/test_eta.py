@@ -844,6 +844,26 @@ class TestEtaReliability(TransactionCase):
             ('res_model', '=', 'account.move'), ('res_id', '=', move.id), ('name', '=', 'ETA_rejected_invalid-old.json')]))
         self.assertEqual(move.amount_total, 100)
 
+    def test_terminal_rejection_cannot_release_a_different_or_unverifiable_attempt(self):
+        for retained in ('different', 'missing', 'bad-hash'):
+            with self.subTest(retained=retained):
+                move, job = self._known_accepted_receipt()
+                response = self._known_receipt_result(move, status='Invalid')
+                job._apply_remote(response)
+                payload = json.dumps({'documents': [response['document']]})
+                if retained == 'different':
+                    payload = json.dumps({'documents': [dict(response['document'], signatures=[{'value':'newer'}])]})
+                job.write({'payload': payload if retained != 'missing' else False,
+                    'payload_hash': hashlib.sha256(payload.encode()).hexdigest() if retained != 'bad-hash' else 'bad'})
+                before = job.read(['state','payload','payload_hash','attempts','attempted_at','submission_uuid'])[0]
+                client = MagicMock(); client.request.return_value = response
+                with patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                        self.assertRaisesRegex(UserError, 'retained submission'):
+                    move._eta_queue_corrected_document()
+                self.assertEqual(job.read(list(before))[0], before)
+                self.assertEqual(move.e_invoice_uuid, 'known-accepted-uuid')
+                self.assertEqual([call.args[0] for call in client.request.call_args_list], ['GET'])
+
     def test_unchanged_invalid_document_cannot_be_resent(self):
         move = self.invoice()
         move.write({'e_invoice_uuid': 'invalid-old', 'e_invoice_status': 'Invalid', 'e_invoice_sent': True})

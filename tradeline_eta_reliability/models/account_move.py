@@ -364,7 +364,10 @@ class AccountMove(models.Model):
         if not self.env.cr.fetchone()[0]:
             raise UserError(_('This invoice is already being processed. Nothing was resubmitted.'))
         job.invalidate_recordset(); self.invalidate_recordset()
-        if (job.state == 'unknown' or job.attempted_at and not job.safe_to_retry
+        confirmed_rejection = (job.state == 'invalid' and not job.historical_review
+            and not job._has_authority_duplicate_review()
+            and not (self.l10n_eg_uuid and self.l10n_eg_uuid != self.e_invoice_uuid))
+        if (job.state == 'unknown' or job.attempted_at and not job.safe_to_retry and not confirmed_rejection
                 or job.duplicate_retry_at or job.duplicate_payload_hash
                 or job.next_attempt and job.next_attempt > fields.Datetime.now()):
             raise UserError(_('ETA reconciliation or a retry deadline is pending. Nothing was resubmitted.'))
@@ -377,17 +380,30 @@ class AccountMove(models.Model):
             client.close()
         if result.get('uuid') != self.e_invoice_uuid or result.get('internalId') != self.name:
             raise UserError(_('ETA returned a different document. Review its identity before resubmitting.'))
-        if result.get('status') != 'Invalid':
-            job._apply_remote(result)
-            return
-        if 'DS301' in json.dumps(result.get('validationResults') or {}):
-            raise UserError(_('ETA identifies this as a duplicate. Reconcile the referenced original document before any corrected submission.'))
         original = result.get('document')
         if isinstance(original, str):
             try:
                 original = json.loads(original)
             except ValueError:
                 original = None
+        if job.attempted_at and not job.safe_to_retry:
+            # A terminal rejection keeps its original attempt marker. Verify
+            # that exact signed request before releasing it for a correction;
+            # an older receipt must never hide a newer unresolved submission.
+            try:
+                retained = json.loads(job.payload)['documents']
+                matching_attempt = (len(retained) == 1 and retained[0] == original
+                    and job.payload_hash == hashlib.sha256(job.payload.encode()).hexdigest())
+            except (ValueError, TypeError, KeyError, AttributeError):
+                matching_attempt = False
+            if not matching_attempt:
+                raise UserError(_('The ETA receipt does not verify the retained submission. '
+                                  'Reconcile its status before resending; nothing was submitted.'))
+        if result.get('status') != 'Invalid':
+            job._apply_remote(result)
+            return
+        if 'DS301' in json.dumps(result.get('validationResults') or {}):
+            raise UserError(_('ETA identifies this as a duplicate. Reconcile the referenced original document before any corrected submission.'))
         if not isinstance(original, dict):
             raise UserError(_('The rejected document could not be verified. Nothing was resubmitted.'))
         corrected = self._eta_correction_document()
