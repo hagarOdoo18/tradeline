@@ -196,7 +196,12 @@ class EtaJob(models.Model):
         self.ensure_one()
         move = self.move_id
         if move.e_invoice_uuid and not (self.state == 'unknown' and (self.attempted_at or self.attempts)):
-            if self.submission_uuid:
+            if self.state == 'accepted' and not move.l10n_eg_eta_json_doc_id:
+                # The accepted response already recorded this exact UUID.
+                # Fetch its authoritative receipt directly: the summary would
+                # otherwise require a second GET when validation completes.
+                data = client.request('GET', '/api/v1.0/documents/%s/raw' % move.e_invoice_uuid)
+            elif self.submission_uuid:
                 result = client.request('GET', '/api/v1.0/documentsubmissions/%s' % self.submission_uuid,
                                         params={'pageNo': 1, 'pageSize': 100})
                 matches = [d for d in result.get('documentSummary', []) if d.get('uuid') == move.e_invoice_uuid]
