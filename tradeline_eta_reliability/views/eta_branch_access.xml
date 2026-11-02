@@ -9,7 +9,6 @@
         <field name="priority">999</field>
         <field name="arch" type="xml">
             <xpath expr="//header" position="before"><field name="eta_branch_hide_native_controls" invisible="1"/></xpath>
-            <xpath expr="//div[@role='status'][.//field[@name='eta_staff_reason']]" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//page[.//button[@name='action_generate_eta_json']]" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//button[@name='action_cancel_electronic_invoice']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//widget[@name='web_ribbon'][@invisible='valid_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>

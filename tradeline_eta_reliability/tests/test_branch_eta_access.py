@@ -79,6 +79,16 @@ class TestEtaBranchPrivacy(TransactionCase):
                 bindings = caller.env['ir.actions.actions'].get_bindings('account.move')
                 self.assertFalse(any(action['id'] == sign_id for action in bindings.get('action', [])))
 
+    def test_normal_invoice_summary_panel_is_removed_for_every_role(self):
+        for user in (self.central, self.branch, self.branch_admin, self.env.user):
+            Move = self.env['account.move'].with_user(user)
+            for caller in (Move, Move.sudo()):
+                form = etree.fromstring(caller.get_view(view_type='form')['arch'])
+                self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@invisible='1']"))
+                self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
+                self.assertFalse(form.xpath("//field[@name='eta_staff_reason' or @name='eta_staff_next_step']"))
+                self.assertFalse(form.xpath("//button[@name='action_eta_status_details' or @name='action_eta_review_saved_vat']"))
+
     def test_central_clerk_keeps_eta_controls_without_accounting_manager(self):
         self.assertFalse(self.central.has_group('account.group_account_manager'))
         form = etree.fromstring(self.env['account.move'].with_user(self.central).get_view(view_type='form')['arch'])

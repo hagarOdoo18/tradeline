@@ -27,7 +27,7 @@
                 <field name="eta_vat_workflow_note" string="What to do" optional="hide"/>
                 <button name="action_eta_start_vat_correction" type="object" string="Add VAT — same invoice" icon="fa-percent"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('unsent','rejected')"/>
-                <button name="action_eta_local_vat_preview" type="object" string="Add 14% VAT in Odoo" icon="fa-percent"
+                <button name="action_eta_apply_local_vat" type="object" string="Add 14% VAT in Odoo" icon="fa-percent"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow != 'approved'"/>
                 <button name="action_eta_vat_documents" type="object" string="Open existing corrections" icon="fa-folder-open"
                     groups="tradeline_eta_reliability.group_eta_workspace" invisible="eta_vat_workflow not in ('in_progress','completed')"/>
@@ -186,18 +186,8 @@
         <field name="name">account.move.eta.vat.review</field><field name="model">account.move</field>
         <field name="inherit_id" ref="view_move_form_draft_correction"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='eta_staff_reason']" position="before">
-                <div class="my-2" groups="tradeline_eta_reliability.group_eta_workspace">
-                    <field name="eta_vat_workflow" invisible="1"/>
-                    <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
-                        decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected','local_corrected')"/>
-                    <field name="eta_vat_workflow_note" nolabel="1" invisible="not eta_vat_workflow"/>
-                    <field name="eta_vat_review_note" nolabel="1" invisible="eta_vat_workflow"/>
-                </div>
-            </xpath>
-            <xpath expr="//button[@name='action_eta_status_details']" position="after">
-                <button name="action_eta_review_saved_vat" type="object" string="Review saved VAT" class="btn-link"
-                    groups="tradeline_eta_reliability.group_eta_workspace"/>
+            <xpath expr="//field[@name='eta_staff_state']" position="attributes">
+                <attribute name="invisible">1</attribute>
             </xpath>
         </field>
     </record>

@@ -150,7 +150,7 @@ class TestEtaLocalVat(TransactionCase):
     def test_local_preview_is_nonmutating_and_explicitly_keeps_customer_gross(self):
         move = self.invoice()
         before = (move._eta_local_vat_financial_snapshot(), move._eta_local_vat_transport_snapshot())
-        action = move.with_user(self.clerk).action_apply_14_tax()
+        action = move.with_user(self.clerk).action_eta_local_vat_preview()
         wizard = self.env[action['res_model']].with_user(self.clerk).browse(action['res_id'])
         self.assertEqual(action['target'], 'new')
         self.assertEqual(wizard.original_total, 100)
@@ -194,7 +194,7 @@ class TestEtaLocalVat(TransactionCase):
                     native_before = document.read(native_fields)[0]
                     residual_before = move.amount_residual
                     self.assertEqual(move.eta_vat_workflow, 'approved')
-                    action = move.with_user(self.clerk).action_apply_14_tax()
+                    action = move.with_user(self.clerk).action_eta_local_vat_preview()
                     self.assertEqual(action['res_model'], 'tradeline.eta.local.vat.correction')
                     wizard = self.env[action['res_model']].with_user(self.clerk).browse(action['res_id'])
                     self.assert_apply_preserves(move, wizard)
@@ -258,7 +258,7 @@ class TestEtaLocalVat(TransactionCase):
                 move.eta_job_ids.sudo().state = state
                 with patch.object(type(move), 'button_draft', side_effect=AssertionError('Legacy reset called')):
                     with self.assertRaisesRegex(UserError, 'finally approved'):
-                        move.with_user(self.clerk).action_apply_14_tax()
+                        move.with_user(self.clerk).action_eta_correct_vat()
 
     def test_local_confirmed_invalid_retains_same_invoice_vat_correction_without_credit(self):
         move = self.invoice()
@@ -266,7 +266,7 @@ class TestEtaLocalVat(TransactionCase):
         move.eta_job_ids.sudo().state = 'invalid'
         document = json.loads(move.l10n_eg_eta_json_doc_id.raw)['request']
         receipt = {'uuid': move.e_invoice_uuid, 'internalId': move.name, 'status': 'Invalid', 'document': document}
-        action = move.with_user(self.clerk).action_apply_14_tax()
+        action = move.with_user(self.clerk).action_eta_correct_vat()
         self.assertEqual(action['res_model'], 'tradeline.eta.vat.correction')
         self.assertEqual(action['context']['default_tax_id'], self.vat.id)
         wizard = self.env['tradeline.eta.vat.correction'].with_user(self.clerk).create({
@@ -366,7 +366,7 @@ class TestEtaLocalVat(TransactionCase):
         move = self.invoice()
         wizard = self.preview(move)
         move.ref = 'Changed after preview'
-        with self.assertRaisesRegex(UserError, 'changed after the preview'):
+        with self.assertRaisesRegex(UserError, 'changed while VAT was being prepared'):
             wizard.action_apply()
         wrong = self.vat.copy({'name': 'Local QA 18%', 'amount': 18})
         with self.assertRaisesRegex(UserError, '14%'):

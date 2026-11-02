@@ -110,7 +110,7 @@ class EtaVatReviewMove(models.Model):
                 else:
                     state = ('approved_missing' if move.e_invoice_status == 'Valid'
                         else 'rejected_missing' if move.e_invoice_status in ('Invalid', 'Rejected') else 'receipt_missing')
-                    note = (_('The saved ETA receipt contains no positive VAT. Use Add 14% VAT in Odoo to preview an accounting-only correction. No ETA credit note, replacement or resend will be created.')
+                    note = (_('The saved ETA receipt contains no positive VAT. Use Add 14% VAT in Odoo, or select invoices and choose Actions > Apply 14% Tax, to apply the accounting-only correction immediately. No ETA credit note, replacement or resend will be created.')
                         if state == 'approved_missing' else _('The ETA receipt contains no positive VAT. Correct VAT verifies the latest authority status before reopening or replacing the invoice; an unresolved send is never replayed.'))
             elif missing and sent:
                 state = 'source_changed' if audited else 'receipt_review'

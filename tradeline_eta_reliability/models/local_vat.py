@@ -1,4 +1,4 @@
-"""Previewed local VAT reclassification; never reset, post, or send an ETA invoice."""
+"""Protected local VAT reclassification; never reset, post, or send an ETA invoice."""
 import hashlib
 import json
 
@@ -75,9 +75,7 @@ class EtaLocalVatMove(models.Model):
         # Keep Mosad's implementation byte-for-byte. It remains the path only
         # for invoices with no authority history to preserve.
         if self.filtered(lambda move: move._eta_apply14_requires_review()):
-            if len(self) != 1:
-                raise UserError(_('Select one previously sent invoice at a time to preview its local VAT correction.'))
-            return self.action_eta_correct_vat()
+            return self.action_eta_apply_local_vat()
         return super().action_apply_14_tax()
 
     def action_eta_correct_vat(self):
@@ -253,19 +251,19 @@ class EtaLocalVatMove(models.Model):
             if job:
                 self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180,%s)', [job.id])
                 if not self.env.cr.fetchone()[0]:
-                    raise UserError(_('This invoice is being checked by ETA. Open the local VAT preview again shortly.'))
+                    raise UserError(_('This invoice is being checked by ETA. Try applying VAT again shortly.'))
             try:
                 with self.env.cr.savepoint():
                     self.env.cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [self.id])
                     self.env.cr.execute('SELECT id FROM account_move_line WHERE move_id=%s ORDER BY id FOR UPDATE NOWAIT', [self.id])
             except psycopg2.errors.LockNotAvailable as exc:
-                raise UserError(_('This invoice or its payment is being updated. Reopen the local VAT preview shortly.')) from exc
+                raise UserError(_('This invoice or its payment is being updated. Try applying VAT again shortly.')) from exc
             self.invalidate_recordset()
             job.invalidate_recordset()
             self.line_ids.invalidate_recordset()
             self._eta_local_vat_validate(tax)
             if self._eta_local_vat_preview_digest() != expected_digest:
-                raise UserError(_('The invoice changed after the preview. Open a fresh preview before applying VAT.'))
+                raise UserError(_('The invoice changed while VAT was being prepared. Try applying VAT again.'))
             plan = self._eta_local_vat_plan(tax)
             if not plan['commands']:
                 raise UserError(_('The eligible invoice lines already have 14% VAT. No amendment is needed.'))

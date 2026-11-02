@@ -1193,6 +1193,18 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(lines[0]['unitType'], 'D41')
         self.assertEqual((discount, sales, total), (250, 2500, move.amount_total))
 
+    def test_reviewed_variant_code_reaches_eta_without_regeneration(self):
+        move, product, metadata = self._description_serializer_fixture()
+        reviewed_code = 'EG-254598064-REVIEWED-VARIANT'
+        if 'e_invoicing_code' in product._fields:
+            product.write({'e_invoicing_code': reviewed_code})
+        metadata['e_invoicing_code'] = reviewed_code
+        lines, _, _, _ = self._description_serializer_values(move, product, metadata)
+        self.assertEqual(lines[0]['itemCode'], reviewed_code)
+        self.assertEqual(lines[0]['itemType'], metadata['code_type'])
+        if 'e_invoicing_code' in product._fields:
+            self.assertEqual(product.e_invoicing_code, reviewed_code)
+
     def test_arabic_metadata_does_not_change_existing_approved_payload(self):
         move, product, metadata = self._description_serializer_fixture(ar_description='Existing catalogue description')
         original = self._description_serializer_values(move, product, metadata)

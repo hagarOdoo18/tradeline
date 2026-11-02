@@ -204,7 +204,7 @@ class EtaVatWorkspace(models.Model):
             if route == 'unsent':
                 note = _('Fix VAT on this existing invoice. If it is posted, Correct VAT reopens its draft safely. No credit note is needed because no submission is recorded.')
             elif route == 'approved':
-                note = _('ETA approved the original without VAT. Click Add 14% VAT in Odoo, review the unchanged customer total, then apply. This changes Odoo accounting only; no ETA credit, replacement or resend is created.')
+                note = _('ETA approved the original without VAT. Click Add 14% VAT in Odoo, or select invoices and choose Actions > Apply 14% Tax. VAT is applied immediately, preserving the customer total. This changes Odoo accounting only; no ETA credit, replacement or resend is created.')
             elif route == 'rejected':
                 note = _('ETA marked the original invoice Invalid. Correct VAT verifies its latest outcome before reopening this existing invoice. No credit note is needed for a confirmed invalid submission.')
             elif route == 'in_progress':

@@ -18,26 +18,7 @@
                 <attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute>
             </xpath>
             <xpath expr="//sheet" position="before">
-                <div class="alert alert-info mx-3 my-2" role="status"
-                     invisible="True">
-                    <div class="d-flex align-items-center gap-3 mb-2">
-                        <strong>Egyptian Tax Authority</strong>
-                        <field name="eta_staff_state" widget="badge"
-                            decoration-success="eta_staff_state == 'valid'"
-                            decoration-danger="eta_staff_state in ('blocked', 'invalid')"
-                            decoration-warning="eta_staff_state in ('unknown','delivery_review')"
-                            decoration-info="eta_staff_state in ('queued', 'accepted', 'review')"/>
-                        <span invisible="eta_staff_state">No ETA submission recorded</span>
-                    </div>
-                    <div class="mb-1"><field name="eta_staff_reason" nolabel="1"/></div>
-                    <div class="mb-2"><field name="eta_staff_next_step" nolabel="1"/></div>
-                    <div class="d-flex gap-4 flex-wrap small">
-                        <span>Last confirmed check: <field name="eta_staff_checked_at"/></span>
-                        <span>Next automatic check: <field name="eta_staff_next_attempt"/></span>
-                        <button name="action_eta_status_details" string="ETA details and issues" type="object" class="btn-link"
-                            groups="tradeline_eta_reliability.group_eta_workspace"/>
-                    </div>
-                </div>
+                <field name="eta_staff_state" invisible="1"/>
             </xpath>
             <xpath expr="//field[@name='invoice_origin']" position="after">
                 <field name="eta_vat_original_id" invisible="not eta_vat_original_id"/>
@@ -53,10 +34,9 @@
         <field name="arch" type="xml">
             <form string="Correct VAT">
                 <p>Choose the correct VAT tax. An unsent or ETA-invalid invoice reopens in draft with VAT applied.</p>
-                <p>For an ETA-valid invoice, prepare a linked credit note and replacement invoice. The credit note
-                    matches the original ETA receipt. If Odoo was edited after submission, an accounting adjustment
-                    draft reconciles that earlier edit. Review and post the credit note and any adjustment.
-                    Once the credit note is Valid at ETA, post the replacement. The original receipt is preserved.</p>
+                <p>An ETA-approved invoice uses the separate 14% VAT preview in Odoo only.
+                    That amendment preserves the customer total and original ETA receipt, without a credit note,
+                    replacement invoice or ETA request.</p>
                 <group>
                     <field name="move_id"/>
                     <field name="company_id" invisible="1"/>
@@ -73,8 +53,8 @@
                     <field name="preview_total" string="New customer total"/>
                     <field name="preview_difference" string="Change in customer total"/>
                 </group>
-                <p>Preparing saves drafts for review. It does not post entries or send anything to ETA.
-                    For an approved original: review and post the credit, wait for ETA approval, then post and send the replacement.</p>
+                <p>For an unsent or confirmed-invalid invoice, preparing opens the same invoice in draft with VAT.
+                    Review the totals before posting and using Sync. Approved invoices use the Odoo-only preview.</p>
                 <footer>
                     <button name="action_prepare" string="Prepare VAT Correction" type="object" class="btn-primary"/>
                     <button string="Cancel" special="cancel" class="btn-secondary"/>
