@@ -84,7 +84,10 @@ class TestEtaBranchPrivacy(TransactionCase):
             Move = self.env['account.move'].with_user(user)
             for caller in (Move, Move.sudo()):
                 form = etree.fromstring(caller.get_view(view_type='form')['arch'])
-                self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@invisible='1']"))
+                if user in (self.branch, self.branch_admin):
+                    self.assertFalse(form.xpath("//field[@name='eta_staff_state']"))
+                else:
+                    self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@invisible='1']"))
                 self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
                 self.assertFalse(form.xpath("//field[@name='eta_staff_reason' or @name='eta_staff_next_step']"))
                 self.assertFalse(form.xpath("//button[@name='action_eta_status_details' or @name='action_eta_review_saved_vat']"))
