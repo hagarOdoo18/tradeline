@@ -1,4 +1,5 @@
 import json
+import hashlib
 from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -199,6 +200,61 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(client.request.call_count, 1); self.assertEqual(job.attempts, 1)
         audit = json.loads(self.env['ir.attachment'].browse(action['params']['request_id']).raw)
         self.assertEqual(audit['state'], 'finished'); self.assertEqual(audit['uid'], self.clerk.id)
+
+    def test_clerk_sync_resends_a_corrected_terminal_rejection_once(self):
+        move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
+        original = {'internalID': move.name, 'issuer': {'id': self.company.vat},
+            'receiver': {'id': 'old-id'}, 'totalAmount': 100,
+            'dateTimeIssued': move._eta_issue_timestamp(),
+            'invoiceLines': [{'quantity': 1}], 'signatures': [{'value': 'old-signature'}]}
+        payload = json.dumps({'documents': [original]})
+        job.write({'state': 'accepted', 'payload': payload,
+            'payload_hash': hashlib.sha256(payload.encode()).hexdigest(),
+            'attempts': 1, 'attempted_at': fields.Datetime.now(), 'submission_uuid': 'old-submission'})
+        move.sudo().write({'e_invoice_uuid': 'rejected-receipt', 'e_invoice_status': 'Submitted'})
+        rejected = {'uuid': 'rejected-receipt', 'internalId': move.name, 'status': 'Invalid',
+            'document': original, 'validationResults': {'errorCode': 'NI310'}}
+        job._apply_remote(rejected)
+        self.assertFalse(job.safe_to_retry)
+        self.assertTrue(job.attempted_at)
+        corrected = dict(original, receiver={'id': 'corrected-id'}, signatures=[{'value': 'new-signature'}])
+        client = MagicMock(company=self.company)
+        def prepare(row):
+            body = json.dumps({'documents': [corrected]})
+            row.write({'payload': body, 'payload_hash': hashlib.sha256(body.encode()).hexdigest()})
+        def request(method, path, **kwargs):
+            if method == 'POST':
+                self.assertEqual(path, '/api/v1/documentsubmissions')
+                self.assertEqual(job.state, 'unknown')
+                self.assertEqual(job.attempts, 2)
+                self.assertEqual(json.loads(kwargs['data'])['documents'][0], corrected)
+                return {'acceptedDocuments': [{'internalId': move.name, 'uuid': 'corrected-receipt'}],
+                        'submissionUUID': 'new-submission'}
+            self.assertEqual(method, 'GET')
+            if path.endswith('/rejected-receipt/raw'):
+                return rejected
+            self.assertEqual(path, '/api/v1.0/documents/corrected-receipt/raw')
+            return {'uuid': 'corrected-receipt', 'internalId': move.name, 'status': 'Valid', 'document': corrected}
+        client.request.side_effect = request
+        with self.owned_worker(client), \
+                patch('odoo.addons.tradeline_eta_reliability.models.account_move.EtaClient', return_value=client), \
+                patch.object(type(move), '_eta_correction_document', return_value=corrected), \
+                patch.object(type(job), '_prepare', autospec=True, side_effect=prepare), \
+                patch.object(type(job), '_preflight_submission', return_value=True):
+            action = move.action_eta_send_now()
+            result = move.action_eta_execute_staff_request(action['params']['request_id'])
+            self.assertEqual(job.state, 'accepted', result)
+            self.assertEqual(move.e_invoice_uuid, 'corrected-receipt')
+            action = move.action_eta_send_now()
+            move.action_eta_execute_staff_request(action['params']['request_id'])
+        self.assertEqual(job.state, 'valid')
+        self.assertEqual(job.attempts, 2)
+        self.assertEqual(sum(call.args[0] == 'POST' for call in client.request.call_args_list), 1)
+        archived = self.env['ir.attachment'].sudo().search([
+            ('res_model', '=', 'account.move'), ('res_id', '=', move.id),
+            ('name', '=', 'ETA_rejected_rejected-receipt.json')])
+        self.assertEqual(json.loads(archived.raw), rejected)
+        self.assertEqual(move.amount_total, 100)
 
     def test_company_eta_cooldown_applies_to_other_invoice_and_transport(self):
         job = self.invoice().eta_job_ids
