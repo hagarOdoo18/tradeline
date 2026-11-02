@@ -51,4 +51,9 @@ class UpdateProductPrice (models.TransientModel) :
                         product=product.display_name,
                     ))
                 product._apply_counted_inventory(
-                    self.company_id, stock, self.qty, reason=_('Update Product Quantity: physical count'))
+                    self.company_id, stock, self.qty,
+                    reason=_('Update Product Quantity: physical count'),
+                    # Existing valuation discrepancies are reviewed separately
+                    # in Inventory Issues, not during staff quantity updates.
+                    allow_existing_valuation_issues=True,
+                )

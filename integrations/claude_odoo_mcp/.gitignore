@@ -1,0 +1,5 @@
+.venv/
+config.json
+*.key
+*.secret
+__pycache__/

@@ -1,0 +1,6 @@
+{
+  "url": "https://tradelinestores.odoo.com",
+  "database": "REPLACE_WITH_CONFIRMED_DATABASE_NAME",
+  "login": "REPLACE_WITH_APPROVED_ODOO_USER_LOGIN",
+  "api_key_file": "C:/Users/YOUR_USER/.tradeline-mcp/odoo.key"
+}

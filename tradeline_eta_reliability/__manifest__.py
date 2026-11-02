@@ -1,6 +1,8 @@
 {
     'name': 'Tradeline ETA Reliable Submission',
-    'version': '18.0.1.0.47',
+    # Code-only VAT release: existing fields, ACLs and asset paths are unchanged.
+    # Keep the installed stage schema version; Git identifies deployed features.
+    'version': '18.0.1.0.45',
     'license': 'LGPL-3',
     'depends': ['egyptian_electronic_invoice', 'l10n_eg_edi_eta', 'tradeline_operations_monitor'],
     'data': ['security/security.xml', 'security/ir.model.access.csv', 'data/cron.xml',

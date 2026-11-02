@@ -6,3 +6,12 @@ from . import ai_copilot_generated_file
 from . import ai_copilot_audit_log
 from . import ai_copilot_service
 from . import ai_copilot_ui
+from . import ai_copilot_query
+from . import ai_copilot_analysis
+from . import ai_copilot_identity
+from . import ai_copilot_metrics
+from . import ai_copilot_sales
+from . import ai_copilot_shopify
+from . import ai_copilot_agent
+from . import ai_copilot_research
+from . import ir_ui_menu

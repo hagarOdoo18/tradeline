@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_mcp_oauth_client_admin,Hosted MCP OAuth clients,model_tradeline_mcp_oauth_client,base.group_system,1,1,0,1
+access_mcp_oauth_grant_admin,Hosted MCP OAuth grants,model_tradeline_mcp_oauth_grant,base.group_system,1,1,0,1

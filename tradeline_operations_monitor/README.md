@@ -41,6 +41,16 @@ An external **DOWN (received a failure signal)** means a confirmed operational
 incident; it does not establish that the website was offline. An independent
 HTTP poller is needed to measure public website downtime.
 
+For slow attachment deletion, `maintenance/attachment-reference-indexes.sql`
+ensures five references have supporting indexes using concurrent builds only
+where needed, preserving Odoo's existing not-null partial indexes. Run it with
+psql in autocommit after staging verification; it is deliberately not run
+during module upgrade, where a large blocking index build could interrupt work.
+The script verifies the expected foreign keys and usable indexes, and changes
+no business records. `maintenance/check_attachment_rollout.py` captures row
+counts, DML counters and deterministic business-record sample fingerprints for
+before/after verification, and measures read-only reference lookup plans.
+
 An old Multi Stock Update **Draft is not flagged as a stalled import**: drafts
 may be legitimate work in progress. Multi Stock is an atomic transaction, so
 its blocking/long-running SQL is detected by the database probes instead.
@@ -66,6 +76,17 @@ Individual order/publication failures remain open until reviewed. Their absence
 from a later scan or another successful batch is not proof they were repaired.
 Open the referenced job/log/event, correct the cause, verify the affected
 stock/order, then **Mark Reviewed / Resolved**. New failure evidence reopens it.
+
+Shopify order-import and partial-inventory incidents show the latest referenced
+**Shopify Log Message** directly below **What Was Detected**, with an
+**Open Original Shopify Log** link. These are database records under
+**Shopify → Configuration → Log Messages**; their IDs are not Odoo.sh server-log
+line numbers. Existing incidents use their saved evidence IDs without rescanning
+the log table. Messages are shown as plain text (up to 8,000 characters, with an
+explicit truncation notice); the original log contains the full message.
+Deleted/inaccessible logs are reported as unavailable. Viewing the message
+respects connector log permissions. Original messages are not copied to alert
+emails or the public health/heartbeat responses.
 
 The probes run with a two-second SQL timeout and 100ms lock timeout each,
 without taking business row locks. They read status/timestamps and relevant
@@ -129,3 +150,10 @@ otherwise the database probe is reported unavailable, not falsely healthy.
 Tests simulate slow/failed probes, a blocking chain, partial Done-batch errors,
 rejected orders, stalled imports, confirmation/escalation/reminders/recovery,
 manual failure review, maintenance, authenticated health, and mail isolation.
+
+## App menu visibility
+
+The app and all its submenus are visible only to the built-in Administrator
+account (`base.user_admin`), including in developer mode. Other Settings
+administrators do not see the app. Existing model/API permissions and scheduled
+operations are unchanged.

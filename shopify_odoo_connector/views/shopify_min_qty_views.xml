@@ -6,15 +6,20 @@
         <field name="model">shopify.min.qty</field>
         <field name="arch" type="xml">
             <list string="Minimum Quantities" editable="bottom">
+                <field name="apply_type"/>
+                <field name="document_type"/>
                 <field name="warehouse_ids" widget="many2many_tags"
                        placeholder="All Warehouses"
                        options="{'no_create': True}"/>
                 <field name="categ_ids" widget="many2many_tags"
                        placeholder="All Categories"
-                       options="{'no_create': True}"/>
+                       options="{'no_create': True}"
+                       column_invisible="0"
+                       invisible="apply_type != 'category'"/>
                 <field name="product_ids" widget="many2many_tags"
                        placeholder="All Variants"
-                       options="{'no_create': True}" optional="show"/>
+                       options="{'no_create': True}"
+                       invisible="apply_type != 'product'"/>
                 <field name="min_qty" sum="Total"/>
                 <field name="strategy"/>
                 <field name="instance_id"
@@ -37,6 +42,8 @@
                             invisible="active"/>
                     <group>
                         <group string="Applies To">
+                            <field name="apply_type" widget="radio"/>
+                            <field name="document_type" widget="radio"/>
                             <field name="warehouse_ids"
                                    widget="many2many_tags"
                                    placeholder="All Warehouses"
@@ -44,11 +51,13 @@
                             <field name="categ_ids"
                                    widget="many2many_tags"
                                    placeholder="All Categories"
-                                   options="{'no_create': True}"/>
+                                   options="{'no_create': True}"
+                                   invisible="apply_type != 'category'"/>
                             <field name="product_ids"
                                    widget="many2many_tags"
                                    placeholder="All Variants"
-                                   options="{'no_create': True}"/>
+                                   options="{'no_create': True}"
+                                   invisible="apply_type != 'product'"/>
                             <field name="instance_id"
                                    placeholder="All Instances"
                                    options="{'no_create': True}"/>
@@ -98,9 +107,21 @@
                 <filter name="filter_variant_rules" string="Per Variant"
                         domain="[('product_ids', '!=', False)]"/>
                 <separator/>
+                <filter name="filter_by_product" string="By Product"
+                        domain="[('apply_type', '=', 'product')]"/>
+                <filter name="filter_by_category" string="By Category"
+                        domain="[('apply_type', '=', 'category')]"/>
+                <separator/>
+                <filter name="filter_sale_order" string="Sales Order"
+                        domain="[('document_type', '=', 'sale_order')]"/>
+                <filter name="filter_invoice" string="Invoice"
+                        domain="[('document_type', '=', 'invoice')]"/>
+                <separator/>
                 <filter name="filter_archived" string="Archived"
                         domain="[('active', '=', False)]"/>
                 <group expand="0" string="Group By">
+                    <filter name="group_document_type" string="Document Type"
+                            context="{'group_by': 'document_type'}"/>
                     <filter name="group_strategy" string="Strategy"
                             context="{'group_by': 'strategy'}"/>
                     <filter name="group_instance" string="Shopify Instance"

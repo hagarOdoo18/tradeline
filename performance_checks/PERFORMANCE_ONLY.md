@@ -24,4 +24,4 @@ The running stage database was restored from build fd78d164 and includes other a
 
 For this restored staging DB, performance_checks/apply_shopify_log_index_staging.py creates the ORM-declared index concurrently without a module upgrade. It refuses other databases. Its SQL lock/statement timeouts apply only to that maintenance session. They do not limit staff requests or imports. performance_checks/benchmark_shopify_staging.py checks read plans, exact counts and complete log paging without expanding the One2many.
 
-Production release is on hold. Physical scanner hardware and a complete offline acceptance session have not been validated; this change does not introduce the held offline feature.
+The user authorized the isolated production performance release on 23 October 2026; see PRODUCTION_RELEASE_20261023.md. Physical scanner hardware and a complete offline acceptance session have not been validated; this change does not introduce the held offline feature. The inactive patch remains preserved on stage and in the archive tag.
