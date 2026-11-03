@@ -64,10 +64,13 @@ class EtaHttp422Recovery(models.Model):
                 return self._recover_retained_http422(client, failure, automatic=True)
             # Keep looking for a late receipt, without another POST or loss of
             # the uncertain marker. A persistent fault becomes actionable.
-            result = EtaJob._refresh(self, client)
+            deferred = self.with_context(_eta_history_deferred=HISTORY_DEFERRED)
+            result = EtaJob._refresh(deferred, client)
             if self.state == 'unknown':
-                self._delay(HTTP422_REVIEW + 'Three automatic recoveries did not resolve the rejection. '
-                    'Automatic sending is paused; Accounting or IT must review the retained request and ETA receipts.', seconds=900)
+                deferred.write({'last_error': HTTP422_REVIEW + 'Three automatic recoveries did not resolve the rejection. '
+                    'Automatic sending is paused; Accounting or IT must review the retained request and ETA receipts.',
+                    'next_attempt': fields.Datetime.now() + timedelta(seconds=900)})
+            self._eta_record_history()
             return result
         return super()._refresh(client)
 

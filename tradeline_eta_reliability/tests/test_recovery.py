@@ -492,6 +492,9 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertIn('needs review', job.staff_summary)
         self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
         self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+        note_count = len(job.eta_history_ids)
+        job._refresh(client)
+        self.assertEqual(len(job.eta_history_ids), note_count, 'Unchanged limit polls must not add duplicate history notes')
         client.request.side_effect = [
             {'result': [{'internalId': m.name, 'uuid': 'late-receipt'}], 'metadata': {'continuationToken': 'EndofResultSet'}},
             {'document': doc, 'internalId': m.name, 'uuid': 'late-receipt', 'status': 'Submitted'}]
