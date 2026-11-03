@@ -8,15 +8,38 @@ https://sdk.invoicing.eta.gov.eg/einvoicingapi/01-submit-documents/
 """
 import hashlib
 import json
+import re
+from copy import deepcopy
 from datetime import datetime, timedelta
 
 from odoo import fields, models
+from odoo.exceptions import UserError
 
 from .historical_recovery import fiscal, fiscal_equal
 
 
 class EtaHttp422Recovery(models.Model):
     _inherit = 'tradeline.eta.job'
+
+    @staticmethod
+    def _http422_address_only_change(original, current):
+        """Only street/city drift for the same named domestic business ID."""
+        old = original.get('receiver', {}); new = current.get('receiver', {})
+        if (old.get('type') != 'B' or new.get('type') != 'B'
+                or not re.fullmatch(r'[0-9]{9}', str(old.get('id') or ''))
+                or any(old.get(key) != new.get(key) for key in ('id', 'name'))
+                or not old.get('name')
+                or old.get('address', {}).get('country') != 'EG'
+                or new.get('address', {}).get('country') != 'EG'):
+            return False
+        candidate = deepcopy(original)
+        address = candidate['receiver']['address']
+        for key in ('street', 'regionCity'):
+            if key in new['address']:
+                address[key] = new['address'][key]
+            else:
+                address.pop(key, None)
+        return fiscal_equal(fiscal(candidate), fiscal(current))
 
     def _retained_http422_failure(self):
         """Match the worker's private failure to this exact durable attempt."""
@@ -94,7 +117,9 @@ class EtaHttp422Recovery(models.Model):
             self._delay('Other ETA receipts use this invoice number. Reconcile them before retrying the HTTP 422 request.', seconds=900)
             return
         current = self._submission_source()
-        if not fiscal_equal(fiscal(original), fiscal(current)):
+        unchanged = fiscal_equal(fiscal(original), fiscal(current))
+        address_only = not unchanged and self._http422_address_only_change(original, current)
+        if not unchanged and not address_only:
             self._delay('The source changed after the HTTP 422 request. Reconcile the retained signed request before retrying.', seconds=900)
             return
         # Archive the old marker, signed bytes and proof before releasing the
@@ -102,8 +127,19 @@ class EtaHttp422Recovery(models.Model):
         # next durable attempt before POST. No date, amount or tax edit here.
         self._historical_archive(proof, receipts,
             'Manual Send now: observed HTTP 422 (private evidence %s), duplicate window elapsed; '
-            'complete history and fresh receipt search found no receipt. Retry the retained signed payload. '
-            'No missing error code was inferred.' % failure['attachment_id'])
+            'complete history and fresh receipt search found no receipt. %s '
+            'No missing error code was inferred.' % (failure['attachment_id'],
+                'Prepare and sign the current street/city for the same business tax identity; preserve all fiscal values.'
+                if address_only else 'Retry the retained signed payload.'))
+        if address_only:
+            # Generate under this same owned transaction and accounting lock.
+            # A signing failure rolls back to the original durable unknown
+            # request. The next submit still compares these new bytes to the
+            # current source; later master-data edits cannot slip into a POST.
+            self._prepare()
+            prepared = json.loads(self.payload)['documents'][0]
+            if not fiscal_equal(fiscal(prepared), fiscal(current)):
+                raise UserError('The newly signed HTTP 422 correction differs from the verified source. Nothing was submitted.')
         self.write({'state': 'queued', 'attempted_at': False, 'next_attempt': False,
             'last_error': False, 'historical_fingerprint': before,
             'historical_review': False, 'historical_submission_verified': True,

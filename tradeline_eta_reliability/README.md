@@ -10,6 +10,10 @@ complete taxpayer-scoped history plus a fresh fully paginated receipt search.
 A matching receipt is restored; conflicting receipts, changed source, missing
 proof, timeouts and other errors remain held. Only verified absence allows the
 retained signed bytes into the normal final preflight and durable POST flow.
+If only the street/city changed for the same named domestic business with the
+same nine-digit tax ID, the old request is archived and the current address is
+prepared and signed under the same transaction. All other source fields must
+still match, and the final preflight checks the newly signed source again.
 Invoice date, posted totals, taxes and the original attempt archive are preserved.
 Cron and **Check ETA status** do not authorize this recovery. Future failures also
 retain the bounded Retry-After, and the client recognizes structured root-level
