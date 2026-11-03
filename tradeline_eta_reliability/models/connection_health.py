@@ -7,7 +7,7 @@ import requests
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError
 
-from .client import EtaClient, EtaError
+from .client import EtaClient, EtaError, SUBMISSION_PATH
 from .processing_window import check_processing_window, EtaStopped
 
 
@@ -73,7 +73,7 @@ class MeasuredSubmissionClient:
     def request(self, method, path, **kwargs):
         started = time.monotonic()
         result = self.client.request(method, path, **kwargs)
-        if method == 'POST' and path == '/api/v1/documentsubmissions':
+        if method == 'POST' and path == SUBMISSION_PATH:
             self.seconds = time.monotonic()-started
         return result
 

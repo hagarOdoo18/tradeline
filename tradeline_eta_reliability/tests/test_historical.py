@@ -598,7 +598,7 @@ class TestHistoricalRecovery(TransactionCase):
         with stack, patch.object(self.env.cr, 'commit'):
             job._submit(client)
         self.assertEqual(job.state, 'accepted')
-        self.assertEqual(client.request.call_args.args[:2], ('POST', '/api/v1/documentsubmissions'))
+        self.assertEqual(client.request.call_args.args[:2], ('POST', '/api/v1.0/documentsubmissions'))
 
     def test_preflight_changed_invalid_set_reenters_review_without_post(self):
         move = self.invoice(); doc = self.document(move)

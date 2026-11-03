@@ -13,7 +13,7 @@ import requests
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
 
-from .client import EtaClient, EtaError, EtaCataloguePending, MAX_RETRY_SECONDS
+from .client import EtaClient, EtaError, EtaCataloguePending, MAX_RETRY_SECONDS, SUBMISSION_PATH
 from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
@@ -344,7 +344,7 @@ class EtaJob(models.Model):
         if self._transmission_fingerprint() != before:
             raise EtaError('Posted accounting changed before ETA transmission; reconcile the retained request.')
         try:
-            body = client.request('POST', '/api/v1/documentsubmissions', data=self.payload.encode())
+            body = client.request('POST', SUBMISSION_PATH, data=self.payload.encode())
         except (EtaError, requests.RequestException) as exc:
             # Retain only a scoped diagnostic tag in memory. The isolated
             # worker persists it AFTER rolling back the failed request's

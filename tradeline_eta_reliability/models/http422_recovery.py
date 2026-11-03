@@ -195,7 +195,14 @@ class EtaHttp422Recovery(models.Model):
                 self._apply_remote(receipts[0])
                 self.write({'duplicate_retry_at': False, 'duplicate_payload_hash': False})
                 return
-        if receipts:
+        # Corrected historical invoices can already have terminal Invalid
+        # receipts. The final POST preflight approved this exact receipt set;
+        # require the same proof here, rather than strand its HTTP 422 retry.
+        # Any new receipt, validation change or pending/approved outcome holds.
+        known_rejections = bool(receipts and self.historical_submission_verified
+            and self.authority_receipt_hash == self._receipt_set_hash(receipts)
+            and all(receipt.get('status') == 'Invalid' for receipt in receipts))
+        if receipts and not known_rejections:
             self._delay('Other ETA receipts use this invoice number. Reconcile them before retrying the HTTP 422 request.', seconds=900)
             return
         current = self._submission_source()
