@@ -10,6 +10,7 @@ from odoo.exceptions import AccessError, UserError
 from odoo.tools import SQL
 
 from .submission_safety import taxpayer
+from .attachment_content import attachment_bytes
 
 
 def document_vat(document):
@@ -193,7 +194,7 @@ class EtaVatReviewMove(models.Model):
                 or attachment.res_id != self.id or attachment.company_id and attachment.company_id != self.company_id):
             return False
         try:
-            saved = json.loads(attachment.raw)
+            saved = json.loads(attachment_bytes(attachment))
             uuid = saved.get('response', {}).get('l10n_eg_uuid')
             document = saved.get('request')
             if isinstance(document, str):

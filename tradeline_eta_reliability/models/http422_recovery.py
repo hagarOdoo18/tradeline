@@ -19,6 +19,7 @@ from odoo.osv import expression
 
 from .historical_recovery import fiscal, fiscal_equal
 from .client import MAX_RETRY_SECONDS
+from .attachment_content import attachment_bytes
 from .staff_workflow import StatusClient
 from .eta_job import EtaJob
 from .eta_history import HISTORY_DEFERRED
@@ -135,7 +136,7 @@ class EtaHttp422Recovery(models.Model):
         if len(records) != 1:
             return None
         try:
-            data = json.loads(records.raw)
+            data = json.loads(attachment_bytes(records))
             expected = {'job': self.id, 'attempts': self.attempts,
                 'attempted_at': fields.Datetime.to_string(self.attempted_at),
                 'payload_sha256': self.payload_hash, 'database': self.env.cr.dbname,

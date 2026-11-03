@@ -403,6 +403,20 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(job._http422_automatic_count(), 1)
         self.assertEqual(before, (m.invoice_date, m.amount_total, m.amount_tax, job.payload, job.payload_hash, job.attempts))
 
+    def test_browser_size_context_keeps_private_422_evidence_and_attention_consistent(self):
+        _move, job, _doc, _proof = self.retained_http422(automatic=True)
+        plain = job._retained_http422_failure()
+        sized = job.with_context(bin_size=True)._retained_http422_failure()
+        self.assertEqual(sized, plain, 'Browser context must not replace proof JSON with a file-size string')
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').sudo().write({
+            'active': True, 'failure_count': 0, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
+        job.write({'next_attempt': fields.Datetime.now() + timedelta(minutes=5), 'last_error': 'ETA returned HTTP 422.'})
+        shown = job.with_context(bin_size=True).web_read({'needs_attention': {}})
+        self.assertFalse(shown[0]['needs_attention'])
+        self.assertFalse(self.env[job._name].with_context(bin_size=True).search([
+            ('id', '=', job.id), ('needs_attention', '=', True)]))
+
     def test_new_explicit_duplicate_422_uses_same_bounded_recovery_and_clears_wait_markers(self):
         _m, job, doc, proof = self.retained_http422(code='DuplicateSubmission', automatic=True)
         job.write({'duplicate_retry_at': fields.Datetime.now() - timedelta(seconds=1),

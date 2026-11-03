@@ -25,6 +25,7 @@ from odoo.exceptions import AccessError, UserError
 from .historical_recovery import fiscal, fiscal_equal, leaf_codes, PreviewRollback
 from .submission_safety import taxpayer
 from .catalogue_recovery import approved_usage, approval_identity
+from .attachment_content import attachment_bytes
 
 
 def utc(value):
@@ -188,11 +189,11 @@ class EtaCertificateRecovery(models.Model):
                 ('res_model', '=', self._name), ('res_id', '=', self.id), ('company_id', '=', self.company_id.id),
                 ('name', '=', 'ETA_certificate_recovery_outcome_%s_%s.json' % (self.id, attachment.id))])
             for marker in outcomes:
-                outcome = json.loads(marker.raw)
+                outcome = json.loads(attachment_bytes(marker))
                 if (outcome['database'] != self.env.cr.dbname or outcome['job'] != self.id
                         or outcome['company'] != self.company_id.id or outcome['proof_attachment'] != attachment.id):
                     raise ValueError('Certificate outcome belongs to another scope')
-            return None if outcomes else json.loads(attachment.raw)
+            return None if outcomes else json.loads(attachment_bytes(attachment))
         except (ValueError, TypeError, KeyError):
             raise UserError(_('The retained certificate recovery proof is unreadable. IT must review it; nothing was sent.'))
 
@@ -206,7 +207,7 @@ class EtaCertificateRecovery(models.Model):
         if (proof and data.get('status') in ('Valid', 'Invalid', 'Rejected', 'Cancelled')
                 and data.get('uuid') and data['uuid'] not in originals):
             attachments = self._certificate_proof_attachments()
-            attachment = next((a for a in attachments if json.loads(a.raw) == proof), None)
+            attachment = next((a for a in attachments if json.loads(attachment_bytes(a)) == proof), None)
             if not attachment:
                 raise UserError(_('The certificate proof could not be matched to its retained evidence. IT must review it.'))
             self.env['ir.attachment'].sudo().create({
@@ -499,7 +500,7 @@ class EtaCertificateRecovery(models.Model):
             if before != self._transmission_fingerprint() or financial != self._historical_financial_fingerprint():
                 raise ValueError('The source changed during rollback-only certificate preview')
             for attachment in self._certificate_proof_attachments():
-                previous = json.loads(attachment.raw)
+                previous = json.loads(attachment_bytes(attachment))
                 if previous.get('fresh_certificate', {}).get('fingerprint') == fresh['fingerprint']:
                     for receipt in receipts:
                         if utc(receipt['dateTimeReceived']) >= utc(previous['created_utc']):

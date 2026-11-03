@@ -77,6 +77,10 @@ class TestEtaVatException(TestEtaVatReview):
         with patch('requests.sessions.Session.request', side_effect=AssertionError('Rendering contacted ETA')):
             self.assertEqual(move.eta_vat_review_state, 'exempt')
             self.assertEqual(job.vat_review_state, 'exempt')
+            move.invalidate_recordset(['eta_vat_review_state', 'eta_vat_review_note', 'eta_vat_amount', 'eta_vat_missing'])
+            job.invalidate_recordset(['vat_review_state'])
+            shown = job.with_user(self.clerk).with_context(bin_size=True).web_read({'vat_review_state': {}})
+            self.assertEqual(shown[0]['vat_review_state'], 'exempt', 'Browser file-size context must not hide the retained exemption')
             self.assertEqual(move.eta_vat_workflow, 'exempt')
             for route, present in [('exempt', True), ('approved', False)]:
                 found = self.env['account.move'].with_user(self.clerk).search([
