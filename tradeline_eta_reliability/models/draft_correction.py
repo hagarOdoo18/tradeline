@@ -12,6 +12,7 @@ from odoo.exceptions import AccessError, UserError
 
 from .client import EtaClient, EtaError
 from .submission_safety import taxpayer
+from .attachment_content import attachment_bytes
 
 _VERIFIED_RESET = object()  # Internal proof; cannot be supplied through an RPC context.
 
@@ -90,7 +91,7 @@ class AccountMoveDraftCorrection(models.Model):
                 ('name', '=like', 'ETA_%.json'), ('mimetype', '=', 'application/json')])
             for attachment in attachments:
                 try:
-                    saved = json.loads(attachment.raw)
+                    saved = json.loads(attachment_bytes(attachment))
                     if (saved.get('response', {}).get('l10n_eg_uuid')
                             and saved.get('request', {}).get('internalID') == self.name):
                         return False
@@ -281,7 +282,7 @@ class EtaVatCorrection(models.TransientModel):
             uuids = set()
             for attachment in attachments:
                 try:
-                    saved = json.loads(attachment.raw)
+                    saved = json.loads(attachment_bytes(attachment))
                     known = saved.get('response', {}).get('l10n_eg_uuid')
                     if known and saved.get('request', {}).get('internalID') == move.name:
                         uuids.add(known)

@@ -7,6 +7,8 @@ import psycopg2
 from odoo import api, fields, models, Command, _
 from odoo.exceptions import AccessError, UserError
 
+from .attachment_content import attachment_bytes
+
 
 _LOCAL_VAT_EDIT = object()  # An RPC context cannot manufacture this capability.
 _LEGACY_CREDIT_ROUTE = object()  # Retained only for trusted internal history tools/tests.
@@ -119,7 +121,7 @@ class EtaLocalVatMove(models.Model):
                     (move.eta_local_vat_gross_amount, move.amount_total)])):
             return False
         try:
-            proof = json.loads(audit.raw)
+            proof = json.loads(attachment_bytes(audit))
             return bool(proof.get('kind') == 'local_accounting_vat14_only'
                 and proof.get('move_id') == move.id and proof.get('preserved_eta_uuid') == uuid
                 and proof.get('user_id') == move.eta_local_vat_applied_by.id

@@ -10,6 +10,7 @@ from odoo import api, fields, models
 from .client import EtaError, EtaCataloguePending
 from .processing_window import check_processing_window
 from .submission_safety import taxpayer
+from .attachment_content import attachment_bytes
 
 CATALOGUE_CONTINUATION = 'ETA_catalogue_continuation.json'
 
@@ -138,7 +139,7 @@ class EtaCatalogueRecovery(models.Model):
             attachment = self.env['ir.attachment'].sudo().browse(aid)
             job = self.sudo().browse(jid)
             try:
-                data = json.loads(attachment.raw)
+                data = json.loads(attachment_bytes(attachment))
                 requested = fields.Datetime.to_datetime(data['requested_at'])
                 due = fields.Datetime.to_datetime(data['not_before'])
                 expiry = fields.Datetime.to_datetime(data['expires_at'])

@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError, UserError
+
+from .attachment_content import attachment_bytes
 from odoo.osv import expression
 from odoo.tools.sql import column_exists, create_column, table_exists
 
@@ -448,7 +450,7 @@ class EtaStaffMove(models.Model):
                 raise UserError(_('This request is already running. Refresh the invoice status.'))
             request = env['ir.attachment'].sudo().browse(request_id).exists()
             try:
-                data = json.loads(request.raw) if request else {}
+                data = json.loads(attachment_bytes(request)) if request else {}
                 now = fields.Datetime.now()
                 valid = (request and request.name == REQUEST_NAME and not request.public
                     and request.res_model == 'tradeline.eta.job'

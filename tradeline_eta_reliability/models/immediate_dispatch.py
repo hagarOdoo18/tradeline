@@ -8,6 +8,7 @@ from functools import partial
 from odoo import api, fields, models
 
 from .client import EtaClient
+from .attachment_content import attachment_bytes
 from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class EtaImmediateDispatch(models.Model):
     @api.model
     def _read_priority_request(self, attachment, job, now):
         try:
-            data = json.loads(attachment.raw)
+            data = json.loads(attachment_bytes(attachment))
             requested = fields.Datetime.to_datetime(data['requested_at'])
             expires = fields.Datetime.to_datetime(data['expires_at'])
             return (data['database'] == self.env.cr.dbname and data['job'] == job.id
