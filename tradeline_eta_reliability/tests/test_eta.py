@@ -952,6 +952,7 @@ class TestEtaReliability(TransactionCase):
         all_jobs = queued | accepted | unknown | blocked | approved | reviewed
         self.env.cr.execute('UPDATE tradeline_eta_job SET create_date=%s WHERE id IN %s', [old, tuple(all_jobs.ids)])
         all_jobs.invalidate_recordset(['create_date'])
+        all_jobs.modified(['create_date'])
         accepted.write({'state': 'accepted', 'attempted_at': now})
         unknown.state = 'unknown'
         blocked.state = 'blocked'
