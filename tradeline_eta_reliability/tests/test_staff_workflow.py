@@ -186,6 +186,28 @@ class TestEtaStaffWorkflow(TransactionCase):
             finally:
                 other.execute('SELECT pg_advisory_unlock(741180,%s)', [job.id])
 
+    def test_retry_permission_is_revoked_before_a_new_post_loses_its_response(self):
+        import requests
+        job = self.invoice().eta_job_ids
+        job.write({'attempts': 1, 'safe_to_retry': True})
+        client = MagicMock(company=self.company)
+        prepare, preflight = self.accept(job, client)
+        def lost_response(method, path, **kwargs):
+            self.assertEqual(method, 'POST')
+            self.assertEqual(job.state, 'unknown')
+            self.assertFalse(job.safe_to_retry)
+            self.assertEqual(job.attempts, 2)
+            raise requests.ReadTimeout('QA lost response')
+        client.request.side_effect = lost_response
+        with self.owned_worker(client), prepare, preflight:
+            job._staff_dispatch('send')
+        self.assertEqual(job.state, 'unknown')
+        self.assertFalse(job.safe_to_retry)
+        self.assertTrue(job.attempted_at)
+        self.assertTrue(job.payload)
+        self.assertEqual(job.attempts, 2)
+        self.assertEqual(client.request.call_count, 1)
+
     def test_invoice_user_executes_saved_intent_and_replay_cannot_submit_again(self):
         self.clerk.partner_id.email = False
         move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()

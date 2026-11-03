@@ -92,6 +92,22 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(job.state, 'review'); self.assertTrue(job.next_attempt)
         candidates.assert_not_called(); client.request.assert_not_called()
 
+    def test_approved_date_retry_with_prior_attempts_can_complete_history_review(self):
+        move = self.invoice(age=3); job = move.eta_job_ids
+        job.write({'state': 'blocked', 'attempts': 2, 'attempted_at': fields.Datetime.now(),
+            'safe_to_retry': True, 'last_error': 'CF313',
+            'payload': json.dumps({'documents': [self.document(move)]})})
+        before = (move.invoice_date, move.amount_total, move.amount_tax, job.attempts)
+        job.action_approve_current_issue_date()
+        self.assertFalse(job.attempted_at)
+        self.assertTrue(job.safe_to_retry)
+        job, client, candidates = self.review(move)
+        candidates.assert_called_once()
+        self.assertEqual(job.state, 'queued')
+        self.assertTrue(job.historical_submission_verified)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, job.attempts))
+        client.request.assert_not_called()
+
     def test_unscoped_enrollment_accepts_null_filter_without_http_or_accounting_edits(self):
         move = self.invoice(); before = (move.invoice_date, move.amount_total, move.amount_tax, move.state)
         self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.historical_recovery_database', self.env.cr.dbname)
