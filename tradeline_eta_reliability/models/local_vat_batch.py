@@ -4,6 +4,8 @@ import logging
 from odoo import models, _
 from odoo.exceptions import AccessError, UserError
 
+from .draft_correction import _VERIFIED_RESET
+
 
 _logger = logging.getLogger(__name__)
 
@@ -50,7 +52,9 @@ class EtaLocalVatBatch(models.Model):
                             continue
                         was_posted = move.state == 'posted'
                         if was_posted:
-                            move.button_draft()
+                            move.with_context(
+                                _eta_verified_reset=_VERIFIED_RESET,
+                            ).button_draft()
                         for line in lines_to_update:
                             line.with_context(
                                 check_move_validity=False,
