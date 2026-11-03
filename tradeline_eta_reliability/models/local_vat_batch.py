@@ -35,6 +35,44 @@ class EtaLocalVatBatch(models.Model):
                 with self.env.cr.savepoint():
                     record._eta_local_vat_check_access()
                     move = record.with_company(record.company_id)
+                    if move.move_type == 'out_refund':
+                        tax = move._eta_local_vat_tax()
+                        if not tax:
+                            skipped.append(move.id)
+                            continue
+                        lines_to_update = move.invoice_line_ids.filtered(
+                            lambda l: l.product_id
+                            and l.product_id.type != 'service'
+                            and tax not in l.tax_ids
+                        )
+                        if not lines_to_update:
+                            skipped.append(move.id)
+                            continue
+                        was_posted = move.state == 'posted'
+                        if was_posted:
+                            move.button_draft()
+                        for line in lines_to_update:
+                            line.with_context(
+                                check_move_validity=False,
+                            ).write({'tax_ids': [(4, tax.id)]})
+                        if was_posted:
+                            move.action_post()
+                        move.message_post(
+                            body=_("Applied 14%% tax to %d credit note line(s).")
+                            % len(lines_to_update))
+                        applied.append(record.id)
+                        continue
+                    if move.move_type == 'out_invoice':
+                        has_sale = any(
+                            l.sale_line_ids for l in move.invoice_line_ids
+                        )
+                        has_pos = (
+                            'pos_order_ids' in move._fields
+                            and move.pos_order_ids
+                        )
+                        if not has_sale and not has_pos:
+                            skipped.append(move.id)
+                            continue
                     if not move.eta_vat_missing:
                         skipped.append(move.id)
                         continue
