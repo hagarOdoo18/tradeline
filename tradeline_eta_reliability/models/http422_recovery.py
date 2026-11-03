@@ -18,6 +18,8 @@ from odoo.exceptions import UserError
 
 from .historical_recovery import fiscal, fiscal_equal
 from .staff_workflow import StatusClient
+from .eta_job import EtaJob
+from .eta_history import HISTORY_DEFERRED
 
 AUTO_POLICY = 1
 AUTO_LIMIT = 3
@@ -33,7 +35,8 @@ class EtaHttp422Recovery(models.Model):
         # Set only while preserving a newly observed POST failure. A legacy
         # status string, old negative search or timeout cannot acquire consent
         # to retry simply because the addon was upgraded.
-        if getattr(exc, 'status', None) == 422 and getattr(exc, 'code', None) is None:
+        if (getattr(exc, 'status', None) == 422
+                and getattr(exc, 'code', None) in (None, 'DuplicateSubmission')):
             values['automatic_http422_policy'] = AUTO_POLICY
         return values
 
@@ -50,6 +53,10 @@ class EtaHttp422Recovery(models.Model):
 
     def _refresh(self, client):
         failure = self._retained_http422_failure()
+        if (isinstance(client, StatusClient) and failure
+                and type(failure.get('automatic_http422_policy')) is int
+                and failure.get('automatic_http422_policy') == AUTO_POLICY):
+            return self._http422_receipt_check_only(client)
         if (not isinstance(client, StatusClient) and failure
                 and type(failure.get('automatic_http422_policy')) is int
                 and failure.get('automatic_http422_policy') == AUTO_POLICY):
@@ -57,12 +64,31 @@ class EtaHttp422Recovery(models.Model):
                 return self._recover_retained_http422(client, failure, automatic=True)
             # Keep looking for a late receipt, without another POST or loss of
             # the uncertain marker. A persistent fault becomes actionable.
-            result = super()._refresh(client)
+            result = EtaJob._refresh(self, client)
             if self.state == 'unknown':
                 self._delay(HTTP422_REVIEW + 'Three automatic recoveries did not resolve the rejection. '
                     'Automatic sending is paused; Accounting or IT must review the retained request and ETA receipts.', seconds=900)
             return result
         return super()._refresh(client)
+
+    def _staff_check_status(self, client):
+        failure = self._retained_http422_failure()
+        if (failure and type(failure.get('automatic_http422_policy')) is int
+                and failure.get('automatic_http422_policy') == AUTO_POLICY):
+            return self._http422_receipt_check_only(client)
+        return super()._staff_check_status(client)
+
+    def _http422_receipt_check_only(self, client):
+        # A successful negative status check is not a new POST failure. Keep
+        # its existing cooldown/recovery due time, reason and failure count;
+        # repeated staff checks must not keep moving automatic recovery away.
+        before = {key: self[key] for key in ('next_attempt', 'last_error', 'failures')}
+        deferred = self.with_context(_eta_history_deferred=HISTORY_DEFERRED)
+        result = EtaJob._refresh(deferred, client)
+        if self.state == 'unknown':
+            deferred.write(before)
+        self._eta_record_history()
+        return result
 
     @staticmethod
     def _http422_address_only_change(original, current):
@@ -89,7 +115,9 @@ class EtaHttp422Recovery(models.Model):
         self.ensure_one()
         move = self.move_id
         if (self.state != 'unknown' or self.safe_to_retry or not self.attempts or not self.attempted_at
-                or not self.payload or not self.payload_hash or self.duplicate_retry_at or self.duplicate_payload_hash
+                or not self.payload or not self.payload_hash
+                or bool(self.duplicate_retry_at) != bool(self.duplicate_payload_hash)
+                or self.duplicate_payload_hash and self.duplicate_payload_hash != self.payload_hash
                 or self.submission_uuid or move.e_invoice_uuid or move.l10n_eg_uuid or move.e_invoice_sent
                 or move.l10n_eg_eta_json_doc_id
                 or hashlib.sha256(self.payload.encode()).hexdigest() != self.payload_hash):
@@ -159,6 +187,7 @@ class EtaHttp422Recovery(models.Model):
             document = json.loads(document) if isinstance(document, str) else document
             if document == original:
                 self._apply_remote(receipts[0])
+                self.write({'duplicate_retry_at': False, 'duplicate_payload_hash': False})
                 return
         if receipts:
             self._delay('Other ETA receipts use this invoice number. Reconcile them before retrying the HTTP 422 request.', seconds=900)
@@ -202,7 +231,8 @@ class EtaHttp422Recovery(models.Model):
             'last_error': False, 'historical_fingerprint': before,
             'historical_review': False, 'historical_submission_verified': True,
             'historical_reviewed_at': fields.Datetime.now(),
-            'authority_receipt_hash': self._receipt_set_hash(receipts), 'first_submission_candidate': False})
+            'authority_receipt_hash': self._receipt_set_hash(receipts), 'first_submission_candidate': False,
+            'duplicate_retry_at': False, 'duplicate_payload_hash': False})
 
     @api.depends('state', 'last_error', 'attempts', 'attempted_at', 'payload_hash', 'next_attempt',
                  'create_date', 'move_id.e_invoice_date', 'move_id.e_invoice_issue',
@@ -218,6 +248,7 @@ class EtaHttp422Recovery(models.Model):
             if raw.startswith(HTTP422_REVIEW):
                 job.staff_summary = raw
                 job.required_action = _('Accounting or IT must review the retained failure and receipts. Do not send another copy without reconciliation.')
+                job.needs_attention = True
             else:
                 job.staff_summary = _('HTTP 422 recovery is scheduled. ETA receipts will be reconciled before any retry.')
                 job.required_action = _('Automatic recovery preserves the original invoice date and amounts. Check the next retry time and history; no manual resend is needed.')

@@ -354,6 +354,7 @@ class EtaJob(models.Model):
             if exc.status == 422 and exc.code is None:
                 exc.retry_after = max(605, exc.retry_after)
             if exc.status == 422 and exc.code == 'DuplicateSubmission':
+                self._preserve_uncertain_request_failure(exc)
                 deadline = fields.Datetime.now() + timedelta(seconds=max(605, exc.retry_after))
                 self.write({'duplicate_retry_at': deadline, 'duplicate_payload_hash': self.payload_hash,
                             'next_attempt': deadline, 'state': 'unknown',
