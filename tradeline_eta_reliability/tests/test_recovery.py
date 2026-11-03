@@ -367,7 +367,7 @@ class TestAutomaticRecovery(TransactionCase):
             else: self.fail('The unknown transport status must still propagate')
         self.assertEqual(j.state, 'unknown'); self.assertFalse(j.duplicate_retry_at)
 
-    def retained_http422(self, age=900, status=422, code=None, receiver=None):
+    def retained_http422(self, age=900, status=422, code=None, receiver=None, automatic=False):
         m, job, doc = self.ready()
         if receiver:
             doc['receiver'] = receiver
@@ -380,9 +380,121 @@ class TestAutomaticRecovery(TransactionCase):
             'attempted_at': fields.Datetime.to_string(job.attempted_at),
             'payload_sha256': job.payload_hash}
         self.assertTrue(job._preserve_uncertain_request_failure(error))
+        record = self.env['ir.attachment'].search([('res_model', '=', job._name), ('res_id', '=', job.id),
+            ('name', '=like', 'ETA_uncertain_request_failure_%')])
+        data = json.loads(record.raw)
+        data['observed_at'] = fields.Datetime.to_string(job.attempted_at + timedelta(seconds=1))
+        if not automatic:
+            data.pop('automatic_http422_policy', None)
+        record.raw = json.dumps(data).encode()
         proof = {'from': fields.Datetime.now() - timedelta(days=400),
                  'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
         return m, job, doc, proof
+
+    def test_new_observed_422_recovers_automatically_after_complete_proof(self):
+        m, job, doc, proof = self.retained_http422(automatic=True)
+        before = (m.invoice_date, m.amount_total, m.amount_tax, job.payload, job.payload_hash, job.attempts)
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]), \
+                patch.object(type(job), '_submission_source', return_value=doc):
+            job._refresh(MagicMock())
+        self.assertEqual(job.state, 'queued'); self.assertFalse(job.attempted_at)
+        self.assertEqual(job._http422_automatic_count(), 1)
+        self.assertEqual(before, (m.invoice_date, m.amount_total, m.amount_tax, job.payload, job.payload_hash, job.attempts))
+
+    def test_automatic_422_wait_is_based_on_observed_response_and_full_retained_delay(self):
+        _m, job, _doc, _proof = self.retained_http422(automatic=True)
+        record = self.env['ir.attachment'].search([('res_model', '=', job._name), ('res_id', '=', job.id),
+            ('name', '=like', 'ETA_uncertain_request_failure_%')])
+        data = json.loads(record.raw)
+        observed = fields.Datetime.now() - timedelta(seconds=30)
+        data.update(observed_at=fields.Datetime.to_string(observed), retry_after_seconds=3600)
+        record.raw = json.dumps(data).encode()
+        with patch.object(type(job), '_history_snapshot') as search:
+            job._refresh(MagicMock())
+        search.assert_not_called()
+        self.assertEqual(job.next_attempt, observed + timedelta(seconds=3600))
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+        self.assertIn('HTTP 422', job.staff_summary)
+        self.assertIn('no manual resend', job.required_action)
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue').sudo()
+        cron.write({'active': True, 'failure_count': 0, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
+        job._compute_monitoring()
+        self.assertFalse(job.needs_attention)
+        cron.active = False
+        job._compute_monitoring()
+        self.assertTrue(job.needs_attention)
+        cron.write({'active': True, 'nextcall': fields.Datetime.now() - timedelta(minutes=30)})
+        with patch.object(type(job), '_native_partial_progress_is_recent', return_value=False):
+            job._compute_monitoring()
+        self.assertTrue(job.needs_attention)
+
+    def test_new_422_status_request_remains_get_only_even_with_automatic_policy(self):
+        from ..models.staff_workflow import StatusClient
+        _m, job, _doc, _proof = self.retained_http422(automatic=True)
+        before = (job.attempted_at, job.attempts, job.payload, job.payload_hash)
+        client = StatusClient(self.company)
+        client.request = MagicMock(return_value={'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}})
+        try:
+            with patch.object(type(job), '_history_snapshot') as search:
+                job._staff_check_status(client)
+                job._refresh(client)
+            search.assert_not_called()
+            self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+        finally: client.close()
+        self.assertEqual(job.state, 'unknown')
+        self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
+        self.assertEqual(job._http422_automatic_count(), 0)
+
+    def test_automatic_422_cap_stops_posts_but_still_restores_a_late_receipt(self):
+        m, job, doc, _proof = self.retained_http422(automatic=True)
+        for i in range(3):
+            self.env['ir.attachment'].create({'name': 'ETA_automatic_http422_recovery_%s.json' % i,
+                'res_model': job._name, 'res_id': job.id, 'company_id': job.company_id.id,
+                'public': False, 'raw': b'{}'})
+        before = (job.attempted_at, job.attempts, job.payload, job.payload_hash)
+        client = MagicMock()
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        job._refresh(client)
+        self.assertEqual(job.state, 'unknown'); self.assertIn('Three automatic recoveries', job.last_error)
+        self.assertIn('needs review', job.staff_summary)
+        self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
+        self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+        client.request.side_effect = [
+            {'result': [{'internalId': m.name, 'uuid': 'late-receipt'}], 'metadata': {'continuationToken': 'EndofResultSet'}},
+            {'document': doc, 'internalId': m.name, 'uuid': 'late-receipt', 'status': 'Submitted'}]
+        job._refresh(client)
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(m.e_invoice_uuid, 'late-receipt')
+
+    def test_automatic_422_missing_proof_or_conflict_or_fiscal_change_does_not_queue(self):
+        _m, job, doc, proof = self.retained_http422(automatic=True)
+        with patch.object(type(job), '_history_snapshot', return_value=None):
+            job._refresh(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job._http422_automatic_count(), 0)
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[{'document': {'other': 1}}]):
+            job._refresh(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job._http422_automatic_count(), 0)
+        changed = deepcopy(doc); changed['totalAmount'] += 1
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]), \
+                patch.object(type(job), '_submission_source', return_value=changed):
+            job._refresh(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+        self.assertIn('source changed', job.staff_summary)
+        self.assertEqual(job._http422_automatic_count(), 0)
+
+    def test_only_new_unclassified_422_receives_automatic_policy(self):
+        for status, code in ((503, None), (422, 'OtherFailure')):
+            _m, job, _doc, _proof = self.retained_http422(status=status, code=code, automatic=True)
+            client = MagicMock()
+            client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+            job._refresh(client)
+            self.assertEqual(job.state, 'unknown')
+            self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+            self.assertEqual(job._http422_automatic_count(), 0)
 
     def test_manual_422_address_correction_resigns_without_changing_fiscal_values(self):
         receiver = {'type': 'B', 'id': '123456789', 'name': 'Same business',

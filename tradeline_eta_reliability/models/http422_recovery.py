@@ -1,9 +1,10 @@
-"""Manual recovery of a retained HTTP rejection, never of a lost response.
+"""Proof-based recovery of a retained HTTP rejection, never a lost response.
 
 ETA documents HTTP 422 at document submission as DuplicateSubmission, with a
 ten-minute identical-payload window. A missing error code must not permanently
-strand an observed HTTP rejection. Only a new, authenticated Send now request
-can enter this path; cron and Check status remain receipt-only for uncertainty.
+strand an observed HTTP rejection. New failures carry a private versioned
+automatic policy; older observations still require an authenticated Send now.
+Check status remains receipt-only in both cases.
 https://sdk.invoicing.eta.gov.eg/einvoicingapi/01-submit-documents/
 """
 import hashlib
@@ -12,14 +13,56 @@ import re
 from copy import deepcopy
 from datetime import datetime, timedelta
 
-from odoo import fields, models
+from odoo import api, fields, models, _
 from odoo.exceptions import UserError
 
 from .historical_recovery import fiscal, fiscal_equal
+from .staff_workflow import StatusClient
+
+AUTO_POLICY = 1
+AUTO_LIMIT = 3
+AUTO_AUDIT_PREFIX = 'ETA_automatic_http422_recovery_'
+HTTP422_REVIEW = 'HTTP 422 needs review: '
 
 
 class EtaHttp422Recovery(models.Model):
     _inherit = 'tradeline.eta.job'
+
+    def _submission_failure_recovery_metadata(self, exc):
+        values = super()._submission_failure_recovery_metadata(exc)
+        # Set only while preserving a newly observed POST failure. A legacy
+        # status string, old negative search or timeout cannot acquire consent
+        # to retry simply because the addon was upgraded.
+        if getattr(exc, 'status', None) == 422 and getattr(exc, 'code', None) is None:
+            values['automatic_http422_policy'] = AUTO_POLICY
+        return values
+
+    def _http422_automatic_count(self):
+        self.ensure_one()
+        return self.env['ir.attachment'].sudo().search_count([
+            ('res_model', '=', self._name), ('res_id', '=', self.id),
+            ('company_id', '=', self.company_id.id), ('public', '=', False),
+            ('name', '=like', AUTO_AUDIT_PREFIX + '%')], limit=AUTO_LIMIT)
+
+    @staticmethod
+    def _http422_deadline(failure):
+        return fields.Datetime.to_datetime(failure['observed_at']) + timedelta(seconds=failure['retry_after_seconds'])
+
+    def _refresh(self, client):
+        failure = self._retained_http422_failure()
+        if (not isinstance(client, StatusClient) and failure
+                and type(failure.get('automatic_http422_policy')) is int
+                and failure.get('automatic_http422_policy') == AUTO_POLICY):
+            if self._http422_automatic_count() < AUTO_LIMIT:
+                return self._recover_retained_http422(client, failure, automatic=True)
+            # Keep looking for a late receipt, without another POST or loss of
+            # the uncertain marker. A persistent fault becomes actionable.
+            result = super()._refresh(client)
+            if self.state == 'unknown':
+                self._delay(HTTP422_REVIEW + 'Three automatic recoveries did not resolve the rejection. '
+                    'Automatic sending is paused; Accounting or IT must review the retained request and ETA receipts.', seconds=900)
+            return result
+        return super()._refresh(client)
 
     @staticmethod
     def _http422_address_only_change(original, current):
@@ -83,10 +126,14 @@ class EtaHttp422Recovery(models.Model):
         failure = self._retained_http422_failure()
         if not failure:
             return super()._staff_refresh_for_send(client)
-        deadline = self.attempted_at + timedelta(seconds=failure['retry_after_seconds'])
+        return self._recover_retained_http422(client, failure)
+
+    def _recover_retained_http422(self, client, failure, *, automatic=False):
+        deadline = self._http422_deadline(failure)
         if fields.Datetime.now() < deadline:
             self.write({'next_attempt': deadline,
-                'last_error': 'ETA returned HTTP 422. Wait for the duplicate-submission window, then use Send to ETA now to reconcile and retry.'})
+                'last_error': ('ETA returned HTTP 422. Automatic receipt reconciliation will run after the duplicate-submission window.'
+                    if automatic else 'ETA returned HTTP 422. Wait for the duplicate-submission window, then use Send to ETA now to reconcile and retry.')})
             return
         proof = self._history_snapshot()
         if not proof:
@@ -120,15 +167,15 @@ class EtaHttp422Recovery(models.Model):
         unchanged = fiscal_equal(fiscal(original), fiscal(current))
         address_only = not unchanged and self._http422_address_only_change(original, current)
         if not unchanged and not address_only:
-            self._delay('The source changed after the HTTP 422 request. Reconcile the retained signed request before retrying.', seconds=900)
+            self._delay(HTTP422_REVIEW + 'The source changed after the request. Reconcile the retained signed request before retrying.', seconds=900)
             return
         # Archive the old marker, signed bytes and proof before releasing the
         # attempt. The ordinary submit path still GETs again and commits its
         # next durable attempt before POST. No date, amount or tax edit here.
         self._historical_archive(proof, receipts,
-            'Manual Send now: observed HTTP 422 (private evidence %s), duplicate window elapsed; '
+            '%s: observed HTTP 422 (private evidence %s), duplicate window elapsed; '
             'complete history and fresh receipt search found no receipt. %s '
-            'No missing error code was inferred.' % (failure['attachment_id'],
+            'No missing error code was inferred.' % ('Automatic recovery' if automatic else 'Manual Send now', failure['attachment_id'],
                 'Prepare and sign the current street/city for the same business tax identity; preserve all fiscal values.'
                 if address_only else 'Retry the retained signed payload.'))
         if address_only:
@@ -140,8 +187,50 @@ class EtaHttp422Recovery(models.Model):
             prepared = json.loads(self.payload)['documents'][0]
             if not fiscal_equal(fiscal(prepared), fiscal(current)):
                 raise UserError('The newly signed HTTP 422 correction differs from the verified source. Nothing was submitted.')
+        if automatic:
+            self.env['ir.attachment'].sudo().create({
+                'name': AUTO_AUDIT_PREFIX + '%s_%s.json' % (self.attempts, self.payload_hash[:12]),
+                'res_model': self._name, 'res_id': self.id, 'company_id': self.company_id.id,
+                'public': False, 'mimetype': 'application/json',
+                'raw': json.dumps({'database': self.env.cr.dbname, 'job': self.id,
+                    'company': self.company_id.id, 'policy': AUTO_POLICY,
+                    'failure_attachment': failure['attachment_id'], 'prior_attempts': self.attempts,
+                    'prior_payload_sha256': failure['payload_sha256'],
+                    'queued_payload_sha256': self.payload_hash, 'address_prepared': address_only,
+                    'recovered_at': fields.Datetime.to_string(fields.Datetime.now())}).encode()})
         self.write({'state': 'queued', 'attempted_at': False, 'next_attempt': False,
             'last_error': False, 'historical_fingerprint': before,
             'historical_review': False, 'historical_submission_verified': True,
             'historical_reviewed_at': fields.Datetime.now(),
             'authority_receipt_hash': self._receipt_set_hash(receipts), 'first_submission_candidate': False})
+
+    @api.depends('state', 'last_error', 'attempts', 'attempted_at', 'payload_hash', 'next_attempt',
+                 'create_date', 'move_id.e_invoice_date', 'move_id.e_invoice_issue',
+                 'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry', 'staff_state', 'delivery_review_proof')
+    def _compute_monitoring(self):
+        super()._compute_monitoring()
+        for job in self:
+            failure = job._retained_http422_failure()
+            if (not failure or type(failure.get('automatic_http422_policy')) is not int
+                    or failure.get('automatic_http422_policy') != AUTO_POLICY):
+                continue
+            raw = job.last_error or ''
+            if raw.startswith(HTTP422_REVIEW):
+                job.staff_summary = raw
+                job.required_action = _('Accounting or IT must review the retained failure and receipts. Do not send another copy without reconciliation.')
+            else:
+                job.staff_summary = _('HTTP 422 recovery is scheduled. ETA receipts will be reconciled before any retry.')
+                job.required_action = _('Automatic recovery preserves the original invoice date and amounts. Check the next retry time and history; no manual resend is needed.')
+                if raw and not raw.startswith('ETA returned HTTP 422'):
+                    job.staff_summary = _('HTTP 422 recovery was deferred: %s', raw)
+                elif job.next_attempt and job.next_attempt > fields.Datetime.now():
+                    cron = job.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
+                    active = bool(cron and cron.sudo().active and not cron.sudo().failure_count
+                        and job.env['ir.config_parameter'].sudo().get_param(
+                            'tradeline_eta_reliability.enabled_database') == job.env.cr.dbname
+                        and cron.sudo().nextcall
+                        and (cron.sudo().nextcall >= fields.Datetime.now() - timedelta(minutes=3)
+                             or job._native_partial_progress_is_recent(fields.Datetime.now(), cron.sudo())))
+                    if active:
+                        job.needs_attention = False
+            job.reason_summary = raw or job.staff_summary

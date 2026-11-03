@@ -1,5 +1,26 @@
 # Reliable ETA processing
 
+## Automatic recovery for new unclassified HTTP 422 failures (18.0.1.0.50)
+
+New document-POST failures with an observed HTTP 422 and no structured error
+code carry a private versioned recovery policy, bound to the exact durable
+attempt. After at least 605 seconds from the **observed response**, or a longer
+retained delay, the normal worker runs the same complete-history, fresh receipt,
+source, tax, signing and final preflight checks as the manual recovery below.
+Unchanged requests retain their signed bytes; the existing narrowly verified
+business street/city correction can be prepared and signed again. No invoice
+date, amount or tax is edited. Old failure records are not silently opted in.
+
+Each invoice can queue at most three automatic HTTP 422 recoveries. A persistent
+rejection then displays a review reason and stops further automatic POSTs;
+GET-only checks still restore a late receipt. Missing proof, conflicting receipts,
+changed fiscal facts and transport timeouts never authorize a retry. **Check ETA
+status** remains GET-only even for new failures. Invoice users see that recovery
+is scheduled, its next retry time and any deferral or review reason. Ordinary
+cooldowns with a healthy enabled worker are not labeled as needing correction.
+Queued retry history now retains the number of earlier attempts rather than
+claiming that no attempt has been recorded.
+
 ## Manual recovery of unclassified HTTP 422 (18.0.1.0.49)
 
 **Send to ETA now** can reconcile an observed HTTP 422 whose structured error
