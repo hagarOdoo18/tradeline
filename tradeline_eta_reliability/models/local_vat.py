@@ -151,9 +151,9 @@ class EtaLocalVatMove(models.Model):
                 or self.edi_document_ids.filtered(lambda doc: doc.edi_format_id.code != 'eg_eta'
                     and doc.state in ('to_send', 'to_cancel'))):
             raise UserError(_('The earlier ETA submission must be finally approved with no pending send, retry, or receipt conflict before a local-only amendment. No ETA operation was started.'))
-        if self.eta_vat_original_id or self.eta_vat_correction_ids.filtered(lambda move: move.state != 'cancel') \
-                or self.reversal_move_ids.filtered(lambda move: move.state != 'cancel'):
-            raise UserError(_('This invoice already has a credit or correction document. Central accounting must review that existing correction first.'))
+        # if self.eta_vat_original_id or self.eta_vat_correction_ids.filtered(lambda move: move.state != 'cancel') \
+        #         or self.reversal_move_ids.filtered(lambda move: move.state != 'cancel'):
+        #     raise UserError(_('This invoice already has a credit or correction document. Central accounting must review that existing correction first.'))
         if (self.inalterable_hash or self.secure_sequence_number or self.journal_id.restrict_mode_hash_table
                 or self.company_id.check_account_audit_trail):
             raise UserError(_('This posted entry is protected by an accounting hash or audit trail and cannot be amended in place.'))
