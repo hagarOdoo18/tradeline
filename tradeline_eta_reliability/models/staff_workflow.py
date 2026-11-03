@@ -292,7 +292,10 @@ class EtaStaffJob(models.Model):
                 and self.move_id.l10n_eg_uuid != self.move_id.e_invoice_uuid):
             raise UserError(_('This invoice needs complete receipt reconciliation. Its current hold is preserved. '
                               'Send to ETA now can run the full verification; it sends only when proven safe.'))
-        if self.historical_review or self.state == 'review':
+        local_history_hold = (self.state == 'blocked' and self.historical_fingerprint
+            and not (self.attempts or self.attempted_at or self.move_id.e_invoice_uuid
+                     or self.move_id.l10n_eg_uuid or self.move_id.e_invoice_sent))
+        if self.historical_review or self.state == 'review' or local_history_hold:
             # A selected status click can GET history immediately, independently
             # of the backlog. Report the actual receipt results, but do not arm
             # a submission or clear the source/receipt matching hold.

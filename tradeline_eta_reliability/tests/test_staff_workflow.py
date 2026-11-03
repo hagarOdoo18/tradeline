@@ -569,6 +569,25 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(client.request.call_count, 1)
         self.assertEqual(client.request.call_args.args[0], 'GET')
 
+    def test_local_history_data_hold_can_check_old_receipts_without_preparing_or_sending(self):
+        job = self.invoice().eta_job_ids
+        reason = 'National ID is required for domestic individual invoices of EGP 25,000 or more.'
+        job.write({'state':'blocked', 'historical_review':False,
+            'historical_fingerprint':job._historical_financial_fingerprint(), 'last_error':reason})
+        before = job.read(['state','last_error','attempts','payload','historical_review'])
+        client = MagicMock(company=self.company)
+        with self.owned_worker(client), patch(MODULE + '.StatusClient', return_value=client), \
+                patch.object(type(job), '_history_snapshot', return_value={'receipts':{}}), \
+                patch.object(type(job), '_history_candidates', return_value=[{'status':'Valid'}]) as lookup, \
+                patch.object(type(job), '_prepare', side_effect=AssertionError('Status prepared a document')):
+            done, result = job._staff_dispatch('status')
+        self.assertTrue(done); self.assertIn('Approved: 1', result)
+        lookup.assert_called_once()
+        self.assertEqual(before, job.read(list(before[0])))
+        self.assertTrue(job.checked_at)
+        self.assertFalse(job.move_id.e_invoice_uuid)
+        client.request.assert_not_called()
+
     def test_missing_rolled_back_cross_user_expired_and_public_intents_cannot_execute(self):
         move = self.invoice()
         with self.assertRaisesRegex(UserError, 'undo click'):
