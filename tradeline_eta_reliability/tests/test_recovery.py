@@ -367,8 +367,12 @@ class TestAutomaticRecovery(TransactionCase):
             else: self.fail('The unknown transport status must still propagate')
         self.assertEqual(j.state, 'unknown'); self.assertFalse(j.duplicate_retry_at)
 
-    def retained_http422(self, age=900, status=422, code=None):
+    def retained_http422(self, age=900, status=422, code=None, receiver=None):
         m, job, doc = self.ready()
+        if receiver:
+            doc['receiver'] = receiver
+            payload = json.dumps({'documents': [doc]})
+            job.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
         job.write({'state': 'unknown', 'attempts': 2,
                    'attempted_at': fields.Datetime.now() - timedelta(seconds=age)})
         error = EtaError('private response', status, code=code)
@@ -379,6 +383,37 @@ class TestAutomaticRecovery(TransactionCase):
         proof = {'from': fields.Datetime.now() - timedelta(days=400),
                  'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
         return m, job, doc, proof
+
+    def test_manual_422_address_correction_resigns_without_changing_fiscal_values(self):
+        receiver = {'type': 'B', 'id': '123456789', 'name': 'Same business',
+                    'address': {'country': 'EG', 'street': 'Old street', 'regionCity': 'Old city'}}
+        m, job, doc, proof = self.retained_http422(receiver=receiver)
+        old_payload = job.payload
+        current = deepcopy(doc); current['receiver']['address'].update(street='Current street', regionCity='Current city')
+        before = (m.invoice_date, m.amount_total, m.amount_tax, job.attempts)
+        def prepare(row):
+            document = dict(current, signatures=[{'value': 'fresh-qa-signature'}])
+            payload = json.dumps({'documents': [document]})
+            row.write({'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]), \
+                patch.object(type(job), '_submission_source', return_value=current), \
+                patch.object(type(job), '_prepare', autospec=True, side_effect=prepare) as signer:
+            job._staff_refresh_for_send(MagicMock())
+        signer.assert_called_once(); self.assertEqual(job.state, 'queued')
+        self.assertFalse(job.attempted_at); self.assertNotEqual(job.payload, old_payload)
+        self.assertEqual(before, (m.invoice_date, m.amount_total, m.amount_tax, job.attempts))
+        archive = self.env['ir.attachment'].search([('res_model', '=', 'account.move'),
+            ('res_id', '=', m.id), ('name', '=', 'ETA_historical_recovery_%s.json' % job.id)])
+        self.assertEqual(json.loads(archive.raw)['prior_job_payload'], old_payload)
+        for key, value in (('id', '999999999'), ('name', 'Other business'), ('type', 'P')):
+            changed = deepcopy(current); changed['receiver'][key] = value
+            self.assertFalse(job._http422_address_only_change(doc, changed))
+        for key, value in (('country', 'US'), ('governate', 'Other governate')):
+            changed = deepcopy(current); changed['receiver']['address'][key] = value
+            self.assertFalse(job._http422_address_only_change(doc, changed))
+        changed = deepcopy(current); changed['totalAmount'] += .01
+        self.assertFalse(job._http422_address_only_change(doc, changed))
 
     def test_manual_observed_422_reconciles_then_queues_same_bytes_and_preserves_money(self):
         m, job, doc, proof = self.retained_http422()
