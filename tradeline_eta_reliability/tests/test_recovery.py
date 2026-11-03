@@ -236,7 +236,7 @@ class TestAutomaticRecovery(TransactionCase):
         m = self.env['account.move'].new({'company_id': self.company.id})
         with patch('requests.sessions.Session.request', side_effect=AssertionError('HTTP after cutoff')), patch.object(type(self.env['tradeline.eta.job']), '_enroll_historical', side_effect=AssertionError('Enrollment after cutoff')):
             with self.assertRaises(EtaStopped): client._authorize()
-            with self.assertRaises(EtaStopped): client.request('POST', '/api/v1/documentsubmissions', data=b'never')
+            with self.assertRaises(EtaStopped): client.request('POST', '/api/v1.0/documentsubmissions', data=b'never')
             with self.assertRaises(EtaStopped): m.get_signature_value()
             self.env['tradeline.eta.job']._cron_process()
         client.close()
@@ -402,6 +402,31 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(job.state, 'queued'); self.assertFalse(job.attempted_at)
         self.assertEqual(job._http422_automatic_count(), 1)
         self.assertEqual(before, (m.invoice_date, m.amount_total, m.amount_tax, job.payload, job.payload_hash, job.attempts))
+
+    def test_422_recovery_accepts_only_the_unchanged_verified_invalid_receipt_set(self):
+        for change in ('unchanged', 'new', 'pending', 'valid', 'validation', 'unverified'):
+            m, job, doc, proof = self.retained_http422(automatic=True)
+            old = {'uuid': 'older-invalid', 'internalId': m.name, 'status': 'Invalid',
+                'document': dict(doc, receiver={'id': 'older-rejected-id'}),
+                'validationResults': {'errorCode': 'NI310'}}
+            job.write({'historical_submission_verified': True,
+                'authority_receipt_hash': job._receipt_set_hash([old])})
+            receipts = [deepcopy(old)]
+            if change == 'unverified': job.historical_submission_verified = False
+            if change == 'new': receipts.append(dict(old, uuid='new-receipt'))
+            if change == 'pending': receipts[0]['status'] = 'Submitted'
+            if change == 'valid': receipts[0]['status'] = 'Valid'
+            if change == 'validation': receipts[0]['validationResults'] = {'errorCode': 'CV302'}
+            before = (job.payload, job.payload_hash, job.attempts, m.invoice_date, m.amount_total)
+            client = MagicMock()
+            with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                    patch.object(type(job), '_history_candidates', return_value=receipts), \
+                    patch.object(type(job), '_submission_source', return_value=doc):
+                job._refresh(client)
+            self.assertEqual(job.state, 'queued' if change == 'unchanged' else 'unknown')
+            self.assertEqual(job._http422_automatic_count(), int(change == 'unchanged'))
+            self.assertEqual(before, (job.payload, job.payload_hash, job.attempts, m.invoice_date, m.amount_total))
+            client.request.assert_not_called()
 
     def test_browser_size_context_keeps_private_422_evidence_and_attention_consistent(self):
         _move, job, _doc, _proof = self.retained_http422(automatic=True)
@@ -731,7 +756,7 @@ class TestAutomaticRecovery(TransactionCase):
         client.token = 'test-only-token'
         response.headers = {'Retry-After': '420'}; response.json.return_value = {'error': {'code': 'DuplicateSubmission', 'message': 'private details'}}
         with patch.object(client, '_authorize'), patch.object(client.session, 'request', return_value=response):
-            with self.assertRaises(EtaError) as error: client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
+            with self.assertRaises(EtaError) as error: client.request('POST', '/api/v1.0/documentsubmissions', data=b'{}')
         self.assertEqual(error.exception.code, 'DuplicateSubmission'); self.assertEqual(error.exception.retry_after, 421)
         self.assertNotIn('private details', str(error.exception)); client.close()
 
@@ -796,7 +821,7 @@ class TestAutomaticRecovery(TransactionCase):
             response.json.return_value = body
             with patch.object(client, '_authorize'), patch.object(client.session, 'request', return_value=response):
                 with self.assertRaises(EtaError) as error:
-                    client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
+                    client.request('POST', '/api/v1.0/documentsubmissions', data=b'{}')
             self.assertEqual(error.exception.code, expected)
             self.assertNotIn('private', str(error.exception))
         client.close()

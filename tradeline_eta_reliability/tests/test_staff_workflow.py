@@ -78,7 +78,7 @@ class TestEtaStaffWorkflow(TransactionCase):
                 'signatures': [{'value': 'qa-only'}]}]}), 'payload_hash': 'qa'})
         def request(method, path, **kwargs):
             self.assertEqual(method, 'POST')
-            self.assertEqual(path, '/api/v1/documentsubmissions')
+            self.assertEqual(path, '/api/v1.0/documentsubmissions')
             self.assertEqual(job.state, 'unknown', 'The uncertainty marker must precede POST')
             self.assertEqual(job.attempts, 1)
             return {'acceptedDocuments': [{'internalId': job.move_id.name, 'uuid': 'staff-qa-receipt'}],
@@ -246,7 +246,7 @@ class TestEtaStaffWorkflow(TransactionCase):
             row.write({'payload': body, 'payload_hash': hashlib.sha256(body.encode()).hexdigest()})
         def request(method, path, **kwargs):
             if method == 'POST':
-                self.assertEqual(path, '/api/v1/documentsubmissions')
+                self.assertEqual(path, '/api/v1.0/documentsubmissions')
                 self.assertEqual(job.state, 'unknown')
                 self.assertEqual(job.attempts, 2)
                 self.assertEqual(json.loads(kwargs['data'])['documents'][0], corrected)
@@ -287,7 +287,7 @@ class TestEtaStaffWorkflow(TransactionCase):
         client = EtaClient(self.company)
         try:
             with self.assertRaises(EtaError) as caught:
-                client.request('POST', '/api/v1/documentsubmissions')
+                client.request('POST', '/api/v1.0/documentsubmissions')
             self.assertEqual(caught.exception.status, 429)
         finally:client.close()
 
@@ -486,7 +486,7 @@ class TestEtaStaffWorkflow(TransactionCase):
         try:
             for method in ('POST', 'PUT', 'DELETE'):
                 with self.assertRaisesRegex(UserError, 'cannot submit or cancel'):
-                    client.request(method, '/api/v1/documentsubmissions')
+                    client.request(method, '/api/v1.0/documentsubmissions')
         finally: client.close()
 
     def test_status_does_not_queue_unsent_or_clear_duplicate_review(self):

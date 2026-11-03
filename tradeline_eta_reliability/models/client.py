@@ -10,6 +10,8 @@ from .processing_window import check_processing_window
 
 _TOKENS = {}
 _REJECTED_TOKENS = set()
+# Official Submit Documents signature; keep transport and timing aligned.
+SUBMISSION_PATH = '/api/v1.0/documentsubmissions'
 # Fits persisted integer waits and datetime arithmetic. An absurd larger
 # authority delay stays paused for this horizon rather than retrying early.
 MAX_RETRY_SECONDS = 2147483647

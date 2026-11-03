@@ -910,7 +910,7 @@ class TestEtaReliability(TransactionCase):
         response = SimpleNamespace(ok=False, status_code=429, headers={'Retry-After': '120'})
         client.session.request = MagicMock(return_value=response)
         with self.assertRaises(EtaError) as caught:
-            client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
+            client.request('POST', '/api/v1.0/documentsubmissions', data=b'{}')
         self.assertEqual(caught.exception.retry_after, 121)
         self.assertEqual(client.session.request.call_count, 1)
         self.assertEqual(client.session.request.call_args.kwargs['timeout'], (5, 25))
