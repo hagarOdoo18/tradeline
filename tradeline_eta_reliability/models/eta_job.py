@@ -17,10 +17,10 @@ from .client import EtaClient, EtaError, EtaCataloguePending, MAX_RETRY_SECONDS,
 from .processing_window import EtaStopped, check_processing_window
 
 _logger = logging.getLogger(__name__)
-STATES = [('queued', 'Waiting to send'), ('unknown', 'Previous attempt unconfirmed'),
-          ('accepted', 'Received by ETA — awaiting approval'), ('valid', 'Approved by ETA'),
+STATES = [('queued', 'Waiting to send'), ('unknown', 'ETA delivery verification'),
+          ('accepted', 'Received by ETA — processing'), ('valid', 'Approved by ETA'),
           ('invalid', 'ETA rejected — needs correction'), ('blocked', 'Needs correction'),
-          ('review', 'Checking earlier ETA records')]
+          ('review', 'Waiting for earlier ETA verification')]
 # Private capabilities, never RPC context flags. Background scheduling is unchanged.
 STAFF_SEND = object()
 STAFF_STATUS = object()
@@ -259,6 +259,14 @@ class EtaJob(models.Model):
             if document == original:
                 self._apply_remote(raw)
                 return
+        if not matches and continuation == 'EndofResultSet' and stop == scan_end:
+            checked = fields.Datetime.now()
+            local = fields.Datetime.context_timestamp(self.with_context(tz='Africa/Cairo'), checked)
+            self.write({'state': 'unknown', 'checked_at': checked, 'failures': 0,
+                'next_attempt': checked + timedelta(seconds=900),
+                'last_error': _('ETA receipt search completed %s (Cairo): no matching receipt was found in the checked period. '
+                    'Delivery remains unconfirmed; no duplicate was sent.', local.strftime('%d %b %Y %H:%M:%S'))})
+            return
         self._delay('Submission outcome needs reconciliation. No duplicate was sent.', seconds=900, state='unknown')
 
     def _validate_eta_line_quantities(self, document):

@@ -667,17 +667,19 @@ class EtaHistoricalRecovery(models.Model):
             date_rejected = (any('CF313' in leaf_codes(receipt.get('validationResults', {})) for receipt in receipts)
                              or self.safe_to_retry and self._is_date_only_rejection(self.last_error))
             optional_id_rejected |= self._explicit_optional_id_rejection(current)
-            schema_rejected = bool(self.safe_to_retry and (self.last_error or '').startswith('ETA rejected the submission (2).'))
-            if not receipts and schema_rejected and not date_rejected and not optional_id_rejected:
+            # Both code 1 (field validation) and code 2 (schema validation)
+            # explicitly refused intake. Neither is an unknown delivery.
+            intake_rejected = bool(self.safe_to_retry and (self.last_error or '').startswith('ETA rejected the submission ('))
+            if not receipts and intake_rejected and not date_rejected and not optional_id_rejected:
                 try:
                     rejected = json.loads(self.payload)['documents'][0]
                     self._assert_eta_document_issuer(rejected)
                 except (ValueError, TypeError, KeyError, IndexError):
-                    raise UserError(_('The retained schema-rejected request is unreadable. IT must reconcile it before any retry.'))
+                    raise UserError(_('The retained rejected request is unreadable. IT must reconcile it before any retry.'))
                 if fiscal_equal(fiscal(rejected), fiscal(outgoing)):
                     self._historical_hold(self.last_error)
                     return
-            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected and not schema_rejected:
+            if not receipts and (self.attempted_at or move.e_invoice_sent) and not date_rejected and not optional_id_rejected and not intake_rejected:
                 # A legacy sent marker does not become proof of failure after
                 # 24 hours. Preserve it until an actual outcome is identified.
                 deadline = fields.Datetime.now() + timedelta(minutes=15)

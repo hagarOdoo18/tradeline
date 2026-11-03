@@ -170,8 +170,13 @@ class EtaJobMonitoring(models.Model):
                        and not self._native_partial_progress_is_recent(now, cron))
         for job in self:
             anchor = (job.attempted_at or job.move_id.e_invoice_date or job.create_date
-                      if job.state == 'accepted' else job.create_date)
+                      if job.state in ('accepted', 'unknown') else job.create_date)
             minutes = max(0, int((now - anchor).total_seconds() / 60)) if anchor else 0
+            def cairo_time(value, fallback):
+                return (fields.Datetime.context_timestamp(job.with_context(tz='Africa/Cairo'), value).strftime('%d %b %Y %H:%M:%S')
+                        + ' (Cairo)') if value else fallback
+            last_check = cairo_time(job.checked_at, _('not yet completed'))
+            next_check = cairo_time(job.next_attempt, _('next worker cycle'))
             raw = job.last_error or ''
             duplicate_review = job._has_authority_duplicate_review()
             date_review = job.state == 'valid' and 'issue date' in (
@@ -208,7 +213,7 @@ class EtaJobMonitoring(models.Model):
                 action = (_('Finance must review the issue-date discrepancy against the existing approved receipt. Do not automatically cancel or resend it.')
                           if date_review else _('No submission action required.'))
             elif job.state == 'review':
-                reason = detail or _('Historical receipt verification is queued; no new invoice has been sent.')
+                reason = detail or _('Waiting for the worker to verify older ETA receipts before restoring an approval, sending or holding for correction.')
                 if job._has_recorded_rejection():
                     action = ' '.join(actions + [_('A previous submission was rejected. Verify or correct the reported source fields; receipt verification must finish before any corrected submission.')])
                 else:
@@ -222,7 +227,9 @@ class EtaJobMonitoring(models.Model):
                 action = _('Reconcile the existing ETA outcome first. Automatic checks continue; do not blindly resend.')
             elif job.state == 'accepted':
                 reason = (_('ETA received this invoice; status checking is delayed: %s', detail)
-                          if detail else _('ETA received this invoice and has not yet returned a final validation result.'))
+                          if detail else _('ETA acknowledged this invoice %(minutes)s minute(s) ago and is processing validation. '
+                              'Last confirmed check: %(last)s. Next check: %(next)s. ETA has not provided a completion time.',
+                              minutes=minutes, last=last_check, next=next_check))
                 action = _('Automatic status checks continue. Investigate prolonged delays; do not submit another copy.')
             elif job.state == 'queued':
                 if detail:
@@ -245,8 +252,11 @@ class EtaJobMonitoring(models.Model):
                                     if job.state == 'invalid' else _('Processing is held for correction or review.'))
                 action = ' '.join(actions) or _('Review the detailed error and correct the source issue before an accounting manager queues a verified retry.')
             base_reason = reason
-            if job.state == 'unknown':
-                reason = _('We could not confirm whether ETA received the previous request. Check it before sending another copy.')
+            if job.state == 'unknown' and not (job.last_error or '').startswith('ETA receipt search completed '):
+                reason = _('ETA receipt verification is pending for %(minutes)s minute(s) since the attempt. '
+                    'Last check: %(last)s. Next check: %(next)s.', minutes=minutes, last=last_check, next=next_check)
+                action = _('Check ETA status to request a receipt lookup now. Automatic verification continues; '
+                    'if no receipt can be established, Accounting or IT must review delivery before any resend.')
             if job.state in ('blocked', 'invalid', 'review', 'queued') and actions:
                 if any(word in lower for word in ('national id', 'receiver id', 'customer id', 'tax id')) or any(code.startswith('NI') for code in codes) or codes.intersection({'SF307', 'CF305'}):
                     reason = _('Customer identification needs attention. Verify the customer type and the real national or tax ID.')

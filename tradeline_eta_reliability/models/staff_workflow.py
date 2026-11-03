@@ -282,10 +282,37 @@ class EtaStaffJob(models.Model):
     def _staff_check_status(self, client):
         """GET-only receipt refresh; never arm a first/corrected submission."""
         self.ensure_one()
+        if self._staff_has_confirmed_rejection() and not (self.move_id.e_invoice_uuid or self.move_id.l10n_eg_uuid):
+            # ETA refused intake, so there is no receipt UUID to poll. Return
+            # its recorded validation result without inventing uncertainty.
+            return
         # A one-receipt poll cannot clear an existing complete-history hold.
-        if self._has_authority_duplicate_review() or self.historical_review or self.state == 'review':
+        if (self._has_authority_duplicate_review()
+                or self.move_id.l10n_eg_uuid and self.move_id.e_invoice_uuid
+                and self.move_id.l10n_eg_uuid != self.move_id.e_invoice_uuid):
             raise UserError(_('This invoice needs complete receipt reconciliation. Its current hold is preserved. '
                               'Send to ETA now can run the full verification; it sends only when proven safe.'))
+        if self.historical_review or self.state == 'review':
+            # A selected status click can GET history immediately, independently
+            # of the backlog. Report the actual receipt results, but do not arm
+            # a submission or clear the source/receipt matching hold.
+            proof = self._history_snapshot()
+            if not proof:
+                raise UserError(_('Complete ETA history evidence is not available yet. This record remains in the verification queue.'))
+            receipts = self._history_candidates(client, proof)
+            checked = fields.Datetime.now()
+            self.checked_at = checked
+            local = fields.Datetime.context_timestamp(self.with_context(tz='Africa/Cairo'), checked)
+            counts = {status: sum(row.get('status') == status for row in receipts)
+                for status in ('Valid', 'Submitted', 'Invalid', 'Rejected', 'Cancelled')}
+            client.staff_result = _('Earlier ETA receipts checked %(time)s (Cairo). Approved: %(valid)s; ETA processing: %(pending)s; '
+                'rejected: %(invalid)s; cancelled: %(cancelled)s. Invoice matching remains queued. '
+                'Use Sync to run guarded recovery for this invoice now.',
+                time=local.strftime('%d %b %Y %H:%M:%S'), valid=counts['Valid'], pending=counts['Submitted'],
+                invalid=counts['Invalid'] + counts['Rejected'], cancelled=counts['Cancelled']) if receipts else _(
+                'ETA history checked %s (Cairo): no receipt was found. Use Sync to run guarded recovery for this invoice now.',
+                local.strftime('%d %b %Y %H:%M:%S'))
+            return
         if (self.move_id.e_invoice_uuid or self.state == 'unknown' and self.payload
                 and (self.attempted_at or self.attempts)):
             # The base refresh only GETs. Historical recovery may otherwise
@@ -309,6 +336,7 @@ class EtaStaffJob(models.Model):
         started = time.monotonic()
         try:
             client = (StatusClient if mode == 'status' else EtaClient)(self.company_id.sudo())
+            client.staff_result = False
             for _turn in range(3 if mode == 'send' else 1):
                 job_id = self.id
                 self.env.cr.rollback(); self.env.invalidate_all()
@@ -336,7 +364,7 @@ class EtaStaffJob(models.Model):
                         or self.next_attempt and self.next_attempt > fields.Datetime.now()
                         or time.monotonic() - started >= 45):
                     break
-            return bool(operations), False
+            return bool(operations), client.staff_result
         finally:
             try:
                 if client is not None:

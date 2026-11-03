@@ -125,14 +125,14 @@ try:
             uncertain = invoice(); lost_response[0] = True
             request = uncertain.action_eta_send_now()['params']['request_id']; env.cr.commit()
             unknown = uncertain.action_eta_execute_staff_request(request)
-            assert unknown['title'] == 'Previous attempt unconfirmed' and len(posts) == 2
+            assert unknown['title'] == 'ETA delivery verification' and len(posts) == 2
             env.cr.rollback(); env.invalidate_all()
             prior = uncertain.eta_job_ids.sudo().read(['payload_hash', 'attempted_at', 'attempts'])[0]
             request = uncertain.action_eta_send_now()['params']['request_id']; env.cr.commit()
             unknown = uncertain.action_eta_execute_staff_request(request)
             env.cr.rollback(); env.invalidate_all()
             after = uncertain.eta_job_ids.sudo().read(['payload_hash', 'attempted_at', 'attempts'])[0]
-            assert unknown['title'] == 'Previous attempt unconfirmed' and len(posts) == 2 and prior == after
+            assert unknown['title'] == 'ETA delivery verification' and len(posts) == 2 and prior == after
             print('STAFF_REAL_TRANSACTION_PROOF', json.dumps({'non_admin': True, 'busy_backlog_bypassed': True,
                 'durable_marker_visible_before_post': True, 'replay_did_not_post': True,
                 'status_get_only': True, 'lost_response_not_resent': True, 'synthetic_posts': len(posts)}))
