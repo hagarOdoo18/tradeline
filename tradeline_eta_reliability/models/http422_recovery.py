@@ -15,8 +15,10 @@ from datetime import datetime, timedelta
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.osv import expression
 
 from .historical_recovery import fiscal, fiscal_equal
+from .client import MAX_RETRY_SECONDS
 from .staff_workflow import StatusClient
 from .eta_job import EtaJob
 from .eta_history import HISTORY_DEFERRED
@@ -147,7 +149,7 @@ class EtaHttp422Recovery(models.Model):
             if not self.attempted_at <= observed <= fields.Datetime.now():
                 return None
             retry = data.get('retry_after_seconds', 605)
-            if type(retry) is not int or not 0 <= retry <= 86400:
+            if type(retry) is not int or not 0 <= retry <= MAX_RETRY_SECONDS:
                 return None
             return dict(data, attachment_id=records.id, retry_after_seconds=max(605, retry))
         except (ValueError, TypeError, KeyError):
@@ -237,6 +239,42 @@ class EtaHttp422Recovery(models.Model):
             'authority_receipt_hash': self._receipt_set_hash(receipts), 'first_submission_candidate': False,
             'duplicate_retry_at': False, 'duplicate_payload_hash': False})
 
+    @api.model
+    def _http422_worker_is_healthy(self, now):
+        cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
+        cron = cron.sudo() if cron else cron
+        return bool(cron and cron.active and not cron.failure_count
+            and self.env['ir.config_parameter'].sudo().get_param(
+                'tradeline_eta_reliability.enabled_database') == self.env.cr.dbname
+            and cron.nextcall and (cron.nextcall >= now - timedelta(minutes=3)
+                or self._native_partial_progress_is_recent(now, cron)))
+
+    @api.model
+    def _attention_domain(self, now=None):
+        now = now or fields.Datetime.now()
+        domain = super()._attention_domain(now)
+        # Only pending observed failures can be an ordinary automatic wait.
+        # Keep record rules here; never sudo the job search or contact ETA.
+        waiting = []
+        if self._http422_worker_is_healthy(now):
+            last_id = 0
+            while True:
+                batch = self.with_context(prefetch_fields=False).search([
+                    ('id', '>', last_id), ('state', '=', 'unknown'), ('next_attempt', '>', now),
+                    ('last_error', '=like', 'ETA returned HTTP 422%')], order='id', limit=100)
+                if not batch:
+                    break
+                for job in batch:
+                    failure = job._retained_http422_failure()
+                    if (failure and type(failure.get('automatic_http422_policy')) is int
+                            and failure['automatic_http422_policy'] == AUTO_POLICY):
+                        waiting.append(job.id)
+                last_id = batch[-1].id
+        if waiting:
+            domain = expression.AND([domain, [('id', 'not in', waiting)]])
+        return expression.OR([domain,
+            [('state', '=', 'unknown'), ('last_error', '=like', HTTP422_REVIEW + '%')]])
+
     @api.depends('state', 'last_error', 'attempts', 'attempted_at', 'payload_hash', 'next_attempt',
                  'create_date', 'move_id.e_invoice_date', 'move_id.e_invoice_issue',
                  'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry', 'staff_state', 'delivery_review_proof')
@@ -257,14 +295,7 @@ class EtaHttp422Recovery(models.Model):
                 job.required_action = _('Automatic recovery preserves the original invoice date and amounts. Check the next retry time and history; no manual resend is needed.')
                 if raw and not raw.startswith('ETA returned HTTP 422'):
                     job.staff_summary = _('HTTP 422 recovery was deferred: %s', raw)
-                elif job.next_attempt and job.next_attempt > fields.Datetime.now():
-                    cron = job.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
-                    active = bool(cron and cron.sudo().active and not cron.sudo().failure_count
-                        and job.env['ir.config_parameter'].sudo().get_param(
-                            'tradeline_eta_reliability.enabled_database') == job.env.cr.dbname
-                        and cron.sudo().nextcall
-                        and (cron.sudo().nextcall >= fields.Datetime.now() - timedelta(minutes=3)
-                             or job._native_partial_progress_is_recent(fields.Datetime.now(), cron.sudo())))
-                    if active:
+                elif raw.startswith('ETA returned HTTP 422') and job.next_attempt and job.next_attempt > fields.Datetime.now():
+                    if job._http422_worker_is_healthy(fields.Datetime.now()):
                         job.needs_attention = False
             job.reason_summary = raw or job.staff_summary

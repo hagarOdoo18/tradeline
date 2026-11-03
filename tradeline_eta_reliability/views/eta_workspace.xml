@@ -14,7 +14,7 @@
                     decoration-success="eta_staff_state == 'valid'" decoration-danger="eta_staff_state in ('blocked','invalid')"
                     decoration-warning="eta_staff_state in ('unknown','delivery_review')" decoration-info="eta_staff_state in ('queued','accepted','review')"/>
                 <field name="eta_vat_review_state" widget="badge" decoration-danger="eta_vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')"
-                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected','local_corrected')"/>
+                    decoration-warning="eta_vat_review_state in ('receipt_review','correcting')" decoration-success="eta_vat_review_state in ('ready','receipt_vat','corrected','local_corrected','exempt','bypass')"/>
                 <field name="amount_total"/>
                 <field name="currency_id" optional="hide"/>
                 <field name="company_id" groups="base.group_multi_company"/>

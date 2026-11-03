@@ -117,15 +117,23 @@ class EtaVatExceptionMove(models.Model):
     @api.model
     def _eta_vat_workflow_sql(self):
         route = super()._eta_vat_workflow_sql()
-        # Unsent explicitly exempt invoices need no VAT correction. Receipt
-        # conflicts and historical accounting corrections retain their routes.
+        # Approved zero-VAT receipts with an explicit exemption must not be
+        # advertised as needing 14% VAT. Preserve conflict/correction routes.
         return SQL("""CASE WHEN account_move.move_type <> 'out_invoice' THEN NULL
             WHEN %s AND COALESCE(account_move.e_invoice_uuid,'')=''
             AND COALESCE(account_move.l10n_eg_uuid,'')='' AND account_move.e_invoice_sent IS NOT TRUE
             AND NOT EXISTS (SELECT 1 FROM tradeline_eta_job ex_job WHERE ex_job.move_id=account_move.id
                 AND (ex_job.state IN ('unknown','accepted','review') OR ex_job.historical_review IS TRUE
                     OR ex_job.attempted_at IS NOT NULL OR COALESCE(ex_job.attempts,0)>0))
-            THEN NULL ELSE %s END""", self._eta_exemption_sql(), route)
+            THEN NULL WHEN %s AND (%s)='approved' THEN 'exempt'
+            ELSE %s END""", self._eta_exemption_sql(), self._eta_exemption_sql(), route, route)
+
+    @api.depends('invoice_line_ids.tax_ids', 'invoice_line_ids.display_type',
+        'invoice_line_ids.tax_ids.amount', 'invoice_line_ids.tax_ids.amount_type',
+        'invoice_line_ids.tax_ids.is_deduction', 'invoice_line_ids.tax_ids.type_code_id.code',
+        'invoice_line_ids.tax_ids.sub_type_code_id.code', 'invoice_line_ids.tax_ids.l10n_eg_eta_code')
+    def _compute_eta_vat_workflow(self):
+        return super()._compute_eta_vat_workflow()
 
     def action_post_sign_invoices(self):
         """Old native Sign buttons must enter Ahmed's queue, never a thumb drive."""

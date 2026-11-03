@@ -2,13 +2,44 @@
 import time
 import hashlib
 import math
-from datetime import datetime
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 import requests
 from .processing_window import check_processing_window
 
 _TOKENS = {}
 _REJECTED_TOKENS = set()
+# Fits persisted integer waits and datetime arithmetic. An absurd larger
+# authority delay stays paused for this horizon rather than retrying early.
+MAX_RETRY_SECONDS = 2147483647
+
+
+def retry_after_seconds(response, now=None):
+    """RFC 9110: Retry-After is delay-seconds or an HTTP date, never hours.
+
+    Include one second of margin. Do not shorten a valid authority cooldown
+    to the old one-hour transport cap. Response Date protects against a
+    clock skew when ETA supplies both date headers.
+    """
+    value = str(response.headers.get('Retry-After', '')).strip()
+    try:
+        if value.isascii() and value.isdigit():
+            seconds = int(value)
+        else:
+            deadline = parsedate_to_datetime(value)
+            deadline = deadline.replace(tzinfo=timezone.utc) if deadline.tzinfo is None else deadline
+            reference = now or datetime.now(timezone.utc)
+            try:
+                server = parsedate_to_datetime(response.headers.get('Date', ''))
+                server = server.replace(tzinfo=timezone.utc) if server.tzinfo is None else server
+                reference = min(reference, server)
+            except (ValueError, TypeError, OverflowError):
+                pass
+            seconds = math.ceil((deadline - reference).total_seconds())
+        return max(60, min(MAX_RETRY_SECONDS, seconds + 1))
+    except (ValueError, TypeError, OverflowError):
+        return 60
 
 
 class EtaError(Exception):
@@ -66,12 +97,22 @@ class EtaClient:
             'client_id': self.company.client_id, 'client_secret': self.company.client_secret,
         }, timeout=(5, 25))
         if not result.ok:
-            raise EtaError('ETA authentication failed (HTTP %s).' % result.status_code, result.status_code)
-        body = result.json()
-        if not body.get('access_token'):
+            raise EtaError('ETA authentication failed (HTTP %s).' % result.status_code,
+                           result.status_code, retry_after_seconds(result))
+        try:
+            body = result.json()
+        except ValueError as exc:
+            raise EtaError('ETA authentication returned an unreadable response.') from exc
+        if not isinstance(body, dict) or not isinstance(body.get('access_token'), str) or not body['access_token'].strip():
             raise EtaError('ETA authentication returned no access token.')
+        try:
+            lifetime = int(body.get('expires_in', 3600))
+            if isinstance(body.get('expires_in'), bool) or lifetime <= 0:
+                raise ValueError()
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise EtaError('ETA authentication returned an invalid token lifetime.') from exc
         self.token = body['access_token']
-        self.token_until = time.monotonic() + max(1, int(body.get('expires_in', 3600)) - 120)
+        self.token_until = time.monotonic() + max(1, min(lifetime, 3600) - 120)
         _TOKENS[key] = (self.token, self.token_until)
 
     def request(self, method, path, **kwargs):
@@ -96,10 +137,7 @@ class EtaClient:
                 code = error.get('code') if isinstance(error, dict) else None
             except (ValueError, AttributeError):
                 code = None
-            try:
-                retry = max(60, min(3600, int(response.headers.get('Retry-After', 60)) + 1))
-            except (TypeError, ValueError):
-                retry = 60
+            retry = retry_after_seconds(response)
             if response.status_code == 401:
                 _REJECTED_TOKENS.add(hashlib.sha256(self.token.encode()).hexdigest())
                 self.token = None

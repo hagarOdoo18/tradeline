@@ -8,7 +8,7 @@
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="state" column_invisible="True"/>
                 <field name="staff_state" string="ETA status" widget="badge" decoration-success="staff_state == 'valid'" decoration-danger="staff_state in ('blocked', 'invalid')" decoration-warning="staff_state in ('unknown','delivery_review')" decoration-info="staff_state in ('queued', 'accepted', 'review')"/>
-                <field name="vat_review_state" string="VAT review" widget="badge" optional="show" decoration-danger="vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')" decoration-warning="vat_review_state in ('receipt_review','correcting')" decoration-success="vat_review_state in ('ready','receipt_vat','corrected')"/>
+                <field name="vat_review_state" string="VAT review" widget="badge" optional="show" decoration-danger="vat_review_state in ('missing','approved_missing','rejected_missing','receipt_missing','source_changed')" decoration-warning="vat_review_state in ('receipt_review','correcting')" decoration-success="vat_review_state in ('ready','receipt_vat','corrected','local_corrected','exempt','bypass')"/>
                 <field name="staff_summary" class="text-wrap"/>
                 <field name="required_action" class="text-wrap"/>
                 <field name="waiting_minutes" string="Waiting (min)" optional="show"/>
@@ -37,7 +37,7 @@
 
                 </header>
                 <sheet>
-                    <group string="Why this invoice needs attention">
+                    <group string="ETA status and next step">
                         <field name="staff_summary" nolabel="1" colspan="2"/>
                         <field name="required_action" nolabel="1" colspan="2"/>
                     </group>

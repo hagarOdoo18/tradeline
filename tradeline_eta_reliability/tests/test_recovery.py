@@ -2,14 +2,15 @@ import hashlib
 import json
 from contextlib import ExitStack
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from unittest.mock import MagicMock, patch
 
 from odoo import Command, fields
 from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
-from ..models.client import EtaClient, EtaError
+from ..models.client import EtaClient, EtaError, retry_after_seconds
 from ..models.eta_job import PROCESSING_REVISION
 from ..models.historical_recovery import match_document
 from ..models.processing_window import EtaStopped, check_processing_window
@@ -434,9 +435,13 @@ class TestAutomaticRecovery(TransactionCase):
         cron.write({'active': True, 'failure_count': 0, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
         job._compute_monitoring()
         self.assertFalse(job.needs_attention)
+        search_domain = [('id', '=', job.id), ('needs_attention', '=', True)]
+        self.assertFalse(self.env[job._name].search(search_domain))
+        self.assertIn(job, self.env[job._name].search([('id', '=', job.id), ('needs_attention', '=', False)]))
         cron.active = False
         job._compute_monitoring()
         self.assertTrue(job.needs_attention)
+        self.assertIn(job, self.env[job._name].search(search_domain))
         cron.write({'active': True, 'nextcall': fields.Datetime.now() - timedelta(minutes=30)})
         with patch.object(type(job), '_native_partial_progress_is_recent', return_value=False):
             job._compute_monitoring()
@@ -490,6 +495,9 @@ class TestAutomaticRecovery(TransactionCase):
         job._refresh(client)
         self.assertEqual(job.state, 'unknown'); self.assertIn('Three automatic recoveries', job.last_error)
         self.assertIn('needs review', job.staff_summary)
+        self.assertTrue(job.needs_attention)
+        self.assertIn(job, self.env[job._name].search([('id', '=', job.id), ('needs_attention', '=', True)]))
+        self.assertNotIn(job, self.env[job._name].search([('id', '=', job.id), ('needs_attention', '=', False)]))
         self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
         self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
         note_count = len(job.eta_history_ids)
@@ -712,6 +720,59 @@ class TestAutomaticRecovery(TransactionCase):
             with self.assertRaises(EtaError) as error: client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
         self.assertEqual(error.exception.code, 'DuplicateSubmission'); self.assertEqual(error.exception.retry_after, 421)
         self.assertNotIn('private details', str(error.exception)); client.close()
+
+    def test_retry_after_seconds_and_http_dates_preserve_full_authority_wait(self):
+        now = datetime(2026, 11, 3, 20, tzinfo=timezone.utc)
+        for value, expected in [('7200', 7201), ('172800', 172801), ('0', 60),
+                ('-30', 60), ('nonsense', 60), ('', 60)]:
+            self.assertEqual(retry_after_seconds(MagicMock(headers={'Retry-After': value}), now), expected)
+        response = MagicMock(headers={'Retry-After': format_datetime(now + timedelta(hours=3), usegmt=True),
+            'Date': format_datetime(now, usegmt=True)})
+        self.assertEqual(retry_after_seconds(response, now), 10801)
+        self.assertEqual(retry_after_seconds(response, now + timedelta(minutes=5)), 10801,
+            'Clock skew must not shorten the authority wait')
+
+    def test_authentication_throttle_and_malformed_responses_are_controlled(self):
+        client = EtaClient(self.company)
+        self.company.generated_token = False
+        response = MagicMock(ok=False, status_code=429, headers={'Retry-After': '7200'})
+        with patch('odoo.addons.tradeline_eta_reliability.models.client._TOKENS', {}), \
+                patch.object(client.session, 'post', return_value=response), \
+                patch.object(client.session, 'request') as api:
+            with self.assertRaises(EtaError) as caught:
+                client.request('GET', '/api/v1.0/documenttypes')
+            self.assertEqual(caught.exception.status, 429)
+            self.assertEqual(caught.exception.retry_after, 7201)
+            api.assert_not_called()
+            response.ok = True
+            for body in ([], None, {'access_token': 123}, {'access_token': 'private', 'expires_in': 'bad'},
+                    {'access_token': 'private', 'expires_in': None}, {'access_token': 'private', 'expires_in': -1}):
+                response.json.return_value = body
+                with self.assertRaises(EtaError) as caught:
+                    client._authorize()
+                self.assertNotIn('private', str(caught.exception))
+                self.assertFalse(client.token)
+            response.json.side_effect = ValueError('private body')
+            with self.assertRaisesRegex(EtaError, 'unreadable'):
+                client._authorize()
+        client.close()
+
+    def test_long_422_authority_wait_survives_private_evidence_and_recovery(self):
+        _move, job, _doc, _proof = self.retained_http422(automatic=True)
+        record = self.env['ir.attachment'].search([('res_model', '=', job._name), ('res_id', '=', job.id),
+            ('name', '=like', 'ETA_uncertain_request_failure_%')])
+        record.unlink()
+        error = EtaError('ETA returned HTTP 422.', 422, retry_after=172801)
+        error.eta_submission_failure = {'job': job.id, 'attempts': job.attempts,
+            'attempted_at': fields.Datetime.to_string(job.attempted_at), 'payload_sha256': job.payload_hash}
+        self.assertTrue(job._preserve_uncertain_request_failure(error))
+        failure = job._retained_http422_failure()
+        self.assertEqual(failure['retry_after_seconds'], 172801)
+        with patch.object(type(job), '_history_snapshot') as history:
+            job._refresh(MagicMock())
+        history.assert_not_called()
+        self.assertEqual(job.state, 'unknown')
+        self.assertEqual(job.next_attempt, job._http422_deadline(failure))
 
     def test_eta_client_reads_root_error_code_but_does_not_infer_from_422(self):
         client = EtaClient(self.company); client.token = 'test-only-token'
