@@ -114,11 +114,14 @@ class EtaJob(models.Model):
                 'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
                 'raw': json.dumps(history, ensure_ascii=False).encode(),
             })
+            # The guarded approval resolved the prior attempt. Keep that
+            # permission through history review despite cumulative attempts;
+            # the next durable POST marker revokes it before transmission.
             job.write({'issue_date_policy': 'current', 'current_issue_datetime': False,
                        'issue_date_approved_by': self.env.uid, 'issue_date_approved_at': fields.Datetime.now(),
                        'issue_date_approval_note': approval, 'state': 'queued', 'payload': False,
                        'payload_hash': False, 'attempted_at': False, 'next_attempt': False,
-                       'last_error': False, 'failures': 0, 'safe_to_retry': False,
+                       'last_error': False, 'failures': 0, 'safe_to_retry': True,
                        'first_submission_candidate': False})
         return True
 
@@ -326,7 +329,9 @@ class EtaJob(models.Model):
         if not self._preflight_submission(client):
             return
         before = self._transmission_fingerprint()
-        self.write({'state': 'unknown', 'attempted_at': fields.Datetime.now(),
+        # Permission applies only to the resolved previous attempt. Revoke it
+        # durably before a new POST, whose outcome may itself become unknown.
+        self.write({'state': 'unknown', 'safe_to_retry': False, 'attempted_at': fields.Datetime.now(),
                     'attempts': self.attempts + 1})
         # This method runs ONLY in the isolated worker cursor. The marker must
         # survive process death or a lost HTTP/commit response after the POST.
