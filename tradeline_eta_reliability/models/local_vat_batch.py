@@ -98,21 +98,35 @@ class EtaLocalVatBatch(models.Model):
             {'id': item[0], 'invoice': item[1], 'reason': item[2]} for item in failures])
 
     def button_draft(self):
-        """Skip the core EDI lock when called from the apply-tax batch."""
+        """Skip the core EDI lock when called from the apply-tax batch.
+
+        Odoo 18 base account_edi blocks button_draft when an EDI document
+        is in 'sent' state.  For a pure accounting tax correction the EDI
+        receipt must be preserved, so we temporarily mark 'sent' ETA docs
+        as 'to_send', let the base reset proceed (which unlinks to_send
+        docs and clears errors), then recreate them as 'sent' so the cron
+        never re-submits an already-accepted receipt.
+        """
         if self.env.context.get('_eta_apply_tax'):
-            # Bypass the _edi_allow_button_draft check that blocks
-            # resetting moves with sent EDI documents.  The tax
-            # correction only touches accounting lines; the EDI
-            # document state is restored after action_post.
-            self.edi_document_ids.write({
-                'error': False, 'blocking_level': False,
-            })
-            self.edi_document_ids.filtered(
-                lambda doc: doc.state == 'to_send',
-            ).unlink()
-            return super(EtaLocalVatBatch, self.with_context(
-                _eta_apply_tax=False,
-            )).button_draft()
+            eta_sent = self.edi_document_ids.filtered(
+                lambda d: d.edi_format_id.code == 'eg_eta'
+                and d.state == 'sent')
+            # Remember the records so we can restore after the base unlink.
+            eta_sent_vals = [{
+                'move_id': doc.move_id.id,
+                'edi_format_id': doc.edi_format_id.id,
+                'attachment_id': doc.attachment_id.id,
+                'state': 'sent',
+            } for doc in eta_sent]
+            # Let base see them as to_send so it does not block.
+            if eta_sent:
+                eta_sent.write({'state': 'to_send'})
+            clean = self.with_context(_eta_apply_tax=False)
+            result = super(EtaLocalVatBatch, clean).button_draft()
+            # Restore the sent EDI documents the base just unlinked.
+            if eta_sent_vals:
+                self.env['account.edi.document'].sudo().create(eta_sent_vals)
+            return result
         return super().button_draft()
 
     def _eta_local_vat_batch_result(self, applied, skipped, failures):
