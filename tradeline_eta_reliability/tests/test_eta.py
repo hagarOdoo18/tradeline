@@ -991,7 +991,7 @@ class TestEtaReliability(TransactionCase):
         job = self.invoice().eta_job_ids
         job.write({'state': 'unknown', 'last_error': 'Read timed out after submission'})
         self.assertIn('Read timed out', job.reason_summary)
-        self.assertIn('do not blindly resend', job.required_action)
+        self.assertIn('before any resend', job.required_action)
         job.write({'state': 'invalid', 'last_error': 'CV302: itemCode is not active'})
         self.assertIn('ETA-approved EGS/GS1', job.required_action)
         job.write({'state': 'invalid', 'last_error': 'DS301: duplicate document'})

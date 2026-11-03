@@ -481,6 +481,54 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(job.state, 'accepted'); self.assertEqual(job.next_attempt, future)
         self.assertIn('503', client.staff_error)
 
+    def test_status_of_an_explicit_intake_refusal_returns_the_recorded_decline(self):
+        move = self.invoice(); job = move.eta_job_ids
+        reason = 'ETA rejected the submission (1). {"code":"1","details":[{"code":"CF320"}]}'
+        move.write({'e_invoice_status': 'Error', 'e_invoice_issue': reason})
+        job.write({'state': 'blocked', 'safe_to_retry': True, 'attempts': 1,
+            'attempted_at': fields.Datetime.now(), 'last_error': reason})
+        before = job.read(['state', 'attempts', 'attempted_at', 'last_error', 'next_attempt'])
+        with self.owned_worker() as client:
+            self.assertTrue(self.Job._process_id(job.id, client, staff_operation=STAFF_STATUS))
+        self.assertEqual(before, job.read(['state', 'attempts', 'attempted_at', 'last_error', 'next_attempt']))
+        self.assertEqual(job.staff_state, 'invalid')
+        self.assertIn('CF320', job.staff_summary)
+        client.request.assert_not_called()
+
+    def test_successful_empty_status_search_reports_its_time_without_claiming_delivery(self):
+        job = self.invoice().eta_job_ids
+        payload = json.dumps({'documents': [{'internalID': job.move_id.name, 'signatures': [{'value':'saved'}]}]})
+        job.write({'state':'unknown', 'attempts':1, 'attempted_at':fields.Datetime.now(),
+            'payload':payload, 'failures':7})
+        client = MagicMock(company=self.company)
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken':'EndofResultSet'}}
+        with self.owned_worker(client):
+            self.assertTrue(self.Job._process_id(job.id, client, staff_operation=STAFF_STATUS))
+        self.assertEqual(job.state, 'unknown'); self.assertEqual(job.payload, payload)
+        self.assertEqual(job.attempts, 1); self.assertTrue(job.checked_at)
+        self.assertEqual(job.failures, 0)
+        self.assertIn('no matching receipt', job.staff_summary)
+        self.assertIn('Cairo', job.staff_summary)
+        self.assertFalse(job.move_id.e_invoice_uuid)
+        self.assertTrue(all(c.args[0]=='GET' for c in client.request.call_args_list))
+
+    def test_delivery_and_authority_processing_show_actual_attempt_age_and_check_times(self):
+        move = self.invoice(); job = move.eta_job_ids
+        attempted = fields.Datetime.now() - timedelta(minutes=12)
+        job.write({'state':'unknown', 'attempts':1, 'attempted_at':attempted,
+            'checked_at':fields.Datetime.now(), 'next_attempt':fields.Datetime.now()+timedelta(minutes=2)})
+        self.assertEqual(job.waiting_minutes, 12)
+        self.assertIn('12 minute(s)', job.staff_summary)
+        self.assertIn('Last check:', job.staff_summary)
+        self.assertIn('Next check:', job.staff_summary)
+        self.assertIn('Accounting or IT', job.required_action)
+        self.assertNotIn('processing validation', job.staff_summary)
+        move.write({'e_invoice_uuid':'authority-ack', 'e_invoice_sent':True, 'e_invoice_status':'Submitted'})
+        job.state = 'accepted'
+        self.assertIn('processing validation', job.staff_summary)
+        self.assertIn('12 minute(s)', job.staff_summary)
+        self.assertIn('has not provided a completion time', job.staff_summary)
+
     def test_status_only_client_rejects_document_post_and_cancel(self):
         client = StatusClient(self.company)
         try:
@@ -499,6 +547,27 @@ class TestEtaStaffWorkflow(TransactionCase):
         with self.assertRaisesRegex(UserError, 'complete receipt reconciliation'):
             job._staff_check_status(MagicMock())
         self.assertEqual(before, job.read(list(before[0])))
+
+    def test_selected_history_status_checks_now_and_reports_receipts_without_arming_a_send(self):
+        job = self.invoice().eta_job_ids
+        future = fields.Datetime.now() + timedelta(minutes=10)
+        job.write({'state':'review', 'historical_review':True, 'next_attempt':future})
+        before = job.read(['state','historical_review','next_attempt','payload','attempts'])
+        client = MagicMock(company=self.company)
+        def lookup(transport, proof):
+            transport.request('GET', '/api/v1.0/documents/search')
+            return [{'status':'Valid'}, {'status':'Invalid'}, {'status':'Invalid'}]
+        with self.owned_worker(client), \
+                patch(MODULE + '.StatusClient', return_value=client), \
+                patch.object(type(job), '_history_snapshot', return_value={'receipts':{}}), \
+                patch.object(type(job), '_history_candidates', side_effect=lookup):
+            done, result = job._staff_dispatch('status')
+        self.assertTrue(done)
+        self.assertIn('Approved: 1', result); self.assertIn('rejected: 2', result)
+        self.assertTrue(job.checked_at)
+        self.assertEqual(before, job.read(list(before[0])))
+        self.assertEqual(client.request.call_count, 1)
+        self.assertEqual(client.request.call_args.args[0], 'GET')
 
     def test_missing_rolled_back_cross_user_expired_and_public_intents_cannot_execute(self):
         move = self.invoice()

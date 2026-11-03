@@ -952,6 +952,22 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertTrue(job.needs_attention); self.assertFalse(job.historical_submission_verified)
         client.request.assert_not_called()
 
+    def test_code_one_customer_refusal_keeps_its_rejection_after_history_review(self):
+        move = self.invoice(); job = move.eta_job_ids
+        reason = 'ETA rejected the submission (1). ' + json.dumps({'code': '1',
+            'details': [{'code': 'CF320', 'message': 'Receiver country mismatch'}]})
+        payload = json.dumps({'documents': [self.document(move)]})
+        job.write({'payload': payload, 'attempts': 1, 'attempted_at': fields.Datetime.now(),
+            'safe_to_retry': True, 'last_error': reason})
+        move.write({'e_invoice_status': 'Error', 'e_invoice_issue': reason})
+        before = (job.payload, job.attempts, job.attempted_at, move.invoice_date, move.amount_total)
+        job, client, candidates = self.review(move)
+        candidates.assert_called_once()
+        self.assertEqual(job.state, 'blocked'); self.assertEqual(job.staff_state, 'invalid')
+        self.assertEqual(job.last_error, reason); self.assertFalse(job.next_attempt)
+        self.assertEqual(before, (job.payload, job.attempts, job.attempted_at, move.invoice_date, move.amount_total))
+        client.request.assert_not_called()
+
     def test_corrected_schema_request_can_retry_after_full_negative_history_without_24hour_wait(self):
         move = self.invoice(); job = move.eta_job_ids; original = self.document(move)
         original['invoiceLines'][0]['quantity'] = '1'  # Previously invalid JSON type; current source is numeric.

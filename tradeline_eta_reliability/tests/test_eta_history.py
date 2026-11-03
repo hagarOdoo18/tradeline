@@ -76,7 +76,7 @@ class TestEtaHistory(TransactionCase):
             self.job._delay('Submission outcome needs reconciliation. No duplicate was sent.', seconds=900, state='unknown')
             self.job.checked_at = fields.Datetime.now() + timedelta(seconds=index)
         self.assertEqual(len(self.notes()), before)
-        self.assertIn('could not confirm', self.notes()[-1].body)
+        self.assertIn('receipt verification is pending', self.notes()[-1].body)
 
     def test_remote_received_and_approved_are_distinct_and_rejection_is_one_note(self):
         data = {'uuid': 'history-receipt', 'internalId': self.move.name, 'status': 'Submitted'}
