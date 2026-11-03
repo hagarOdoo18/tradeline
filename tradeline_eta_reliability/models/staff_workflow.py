@@ -260,6 +260,13 @@ class EtaStaffJob(models.Model):
         if self.state != 'unknown' and (self._has_authority_duplicate_review() or self.historical_review
                 or self.move_id.l10n_eg_uuid and self.move_id.l10n_eg_uuid != self.move_id.e_invoice_uuid):
             self.action_recheck()
+        # Full-history review must run before the single-receipt correction
+        # gate. That gate deliberately refuses unresolved history; calling it
+        # here made every Sync click fail before the worker could reconcile.
+        # Unknown attempts likewise remain GET-only even with an older UUID.
+        if self.state in ('review', 'unknown'):
+            self.next_attempt = False
+            return True
         if self.move_id.e_invoice_uuid and self.move_id.e_invoice_status == 'Invalid':
             self.move_id._eta_queue_corrected_document(staff_operation=STAFF_SEND)
         elif self.state in ('blocked', 'invalid'):

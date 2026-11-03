@@ -269,6 +269,66 @@ class TestEtaStaffWorkflow(TransactionCase):
             self.assertEqual(caught.exception.status, 429)
         finally:client.close()
 
+    def test_sync_reconciles_invalid_receipt_in_review_before_corrected_send(self):
+        move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
+        move.sudo().write({'e_invoice_uuid': 'old-invalid', 'e_invoice_status': 'Invalid'})
+        job.write({'state': 'review', 'historical_review': True, 'attempts': 1,
+            'attempted_at': fields.Datetime.now(), 'payload': 'old-signed-request',
+            'next_attempt': fields.Datetime.now() + timedelta(minutes=4)})
+        client = MagicMock(company=self.company)
+        def reconcile(row, transport):
+            self.assertEqual(row.state, 'review')
+            self.assertEqual(row.payload, 'old-signed-request')
+            self.assertEqual(row.move_id.e_invoice_uuid, 'old-invalid')
+            row.move_id.write({'e_invoice_uuid': False, 'e_invoice_sent': False, 'e_invoice_status': 'Draft'})
+            row.write({'state': 'queued', 'historical_review': False, 'attempted_at': False,
+                'payload': False, 'payload_hash': False, 'submission_uuid': False})
+        def prepare(row):
+            row.payload = json.dumps({'documents': [{'internalID': row.move_id.name,
+                'dateTimeIssued': row.move_id._eta_issue_timestamp(), 'invoiceLines': [{'quantity': 1}],
+                'signatures': [{'value': 'qa-only'}]}]})
+        client.request.return_value = {'acceptedDocuments': [{'internalId': move.name, 'uuid': 'new-receipt'}],
+            'submissionUUID': 'new-submission'}
+        with self.owned_worker(client), \
+                patch.object(type(move), '_eta_queue_corrected_document', side_effect=AssertionError('Premature correction')), \
+                patch.object(type(job), '_refresh', autospec=True, side_effect=reconcile) as review, \
+                patch.object(type(job), '_prepare', autospec=True, side_effect=prepare), \
+                patch.object(type(job), '_preflight_submission', return_value=True):
+            request = move.action_eta_send_now()
+            move.action_eta_execute_staff_request(request['params']['request_id'])
+        review.assert_called_once()
+        self.assertEqual(job.state, 'accepted')
+        self.assertEqual(job.attempts, 2)
+        self.assertEqual(client.request.call_count, 1)
+        self.assertEqual(client.request.call_args.args[0], 'POST')
+
+    def test_sync_review_failure_keeps_old_receipt_and_never_posts(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'old-invalid', 'e_invoice_status': 'Invalid'})
+        job.write({'state': 'review', 'historical_review': True, 'attempts': 1,
+            'attempted_at': fields.Datetime.now(), 'payload': 'retained-signed-request'})
+        with self.owned_worker() as client, \
+                patch.object(type(job), '_refresh', side_effect=EtaError('History temporarily unavailable')):
+            job._staff_dispatch('send')
+        self.assertEqual(job.state, 'review')
+        self.assertTrue(job.historical_review)
+        self.assertEqual(job.attempts, 1)
+        self.assertEqual(job.payload, 'retained-signed-request')
+        self.assertEqual(move.e_invoice_uuid, 'old-invalid')
+        self.assertIn('History temporarily unavailable', job.last_error)
+        client.request.assert_not_called()
+
+    def test_unknown_attempt_with_older_invalid_receipt_cannot_enter_correction(self):
+        move = self.invoice(); job = move.eta_job_ids
+        move.write({'e_invoice_uuid': 'older-invalid', 'e_invoice_status': 'Invalid'})
+        job.write({'state': 'unknown', 'attempts': 2, 'attempted_at': fields.Datetime.now(),
+            'payload': 'newer-uncertain-request', 'historical_review': True})
+        with patch.object(type(move), '_eta_queue_corrected_document', side_effect=AssertionError('Unknown resubmission')):
+            self.assertTrue(job._staff_prepare_send())
+        self.assertEqual(job.state, 'unknown')
+        self.assertEqual(job.payload, 'newer-uncertain-request')
+        self.assertEqual(job.attempts, 2)
+
     def test_direct_valid_duplicate_warning_enters_full_history_review(self):
         move = self.invoice(); job = move.eta_job_ids
         move.write({'e_invoice_uuid': 'valid-old', 'e_invoice_status': 'Valid'})
