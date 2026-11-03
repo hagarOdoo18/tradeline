@@ -351,8 +351,10 @@ class EtaJob(models.Model):
             }
             if not isinstance(exc, EtaError):
                 raise
+            if exc.status == 422 and exc.code is None:
+                exc.retry_after = max(605, exc.retry_after)
             if exc.status == 422 and exc.code == 'DuplicateSubmission':
-                deadline = fields.Datetime.now() + timedelta(seconds=max(60, exc.retry_after))
+                deadline = fields.Datetime.now() + timedelta(seconds=max(605, exc.retry_after))
                 self.write({'duplicate_retry_at': deadline, 'duplicate_payload_hash': self.payload_hash,
                             'next_attempt': deadline, 'state': 'unknown',
                             'last_error': 'ETA DuplicateSubmission cooldown. The same signed request will be reconciled after Retry-After before any retry.'})
@@ -439,6 +441,7 @@ class EtaJob(models.Model):
                     delivery_proven=False, retry_authorized=False)
                 if isinstance(exc, EtaError) and type(exc.retry_after) is int and 0 <= exc.retry_after <= 86400:
                     evidence['retry_after_seconds'] = exc.retry_after
+                evidence.update(self._submission_failure_recovery_metadata(exc))
                 # No exception message, response/request body, URL, auth token,
                 # customer identifier or invoice contents enter this record.
                 Attachment.create({'name': name, 'res_model': self._name, 'res_id': self.id,
@@ -451,6 +454,9 @@ class EtaJob(models.Model):
             _logger.warning('ETA job %s diagnostic unavailable (%s); normal reconciliation retained',
                             self.id, type(failure).__name__)
             return False
+
+    def _submission_failure_recovery_metadata(self, exc):
+        return {}
 
     def _staff_refresh_for_send(self, client):
         return self._refresh(client)

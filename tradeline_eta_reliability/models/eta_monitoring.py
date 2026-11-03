@@ -231,13 +231,14 @@ class EtaJobMonitoring(models.Model):
                         _('The worker will retry automatically at the next retry time.') if enabled else
                         _('Restore the ETA scheduled worker before automatic retries can continue.')])
                 elif not enabled:
-                    reason = _('No submission attempt yet. The automatic ETA worker is disabled, failing or not enabled for this database.')
+                    reason = _('The automatic ETA worker is disabled, failing or not enabled for this database.')
                     action = _('Restore the ETA scheduled worker and its production database activation. The invoice remains queued.')
                 elif overdue:
-                    reason = _('No submission attempt yet. The automatic ETA scheduled worker is overdue.')
+                    reason = _('The automatic ETA scheduled worker is overdue.')
                     action = _('Check scheduler availability and database delays. The invoice remains queued.')
                 else:
-                    reason = _('Waiting in the automatic submission queue; no submission attempt has been recorded yet.')
+                    reason = (_('Waiting in the automatic submission queue; %s earlier attempt(s) remain recorded.', job.attempts)
+                              if job.attempts else _('Waiting in the automatic submission queue; no submission attempt has been recorded yet.'))
                     action = _('The enabled worker will process this invoice. Check queue progress if the delay continues.')
             else:
                 reason = detail or (_('ETA marked this invoice invalid; detailed validation information needs review.')
