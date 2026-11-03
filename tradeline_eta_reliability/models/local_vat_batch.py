@@ -52,6 +52,18 @@ class EtaLocalVatBatch(models.Model):
                             continue
                         was_posted = move.state == 'posted'
                         if was_posted:
+                            # Temporarily allow the ETA EDI lock to be
+                            # bypassed so button_draft / action_post
+                            # succeed on credit notes with sent receipts.
+                            eta_docs = move.edi_document_ids.filtered(
+                                lambda d: d.edi_format_id.code == 'eg_eta'
+                                and d.state == 'sent')
+                            if eta_docs:
+                                eta_docs.write({
+                                    'state': 'to_send',
+                                    'error': False,
+                                    'blocking_level': False,
+                                })
                             move.with_context(
                                 _eta_verified_reset=_VERIFIED_RESET,
                             ).button_draft()
@@ -61,6 +73,10 @@ class EtaLocalVatBatch(models.Model):
                             ).write({'tax_ids': [(4, tax.id)]})
                         if was_posted:
                             move.action_post()
+                            # Restore sent state so the cron does not
+                            # re-submit an already-accepted receipt.
+                            if eta_docs:
+                                eta_docs.write({'state': 'sent'})
                         move.message_post(
                             body=_("Applied 14%% tax to %d credit note line(s).")
                             % len(lines_to_update))
