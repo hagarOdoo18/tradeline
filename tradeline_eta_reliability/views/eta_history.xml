@@ -1,0 +1,28 @@
+<odoo>
+    <record id="mt_eta_history" model="mail.message.subtype">
+        <field name="name">ETA history</field>
+        <field name="res_model">account.move</field>
+        <field name="internal" eval="True"/>
+        <field name="default" eval="False"/>
+        <field name="description">Internal ETA processing history</field>
+    </record>
+    <record id="eta_job_history_form" model="ir.ui.view">
+        <field name="name">tradeline.eta.job.history.form</field>
+        <field name="model">tradeline.eta.job</field>
+        <field name="inherit_id" ref="eta_job_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet/group[last()]" position="after">
+                <group string="ETA history">
+                    <p class="text-muted">The same internal notes appear in the invoice history. Repeated checks with the same result are omitted.</p>
+                    <field name="eta_history_ids" nolabel="1" readonly="1" colspan="2">
+                        <list create="0" edit="0" delete="0" default_order="date desc,id desc">
+                            <field name="date" string="When"/>
+                            <field name="author_id" string="By"/>
+                            <field name="body" widget="html" string="What happened / next step"/>
+                        </list>
+                    </field>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

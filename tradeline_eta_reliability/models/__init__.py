@@ -23,3 +23,4 @@ from . import branch_eta_access
 from . import local_vat
 from . import local_vat_batch
 from . import vat_exception
+from . import eta_history

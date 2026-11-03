@@ -386,3 +386,17 @@ production; bridge .1 and product 0.1). The reviewed fields, ACLs, dependencies
 and asset paths did not change. Git revisions and runtime capabilities identify
 this VAT release. Existing summary/product view changes were applied separately;
 the workspace's approved-invoice row button is updated after the new methods load.
+
+Release 18.0.1.0.48 adds internal ETA event notes to the invoice chatter and
+the same history on the ETA status detail screen. It records new attempts,
+receipt/approval/rejection results, changed hold reasons, approved issue-date
+treatment and VAT bypass approval. Notes include the explanation, ETA error
+codes, next step and scheduled check time in Cairo. Identical background checks
+do not add notes. Receipt acceptance is distinct from final ETA approval.
+
+The notes are created directly with an internal message subtype and no
+recipients or notification pipeline; they do not email followers or customers.
+History readers must pass the source invoice's access checks. Existing jobs
+record their retained status before the first subsequent event; this is labeled
+as a snapshot rather than reconstructed history. The upgrade does not backfill
+or replay invoices, change transport policy, or submit documents.
