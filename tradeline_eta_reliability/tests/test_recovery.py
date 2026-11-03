@@ -402,6 +402,17 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertEqual(job._http422_automatic_count(), 1)
         self.assertEqual(before, (m.invoice_date, m.amount_total, m.amount_tax, job.payload, job.payload_hash, job.attempts))
 
+    def test_new_explicit_duplicate_422_uses_same_bounded_recovery_and_clears_wait_markers(self):
+        _m, job, doc, proof = self.retained_http422(code='DuplicateSubmission', automatic=True)
+        job.write({'duplicate_retry_at': fields.Datetime.now() - timedelta(seconds=1),
+                   'duplicate_payload_hash': job.payload_hash})
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]), \
+                patch.object(type(job), '_submission_source', return_value=doc):
+            job._refresh(MagicMock())
+        self.assertEqual(job.state, 'queued'); self.assertEqual(job._http422_automatic_count(), 1)
+        self.assertFalse(job.duplicate_retry_at); self.assertFalse(job.duplicate_payload_hash)
+
     def test_automatic_422_wait_is_based_on_observed_response_and_full_retained_delay(self):
         _m, job, _doc, _proof = self.retained_http422(automatic=True)
         record = self.env['ir.attachment'].search([('res_model', '=', job._name), ('res_id', '=', job.id),
@@ -434,7 +445,10 @@ class TestAutomaticRecovery(TransactionCase):
     def test_new_422_status_request_remains_get_only_even_with_automatic_policy(self):
         from ..models.staff_workflow import StatusClient
         _m, job, _doc, _proof = self.retained_http422(automatic=True)
-        before = (job.attempted_at, job.attempts, job.payload, job.payload_hash)
+        job.write({'next_attempt': fields.Datetime.now() + timedelta(minutes=1),
+            'last_error': 'ETA returned HTTP 422.', 'failures': 2})
+        before = (job.attempted_at, job.attempts, job.payload, job.payload_hash,
+                  job.next_attempt, job.last_error, job.failures, job.history_event_key)
         client = StatusClient(self.company)
         client.request = MagicMock(return_value={'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}})
         try:
@@ -445,11 +459,27 @@ class TestAutomaticRecovery(TransactionCase):
             self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
         finally: client.close()
         self.assertEqual(job.state, 'unknown')
-        self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
+        self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash,
+                  job.next_attempt, job.last_error, job.failures, job.history_event_key))
         self.assertEqual(job._http422_automatic_count(), 0)
 
-    def test_automatic_422_cap_stops_posts_but_still_restores_a_late_receipt(self):
+    def test_status_check_for_automatic_422_restores_receipt_without_preserving_old_wait(self):
+        from ..models.staff_workflow import StatusClient
         m, job, doc, _proof = self.retained_http422(automatic=True)
+        job.next_attempt = fields.Datetime.now() + timedelta(minutes=5)
+        client = StatusClient(self.company)
+        client.request = MagicMock(side_effect=[
+            {'result': [{'internalId': m.name, 'uuid': 'status-receipt'}], 'metadata': {'continuationToken': 'EndofResultSet'}},
+            {'document': doc, 'internalId': m.name, 'uuid': 'status-receipt', 'status': 'Submitted'}])
+        try:job._staff_check_status(client)
+        finally:client.close()
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(m.e_invoice_uuid, 'status-receipt')
+        self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+
+    def test_automatic_422_cap_stops_posts_but_still_restores_a_late_receipt(self):
+        m, job, doc, _proof = self.retained_http422(code='DuplicateSubmission', automatic=True)
+        job.write({'duplicate_retry_at': fields.Datetime.now() - timedelta(seconds=1),
+                   'duplicate_payload_hash': job.payload_hash})
         for i in range(3):
             self.env['ir.attachment'].create({'name': 'ETA_automatic_http422_recovery_%s.json' % i,
                 'res_model': job._name, 'res_id': job.id, 'company_id': job.company_id.id,
@@ -486,7 +516,7 @@ class TestAutomaticRecovery(TransactionCase):
         self.assertIn('source changed', job.staff_summary)
         self.assertEqual(job._http422_automatic_count(), 0)
 
-    def test_only_new_unclassified_422_receives_automatic_policy(self):
+    def test_only_new_recoverable_422_receives_automatic_policy(self):
         for status, code in ((503, None), (422, 'OtherFailure')):
             _m, job, _doc, _proof = self.retained_http422(status=status, code=code, automatic=True)
             client = MagicMock()

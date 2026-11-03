@@ -1,9 +1,9 @@
 # Reliable ETA processing
 
-## Automatic recovery for new unclassified HTTP 422 failures (18.0.1.0.50)
+## Automatic recovery for new recoverable HTTP 422 failures (18.0.1.0.50)
 
-New document-POST failures with an observed HTTP 422 and no structured error
-code carry a private versioned recovery policy, bound to the exact durable
+New document-POST failures with an observed HTTP 422 and either no structured
+error code or DuplicateSubmission carry a private versioned recovery policy, bound to the exact durable
 attempt. After at least 605 seconds from the **observed response**, or a longer
 retained delay, the normal worker runs the same complete-history, fresh receipt,
 source, tax, signing and final preflight checks as the manual recovery below.
@@ -16,7 +16,10 @@ rejection then displays a review reason and stops further automatic POSTs;
 GET-only checks still restore a late receipt. Missing proof, conflicting receipts,
 changed fiscal facts and transport timeouts never authorize a retry. **Check ETA
 status** remains GET-only even for new failures. Invoice users see that recovery
-is scheduled, its next retry time and any deferral or review reason. Ordinary
+is scheduled; a negative status check preserves the existing due time, reason
+and failure count so repeated checks cannot keep postponing recovery. A matching
+receipt still updates the job normally. Invoice users also see
+its next retry time and any deferral or review reason. Ordinary
 cooldowns with a healthy enabled worker are not labeled as needing correction.
 Queued retry history now retains the number of earlier attempts rather than
 claiming that no attempt has been recorded.
