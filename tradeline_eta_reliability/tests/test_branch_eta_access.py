@@ -79,18 +79,23 @@ class TestEtaBranchPrivacy(TransactionCase):
                 bindings = caller.env['ir.actions.actions'].get_bindings('account.move')
                 self.assertFalse(any(action['id'] == sign_id for action in bindings.get('action', [])))
 
-    def test_normal_invoice_summary_panel_is_removed_for_every_role(self):
+    def test_invoice_error_panel_is_visible_only_to_central_accounting(self):
         for user in (self.central, self.branch, self.branch_admin, self.env.user):
             Move = self.env['account.move'].with_user(user)
             for caller in (Move, Move.sudo()):
                 form = etree.fromstring(caller.get_view(view_type='form')['arch'])
                 if user.has_group('tradeline_eta_reliability.group_eta_workspace'):
                     self.assertTrue(form.xpath("//field[@name='eta_staff_state'][@invisible='1']"))
+                    self.assertTrue(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
+                    self.assertTrue(form.xpath("//field[@name='eta_staff_reason']"))
+                    self.assertTrue(form.xpath("//field[@name='eta_staff_next_step']"))
+                    self.assertTrue(form.xpath("//button[@name='action_eta_status_details']"))
                 else:
                     self.assertFalse(form.xpath("//field[@name='eta_staff_state']"))
-                self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
-                self.assertFalse(form.xpath("//field[@name='eta_staff_reason' or @name='eta_staff_next_step']"))
-                self.assertFalse(form.xpath("//button[@name='action_eta_status_details' or @name='action_eta_review_saved_vat']"))
+                    self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
+                    self.assertFalse(form.xpath("//field[@name='eta_staff_reason' or @name='eta_staff_next_step']"))
+                    self.assertFalse(form.xpath("//button[@name='action_eta_status_details']"))
+                self.assertFalse(form.xpath("//button[@name='action_eta_review_saved_vat']"))
 
     def test_central_clerk_keeps_eta_controls_without_accounting_manager(self):
         self.assertFalse(self.central.has_group('account.group_account_manager'))
@@ -98,7 +103,7 @@ class TestEtaBranchPrivacy(TransactionCase):
         self.assertTrue(form.xpath("//button[@name='action_eta_send_now'][@string='Sync']"))
         self.assertTrue(form.xpath("//page//button[@name='action_eta_check_status_now'][@string='Update Status']"))
         self.assertTrue(form.xpath("//widget[@title='E-I Valid']"))
-        self.assertTrue(form.xpath("//page[@name='page_eta_e_invoice']"))
+        self.assertTrue(form.xpath("//page[@name='page_eta_e_invoice'][@invisible='1']"))
         self.assertTrue(form.xpath("//button[@name='action_get_eta_invoice_pdf']"))
 
     def test_branch_invoice_and_credit_lists_hide_eta_columns_and_filters(self):

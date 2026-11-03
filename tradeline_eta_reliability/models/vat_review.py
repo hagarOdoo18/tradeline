@@ -41,6 +41,8 @@ class EtaVatReviewMove(models.Model):
     eta_receipt_vat_egp = fields.Float(string='Original receipt VAT (EGP)', readonly=True, copy=False, digits=(16, 5))
     eta_vat_review_state = fields.Selection([
         ('missing', 'VAT missing — sending blocked'),
+        ('exempt', 'Explicit VAT exemption — 0% allowed'),
+        ('bypass', 'VAT bypass approved for this invoice'),
         ('approved_missing', 'Odoo VAT missing — ETA approved'),
         ('local_corrected', 'VAT added in Odoo — ETA unchanged'),
         ('rejected_missing', 'No VAT on rejected receipt — correct invoice'),
@@ -69,7 +71,16 @@ class EtaVatReviewMove(models.Model):
                  'eta_local_vat_gross_amount', 'amount_untaxed', 'amount_tax', 'amount_total',
                  'eta_submission_pending', 'reversal_move_ids.state', 'edi_document_ids.state', 'edi_document_ids.edi_format_id.code', 'eta_vat_correction_ids.state', 'eta_vat_correction_ids.e_invoice_status',
                  'eta_vat_correction_ids.e_invoice_uuid', 'eta_vat_correction_ids.eta_receipt_vat_checked_at',
-                 'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid')
+                 'eta_vat_correction_ids.eta_receipt_vat_missing', 'eta_vat_correction_ids.eta_receipt_vat_uuid',
+                 'invoice_line_ids.tax_ids', 'invoice_line_ids.tax_ids.amount',
+                 'invoice_line_ids.tax_ids.amount_type', 'invoice_line_ids.tax_ids.type_code_id.code',
+                 'invoice_line_ids.tax_ids.sub_type_code_id.code', 'invoice_line_ids.tax_ids.l10n_eg_eta_code',
+                 'invoice_line_ids.tax_ids.is_deduction', 'invoice_line_ids.price_unit',
+                 'invoice_line_ids.quantity', 'invoice_line_ids.discount', 'invoice_line_ids.name',
+                 'invoice_line_ids.product_id', 'invoice_line_ids.account_id', 'invoice_line_ids.display_type',
+                 'name', 'company_id', 'partner_id', 'journal_id', 'currency_id', 'invoice_date',
+                 'invoice_currency_rate', 'eta_vat_bypass_reason', 'eta_vat_bypass_by',
+                 'eta_vat_bypass_at', 'eta_vat_bypass_hash')
     def _compute_eta_vat_review(self):
         taxes = self._eta_vat_taxes()
         for move in self:
@@ -120,6 +131,12 @@ class EtaVatReviewMove(models.Model):
                 state, note = 'missing', _('Sending is blocked until positive VAT is recorded. Add VAT in Odoo, review the invoice totals, and Sync again.')
             elif audited:
                 state, note = 'receipt_vat', _('Positive VAT is confirmed on the matching ETA receipt. No missing-VAT correction is required.')
+            if missing:
+                saved = move._eta_saved_vat_document() if sent else False
+                if move._eta_exemption_codes() and (not sent or saved and move._eta_document_exemption_matches(saved[1])):
+                    state, note = 'exempt', _('The invoice explicitly records a zero-rate VAT exemption. Sync preserves the exemption at 0%; all other ETA checks still apply.')
+                elif move._eta_vat_bypass_current():
+                    state, note = 'bypass', _('Sending without VAT was explicitly approved for this unchanged invoice. Sync keeps its taxes and totals unchanged; all other ETA checks still apply.')
             move.eta_vat_amount = amount
             move.eta_vat_missing = missing
             move.eta_vat_review_state = state
@@ -271,9 +288,13 @@ class EtaVatSubmissionGate(models.Model):
     def _assert_positive_vat_submission(self):
         move = self.move_id
         if move.move_type == 'out_invoice':
-            if move.eta_vat_missing:
-                raise UserError(_('VAT is missing. Add VAT in Odoo, review the invoice totals, and Sync again. Nothing was sent to ETA.'))
             document = json.loads(self.payload)['documents'][0]
+            if move.eta_vat_missing:
+                if move._eta_document_exemption_matches(document):
+                    return True
+                if move._eta_vat_bypass_current() and document_vat(document) == 0:
+                    return True
+                raise UserError(_('VAT is missing. Record an explicit exemption, correct VAT, or use Send without VAT with a reason. Nothing was sent to ETA.'))
             if document_vat(document) <= 0:
                 raise UserError(_('The prepared ETA document has no positive VAT. Regenerate it from the corrected invoice before sending.'))
         return True

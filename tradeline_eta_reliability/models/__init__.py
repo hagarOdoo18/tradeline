@@ -22,3 +22,4 @@ from . import rejection_presentation
 from . import branch_eta_access
 from . import local_vat
 from . import local_vat_batch
+from . import vat_exception

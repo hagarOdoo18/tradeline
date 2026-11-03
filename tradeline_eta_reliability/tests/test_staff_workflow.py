@@ -508,9 +508,11 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertFalse(form.xpath("//header/button[@name='action_eta_check_status_now']"))
         self.assertFalse(form.xpath("//header/button[@name='action_eta_correct_vat']"))
         self.assertTrue(form.xpath("//page//button[@name='action_eta_check_status_now'][@string='Update Status']"))
-        self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
-        self.assertFalse(form.xpath("//field[@name='eta_staff_reason' or @name='eta_staff_next_step']"))
-        self.assertFalse(form.xpath("//button[@name='action_eta_status_details' or @name='action_eta_review_saved_vat']"))
+        self.assertTrue(form.xpath("//div[@role='status'][.//field[@name='eta_staff_state']]"))
+        self.assertTrue(form.xpath("//field[@name='eta_staff_reason']"))
+        self.assertTrue(form.xpath("//field[@name='eta_staff_next_step']"))
+        self.assertTrue(form.xpath("//button[@name='action_eta_status_details']"))
+        self.assertFalse(form.xpath("//button[@name='action_eta_review_saved_vat']"))
 
     def test_familiar_customer_invoice_list_has_status_and_direct_row_operations(self):
         ordinary = new_test_user(self.env, login='eta_old_list_invoice_clerk',
