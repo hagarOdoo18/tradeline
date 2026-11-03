@@ -437,6 +437,8 @@ class EtaJob(models.Model):
                     http_status=status if type(status) is int and 100 <= status <= 599 else None,
                     error_code=code if isinstance(code, str) and re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', code) else None,
                     delivery_proven=False, retry_authorized=False)
+                if isinstance(exc, EtaError) and type(exc.retry_after) is int and 0 <= exc.retry_after <= 86400:
+                    evidence['retry_after_seconds'] = exc.retry_after
                 # No exception message, response/request body, URL, auth token,
                 # customer identifier or invoice contents enter this record.
                 Attachment.create({'name': name, 'res_model': self._name, 'res_id': self.id,
@@ -449,6 +451,9 @@ class EtaJob(models.Model):
             _logger.warning('ETA job %s diagnostic unavailable (%s); normal reconciliation retained',
                             self.id, type(failure).__name__)
             return False
+
+    def _staff_refresh_for_send(self, client):
+        return self._refresh(client)
 
     @api.model
     def _process_id(self, job_id, client, *, staff_operation=None):
@@ -496,7 +501,7 @@ class EtaJob(models.Model):
                     if job.state == 'queued':
                         job._submit(client)
                     elif job.state in ('accepted', 'unknown', 'review', 'valid'):
-                        job._refresh(client)
+                        job._staff_refresh_for_send(client)
                 elif job.state == 'queued':
                     job._submit(client)
                 else:

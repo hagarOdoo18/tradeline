@@ -91,7 +91,8 @@ class EtaClient:
         }, timeout=(5, 25), **kwargs)
         if not response.ok:
             try:
-                error = response.json().get('error', {})
+                body = response.json()
+                error = body.get('error', body) if isinstance(body, dict) else None
                 code = error.get('code') if isinstance(error, dict) else None
             except (ValueError, AttributeError):
                 code = None

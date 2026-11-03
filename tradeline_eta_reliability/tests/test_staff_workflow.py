@@ -379,6 +379,48 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(job.state, 'unknown'); self.assertEqual(job.payload, payload); self.assertEqual(job.attempts, 1)
         self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
 
+    def test_send_now_recovers_observed_422_with_two_receipt_checks_before_one_post(self):
+        move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
+        document = {'internalID': move.name, 'issuer': {'id': self.company.vat},
+            'dateTimeIssued': move._eta_issue_timestamp(), 'invoiceLines': [{'quantity': 1}],
+            'signatures': [{'value': 'retained-qa-signature'}]}
+        payload = json.dumps({'documents': [document]})
+        job.write({'state': 'unknown', 'attempts': 2,
+            'attempted_at': fields.Datetime.now() - timedelta(minutes=20),
+            'payload': payload, 'payload_hash': hashlib.sha256(payload.encode()).hexdigest()})
+        error = EtaError('Unclassified HTTP 422', 422)
+        error.eta_submission_failure = {'job': job.id, 'attempts': job.attempts,
+            'attempted_at': fields.Datetime.to_string(job.attempted_at), 'payload_sha256': job.payload_hash}
+        self.assertTrue(job._preserve_uncertain_request_failure(error))
+        proof = {'from': fields.Datetime.now() - timedelta(days=400),
+                 'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
+        client = MagicMock(company=self.company); calls = []
+        def request(method, path, **kwargs):
+            calls.append(method)
+            if method == 'GET':
+                return {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+            self.assertEqual(calls, ['GET', 'GET', 'POST'])
+            self.assertEqual(kwargs['data'], payload.encode())
+            self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+            self.assertEqual(job.attempts, 3)
+            return {'acceptedDocuments': [{'internalId': move.name, 'uuid': 'recovered-http422'}],
+                    'submissionUUID': 'recovered-submission'}
+        client.request.side_effect = request
+        before = (move.invoice_date, move.amount_total, move.amount_tax)
+        with self.owned_worker(client), \
+                patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_submission_source', return_value=document), \
+                patch.object(type(job), '_assert_positive_vat_submission'), \
+                patch('odoo.addons.tradeline_eta_reliability.models.historical_recovery.time.sleep'):
+            action = move.action_eta_send_now()
+            result = move.action_eta_execute_staff_request(action['params']['request_id'])
+            # Replaying the same intent cannot POST again.
+            move.action_eta_execute_staff_request(action['params']['request_id'])
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(job.attempts, 3)
+        self.assertEqual(job.move_id.e_invoice_uuid, 'recovered-http422')
+        self.assertEqual(calls, ['GET', 'GET', 'POST'])
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+
     def test_status_check_never_prepares_or_posts_and_failed_check_preserves_schedule(self):
         move = self.invoice(); job = move.eta_job_ids
         move.write({'e_invoice_uuid': 'known', 'e_invoice_status': 'Submitted'})
