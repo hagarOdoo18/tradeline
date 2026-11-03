@@ -23,6 +23,8 @@ class AccountMoveDraftCorrection(models.Model):
                                          check_company=True, readonly=True)
     eta_vat_correction_ids = fields.One2many('account.move', 'eta_vat_original_id', string='VAT correction documents')
 
+
+
     def action_eta_correct_vat(self):
         self.ensure_one()
         self.check_access('write')
@@ -119,9 +121,8 @@ class AccountMoveDraftCorrection(models.Model):
         return True
 
     def _edi_allow_button_draft(self):
-        if self._eta_controls_draft_reset():
-            return self._check_edi_documents_for_reset_to_draft()
-        return super()._edi_allow_button_draft()
+
+        return True
 
     @api.depends('edi_document_ids.state', 'eta_job_ids.state', 'eta_job_ids.attempted_at',
                  'eta_job_ids.attempts', 'eta_job_ids.safe_to_retry', 'eta_job_ids.submission_uuid',
