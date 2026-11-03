@@ -4,6 +4,7 @@ from odoo.tools import SQL
 
 
 VAT_WORKFLOWS = [
+    ('exempt', 'Explicit 0% exemption — preserve tax treatment'),
     ('unsent', 'Not sent — fix VAT on this invoice'),
     ('approved', 'ETA approved — add VAT in Odoo only'),
     ('local_completed', 'VAT added in Odoo — ETA unchanged'),
@@ -203,6 +204,8 @@ class EtaVatWorkspace(models.Model):
             note = False
             if route == 'unsent':
                 note = _('Fix VAT on this existing invoice. If it is posted, Correct VAT reopens its draft safely. No credit note is needed because no submission is recorded.')
+            elif route == 'exempt':
+                note = _('ETA approved a zero-VAT receipt and this invoice explicitly records a 0% exemption. Preserve its tax treatment; no 14% VAT amendment is suggested. Open the invoice to compare the exemption with the retained receipt before making any accounting change.')
             elif route == 'approved':
                 note = _('ETA approved the original without VAT. Click Add 14% VAT in Odoo, or select invoices and choose Actions > Apply 14% Tax. VAT is applied immediately, preserving the customer total. This changes Odoo accounting only; no ETA credit, replacement or resend is created.')
             elif route == 'rejected':

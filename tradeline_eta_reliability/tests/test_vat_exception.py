@@ -60,6 +60,36 @@ class TestEtaVatException(TestEtaVatReview):
         self.assertTrue(move._eta_exemption_codes())
         self.assertTrue(self.prepare(move, 'V007')._assert_positive_vat_submission())
 
+    def test_approved_exemption_is_never_advertised_as_needing_fourteen_percent(self):
+        move = self.exempt_invoice()
+        job = self.prepare(move, 'V007')
+        document = json.loads(job.payload)['documents'][0]
+        uuid = 'approved-zero-exemption'
+        move.write({'e_invoice_uuid': uuid, 'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        job.state = 'valid'
+        archive = self.env['ir.attachment'].create({'name': 'ETA_%s.json' % uuid,
+            'res_model': 'account.move', 'res_id': move.id, 'company_id': self.company.id,
+            'mimetype': 'application/json',
+            'raw': json.dumps({'request': document, 'response': {'l10n_eg_uuid': uuid}}).encode()})
+        move.l10n_eg_eta_json_doc_id = archive
+        self.assertTrue(move._eta_record_receipt_vat(uuid, document))
+        before = (move.invoice_date, move.amount_total, move.amount_tax, job.payload, job.attempts)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Rendering contacted ETA')):
+            self.assertEqual(move.eta_vat_review_state, 'exempt')
+            self.assertEqual(job.vat_review_state, 'exempt')
+            self.assertEqual(move.eta_vat_workflow, 'exempt')
+            for route, present in [('exempt', True), ('approved', False)]:
+                found = self.env['account.move'].with_user(self.clerk).search([
+                    ('id', '=', move.id), ('eta_vat_workflow', '=', route)])
+                self.assertEqual(bool(found), present)
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, job.payload, job.attempts))
+        # A conflicting identity must retain the review route, even with an
+        # explicit exemption. Do not hide uncertainty behind a green label.
+        move.l10n_eg_uuid = 'conflicting-receipt'
+        self.assertEqual(move.eta_vat_workflow, 'review')
+        self.assertIn(move, self.env['account.move'].search([
+            ('id', '=', move.id), ('eta_vat_workflow', '=', 'review')]))
+
     def test_ahmed_serializer_preserves_explicit_zero_exemption_and_totals(self):
         for native in (False, True):
             move = self.exempt_invoice(native=native)
