@@ -1,13 +1,12 @@
 {
     'name': 'Tradeline ETA Reliable Submission',
-    # Code-only VAT release: existing fields, ACLs and asset paths are unchanged.
-    # Keep the installed production schema version; Git identifies deployed features.
-    'version': '18.0.1.0.44',
+    'author': 'Tradeline',
+    'version': '18.0.1.0.47',
     'license': 'LGPL-3',
     'depends': ['egyptian_electronic_invoice', 'l10n_eg_edi_eta', 'tradeline_operations_monitor'],
     'data': ['security/security.xml', 'security/ir.model.access.csv', 'data/cron.xml',
              'views/eta_job.xml', 'views/operations_monitor.xml', 'views/account_move.xml', 'views/eta_workspace.xml', 'views/eta_branch_access.xml',
-             'views/local_vat.xml'],
+             'views/local_vat.xml', 'views/vat_exception.xml'],
     'assets': {'web.assets_backend': ['tradeline_eta_reliability/static/src/js/staff_operation.js',
         'tradeline_eta_reliability/static/src/js/connection_health.js',
         'tradeline_eta_reliability/static/src/xml/connection_health.xml',

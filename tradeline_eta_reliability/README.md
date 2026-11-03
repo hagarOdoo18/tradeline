@@ -1,5 +1,30 @@
 # Reliable ETA processing
 
+## Explicit exemptions and manual VAT bypass (18.0.1.0.47)
+
+ETA signing and transport belong to Ahmed Salama's `egyptian_electronic_invoice`
+connector, extended by this addon. Odoo's native ETA HTTP transport and thumb-drive
+signing entry point are disabled; its installed model dependency retains earlier
+receipts and duplicate-prevention evidence. The shared Accounting engine remains
+required by Ahmed's module. No Odoo core files are modified.
+
+Invoices whose product lines explicitly carry zero-rate T1 subtypes V001–V008
+can be sent at 0% through Sync. The outgoing line classifications must match the
+recorded source. A general-sales V009 tax at zero, an empty tax selection, and an
+exemption on only one of several unclassified lines do not qualify automatically.
+
+Central accounting can choose **Send without VAT…** on the invoice or its ETA
+queue detail, enter a reason, then **Approve and send without VAT**. This records
+the user, time, reason and source fingerprint in a private audit and enters the
+existing durable send flow. The approval only bypasses the local positive-VAT
+requirement for that unchanged invoice. Edits invalidate it; copies do not inherit
+it. Receipt reconciliation, uncertain-delivery holds, ETA validation and cooldowns
+still apply. Existing held jobs are not automatically requeued by this release.
+
+The original ETA reason and next step are visible above the invoice. An earlier
+VAT hold on an explicitly exempt invoice explains that Sync can now retry it.
+
+
 ## ETA workspace and VAT policy (18.0.1.0.38)
 
 Find any invoice searches all allowed dates/statuses, including invoice number,
@@ -41,7 +66,9 @@ The recorded submission time is the first retained acceptance time, not a log of
 every retry. Old receipts without a retained time remain visible under Undefined.
 
 Before any new customer-invoice POST, the final preflight requires positive T1
-VAT both in the current tax ledger and in the prepared document. Other taxes,
+VAT both in the current tax ledger and in the prepared document, unless all lines
+carry matching explicit zero-rate classifications or central accounting has
+recorded a current invoice-scoped VAT bypass. Other taxes,
 zero-rate entries and a previously prepared tax-free request do not satisfy this
 rule. This applies to the worker, direct send, corrected retries and delegated
 native EDI. Read-only receipt reconciliation still runs first, so late approvals
@@ -75,7 +102,8 @@ particular invoice will be accepted.
 Posted customer invoices and credit notes enter one durable submission queue.
 Both the standard EDI dispatcher and the custom Submit button use this queue
 when the invoice company has the existing custom ETA credentials configured.
-Vendor documents and companies without those credentials retain their native flow.
+The native ETA HTTP transport is disabled; missing Ahmed connector credentials
+produce a configuration hold rather than falling back to Odoo's sender.
 
 The worker uses a separate cursor per document, session advisory locks, bounded
 network timeouts, and independent commits. Signing does not commit an invoice.
