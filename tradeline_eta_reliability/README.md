@@ -1,5 +1,20 @@
 # Reliable ETA processing
 
+## Manual recovery of unclassified HTTP 422 (18.0.1.0.49)
+
+**Send to ETA now** can reconcile an observed HTTP 422 whose structured error
+code was missing. It requires the worker's private diagnostic to match the exact
+database, company, attempt, time and signed-payload hash. It waits at least ten
+minutes and five seconds, honors a longer retained Retry-After, then requires
+complete taxpayer-scoped history plus a fresh fully paginated receipt search.
+A matching receipt is restored; conflicting receipts, changed source, missing
+proof, timeouts and other errors remain held. Only verified absence allows the
+retained signed bytes into the normal final preflight and durable POST flow.
+Invoice date, posted totals, taxes and the original attempt archive are preserved.
+Cron and **Check ETA status** do not authorize this recovery. Future failures also
+retain the bounded Retry-After, and the client recognizes structured root-level
+error codes without guessing a code from the HTTP status or message text.
+
 ## Explicit exemptions and manual VAT bypass (18.0.1.0.47)
 
 ETA signing and transport belong to Ahmed Salama's `egyptian_electronic_invoice`

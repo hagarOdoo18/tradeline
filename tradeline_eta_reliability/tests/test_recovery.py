@@ -367,6 +367,109 @@ class TestAutomaticRecovery(TransactionCase):
             else: self.fail('The unknown transport status must still propagate')
         self.assertEqual(j.state, 'unknown'); self.assertFalse(j.duplicate_retry_at)
 
+    def retained_http422(self, age=900, status=422, code=None):
+        m, job, doc = self.ready()
+        job.write({'state': 'unknown', 'attempts': 2,
+                   'attempted_at': fields.Datetime.now() - timedelta(seconds=age)})
+        error = EtaError('private response', status, code=code)
+        error.eta_submission_failure = {'job': job.id, 'attempts': job.attempts,
+            'attempted_at': fields.Datetime.to_string(job.attempted_at),
+            'payload_sha256': job.payload_hash}
+        self.assertTrue(job._preserve_uncertain_request_failure(error))
+        proof = {'from': fields.Datetime.now() - timedelta(days=400),
+                 'to': fields.Datetime.now() - timedelta(minutes=1), 'receipts': {}}
+        return m, job, doc, proof
+
+    def test_manual_observed_422_reconciles_then_queues_same_bytes_and_preserves_money(self):
+        m, job, doc, proof = self.retained_http422()
+        before = (job.payload, job.payload_hash, job.attempts, m.invoice_date,
+                  m.amount_total, m.amount_tax, tuple(m.line_ids.mapped('balance')))
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]) as search, \
+                patch.object(type(job), '_submission_source', return_value=doc):
+            job._staff_refresh_for_send(MagicMock())
+        search.assert_called_once()
+        self.assertEqual(job.state, 'queued'); self.assertFalse(job.attempted_at)
+        self.assertTrue(job.historical_submission_verified)
+        self.assertEqual(before, (job.payload, job.payload_hash, job.attempts, m.invoice_date,
+                  m.amount_total, m.amount_tax, tuple(m.line_ids.mapped('balance'))))
+        audit = self.env['ir.attachment'].search([('res_model', '=', 'account.move'),
+            ('res_id', '=', m.id), ('name', '=', 'ETA_historical_recovery_%s.json' % job.id)])
+        self.assertEqual(len(audit), 1)
+        saved = json.loads(audit.raw)
+        self.assertEqual(saved['prior_job_payload'], before[0])
+        self.assertTrue(saved['prior_attempted_at'])
+
+    def test_manual_422_requires_cooldown_complete_history_and_unchanged_source(self):
+        _m, job, doc, proof = self.retained_http422(age=60)
+        with patch.object(type(job), '_history_snapshot') as history:
+            job._staff_refresh_for_send(MagicMock())
+        history.assert_not_called(); self.assertEqual(job.state, 'unknown')
+        self.assertGreater(job.next_attempt, fields.Datetime.now() + timedelta(minutes=8))
+        _m, job, doc, proof = self.retained_http422()
+        with patch.object(type(job), '_history_snapshot', return_value=None):
+            job._staff_refresh_for_send(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+        changed = deepcopy(doc); changed['totalAmount'] += 1
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[]), \
+                patch.object(type(job), '_submission_source', return_value=changed):
+            job._staff_refresh_for_send(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+
+    def test_manual_422_restores_matching_receipt_or_holds_conflicts_without_post(self):
+        m, job, doc, proof = self.retained_http422(); client = MagicMock()
+        receipt = {'uuid': 'existing-422-receipt', 'internalId': m.name,
+                   'status': 'Submitted', 'document': doc}
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[receipt]):
+            job._staff_refresh_for_send(client)
+        self.assertEqual(job.state, 'accepted'); self.assertEqual(m.e_invoice_uuid, receipt['uuid'])
+        client.request.assert_not_called()
+        _m, job, doc, proof = self.retained_http422()
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', return_value=[{'document': {'other': 1}}]):
+            job._staff_refresh_for_send(client)
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+        client.request.assert_not_called()
+
+    def test_manual_422_cannot_use_timeout_different_code_or_changed_attempt_evidence(self):
+        for status, code in ((503, None), (422, 'OtherFailure')):
+            _m, job, _doc, _proof = self.retained_http422(status=status, code=code)
+            self.assertIsNone(job._retained_http422_failure())
+        _m, job, _doc, _proof = self.retained_http422()
+        self.assertIsNotNone(job._retained_http422_failure())
+        job.attempts += 1
+        self.assertIsNone(job._retained_http422_failure())
+        job.attempts -= 1
+        job.payload += ' '
+        self.assertIsNone(job._retained_http422_failure())
+
+    def test_status_and_cron_do_not_release_observed_422_after_negative_search(self):
+        _m, job, _doc, _proof = self.retained_http422(); client = MagicMock()
+        client.request.return_value = {'result': [], 'metadata': {'continuationToken': 'EndofResultSet'}}
+        before = (job.attempted_at, job.attempts, job.payload, job.payload_hash)
+        job._refresh(client)
+        job._staff_check_status(client)
+        self.assertEqual(job.state, 'unknown')
+        self.assertEqual(before, (job.attempted_at, job.attempts, job.payload, job.payload_hash))
+        self.assertTrue(all(call.args[0] == 'GET' for call in client.request.call_args_list))
+
+    def test_manual_422_honors_retained_retry_after_and_rejects_incomplete_search(self):
+        _m, job, _doc, proof = self.retained_http422()
+        record = self.env['ir.attachment'].search([('res_model', '=', job._name), ('res_id', '=', job.id),
+            ('name', '=like', 'ETA_uncertain_request_failure_%')])
+        data = json.loads(record.raw); data['retry_after_seconds'] = 3600
+        record.raw = json.dumps(data).encode()
+        with patch.object(type(job), '_history_snapshot') as history:
+            job._staff_refresh_for_send(MagicMock())
+        history.assert_not_called(); self.assertGreater(job.next_attempt, fields.Datetime.now() + timedelta(minutes=44))
+        data['retry_after_seconds'] = 60; record.raw = json.dumps(data).encode()
+        with patch.object(type(job), '_history_snapshot', return_value=proof), \
+                patch.object(type(job), '_history_candidates', side_effect=EtaError('Incomplete pagination')):
+            with self.assertRaises(EtaError): job._staff_refresh_for_send(MagicMock())
+        self.assertEqual(job.state, 'unknown'); self.assertTrue(job.attempted_at)
+
     def duplicate(self):
         m, j, doc = self.ready()
         j.write({'state': 'unknown', 'attempted_at': fields.Datetime.now(), 'duplicate_retry_at': fields.Datetime.now() - timedelta(seconds=1), 'duplicate_payload_hash': j.payload_hash})
@@ -429,6 +532,19 @@ class TestAutomaticRecovery(TransactionCase):
             with self.assertRaises(EtaError) as error: client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
         self.assertEqual(error.exception.code, 'DuplicateSubmission'); self.assertEqual(error.exception.retry_after, 421)
         self.assertNotIn('private details', str(error.exception)); client.close()
+
+    def test_eta_client_reads_root_error_code_but_does_not_infer_from_422(self):
+        client = EtaClient(self.company); client.token = 'test-only-token'
+        response = MagicMock(ok=False, status_code=422, headers={})
+        for body, expected in (({'code': 'DuplicateSubmission', 'message': 'private'}, 'DuplicateSubmission'),
+                               ({'unexpected': 'private'}, None), ([], None)):
+            response.json.return_value = body
+            with patch.object(client, '_authorize'), patch.object(client.session, 'request', return_value=response):
+                with self.assertRaises(EtaError) as error:
+                    client.request('POST', '/api/v1/documentsubmissions', data=b'{}')
+            self.assertEqual(error.exception.code, expected)
+            self.assertNotIn('private', str(error.exception))
+        client.close()
 
     def test_optional_id_policy_uses_posted_egp_and_cannot_bypass_mandatory_foreign_sale_total(self):
         foreign = self.invoice(self.usd, [(1, 1000, 0, self.env['account.tax'])]); job = foreign.eta_job_ids

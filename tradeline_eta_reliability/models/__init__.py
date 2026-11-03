@@ -24,3 +24,4 @@ from . import local_vat
 from . import local_vat_batch
 from . import vat_exception
 from . import eta_history
+from . import http422_recovery
