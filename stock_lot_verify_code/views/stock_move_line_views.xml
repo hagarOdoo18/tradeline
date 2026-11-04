@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Show Verify Code on the delivery / transfer operation lines -->
+    <record id="view_stock_move_line_operation_tree_verify_code" model="ir.ui.view">
+        <field name="name">stock.move.line.operations.verify.code</field>
+        <field name="model">stock.move.line</field>
+        <field name="inherit_id" ref="stock.view_stock_move_line_operation_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='lot_id']" position="after">
+                <field name="verify_code" optional="show" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

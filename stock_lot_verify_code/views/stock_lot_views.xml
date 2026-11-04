@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_production_lot_form_verify_code" model="ir.ui.view">
+        <field name="name">stock.lot.form.verify.code</field>
+        <field name="model">stock.lot</field>
+        <field name="inherit_id" ref="stock.view_production_lot_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='ref']" position="after">
+                <field name="verify_code" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_production_lot_list_verify_code" model="ir.ui.view">
+        <field name="name">stock.lot.list.verify.code</field>
+        <field name="model">stock.lot</field>
+        <field name="inherit_id" ref="stock.view_production_lot_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='ref']" position="after">
+                <field name="verify_code" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
