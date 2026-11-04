@@ -923,7 +923,7 @@ class SaleOrderSync(models.TransientModel):
         return {
             'product_id': product.id,
             'name': title or product.display_name,
-            'price_unit': price/1.14,
+            'price_unit': price,
             'product_uom_qty': 1,
             'currency_id': currency.id,
             'discount': 0,
