@@ -479,7 +479,8 @@ class EtaJob(models.Model):
     def _process_id(self, job_id, client, *, staff_operation=None):
         """Return whether an owned processing result/deferral was committed."""
         with self.env.registry.cursor() as cr:
-            env = api.Environment(cr, self.env.uid, dict(self.env.context, eta_catalogue_nonblocking=True))
+            env = api.Environment(cr, self.env.uid, dict(self.env.context,
+                eta_catalogue_nonblocking=True, eta_catalogue_refresh=staff_operation is STAFF_SEND))
             committed = False
             try:
                 check_processing_window(env)
@@ -546,6 +547,10 @@ class EtaJob(models.Model):
                     return committed
                 job.invalidate_recordset()
                 job._defer_catalogue_lookup(pending)
+                if staff_operation is STAFF_SEND:
+                    client.staff_result = _('Product-code verification is continuing automatically. '
+                        'The ETA code-check request window is busy; the next check is in at least %s seconds. '
+                        'No new invoice was submitted during this check.', pending.retry_after)
                 cr.commit()
                 env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.last_processed_at', str(fields.Datetime.now()))
                 cr.commit()

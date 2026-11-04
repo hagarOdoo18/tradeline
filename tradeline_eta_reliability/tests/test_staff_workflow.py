@@ -49,12 +49,13 @@ class TestEtaStaffWorkflow(TransactionCase):
         guard = patch('requests.sessions.Session.request', side_effect=AssertionError('Staff test attempted real HTTP'))
         guard.start(); self.addCleanup(guard.stop)
 
-    def invoice(self):
+    def invoice(self, amount=100, product=None):
         move = self.env['account.move'].with_context(eta_queue_cron=True).create({
             'move_type': 'out_invoice', 'journal_id': self.journal.id, 'partner_id': self.partner.id,
             'currency_id': self.env.ref('base.EGP').id, 'invoice_date': fields.Date.today(),
             'invoice_line_ids': [Command.create({'name': 'Staff QA item', 'account_id': self.income.id,
-                'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
+                'quantity': 1, 'price_unit': amount, 'product_id': product.id if product else False,
+                'tax_ids': [Command.clear()]})]})
         move.action_post()
         return move
 
@@ -224,6 +225,15 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(audit['state'], 'finished'); self.assertEqual(audit['uid'], self.clerk.id)
 
     def test_clerk_sync_resends_a_corrected_terminal_rejection_once(self):
+        self._assert_corrected_terminal_rejection('customer')
+
+    def test_clerk_sync_resends_corrected_product_details_without_a_queue_wait(self):
+        self._assert_corrected_terminal_rejection('product')
+
+    def test_clerk_sync_resends_corrected_tax_details_without_a_queue_wait(self):
+        self._assert_corrected_terminal_rejection('tax')
+
+    def _assert_corrected_terminal_rejection(self, correction):
         move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
         original = {'internalID': move.name, 'issuer': {'id': self.company.vat},
             'receiver': {'id': 'old-id'}, 'totalAmount': 100,
@@ -237,9 +247,14 @@ class TestEtaStaffWorkflow(TransactionCase):
         rejected = {'uuid': 'rejected-receipt', 'internalId': move.name, 'status': 'Invalid',
             'document': original, 'validationResults': {'errorCode': 'NI310'}}
         job._apply_remote(rejected)
+        job.next_attempt = fields.Datetime.now() + timedelta(minutes=10)
         self.assertFalse(job.safe_to_retry)
         self.assertTrue(job.attempted_at)
         corrected = dict(original, receiver={'id': 'corrected-id'}, signatures=[{'value': 'new-signature'}])
+        if correction == 'product':
+            corrected = dict(original, invoiceLines=[{'quantity': 1, 'itemCode': 'corrected-code'}])
+        elif correction == 'tax':
+            corrected = dict(original, taxTotals=[{'taxType': 'T1', 'amount': 0}])
         client = MagicMock(company=self.company)
         def prepare(row):
             body = json.dumps({'documents': [corrected]})
@@ -278,6 +293,79 @@ class TestEtaStaffWorkflow(TransactionCase):
         self.assertEqual(json.loads(archived.raw), rejected)
         self.assertEqual(move.amount_total, 100)
 
+    def _assert_corrected_local_history_hold_sends(self, correction):
+        product = self.env['product.product'].create({'name': 'Staff correction QA product'})
+        metadata = {'e_invoicing_code': 'EG-staff-correction', 'code_type': 'egs', 'ar_description': False}
+        product.write({k:v for k,v in metadata.items() if k in product._fields})
+        unit = self.env['eta.uom'].search([('code','=','D41')], limit=1)
+        product.uom_id.eta_uom_id = unit or self.env['eta.uom'].create({'name':'Each','code':'D41'})
+        partner = self.partner
+        partner.write({'company_type':'person','country_id':self.env.ref('base.eg').id})
+        move = self.invoice(amount=25000, product=product).with_user(self.clerk)
+        job = move.eta_job_ids.sudo()
+        job.write({'state':'blocked', 'historical_fingerprint':job._historical_financial_fingerprint(),
+            'last_error':'Previous source validation failed.',
+            'next_attempt':fields.Datetime.now()+timedelta(minutes=10)})
+        before = (move.invoice_date, move.amount_total)
+        client = MagicMock(company=self.company)
+        client.request.return_value = {'acceptedDocuments':[{'internalId':move.name,'uuid':'fixed-local-hold'}]}
+        def source(row):
+            invoice = row.move_id
+            receiver = invoice._get_eta_personal_details(invoice.partner_id, invoice.amount_total)
+            lines, discount, sales, total = invoice._get_eta_invoice_lines()
+            return {'internalID':invoice.name, 'documentType':'I', 'dateTimeIssued':invoice._eta_issue_timestamp(),
+                'issuer':{'id':self.company.vat,'address':{'country':'EG'}}, 'receiver':receiver,
+                'invoiceLines':lines, 'netAmount':invoice.amount_untaxed, 'totalAmount':invoice.amount_total}
+        def prepare(row):
+            document = source(row); document['signatures'] = [{'value':'qa-only'}]
+            body = json.dumps({'documents':[document]})
+            row.write({'payload':body,'payload_hash':hashlib.sha256(body.encode()).hexdigest()})
+        with ExitStack() as stack:
+            for key,value in {'mobile_type':'local','floor':False,'room':False,'landmark':False,'additional_info':False}.items():
+                if key in partner._fields:
+                    partner.write({key:value})
+                else:
+                    stack.enter_context(patch.object(type(partner), key, value, create=True))
+            for key,value in metadata.items():
+                if key not in product._fields:
+                    stack.enter_context(patch.object(type(product),key,value,create=True))
+            if correction == 'product':
+                partner.with_context(no_vat_validation=True).write({'vat':'29001011234567'})
+                if 'e_invoicing_code' in product._fields:product.e_invoicing_code = False
+                else:stack.enter_context(patch.object(type(product),'e_invoicing_code',False,create=True))
+            stack.enter_context(self.owned_worker(client))
+            stack.enter_context(patch.object(type(job),'_historical_source',autospec=True,side_effect=source))
+            stack.enter_context(patch.object(type(job),'_submission_source',autospec=True,side_effect=source))
+            stack.enter_context(patch.object(type(job),'_history_snapshot',return_value={
+                'from':fields.Datetime.now()-timedelta(days=400),'to':fields.Datetime.now(),'receipts':{}}))
+            stack.enter_context(patch.object(type(job),'_history_candidates',return_value=[]))
+            stack.enter_context(patch.object(type(job),'_prepare',autospec=True,side_effect=prepare))
+            stack.enter_context(patch.object(type(job),'_preflight_submission',return_value=True))
+            first = move.action_eta_send_now()
+            move.action_eta_execute_staff_request(first['params']['request_id'])
+            self.assertEqual(job.state,'blocked')
+            client.request.assert_not_called()
+            if correction == 'national_id':
+                self.assertIn('National ID',job.last_error)
+                partner.with_context(no_vat_validation=True).write({'vat':'29001011234567'})
+            elif 'e_invoicing_code' in product._fields:
+                product.e_invoicing_code = metadata['e_invoicing_code']
+            else:
+                stack.enter_context(patch.object(type(product),'e_invoicing_code',metadata['e_invoicing_code'],create=True))
+            request = move.action_eta_send_now()
+            result = move.action_eta_execute_staff_request(request['params']['request_id'])
+            self.assertEqual(job.state,'accepted',result)
+            self.assertIn('Received by ETA',result['title'])
+            self.assertEqual(client.request.call_count,1)
+            self.assertEqual(client.request.call_args.args[0],'POST')
+            self.assertEqual(before,(move.invoice_date,move.amount_total))
+
+    def test_staff_adds_missing_national_id_and_same_click_sends_without_cron(self):
+        self._assert_corrected_local_history_hold_sends('national_id')
+
+    def test_staff_adds_missing_product_code_and_same_click_sends_without_cron(self):
+        self._assert_corrected_local_history_hold_sends('product')
+
     def test_company_eta_cooldown_applies_to_other_invoice_and_transport(self):
         job = self.invoice().eta_job_ids
         deadline = fields.Datetime.now() + timedelta(minutes=3)
@@ -292,9 +380,20 @@ class TestEtaStaffWorkflow(TransactionCase):
         finally:client.close()
 
     def test_sync_reconciles_invalid_receipt_in_review_before_corrected_send(self):
+        self._assert_history_reconciles_before_corrected_send('review')
+
+    def test_sync_rechecks_held_invalid_history_before_single_receipt_correction(self):
+        self._assert_history_reconciles_before_corrected_send('invalid')
+
+    def test_code_approved_at_eta_can_recheck_even_without_an_invoice_body_change(self):
+        self._assert_history_reconciles_before_corrected_send('invalid', catalogue_only=True)
+
+    def _assert_history_reconciles_before_corrected_send(self, state, catalogue_only=False):
         move = self.invoice().with_user(self.clerk); job = move.eta_job_ids.sudo()
         move.sudo().write({'e_invoice_uuid': 'old-invalid', 'e_invoice_status': 'Invalid'})
-        job.write({'state': 'review', 'historical_review': True, 'attempts': 1,
+        job.write({'state': state, 'historical_review': state == 'review',
+            'historical_fingerprint':False if catalogue_only else job._historical_financial_fingerprint(),
+            'last_error':'{"errorCode":"CV302"}' if catalogue_only else False, 'attempts': 1,
             'attempted_at': fields.Datetime.now(), 'payload': 'old-signed-request',
             'next_attempt': fields.Datetime.now() + timedelta(minutes=4)})
         client = MagicMock(company=self.company)
@@ -304,6 +403,7 @@ class TestEtaStaffWorkflow(TransactionCase):
             self.assertEqual(row.move_id.e_invoice_uuid, 'old-invalid')
             row.move_id.write({'e_invoice_uuid': False, 'e_invoice_sent': False, 'e_invoice_status': 'Draft'})
             row.write({'state': 'queued', 'historical_review': False, 'attempted_at': False,
+                'historical_submission_verified':True, 'historical_reviewed_at':fields.Datetime.now(),
                 'payload': False, 'payload_hash': False, 'submission_uuid': False})
         def prepare(row):
             row.payload = json.dumps({'documents': [{'internalID': row.move_id.name,

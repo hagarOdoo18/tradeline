@@ -187,6 +187,78 @@ class TestCatalogueBudget(TransactionCase):
             self.assertEqual(len(run.calls), 1)
             self.assertFalse(self.job.with_context(eta_catalogue_nonblocking=True)._catalogue_read_evidence(key)['approved'])
 
+    def test_manual_send_refreshes_negative_cache_after_code_correction(self):
+        self.key()
+        with self.pipeline() as run:
+            positive = run.client.request.side_effect
+            run.client.request.side_effect = EtaError('Not found', status=404)
+            self.assertFalse(run.job._catalogue_code_approved(run.client, self.code))
+            run.client.request.side_effect = positive
+            self.assertFalse(run.job._catalogue_code_approved(run.client, self.code))
+            self.assertEqual(run.client.request.call_count, 1, 'Background checks retain the negative cache')
+            run.sleep.side_effect = lambda delay: run.clock.__setitem__(0, run.clock[0] + delay)
+            with patch('odoo.addons.tradeline_eta_reliability.models.catalogue_recovery.time.monotonic',
+                       side_effect=lambda: run.clock[0]):
+                manual = run.job.with_context(eta_catalogue_refresh=True,
+                    eta_catalogue_manual_deadline=run.clock[0] + 45)
+                self.assertTrue(manual._catalogue_code_approved(run.client, self.code))
+            self.assertEqual(run.client.request.call_count, 3)
+            self.assertTrue(run.job._catalogue_code_approved(run.client, self.code))
+            self.assertEqual(run.client.request.call_count, 3, 'Fresh approval is reusable')
+
+    def test_manual_code_check_completes_short_pacing_in_the_same_operation(self):
+        self.key()
+        with self.pipeline() as run:
+            run.sleep.side_effect = lambda delay: run.clock.__setitem__(0, run.clock[0] + delay)
+            with patch('odoo.addons.tradeline_eta_reliability.models.catalogue_recovery.time.monotonic',
+                       side_effect=lambda: run.clock[0]):
+                manual = run.job.with_context(eta_catalogue_refresh=True,
+                    eta_catalogue_manual_deadline=run.clock[0] + 45)
+                self.assertTrue(manual._catalogue_code_approved(run.client, self.code))
+            self.assertEqual(len(run.calls), 2)
+            self.assertGreaterEqual(run.calls[1][0] - run.calls[0][0], 10.1 - 1e-6)
+
+    def test_manual_code_check_defers_when_its_wait_exceeds_the_click_budget(self):
+        self.key()
+        with self.pipeline() as run:
+            with patch('odoo.addons.tradeline_eta_reliability.models.catalogue_recovery.time.monotonic',
+                       side_effect=lambda: run.clock[0]):
+                manual = run.job.with_context(eta_catalogue_refresh=True,
+                    eta_catalogue_manual_deadline=run.clock[0] + 5)
+                with self.assertRaises(EtaCataloguePending):
+                    manual._catalogue_code_approved(run.client, self.code)
+            self.assertEqual(len(run.calls), 1)
+            self.assertTrue(all(c.args == (0,) for c in run.sleep.call_args_list))
+
+    def test_manual_click_refreshes_old_approval_but_reuses_evidence_from_this_click(self):
+        self.key()
+        with self.pipeline() as run:
+            run.sleep.side_effect = lambda delay: run.clock.__setitem__(0,run.clock[0]+delay)
+            with patch('odoo.addons.tradeline_eta_reliability.models.catalogue_recovery.time.monotonic',
+                       side_effect=lambda:run.clock[0]):
+                initial = run.job.with_context(eta_catalogue_manual_deadline=run.clock[0]+45)
+                self.assertTrue(initial._catalogue_code_approved(run.client,self.code))
+            self.assertEqual(len(run.calls),2)
+            run.sleep.side_effect = lambda delay: run.clock.__setitem__(0,run.clock[0]+delay)
+            with patch('odoo.addons.tradeline_eta_reliability.models.catalogue_recovery.time.monotonic',
+                       side_effect=lambda:run.clock[0]):
+                manual = run.job.with_context(eta_catalogue_nonblocking=True,eta_catalogue_refresh=True,
+                    eta_catalogue_refresh_after=datetime.now(timezone.utc).isoformat(),
+                    eta_catalogue_manual_deadline=run.clock[0]+45)
+                self.assertTrue(manual._catalogue_code_approved(run.client,self.code))
+                self.assertEqual(len(run.calls),4)
+                self.assertTrue(manual._catalogue_code_approved(run.client,self.code))
+                self.assertEqual(len(run.calls),4)
+
+    def test_manual_and_background_catalogue_lanes_share_the_pacing_lock(self):
+        self.env.cr.execute('SELECT pg_advisory_xact_lock(741185,1)')
+        with self.env.registry.cursor() as cr:
+            other = self.job.with_env(api.Environment(cr, self.env.uid, {}))
+            client = MagicMock()
+            with self.assertRaises(EtaCataloguePending):
+                other._catalogue_get(client, '/api/v1.0/codetypes/EGS/codes/test')
+            client.request.assert_not_called()
+
     def test_429_and_503_cooldowns_remain_real_failures_and_survive_rollback(self):
         for status in (429, 503):
             with self.subTest(status=status), self.pipeline(response=lambda *a, **kw: (_ for _ in ()).throw(
