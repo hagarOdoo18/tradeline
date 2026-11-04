@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 
 import requests
@@ -3812,11 +3812,22 @@ class ExecutiveDashboardService(models.AbstractModel):
         return created
 
     def _to_datetime_from_epoch(self, value):
-        if not value:
-            return False
+        # Parse a Unix epoch (Yahoo's regularMarketTime) into a naive-UTC
+        # datetime for storage. Guards a missing/invalid value, tolerates a
+        # millisecond epoch, and avoids datetime.utcfromtimestamp (deprecated
+        # in Python 3.12).
         try:
-            return fields.Datetime.to_datetime(datetime.utcfromtimestamp(int(value)))
-        except Exception:
+            ts = int(value)
+        except (TypeError, ValueError):
+            return False
+        if not ts:
+            return False
+        if ts > 10_000_000_000:  # looks like milliseconds, not seconds
+            ts //= 1000
+        try:
+            return fields.Datetime.to_datetime(
+                datetime.fromtimestamp(ts, timezone.utc).replace(tzinfo=None))
+        except (ValueError, OverflowError, OSError):
             return False
 
     def _percent_change(self, current_rate: float, baseline_rate: float):
