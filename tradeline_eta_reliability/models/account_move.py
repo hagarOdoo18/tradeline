@@ -327,12 +327,12 @@ class AccountMove(models.Model):
             return job.current_issue_datetime.strftime('%Y-%m-%dT%H:%M:%SZ')
         cairo = pytz.timezone('Africa/Cairo')
         if self.create_date:
-            created = pytz.utc.localize(fields.Date.today())
-            if created.astimezone(cairo).date() == self.fields.Date.today():
+            created = pytz.utc.localize(self.create_date)
+            if created.astimezone(cairo).date() == self.invoice_date:
                 # Retain the stored issue-time evidence when it belongs to the
                 # invoice's date; midnight would age a late-night invoice by hours.
                 return created.strftime('%Y-%m-%dT%H:%M:%SZ')
-        midnight = datetime.combine(fields.Date.today(), time.min)
+        midnight = datetime.combine(self.invoice_date, time.min)
         try:
             issued = cairo.localize(midnight, is_dst=None)
         except pytz.AmbiguousTimeError:

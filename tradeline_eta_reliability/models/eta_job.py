@@ -302,6 +302,19 @@ class EtaJob(models.Model):
         move = self.move_id.with_company(self.company_id)
         if not move.invoice_date:
             raise UserError(_('Set the invoice date before ETA submission.'))
+        # Standing rule: a document ETA has not accepted is legally issued when
+        # it is actually filed, so stamp its issue date as today at send time,
+        # on the Odoo document itself. invoice_date drives dateTimeIssued, so
+        # the Odoo document date and the ETA-declared date stay identical.
+        # Only an unsent, unaccepted document under the default policy is
+        # re-dated; the approved 'current' treatment and already sent/accepted
+        # documents are left untouched.
+        if (self.issue_date_policy == 'invoice'
+                and not move.e_invoice_uuid and not move.e_invoice_sent):
+            today = fields.Datetime.context_timestamp(
+                self.with_context(tz='Africa/Cairo'), fields.Datetime.now()).date()
+            if move.invoice_date != today:
+                move.sudo().write({'invoice_date': today})
         duration = int(self.env['ir.config_parameter'].sudo().get_param(
             'egyptian_electronic_invoice.eta_expiration_duration', '7'))
         if self._effective_issue_date() < fields.Date.today() - timedelta(days=duration):
