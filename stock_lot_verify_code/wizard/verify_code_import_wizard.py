@@ -50,9 +50,16 @@ class StockLotVerifyCodeImportWizard(models.TransientModel):
                 invalid_rows.append(_('Row %s: missing serial.') % row_no)
                 continue
 
-            try:
-                verify_code = int(float(str(code).strip()))
-            except (TypeError, ValueError):
+            # Verify codes are identifiers, not numbers, so keep them as text.
+            # Excel hands whole numbers back as floats (e.g. 123456789012.0),
+            # so drop the trailing ".0" for those to get a clean digit string.
+            if isinstance(code, float) and code.is_integer():
+                verify_code = str(int(code))
+            elif code is None:
+                verify_code = ''
+            else:
+                verify_code = str(code).strip()
+            if not verify_code:
                 invalid_rows.append(
                     _('Row %(row)s (serial %(serial)s): invalid code "%(code)s".')
                     % {'row': row_no, 'serial': serial, 'code': code})

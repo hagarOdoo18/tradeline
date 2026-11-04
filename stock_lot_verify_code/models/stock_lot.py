@@ -5,7 +5,7 @@ from odoo.exceptions import ValidationError
 class StockLot(models.Model):
     _inherit = 'stock.lot'
 
-    verify_code = fields.Integer(string='Verify Code', copy=False, index=True)
+    verify_code = fields.Char(string='Verify Code', copy=False, index=True)
 
     @api.constrains('verify_code')
     def _check_verify_code_unique(self):
