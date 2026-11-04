@@ -61,6 +61,9 @@ class TestEtaLocalVat(TransactionCase):
             company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
         cls.branch = new_test_user(cls.env, login='eta_local_vat_branch', groups='account.group_account_invoice',
             company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
+        cls.admin = new_test_user(cls.env, login='eta_local_vat_admin',
+            groups='account.group_account_invoice,tradeline_eta_reliability.group_eta_workspace,base.group_system',
+            company_id=cls.company.id, company_ids=[Command.set(cls.company.ids)])
 
     def setUp(self):
         super().setUp()
@@ -379,6 +382,11 @@ class TestEtaLocalVat(TransactionCase):
         before = credit.read(['state', 'amount_total', 'e_invoice_uuid'])[0]
         with self.assertRaisesRegex(UserError, 'already has a credit'):
             self.preview(move)
+        self.assertEqual(credit.read(['state', 'amount_total', 'e_invoice_uuid'])[0], before)
+        self.assertFalse(move.eta_local_vat_applied_at)
+        # An administrator may override the credit/correction block; later checks still apply.
+        admin_wizard = self.preview(move, user=self.admin)
+        self.assertTrue(admin_wizard.exists())
         self.assertEqual(credit.read(['state', 'amount_total', 'e_invoice_uuid'])[0], before)
         self.assertFalse(move.eta_local_vat_applied_at)
 

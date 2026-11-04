@@ -48,6 +48,17 @@ class EtaJob(models.Model):
     failures = fields.Integer(readonly=True)
     safe_to_retry = fields.Boolean(readonly=True)
     first_submission_candidate = fields.Boolean(readonly=True)
+    cancel_resend_approved = fields.Boolean(readonly=True,
+        help='An administrator approved re-sending a document that ETA reports as Cancelled or '
+             'Rejected, under the same invoice number, as a new ETA submission after correction.')
+    eta_user_is_admin = fields.Boolean(compute='_compute_eta_user_is_admin',
+        help='Technical: current user is a system administrator (controls ETA send visibility).')
+
+    @api.depends_context('uid')
+    def _compute_eta_user_is_admin(self):
+        is_admin = self.env.user.has_group('base.group_system')
+        for job in self:
+            job.eta_user_is_admin = is_admin
     next_attempt = fields.Datetime(index=True, readonly=True)
     attempted_at = fields.Datetime(readonly=True)
     checked_at = fields.Datetime(readonly=True)
@@ -165,6 +176,8 @@ class EtaJob(models.Model):
                     'checked_at': fields.Datetime.now(), 'last_error': False, 'failures': 0,
                     'next_attempt': fields.Datetime.now() + timedelta(minutes=2) if status == 'Submitted' else False,
                     'duplicate_retry_at': False, 'duplicate_payload_hash': False})
+        if status == 'Valid' and self.cancel_resend_approved:
+            self.write({'cancel_resend_approved': False})
         native = move.edi_document_ids.filtered(lambda d: d.edi_format_id.code == 'eg_eta' and d.state == 'to_send')
         if status == 'Valid':
             # Retain the government response as evidence; no synthetic signed document.

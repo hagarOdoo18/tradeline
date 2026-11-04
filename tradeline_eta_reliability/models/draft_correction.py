@@ -122,8 +122,9 @@ class AccountMoveDraftCorrection(models.Model):
         return True
 
     def _edi_allow_button_draft(self):
-
-        return True
+        if self._eta_controls_draft_reset():
+            return self._check_edi_documents_for_reset_to_draft()
+        return super()._edi_allow_button_draft()
 
     @api.depends('edi_document_ids.state', 'eta_job_ids.state', 'eta_job_ids.attempted_at',
                  'eta_job_ids.attempts', 'eta_job_ids.safe_to_retry', 'eta_job_ids.submission_uuid',
@@ -137,77 +138,91 @@ class AccountMoveDraftCorrection(models.Model):
             if move._eta_controls_draft_reset() and not (move._eta_can_reset_unsent() or move._eta_cancelled_reset_candidate()):
                 move.show_reset_to_draft_button = False
 
-    # def button_draft(self):
-    #     self.check_access('write')
-    #     controlled = self.filtered(lambda move: move._eta_controls_draft_reset()).sorted('id')
-    #     cancelled = self.env['account.move']
-    #     for move in controlled:
-    #         job = move.eta_job_ids.sudo()
-    #         if job:
-    #             self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180, %s)', [job.id])
-    #             if not self.env.cr.fetchone()[0]:
-    #                 raise UserError(_('This invoice is being processed by ETA. Retry Reset to Draft shortly.'))
-    #         try:
-    #             with self.env.cr.savepoint():
-    #                 self.env.cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [move.id])
-    #         except psycopg2.errors.LockNotAvailable as exc:
-    #             raise UserError(_('This invoice is being updated. Retry Reset to Draft shortly.')) from exc
-    #         move.invalidate_recordset()
-    #         job.invalidate_recordset()
-    #         if not move._eta_can_reset_unsent():
-    #             if move._eta_cancelled_reset_candidate():
-    #                 uuid = move.e_invoice_uuid or move.l10n_eg_uuid
-    #                 client = EtaClient(move.company_id.sudo())
-    #                 try:
-    #                     receipt = client.request('GET', '/api/v1.0/documents/%s/raw' % uuid)
-    #                 finally:
-    #                     client.close()
-    #                 if (receipt.get('uuid') != uuid or receipt.get('internalId') != move.name
-    #                         or receipt.get('status') != 'Cancelled'):
-    #                     raise UserError(_('ETA has not confirmed cancellation of this invoice. Its receipt is preserved.'))
-    #                 self.env['ir.attachment'].sudo().create({
-    #                     'name': 'ETA_cancelled_before_draft_%s.json' % uuid, 'res_model': 'account.move',
-    #                     'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
-    #                     'raw': json.dumps(receipt, ensure_ascii=False).encode()})
-    #                 cancelled |= move
-    #             else:
-    #                 raise UserError(_('This invoice has an ETA receipt or an unresolved submission. Refresh ETA status first. '
-    #                                   'For a finally approved invoice, use Actions > Apply 14% Tax to preview an Odoo-only VAT correction. For other outcomes, check the ETA status first.'))
-    #         if not move._check_edi_documents_for_reset_to_draft():
-    #             raise UserError(_('Another electronic invoicing service requires cancellation before this invoice can be reset.'))
-    #     # Check the entire selection before the legacy implementation clears ETA fields.
-    #     for move in controlled:
-    #         job = move.eta_job_ids.sudo()
-    #         if job:
-    #             evidence = job.read(['state', 'payload', 'payload_hash', 'attempted_at', 'attempts',
-    #                                  'safe_to_retry', 'last_error', 'historical_fingerprint'])[0]
-    #             self.env['ir.attachment'].sudo().create({
-    #                 'name': 'ETA_before_draft_%s.json' % job.id, 'res_model': 'account.move',
-    #                 'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
-    #                 'raw': json.dumps(evidence, default=str, ensure_ascii=False).encode(),
-    #             })
-    #             if move in cancelled:
-    #                 job.write({'state': 'blocked', 'safe_to_retry': True, 'submission_uuid': False,
-    #                            'historical_review': False})
-    #         move.edi_document_ids.filtered(lambda d: d.edi_format_id.code == 'eg_eta').write({
-    #             'state': 'to_send', 'error': False, 'blocking_level': False})
-    #     reset_moves = self.with_context(_eta_verified_reset=_VERIFIED_RESET) if cancelled else self
-    #     result = super(AccountMoveDraftCorrection, reset_moves).button_draft()
-    #     for move in controlled:
-    #         move.write({'eta_submission_pending': False, 'e_invoice_long_id': False, 'e_invoice_issue': False})
-    #         move.eta_job_ids.sudo().write({
-    #             'state': 'queued', 'payload': False, 'payload_hash': False, 'attempted_at': False,
-    #             'safe_to_retry': False, 'first_submission_candidate': False,
-    #             'next_attempt': False, 'last_error': False, 'failures': 0, 'attempts': 0,
-    #             'historical_fingerprint': False, 'historical_source_hash': False,
-    #             'historical_reviewed_at': False, 'historical_submission_verified': False,
-    #             'authority_receipt_hash': False, 'current_issue_datetime': False,
-    #         })
-    #         if move in cancelled:
-    #             move.eta_job_ids.sudo().write({'state': 'blocked', 'submission_uuid': False,
-    #                 'last_error': _('The original ETA document was cancelled. Issue a new invoice for a replacement; '
-    #                                 'this cancelled document is not queued for resubmission.')})
-    #     return result
+    def button_draft(self):
+        # Trusted internal resets validate their own eligibility and preserve the
+        # ETA receipt: the Odoo-only apply-tax batch (_eta_apply_tax) and verified
+        # correction resets (_eta_verified_reset). They must bypass the submission
+        # reset guard below, which protects untrusted UI resets only.
+        if (self.env.context.get('_eta_apply_tax')
+                or self.env.context.get('_eta_verified_reset') is _VERIFIED_RESET):
+            return super().button_draft()
+        self.check_access('write')
+        controlled = self.filtered(lambda move: move._eta_controls_draft_reset()).sorted('id')
+        cancelled = self.env['account.move']
+        for move in controlled:
+            job = move.eta_job_ids.sudo()
+            if job:
+                self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741180, %s)', [job.id])
+                if not self.env.cr.fetchone()[0]:
+                    raise UserError(_('This invoice is being processed by ETA. Retry Reset to Draft shortly.'))
+            try:
+                with self.env.cr.savepoint():
+                    self.env.cr.execute('SELECT id FROM account_move WHERE id=%s FOR UPDATE NOWAIT', [move.id])
+            except psycopg2.errors.LockNotAvailable as exc:
+                raise UserError(_('This invoice is being updated. Retry Reset to Draft shortly.')) from exc
+            move.invalidate_recordset()
+            job.invalidate_recordset()
+            if not move._eta_can_reset_unsent():
+                if move._eta_cancelled_reset_candidate():
+                    uuid = move.e_invoice_uuid or move.l10n_eg_uuid
+                    client = EtaClient(move.company_id.sudo())
+                    try:
+                        receipt = client.request('GET', '/api/v1.0/documents/%s/raw' % uuid)
+                    finally:
+                        client.close()
+                    if (receipt.get('uuid') != uuid or receipt.get('internalId') != move.name
+                            or receipt.get('status') != 'Cancelled'):
+                        raise UserError(_('ETA has not confirmed cancellation of this invoice. Its receipt is preserved.'))
+                    self.env['ir.attachment'].sudo().create({
+                        'name': 'ETA_cancelled_before_draft_%s.json' % uuid, 'res_model': 'account.move',
+                        'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
+                        'raw': json.dumps(receipt, ensure_ascii=False).encode()})
+                    cancelled |= move
+                else:
+                    raise UserError(_('This invoice has an ETA receipt or an unresolved submission. Refresh ETA status first. '
+                                      'For a finally approved invoice, use Actions > Apply 14% Tax to preview an Odoo-only VAT correction. For other outcomes, check the ETA status first.'))
+            if not move._check_edi_documents_for_reset_to_draft():
+                raise UserError(_('Another electronic invoicing service requires cancellation before this invoice can be reset.'))
+        # Check the entire selection before the legacy implementation clears ETA fields.
+        for move in controlled:
+            job = move.eta_job_ids.sudo()
+            if job:
+                evidence = job.read(['state', 'payload', 'payload_hash', 'attempted_at', 'attempts',
+                                     'safe_to_retry', 'last_error', 'historical_fingerprint'])[0]
+                self.env['ir.attachment'].sudo().create({
+                    'name': 'ETA_before_draft_%s.json' % job.id, 'res_model': 'account.move',
+                    'res_id': move.id, 'company_id': move.company_id.id, 'mimetype': 'application/json',
+                    'raw': json.dumps(evidence, default=str, ensure_ascii=False).encode(),
+                })
+                if move in cancelled:
+                    job.write({'state': 'blocked', 'safe_to_retry': True, 'submission_uuid': False,
+                               'historical_review': False})
+            move.edi_document_ids.filtered(lambda d: d.edi_format_id.code == 'eg_eta').write({
+                'state': 'to_send', 'error': False, 'blocking_level': False})
+        reset_moves = self.with_context(_eta_verified_reset=_VERIFIED_RESET) if cancelled else self
+        result = super(AccountMoveDraftCorrection, reset_moves).button_draft()
+        for move in controlled:
+            move.write({'eta_submission_pending': False, 'e_invoice_long_id': False, 'e_invoice_issue': False})
+            move.eta_job_ids.sudo().write({
+                'state': 'queued', 'payload': False, 'payload_hash': False, 'attempted_at': False,
+                'safe_to_retry': False, 'first_submission_candidate': False,
+                'next_attempt': False, 'last_error': False, 'failures': 0, 'attempts': 0,
+                'historical_fingerprint': False, 'historical_source_hash': False,
+                'historical_reviewed_at': False, 'historical_submission_verified': False,
+                'authority_receipt_hash': False, 'current_issue_datetime': False,
+            })
+            if move in cancelled:
+                if self.env.user.has_group('base.group_system'):
+                    # Administrator override: keep the same invoice and resend the cancelled
+                    # document as a NEW ETA submission. The queue preflight still runs.
+                    move.eta_job_ids.sudo().write({'submission_uuid': False, 'cancel_resend_approved': True,
+                        'last_error': _('Administrator approved re-sending this cancelled document under the '
+                                        'same invoice number as a new ETA submission after correction.')})
+                else:
+                    move.eta_job_ids.sudo().write({'state': 'blocked', 'submission_uuid': False,
+                        'last_error': _('The original ETA document was cancelled. Issue a new invoice for a replacement; '
+                                        'this cancelled document is not queued for resubmission.')})
+        return result
 
 
 class EtaVatCorrection(models.TransientModel):

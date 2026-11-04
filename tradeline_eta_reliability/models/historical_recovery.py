@@ -597,8 +597,12 @@ class EtaHistoricalRecovery(models.Model):
                     self._apply_remote(pending[0])
                 return
             if any(r.get('status') in ('Cancelled', 'Rejected') for r in receipts):
-                raise UserError(_('A cancelled or buyer-rejected ETA receipt exists. Finance must trace the replacement or approve the correction route.'))
-            if any(r.get('status') != 'Invalid' for r in receipts):
+                if not (self.cancel_resend_approved
+                        and all(r.get('status') in ('Cancelled', 'Rejected', 'Invalid') for r in receipts)):
+                    raise UserError(_('A cancelled or buyer-rejected ETA receipt exists. Finance must trace the replacement or approve the correction route.'))
+                # Administrator approved re-sending under the same invoice number; proceed to
+                # submit a new document exactly as a corrected (Invalid) retry does.
+            elif any(r.get('status') != 'Invalid' for r in receipts):
                 raise UserError(_('An unrecognized authority receipt status prevents safe submission.'))
             outgoing = self._submission_source()
             certificate_retry = self._certificate_retry_allowed(receipts, outgoing)

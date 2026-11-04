@@ -29,7 +29,8 @@
         <field name="arch" type="xml">
             <form create="0" delete="0" edit="0">
                 <header>
-                    <button name="action_send_now" type="object" string="Send to ETA now" class="btn-primary" icon="fa-paper-plane" groups="tradeline_eta_reliability.group_eta_workspace" invisible="state in ('valid', 'accepted')"/>
+                    <field name="eta_user_is_admin" invisible="1"/>
+                    <button name="action_send_now" type="object" string="Send to ETA now" class="btn-primary" icon="fa-paper-plane" groups="tradeline_eta_reliability.group_eta_workspace" invisible="state in ('valid', 'accepted') or not eta_user_is_admin"/>
                     <button name="action_check_status_now" type="object" string="Check ETA status" icon="fa-refresh" groups="tradeline_eta_reliability.group_eta_workspace"/>
                     <button name="action_fix_customer" type="object" string="Customer details" groups="tradeline_eta_reliability.group_eta_workspace"/>
                     <button name="action_open_invoice" type="object" string="Open invoice" class="btn-primary"/>

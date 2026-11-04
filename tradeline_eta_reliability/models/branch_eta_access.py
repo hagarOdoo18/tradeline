@@ -1,6 +1,6 @@
 """ETA staff controls are central-only; ordinary invoice operations stay intact."""
 from odoo import api, fields, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, AccessError
 from odoo.osv import expression
 
 
@@ -8,6 +8,14 @@ class EtaBranchInvoiceAccess(models.Model):
     _inherit = 'account.move'
 
     eta_branch_hide_native_controls = fields.Boolean(compute='_compute_eta_branch_controls')
+    eta_user_is_admin = fields.Boolean(compute='_compute_eta_user_is_admin',
+        help='Technical: current user is a system administrator (controls ETA send visibility).')
+
+    @api.depends_context('uid')
+    def _compute_eta_user_is_admin(self):
+        is_admin = self.env.user.has_group('base.group_system')
+        for move in self:
+            move.eta_user_is_admin = is_admin
 
     @api.depends_context('uid')
     @api.depends('move_type', 'edi_document_ids', 'edi_document_ids.edi_format_id.code')
@@ -21,8 +29,16 @@ class EtaBranchInvoiceAccess(models.Model):
     def _eta_require_central_staff(self):
         self.env['res.users']._eta_check_workspace_access()
 
-    def action_eta_send_now(self):
+    def _eta_require_admin(self):
+        # Sending/resending to ETA is restricted to administrators; other central
+        # staff keep read/status access and automatic queue submission is unaffected.
         self._eta_require_central_staff()
+        if not self.env.user.has_group('base.group_system'):
+            raise AccessError(_('Only an administrator can send or resend documents to ETA. '
+                                'You can still check the ETA status.'))
+
+    def action_eta_send_now(self):
+        self._eta_require_admin()
         return super().action_eta_send_now()
 
     def action_eta_check_status_now(self):
@@ -34,7 +50,7 @@ class EtaBranchInvoiceAccess(models.Model):
         return super().action_eta_execute_staff_request(request_id)
 
     def action_send_electronic_invoice(self):
-        self._eta_require_central_staff()
+        self._eta_require_admin()
         return super().action_send_electronic_invoice()
 
     def action_update_electronic_invoice_status(self):
