@@ -2,6 +2,7 @@
 import time
 from datetime import timedelta
 
+import psycopg2
 import requests
 
 from odoo import api, fields, models, _
@@ -34,7 +35,7 @@ class EtaHealthCompany(models.Model):
             now = fields.Datetime.now()
             if company.eta_health_checked_at and company.eta_health_checked_at > now-timedelta(seconds=55):
                 continue
-            state, seconds, client = 'connection', 0, None
+            state, seconds, client, retry_at = 'connection', 0, None, None
             started = time.monotonic()
             try:
                 check_processing_window(self.env)
@@ -53,14 +54,29 @@ class EtaHealthCompany(models.Model):
                 seconds = time.monotonic()-started
                 state = 'access' if exc.status in (401,403) else 'waiting' if exc.status == 429 else 'connection'
                 if exc.status == 429:
-                    company.eta_authority_retry_at = now+timedelta(seconds=exc.retry_after)
+                    retry_at = now+timedelta(seconds=exc.retry_after)
             except requests.RequestException:
                 seconds = time.monotonic()-started
             finally:
                 if client is not None:
                     client.close()
-            company.write({'eta_health_checked_at': fields.Datetime.now(), 'eta_health_seconds': seconds,
-                'eta_health_state': state, 'eta_health_environment': company.config_type})
+            vals = {'eta_health_checked_at': fields.Datetime.now(), 'eta_health_seconds': seconds,
+                'eta_health_state': state, 'eta_health_environment': company.config_type}
+            if retry_at is not None:
+                vals['eta_authority_retry_at'] = retry_at
+            # res_company is a hot, frequently-written row. This probe holds its
+            # transaction across a multi-second network call and then writes the
+            # company, so under REPEATABLE READ it can lose a serialization race
+            # with a concurrent update and abort the whole cron (SerializationFailure
+            # at flush_all). Commit each probe's write on its own and skip on a
+            # serialization/deadlock conflict; health status is non-critical and
+            # the next run refreshes it.
+            try:
+                company.write(vals)
+                self.env.cr.commit()
+            except (psycopg2.errors.SerializationFailure, psycopg2.errors.DeadlockDetected):
+                self.env.cr.rollback()
+                continue
 
 
 class MeasuredSubmissionClient:
