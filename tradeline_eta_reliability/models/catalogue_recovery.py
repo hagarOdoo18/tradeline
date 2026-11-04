@@ -154,8 +154,11 @@ class EtaCatalogueRecovery(models.Model):
         return min(candidates, key=lambda item: item[:2])[2] if candidates else self.browse()
 
     def _catalogue_get(self, client, path, **kwargs):
-        # The caller owns the existing global transport lock. Keep the
-        # catalogue's stricter ten-second family limit across clients/workers.
+        # Manual sends do not take the backlog lock. Serialize catalogue
+        # pacing across both lanes before reading its independently saved gap.
+        self.env.cr.execute('SELECT pg_try_advisory_xact_lock(741185,1)')
+        if not self.env.cr.fetchone()[0]:
+            raise EtaCataloguePending(1, 'usage' if '/codetypes/requests/' in path else 'publication')
         key = 'tradeline_eta_reliability.catalogue_next_get.' + hashlib.sha256(client.api.encode()).hexdigest()
         # Persist transport pacing independently: rolling back a failed job
         # must not erase a 429 cooldown for the next catalogue job.
@@ -169,7 +172,9 @@ class EtaCatalogueRecovery(models.Model):
         wait = max(0, deadline - time.time())
         if wait > 10.2:
             raise EtaError('ETA catalogue cooldown is active.', retry_after=min(3600, int(wait) + 1))
-        if wait > 0 and self.env.context.get('eta_catalogue_nonblocking'):
+        manual_deadline = self.env.context.get('eta_catalogue_manual_deadline', 0)
+        if (wait > 0 and self.env.context.get('eta_catalogue_nonblocking')
+                and not (manual_deadline and time.monotonic() + wait <= manual_deadline)):
             raise EtaCataloguePending(wait, 'usage' if '/codetypes/requests/' in path else 'publication')
         time.sleep(wait)
         check_processing_window(self.env)
@@ -193,12 +198,17 @@ class EtaCatalogueRecovery(models.Model):
         params = self.env['ir.config_parameter'].sudo()
         now = datetime.now(timezone.utc)
         proof = None
+        refresh_after = self.env.context.get('eta_catalogue_refresh_after')
+        def needs_refresh(captured):
+            return (self.env.context.get('eta_catalogue_refresh')
+                and (not refresh_after or captured < datetime.fromisoformat(refresh_after)))
         try:
             saved = self._catalogue_read_evidence(key)
             if saved and saved.get('scope') == scope and type(saved.get('approved')) is bool:
                 age = now - datetime.fromisoformat(saved['captured_utc'])
                 ttl = timedelta(hours=6) if saved.get('approved') else timedelta(minutes=10)
-                if timedelta(0) <= age < ttl:
+                if (timedelta(0) <= age < ttl
+                        and not needs_refresh(datetime.fromisoformat(saved['captured_utc']))):
                     proof = saved
         except (ValueError, TypeError, KeyError):
             pass
@@ -211,6 +221,7 @@ class EtaCatalogueRecovery(models.Model):
                 captured = datetime.fromisoformat(partial['captured_utc'])
                 if (partial['database'] == self.env.cr.dbname and partial['scope'] == scope
                         and timedelta(0) <= now-captured < timedelta(minutes=5)
+                        and not needs_refresh(captured)
                         and isinstance(partial['publication'], dict) and partial['publication']):
                     publication = partial['publication']
                     now = captured # The complete proof retains its oldest GET time.

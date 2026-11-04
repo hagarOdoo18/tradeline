@@ -259,7 +259,14 @@ class EtaStaffJob(models.Model):
                 or self.next_attempt and self.next_attempt > now
                 and any(word in (self.last_error or '').lower() for word in ('429', 'retry-after', 'cooldown'))):
             return False
+        # An EGS code can be approved at ETA without changing the invoice's
+        # itemCode. Verify that entitlement through the full receipt route;
+        # the single-receipt gate requires a changed document body.
+        if (self.state == 'invalid' and self.move_id.e_invoice_uuid
+                and self.move_id.e_invoice_status == 'Invalid' and 'CV302' in (self.last_error or '')):
+            self.historical_review = True
         if self.state != 'unknown' and (self._has_authority_duplicate_review() or self.historical_review
+                or self.state in ('blocked', 'invalid') and self.historical_fingerprint
                 or self.move_id.l10n_eg_uuid and self.move_id.l10n_eg_uuid != self.move_id.e_invoice_uuid):
             self.action_recheck()
         # Full-history review must run before the single-receipt correction
@@ -337,6 +344,7 @@ class EtaStaffJob(models.Model):
         client = None
         operations = 0
         started = time.monotonic()
+        refresh_after = datetime.now(timezone.utc).isoformat()
         try:
             client = (StatusClient if mode == 'status' else EtaClient)(self.company_id.sudo())
             client.staff_result = False
@@ -346,7 +354,9 @@ class EtaStaffJob(models.Model):
                 # Release selection locks before handing off to the worker's
                 # own transaction. Only the manual-lane session lock survives.
                 self.env.cr.rollback()
-                if not self._process_id(job_id, client,
+                selected = self.with_context(eta_catalogue_manual_deadline=started + 45,
+                    eta_catalogue_refresh_after=refresh_after) if mode == 'send' else self
+                if not selected._process_id(job_id, client,
                         staff_operation=STAFF_SEND if mode == 'send' else STAFF_STATUS):
                     self.env.cr.rollback(); self.env.invalidate_all()
                     deadlines = [value for value in (self.duplicate_retry_at, self.authority_retry_at,

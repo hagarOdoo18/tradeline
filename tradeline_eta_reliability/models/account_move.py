@@ -369,7 +369,7 @@ class AccountMove(models.Model):
             and not (self.l10n_eg_uuid and self.l10n_eg_uuid != self.e_invoice_uuid))
         if (job.state == 'unknown' or job.attempted_at and not job.safe_to_retry and not confirmed_rejection
                 or job.duplicate_retry_at or job.duplicate_payload_hash
-                or job.next_attempt and job.next_attempt > fields.Datetime.now()):
+                or staff_operation is not STAFF_SEND and job.next_attempt and job.next_attempt > fields.Datetime.now()):
             raise UserError(_('ETA reconciliation or a retry deadline is pending. Nothing was resubmitted.'))
         client = EtaClient(self.company_id.sudo())
         try:

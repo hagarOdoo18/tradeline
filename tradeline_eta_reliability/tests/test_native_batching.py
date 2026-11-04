@@ -628,8 +628,8 @@ class TestNativeBatching(TransactionCase):
         self.assertIn('eta:stalled', observations)
         job._compute_monitoring()
         self.assertTrue(job.needs_attention)
-        self.assertIn('reconcile the existing eta outcome first', job.required_action.lower())
-        self.assertIn('do not blindly resend', job.required_action.lower())
+        self.assertIn('check eta status', job.required_action.lower())
+        self.assertIn('review delivery before any resend', job.required_action.lower())
 
     def test_malformed_or_future_processing_markers_cannot_claim_partial_health(self):
         now = fields.Datetime.now()
