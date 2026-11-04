@@ -43,6 +43,10 @@ INVENTORY_MAX_JOBS = 5
 # Floor for the derived batch size, so a handful of groups is not spread over
 # one job each.
 INVENTORY_MIN_BATCH_SIZE = 5
+# A barcode / shopify_variant_sku shared by more than this many variants is
+# treated as junk (e.g. a placeholder '0') and left unexpanded, so one bad code
+# cannot pull the whole catalogue into memory while grouping a few products.
+INVENTORY_GROUP_MEMBER_CAP = 500
 # Kept for reference / other callers only. The cron no longer uses a ceiling:
 # a run covers the whole catalogue, so it skips while ANY export job is still
 # pending rather than waiting for a backlog of this size to build up.
@@ -232,18 +236,33 @@ class SyncInventory(models.TransientModel):
         #    barcode OR shopify_variant_sku (one search for all codes)
         codes = [key for key in key_products if not key.startswith('id:')]
         if codes:
-            # active variants only - an archived variant's stock was never
-            # part of the total before and should not start counting now
-            members = self.env['product.product'].sudo().search([
-                '|',
-                ('barcode', 'in', codes),
-                ('shopify_variant_sku', 'in', codes),
-            ])
-            for product in members:
-                for code in ((product.barcode or '').strip(),
-                             (product.shopify_variant_sku or '').strip()):
-                    if code and code in key_products:
-                        key_products[code].add(product.id)
+            # Guard against a junk/placeholder code shared by a huge number of
+            # variants (e.g. barcode '0' across the whole catalogue). Expanding
+            # it would pull thousands of products into memory in one request and
+            # can OOM the worker, so a code whose membership is implausibly large
+            # is left unexpanded; its seed variant is still pushed on its own.
+            counts = {}
+            for field in ('barcode', 'shopify_variant_sku'):
+                for value, count in self.env['product.product'].sudo()._read_group(
+                        [(field, 'in', codes)], [field], ['__count']):
+                    value = (value or '').strip()
+                    if value:
+                        counts[value] = counts.get(value, 0) + count
+            safe_codes = [code for code in codes
+                          if counts.get(code, 0) <= INVENTORY_GROUP_MEMBER_CAP]
+            if safe_codes:
+                # active variants only - an archived variant's stock was never
+                # part of the total before and should not start counting now
+                members = self.env['product.product'].sudo().search([
+                    '|',
+                    ('barcode', 'in', safe_codes),
+                    ('shopify_variant_sku', 'in', safe_codes),
+                ])
+                for product in members:
+                    for code in ((product.barcode or '').strip(),
+                                 (product.shopify_variant_sku or '').strip()):
+                        if code and code in key_products:
+                            key_products[code].add(product.id)
 
         # 3. every Shopify variant mapped to any member of a group
         product_key = {}
@@ -827,13 +846,23 @@ class SyncInventory(models.TransientModel):
             'warehouse_ids': [(6, 0, warehouse_ids)],
         })
         groups = data.get('groups')
-        if groups is None:
+        product_ids = data.get('product_ids')
+        if groups is not None:
+            wizard._sync_to_shopify(groups=groups, force=force)
+        elif product_ids is not None:
+            # Deferred from button_validate: build the groups here, in the
+            # background job, from the queued product ids - never in the validate
+            # request, where the expansion could OOM the worker.
+            products = self.env['product.product'].sudo().browse(
+                product_ids).exists()
+            built = wizard._build_inventory_groups(instance, products=products)
+            if built:
+                wizard._sync_to_shopify(groups=built, force=force)
+        else:
             # legacy payload
             sync_records = self.env['shopify.sync'].sudo().browse(
                 data.get('sync_ids', [])).exists()
             wizard._sync_to_shopify(sync_records=sync_records, force=force)
-        else:
-            wizard._sync_to_shopify(groups=groups, force=force)
 
     def _sync_to_shopify(self, groups=None, sync_records=None,
                          force=False):

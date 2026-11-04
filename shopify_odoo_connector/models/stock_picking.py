@@ -107,27 +107,23 @@ class StockPicking(models.Model):
             if not warehouse_ids:
                 continue
 
-            # Groups (barcode / shopify_variant_sku) for the products on this
-            # picking, completed with the variants sharing the same code.
-            groups = self.env['sync.inventory'].sudo()._build_inventory_groups(
-                instance, products=products)
-            if not groups:
-                continue
-
-            for i in range(0, len(groups), INVENTORY_BATCH_SIZE):
-                self.env['job.cron'].sudo().create([{
-                    'model_id': model.id,
-                    'function': 'export_inventory_to_shopify',
-                    'data': {
-                        'groups': groups[i:i + INVENTORY_BATCH_SIZE],
-                        'warehouse_ids': warehouse_ids,
-                    },
-                    'instance_id': instance.id,
-                }])
+            # Queue ONLY the product ids; the inventory groups are built inside
+            # the background job (export_inventory_to_shopify), never in this
+            # validate worker. Building them here pulled every variant sharing a
+            # product's barcode / shopify_variant_sku into the request's memory,
+            # which could exceed the worker memory limit and get it killed
+            # (SIGKILL) even on a picking with only a few lines.
+            self.env['job.cron'].sudo().create([{
+                'model_id': model.id,
+                'function': 'export_inventory_to_shopify',
+                'data': {
+                    'product_ids': products.ids,
+                    'warehouse_ids': warehouse_ids,
+                },
+                'instance_id': instance.id,
+            }])
 
             _logger.info(
-                'Shopify inventory sync: queued %d group(s) covering %d '
-                'variant(s) for instance %s after validating %s picking %s',
-                len(groups),
-                sum(len(group['variant_ids']) for group in groups),
-                instance.name, self.picking_type_code, self.name)
+                'Shopify inventory sync: queued %d product(s) for instance %s '
+                'after validating %s picking %s (groups built in background)',
+                len(products), instance.name, self.picking_type_code, self.name)
