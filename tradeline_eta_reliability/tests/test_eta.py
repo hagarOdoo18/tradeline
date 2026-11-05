@@ -107,6 +107,95 @@ class TestEtaReliability(TransactionCase):
         self.assertFalse(user.has_group('account.group_account_manager'))
         return user
 
+    def _cached_invoice_pdf(self, move, qr_url=False):
+        attachment = self.env['ir.attachment'].create({
+            'name': 'previous-invoice.pdf', 'raw': b'previous PDF bytes', 'mimetype': 'application/pdf',
+            'res_model': 'account.move', 'res_id': move.id, 'res_field': 'invoice_pdf_report_file',
+            'eta_invoice_qr_url': qr_url,
+        })
+        move.message_main_attachment_id = attachment
+        move.invalidate_recordset(['invoice_pdf_report_id', 'invoice_pdf_report_file'])
+        return attachment
+
+    def test_eta_receipt_releases_pre_receipt_pdf_without_deleting_history(self):
+        move = self.invoice()
+        original = (move.invoice_date, move.amount_total, move.state)
+        old_pdf = self._cached_invoice_pdf(move)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Receipt application performed HTTP')):
+            move.eta_job_ids._apply_remote({'uuid': 'approved-qr', 'internalId': move.name,
+                'status': 'Valid', 'longId': 'authority-share-key'})
+        self.assertFalse(move.invoice_pdf_report_id)
+        self.assertFalse(move.message_main_attachment_id)
+        self.assertTrue(old_pdf.exists())
+        self.assertFalse(old_pdf.res_field)
+        self.assertEqual((old_pdf.res_model, old_pdf.res_id), ('account.move', move.id))
+        self.assertEqual(old_pdf.raw, b'previous PDF bytes')
+        self.assertEqual((move.invoice_date, move.amount_total, move.state), original)
+
+    def test_eta_unchanged_receipt_keeps_current_qr_pdf(self):
+        move = self.invoice()
+        receipt = {'uuid': 'approved-qr', 'internalId': move.name,
+            'status': 'Valid', 'longId': 'authority-share-key'}
+        move.eta_job_ids._apply_remote(receipt)
+        current = self._cached_invoice_pdf(move, move.e_invoice_qr_code)
+        move.eta_job_ids._apply_remote(receipt)
+        move._eta_drop_stale_invoice_pdf()
+        self.assertEqual(move.invoice_pdf_report_id, current)
+        self.assertEqual(current.res_field, 'invoice_pdf_report_file')
+
+    def test_eta_changed_share_key_releases_cached_qr_pdf(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'approved-qr', 'e_invoice_long_id': 'old-key'})
+        old_pdf = self._cached_invoice_pdf(move, move.e_invoice_qr_code)
+        move.write({'e_invoice_long_id': 'new-key'})
+        self.assertFalse(move.invoice_pdf_report_id)
+        self.assertTrue(old_pdf.exists())
+        self.assertIn('/share/new-key', move.e_invoice_qr_code)
+
+    def test_eta_legacy_pdf_download_rebuilds_locally_once_and_stamps_rendered_qr(self):
+        from odoo.addons.account.models.account_move_send import AccountMoveSend
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'approved-qr', 'e_invoice_long_id': 'authority-key',
+                    'e_invoice_status': 'Valid'})
+        old_pdf = self._cached_invoice_pdf(move)
+        # Printing is an ordinary branch invoice operation, even when staff
+        # cannot access the central ETA sending workspace.
+        move = move.with_user(self.invoice_user())
+        def render(invoices_data):
+            for invoice, data in invoices_data.items():
+                data['pdf_attachment_values'] = {'name': 'with-qr.pdf', 'raw': b'fresh PDF with QR',
+                    'mimetype': 'application/pdf', 'res_model': 'account.move', 'res_id': invoice.id,
+                    'res_field': 'invoice_pdf_report_file'}
+        with patch.object(AccountMoveSend, '_prepare_invoice_pdf_report', side_effect=render) as renderer, \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Printing performed HTTP')):
+            result = move._get_invoice_legal_documents('pdf')
+            self.assertEqual(result['content'], b'fresh PDF with QR')
+            self.assertEqual(move.invoice_pdf_report_id.eta_invoice_qr_url, move.e_invoice_qr_code)
+            self.assertEqual(move._get_invoice_legal_documents_all()[0]['content'], b'fresh PDF with QR')
+            self.assertEqual(renderer.call_count, 1)
+        self.assertFalse(old_pdf.res_field)
+        self.assertTrue(old_pdf.exists())
+        self.assertNotEqual(old_pdf, move.invoice_pdf_report_id)
+
+    def test_eta_print_without_authority_share_key_keeps_existing_pdf(self):
+        move = self.invoice()
+        move.e_invoice_uuid = 'not-yet-shareable'
+        old_pdf = self._cached_invoice_pdf(move)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Printing performed HTTP')):
+            self.assertEqual(move._get_invoice_legal_documents('pdf')['content'], b'previous PDF bytes')
+        self.assertEqual(move.invoice_pdf_report_id, old_pdf)
+        self.assertFalse(move.e_invoice_qr_code)
+
+    def test_eta_send_wizard_drops_stale_pdf_before_selecting_attachments(self):
+        move = self.invoice()
+        move.write({'e_invoice_uuid': 'approved-qr', 'e_invoice_long_id': 'authority-key'})
+        old_pdf = self._cached_invoice_pdf(move)
+        widget = self.env['account.move.send']._get_default_mail_attachments_widget(
+            move, self.env['mail.template'])
+        self.assertFalse(move.invoice_pdf_report_id)
+        self.assertNotIn(old_pdf.id, [row['id'] for row in widget])
+        self.assertTrue(any(row.get('placeholder') for row in widget))
+
     def test_invoice_user_can_read_reset_dependencies_and_sync(self):
         user = self.invoice_user()
         move = self.invoice().with_user(user)
