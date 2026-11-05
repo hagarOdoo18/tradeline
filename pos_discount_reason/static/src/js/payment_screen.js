@@ -28,11 +28,6 @@ patch(PaymentScreen.prototype, {
         const order = this.currentOrder;
         const config = this.pos.config;
 
-        // Set to_invoice to true if auto_invoice is enabled
-        if (config.auto_invoice && !order.is_to_invoice()) {
-            order.set_to_invoice(true);
-        }
-
         const result = await super._finalizeValidation(...arguments);
 
         // Auto print invoice if enabled and order was invoiced
@@ -60,6 +55,12 @@ patch(PaymentScreen.prototype, {
 
      async _isOrderValid(isForceValidate) {
         const order = this.currentOrder;
+
+        // Apply automatic invoicing before Odoo checks for a required customer.
+        if (this.pos.config.auto_invoice && !order.is_to_invoice()) {
+            order.set_to_invoice(true);
+        }
+
         const currentPartner = order.get_partner();
         const total = order.get_total_with_tax();
 
