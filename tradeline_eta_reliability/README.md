@@ -1,5 +1,24 @@
 # Reliable ETA processing
 
+## Invoice QR codes on reprints (18.0.1.0.55)
+
+Invoice downloads and customer-email attachments check their cached PDF against
+the Ahmed Salama receipt's QR URL. A PDF made before the receipt, or containing
+an older share key, is regenerated locally on the next download. This also repairs
+legacy cached PDFs when they are first downloaded after this upgrade. Previous
+files remain attached to the invoice for history; already downloaded files and
+old email attachments are unchanged. Staff should use the invoice's current
+Print/Download action to obtain a fresh copy.
+
+Receipt-link changes release stale PDF caches immediately. PDF generation holds
+the invoice row while rendering and records the rendered QR URL, preventing a
+late pre-receipt print from replacing a newer cache. This uses the configured
+invoice report only: no sending wizard, ETA submission, signer or status request
+runs during a download. A receipt UUID without an authority share key cannot
+produce an invented QR link. ETA's anonymous share links are temporary; a portal
+expiry error is separate from invoice validation and cannot be cured by sending
+another copy of an approved invoice.
+
 ## Automatic recovery for new recoverable HTTP 422 failures (18.0.1.0.50)
 
 New document-POST failures with an observed HTTP 422 and either no structured

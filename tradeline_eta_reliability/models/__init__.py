@@ -25,3 +25,4 @@ from . import local_vat_batch
 from . import vat_exception
 from . import eta_history
 from . import http422_recovery
+from . import invoice_qr_print
