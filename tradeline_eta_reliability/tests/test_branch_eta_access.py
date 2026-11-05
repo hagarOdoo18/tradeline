@@ -54,7 +54,8 @@ class TestEtaBranchPrivacy(TransactionCase):
             self.assertFalse(form.xpath("//button[@name='action_eta_send_now']"))
             self.assertFalse(form.xpath("//button[@name='action_eta_check_status_now']"))
             self.assertFalse(form.xpath("//button[@name='action_cancel_electronic_invoice']"))
-            self.assertFalse(form.xpath("//page[.//field[@name='e_invoice_status']]"))
+            self.assertEqual(len(form.xpath("//page[.//field[@name='e_invoice_status']]")), 1)
+            self.assertTrue(form.xpath("//page[@name='page_eta_branch_details']"))
             self.assertFalse(form.xpath("//widget[contains(@title,'E-I')]"))
             self.assertFalse(form.xpath("//div[@role='status'][.//field[@name='eta_staff_reason']]"))
             self.assertFalse(form.xpath("//page[@name='page_edi_documents']"))
@@ -74,10 +75,50 @@ class TestEtaBranchPrivacy(TransactionCase):
                 self.assertFalse(form.xpath("//button[@name='action_post_sign_invoices' or @name='action_get_eta_invoice_pdf']"))
                 for field in form.xpath('//field'):
                     if field.get('name', '').startswith(('eta_', 'l10n_eg_', 'e_invoice_')):
+                        if field.xpath("ancestor::page[@name='page_eta_branch_details']"):
+                            self.assertEqual(field.get('readonly'), '1', field.get('name'))
+                            continue
                         self.assertIn(field.get('invisible'), ('1', 'True', 'true'), field.get('name'))
                 sign_id = self.env.ref('l10n_eg_edi_eta.action_sign_invoices').id
                 bindings = caller.env['ir.actions.actions'].get_bindings('account.move')
                 self.assertFalse(any(action['id'] == sign_id for action in bindings.get('action', [])))
+
+    def test_branch_receipt_details_are_readable_without_transport_or_workspace_access(self):
+        move = self.invoice()
+        move.write({'e_invoice_date': fields.Datetime.now(), 'e_invoice_uuid': 'BRANCH-RECEIPT',
+                    'e_invoice_status': 'Valid', 'e_invoice_sent': True})
+        snapshot = move.read(['state', 'e_invoice_date', 'e_invoice_uuid', 'e_invoice_status', 'e_invoice_sent'])
+        for user in (self.branch, self.branch_admin):
+            Move = self.env['account.move'].with_user(user)
+            for caller in (Move, Move.sudo()):
+                form = etree.fromstring(caller.get_view(view_type='form')['arch'])
+                page = form.xpath("//page[@name='page_eta_branch_details']")
+                self.assertEqual(len(page), 1)
+                self.assertEqual(page[0].get('string'), 'E-Invoice Details')
+                self.assertFalse(page[0].xpath('.//button'))
+                for name in ('e_invoice_date', 'e_invoice_uuid', 'e_invoice_url', 'e_invoice_status', 'e_invoice_pdf'):
+                    self.assertTrue(page[0].xpath(".//field[@name='%s'][@readonly='1']" % name))
+                self.assertFalse(page[0].xpath(".//field[@name='e_invoice_json' or @name='static_signature']"))
+            receipt = move.with_user(user).read(['e_invoice_date', 'e_invoice_uuid', 'e_invoice_url', 'e_invoice_status'])[0]
+            self.assertEqual(receipt['e_invoice_uuid'], 'BRANCH-RECEIPT')
+            self.assertEqual(receipt['e_invoice_status'], 'Valid')
+            self.assertIn('BRANCH-RECEIPT', receipt['e_invoice_url'])
+            with self.assertRaises(AccessError):
+                self.env['tradeline.eta.job'].with_user(user).get_view(view_type='list')
+        central = etree.fromstring(self.env['account.move'].with_user(self.central).get_view(view_type='form')['arch'])
+        self.assertFalse(central.xpath("//page[@name='page_eta_branch_details']"))
+        self.assertEqual(move.read(['state', 'e_invoice_date', 'e_invoice_uuid', 'e_invoice_status', 'e_invoice_sent']), snapshot)
+
+    def test_branch_receipt_details_keep_company_record_rules(self):
+        move = self.invoice()
+        other = self.env['res.company'].create({'name': 'Other receipt company',
+            'activity_code_id': self.company.activity_code_id.id,
+            'type_code_id': self.company.type_code_id.id,
+            'sub_type_code_id': self.company.sub_type_code_id.id})
+        user = new_test_user(self.env, login='eta_other_receipt_branch', groups='account.group_account_invoice',
+                             company_id=other.id, company_ids=[Command.set(other.ids)])
+        with self.assertRaises(AccessError):
+            move.with_user(user).with_context(allowed_company_ids=other.ids).read(['e_invoice_uuid', 'e_invoice_status'])
 
     def test_invoice_error_panel_is_visible_only_to_central_accounting(self):
         for user in (self.central, self.branch, self.branch_admin, self.env.user):

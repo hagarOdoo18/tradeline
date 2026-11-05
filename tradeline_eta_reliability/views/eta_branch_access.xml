@@ -10,6 +10,24 @@
         <field name="arch" type="xml">
             <xpath expr="//header" position="before"><field name="eta_branch_hide_native_controls" invisible="1"/></xpath>
             <xpath expr="//page[.//button[@name='action_generate_eta_json']]" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
+            <xpath expr="//notebook" position="inside">
+                <page name="page_eta_branch_details" string="E-Invoice Details"
+                      groups="base.group_user,!tradeline_eta_reliability.group_eta_workspace"
+                      invisible="move_type not in ('out_invoice', 'out_refund')">
+                    <group>
+                        <group>
+                            <field name="e_invoice_date" readonly="1"/>
+                            <field name="e_invoice_uuid" readonly="1"/>
+                            <field name="e_invoice_url" widget="url" readonly="1"/>
+                            <field name="e_invoice_status" readonly="1"/>
+                            <field name="pdf_name" invisible="1"/>
+                            <field name="e_invoice_pdf" readonly="1" filename="pdf_name"
+                                   invisible="not e_invoice_pdf"/>
+                        </group>
+                    </group>
+                    <p class="text-muted">The invoice status updates automatically. Open the E-Invoice URL to view the document at ETA.</p>
+                </page>
+            </xpath>
             <xpath expr="//button[@name='action_cancel_electronic_invoice']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//widget[@name='web_ribbon'][@invisible='valid_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
             <xpath expr="//widget[@name='web_ribbon'][@invisible='invalid_flag != True']" position="attributes"><attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute></xpath>
