@@ -21,6 +21,95 @@ from ..models.eta_monitoring import error_details
 @tagged('post_install', '-at_install')
 class TestEtaReliability(TransactionCase):
 
+    def test_daily_monitor_excludes_backlog_even_after_new_job_and_issue_date(self):
+        now = fields.Datetime.now()
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.daily_alert_start_date', str(fields.Date.today()))
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        old = self.invoice(invoice_date=fields.Date.today() - timedelta(days=30)).eta_job_ids
+        old.write({'state': 'blocked', 'issue_date_policy': 'current', 'issue_date_approved_at': now})
+        new = self.invoice().eta_job_ids
+        # Historical recovery flags also attach to current-day failures.
+        new.write({'state': 'invalid', 'historical_review': True, 'historical_fingerprint': 'new-daily-failure'})
+        domain = monitor._eta_daily_alert_domain(now)
+        self.assertNotIn(old, self.env['tradeline.eta.job'].search(domain))
+        self.assertIn(new, self.env['tradeline.eta.job'].search(domain))
+        # A genuinely old invoice re-dated today must still stay out.
+        self.env.cr.execute('UPDATE account_move SET create_date=%s WHERE id=%s',
+                            [now - timedelta(days=30), new.move_id.id])
+        new.move_id.invalidate_recordset(['create_date'])
+        self.assertNotIn(new, self.env['tradeline.eta.job'].search(domain))
+
+    def test_daily_monitor_cutover_is_cairo_midnight_and_does_not_roll_forward(self):
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.daily_alert_start_date', '')
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        now = fields.Datetime.to_datetime('2026-11-05 22:30:00')
+        domain = monitor._eta_daily_alert_domain(now)
+        self.assertEqual(params.get_param('tradeline_eta_reliability.daily_alert_start_date'), '2026-11-06')
+        self.assertEqual(domain[0][2], fields.Datetime.to_datetime('2026-11-05 22:00:00'))
+        self.assertEqual(domain, monitor._eta_daily_alert_domain(now + timedelta(days=3)))
+        params.set_param('tradeline_eta_reliability.daily_alert_start_date', '2026-07-06')
+        self.assertEqual(monitor._eta_daily_alert_domain(now)[0][2],
+                         fields.Datetime.to_datetime('2026-07-05 21:00:00'))
+
+    def test_backlog_only_cannot_raise_daily_rejection_stall_or_progress(self):
+        now = fields.Datetime.now()
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.daily_alert_start_date', str(fields.Date.today()))
+        params.set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
+        params.set_param('tradeline_eta_reliability.last_processed_at', str(now - timedelta(hours=1)))
+        self.env.ref('tradeline_eta_reliability.cron_eta_queue').write({'active': True, 'nextcall': now + timedelta(minutes=1)})
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        old = self.invoice(invoice_date=fields.Date.today() - timedelta(days=30)).eta_job_ids
+        old.write({'state': 'blocked'})
+        daily_codes = lambda: {item['code'] for item in monitor._probe_crons(now) if item['code'].startswith('eta:daily_')}
+        self.assertFalse(daily_codes())
+        old.write({'state': 'queued', 'next_attempt': now - timedelta(hours=1)})
+        with patch.object(type(old), '_attention_domain', return_value=[('id', '=', old.id)]), patch.object(type(old), '_native_partial_progress_is_recent', return_value=False):
+            self.assertFalse(daily_codes())
+        new = self.invoice().eta_job_ids
+        new.write({'state': 'blocked'})
+        self.assertIn('eta:daily_rejected', daily_codes())
+        new.write({'state': 'queued', 'next_attempt': now - timedelta(hours=1)})
+        with patch.object(type(new), '_attention_domain', return_value=[('id', '=', new.id)]), patch.object(type(new), '_native_partial_progress_is_recent', return_value=False):
+            self.assertTrue({'eta:daily_stalled', 'eta:daily_progress'} <= daily_codes())
+
+    def test_legacy_backlog_retirement_is_silent_but_daily_recovery_notifies(self):
+        from odoo.addons.tradeline_operations_monitor.models.operations_monitor import signal
+        now = fields.Datetime.now()
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor.confirmation_checks = 1
+        monitor.incident_ids.unlink()
+        incidents = self.env['tradeline.operations.incident']
+        for code in ('eta:stalled', 'eta:rejected', 'eta:progress'):
+            incidents |= incidents.create({'monitor_id': monitor.id, 'code': code, 'title': 'Historical backlog',
+                'details': 'Old aggregate', 'severity': 'critical', 'state': 'open', 'last_notified_at': now})
+        notice = monitor._reconcile([], {'crons'}, now)
+        self.assertFalse(notice)
+        self.assertEqual(set(incidents.mapped('state')), {'resolved'})
+        self.assertTrue(all('does not mean the backlog was cleared' in item.details for item in incidents))
+        notice = monitor._reconcile([signal('eta:daily_rejected', 'Daily invoices', '1 new invoice', 'Review')], {'crons'}, now)
+        self.assertEqual(notice.mapped('code'), ['eta:daily_rejected'])
+        notice = monitor._reconcile([], {'crons'}, now + timedelta(minutes=1))
+        self.assertEqual(notice.mapped('code'), ['eta:daily_rejected'])
+        self.assertEqual(notice.state, 'resolved')
+
+    def test_daily_incident_link_keeps_all_history_available_outside_alert(self):
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.daily_alert_start_date', str(fields.Date.today()))
+        old = self.invoice(invoice_date=fields.Date.today() - timedelta(days=30)).eta_job_ids
+        new = self.invoice().eta_job_ids
+        (old | new).write({'state': 'blocked'})
+        incident = self.env['tradeline.operations.incident'].create({'monitor_id': monitor.id,
+            'code': 'eta:daily_rejected', 'title': 'Daily invoice', 'severity': 'warning'})
+        action = incident.action_eta_invoice_log()
+        self.assertIn(new, self.env['tradeline.eta.job'].search(action['domain']))
+        self.assertNotIn(old, self.env['tradeline.eta.job'].search(action['domain']))
+        self.assertEqual(monitor.action_eta_invoice_log()['res_model'], 'tradeline.eta.job')
+        self.assertTrue(old.exists())
+
     def test_first_submission_candidate_cannot_override_other_transmission_markers(self):
         cases=[({'attempts':1},{}),
                ({'duplicate_retry_at':fields.Datetime.now()+timedelta(minutes=5),
@@ -352,7 +441,7 @@ class TestEtaReliability(TransactionCase):
             self.assertTrue('customer ID' in job.required_action or 'product details' in job.required_action)
             with patch.object(type(jobs), 'search_count', side_effect=lambda domain, **kw: len(job.filtered_domain(domain))):
                 codes = [s['code'] for s in monitor._probe_crons(fields.Datetime.now())]
-            self.assertIn('eta:rejected', codes); self.assertNotIn('eta:stalled', codes)
+            self.assertIn('eta:daily_rejected', codes); self.assertNotIn('eta:daily_stalled', codes)
         job.write({'safe_to_retry': False, 'last_error': 'Automatic authority-history scan is in progress.'})
         self.assertFalse(job.needs_attention)
         self.assertNotIn(job, jobs.search([('needs_attention', '=', True)]))
@@ -394,7 +483,7 @@ class TestEtaReliability(TransactionCase):
         with patch.object(type(jobs), 'search_count', side_effect=lambda domain, **kw: len(job.filtered_domain(domain))):
             codes = {s['code'] for s in monitor._probe_crons(fields.Datetime.now())}
         self.assertTrue(job.needs_attention)
-        self.assertFalse(codes.intersection({'eta:stalled', 'eta:progress', 'eta:scheduler'}))
+        self.assertFalse(codes.intersection({'eta:daily_stalled', 'eta:daily_progress', 'eta:scheduler'}))
 
     def test_national_id_rule_keeps_foreign_and_business_identity_rules(self):
         foreign = self._id_rule_partner(mobile_type='foreigner', vat='TEST-PASSPORT',
@@ -448,7 +537,7 @@ class TestEtaReliability(TransactionCase):
         if not monitor:
             monitor = self.env['tradeline.operations.monitor'].create({})
         self.assertEqual(job.failures, 0)
-        self.assertIn('eta:stalled', [s['code'] for s in monitor._probe_crons(fields.Datetime.now())])
+        self.assertIn('eta:daily_stalled', [s['code'] for s in monitor._probe_crons(fields.Datetime.now())])
 
     def test_eta_alert_resolves_after_scheduler_recovers_but_not_after_failed_probe(self):
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
@@ -1092,7 +1181,7 @@ class TestEtaReliability(TransactionCase):
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
         monitor = monitor or self.env['tradeline.operations.monitor'].create({})
         self.assertEqual(monitor.action_eta_invoice_log()['res_model'], 'tradeline.eta.job')
-        for code, state in [('eta:rejected', 'blocked'), ('eta:stalled', 'unknown')]:
+        for code, state in [('eta:daily_rejected', 'blocked'), ('eta:daily_stalled', 'unknown')]:
             incident = self.env['tradeline.operations.incident'].search([('monitor_id', '=', monitor.id), ('code', '=', code)])
             incident = incident or self.env['tradeline.operations.incident'].create({
                 'monitor_id': monitor.id, 'code': code, 'title': 'ETA test incident',

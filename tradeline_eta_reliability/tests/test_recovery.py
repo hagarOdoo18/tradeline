@@ -182,6 +182,8 @@ class TestAutomaticRecovery(TransactionCase):
             self.reconcile(m)
 
     def test_progress_monitor_detects_a_healthy_scheduler_that_is_not_processing_jobs(self):
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.daily_alert_start_date', str(fields.Date.today() - timedelta(days=1)))
         self.invoice()
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
         monitor = monitor or self.env['tradeline.operations.monitor'].create({})
@@ -189,9 +191,9 @@ class TestAutomaticRecovery(TransactionCase):
         params.set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)
         params.set_param('tradeline_eta_reliability.last_processed_at', str(now - timedelta(minutes=16)))
         self.env.ref('tradeline_eta_reliability.cron_eta_queue').write({'active': True, 'failure_count': 0, 'nextcall': now})
-        self.assertIn('eta:progress', [signal['code'] for signal in monitor._probe_crons(now)])
+        self.assertIn('eta:daily_progress', [signal['code'] for signal in monitor._probe_crons(now)])
         params.set_param('tradeline_eta_reliability.last_processed_at', str(now))
-        self.assertNotIn('eta:progress', [signal['code'] for signal in monitor._probe_crons(now)])
+        self.assertNotIn('eta:daily_progress', [signal['code'] for signal in monitor._probe_crons(now)])
 
     def test_missing_product_coverage_and_mixed_signs_stay_held(self):
         m = self.invoice()
@@ -274,16 +276,18 @@ class TestAutomaticRecovery(TransactionCase):
         check_processing_window(self.env, now=datetime(2026, 10, 31, 8))
 
     def test_cutoff_configuration_failure_is_visible_and_finance_holds_survive_planned_pause(self):
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.daily_alert_start_date', str(fields.Date.today() - timedelta(days=1)))
         self.invoice().eta_job_ids.write({'state': 'blocked', 'last_error': 'Finance must correct the customer ID.'})
         monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
         monitor = monitor or self.env['tradeline.operations.monitor'].create({})
         self.cutoff('invalid')
         codes = {item['code'] for item in monitor._probe_crons(fields.Datetime.now())}
-        self.assertIn('eta:cutoff', codes); self.assertIn('eta:rejected', codes)
+        self.assertIn('eta:cutoff', codes); self.assertIn('eta:daily_rejected', codes)
         self.cutoff('2000-01-01 00:00:00')
         codes = {item['code'] for item in monitor._probe_crons(fields.Datetime.now())}
         self.assertNotIn('eta:cutoff', codes); self.assertNotIn('eta:scheduler', codes)
-        self.assertNotIn('eta:progress', codes); self.assertIn('eta:rejected', codes)
+        self.assertNotIn('eta:daily_progress', codes); self.assertIn('eta:daily_rejected', codes)
 
     def test_stopping_after_the_durable_attempt_marker_never_authorizes_a_resubmission(self):
         _m, j, _ = self.ready(); client = MagicMock()

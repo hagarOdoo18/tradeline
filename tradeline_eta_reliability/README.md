@@ -1,5 +1,24 @@
 # Reliable ETA processing
 
+## Daily operations alerts (6 November 2026)
+
+ETA document delay, rejection and no-progress alerts cover invoices created
+and dated on or after a fixed Cairo start date. The parameter
+`tradeline_eta_reliability.daily_alert_start_date` is initialized to the Cairo
+date of the first monitor check after this code release; production rollout
+sets it explicitly to `2026-11-06`. It does not advance each day, so unresolved
+new invoices continue to alert. Both the original invoice creation timestamp
+and invoice date must meet this boundary. Re-enrolling, retrying, re-dating the
+ETA request or refreshing an old job does not bring backlog into daily alerts.
+Historical flags do not exclude new invoices that later enter recovery.
+
+The old all-history aggregate incidents retire silently, without backlog
+recovery emails. New incidents use `eta:daily_*` codes and open the matching
+daily invoice cohort. The full ETA log and attention count retain all history;
+backlog processing, corrections, reconciliation and transport safeguards are
+unchanged. Scheduler/configuration failures still alert. This is a code-only
+release with no schema or installed-version change.
+
 ## Invoice QR codes on reprints (18.0.1.0.55)
 
 Invoice downloads and customer-email attachments check their cached PDF against
