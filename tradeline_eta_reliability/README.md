@@ -1,5 +1,11 @@
 # Reliable ETA processing
 
+Tax headers combine posted journal items of the same ETA tax type into one
+total. Separate invoice lines keep their own rates and tax subtypes. Repeated
+tax types on a single item are held locally for Finance correction, preserving
+the posted ledger and preventing another CF316 rejection. Formatting and
+validation never change accounting entries or use a second sender.
+
 ## Daily operations alerts (6 November 2026)
 
 ETA document delay, rejection and no-progress alerts cover invoices created

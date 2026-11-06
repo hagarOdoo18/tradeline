@@ -184,6 +184,16 @@ class AccountMove(models.Model):
                 eta_line['total'] = correct_total
         return lines, discount, sales, round(total, 4)
 
+    def _get_eta_tax_totals(self, tax_lines):
+        # Several posted journal items can share an ETA tax type (for example,
+        # separate VAT repartition accounts). ETA's header requires that type
+        # once, with its combined amount; individual invoice-line rates remain
+        # unchanged. Preserve Ahmed's rounding and untaxed-document fallback.
+        totals = defaultdict(Decimal)
+        for item in super()._get_eta_tax_totals(tax_lines):
+            totals[item['taxType']] += Decimal(str(item['amount']))
+        return [{'taxType': code, 'amount': float(amount)} for code, amount in totals.items()]
+
     def _check_extra_fields(self, invoice_params):
         invoice_params = super()._check_extra_fields(invoice_params)
         self.ensure_one()
