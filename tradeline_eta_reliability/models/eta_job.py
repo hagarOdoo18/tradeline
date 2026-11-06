@@ -282,6 +282,9 @@ class EtaJob(models.Model):
                 valid = False
             if not valid:
                 raise UserError(_('Invoice line %s has a non-positive or invalid quantity. ETA requires positive quantities; Finance must review the return/credit-note or replacement-invoice route. Nothing was submitted.', index))
+            tax_types = [item.get('taxType') for item in line.get('taxableItems', [])]
+            if len(tax_types) != len(set(tax_types)):
+                raise UserError(_('Invoice line %s repeats the same ETA tax type. Finance must correct the duplicate taxes on that line; nothing was submitted.', index))
         return True
 
     def _prepare(self):

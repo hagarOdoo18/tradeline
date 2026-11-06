@@ -141,6 +141,36 @@ class TestAutomaticRecovery(TransactionCase):
         with patch.object(type(m), '_prepare_invoice_aggregated_taxes', return_value=details), self.assertRaisesRegex(UserError, 'posted tax ledger'):
             self.reconcile(m)
 
+    def test_eta_header_combines_separate_posted_taxes_of_the_same_type(self):
+        vat2 = self.vat.copy({'name': 'Separate VAT repartition'})
+        move = self.invoice(specs=[(1, 114, 0, self.vat | self.wht), (1, 228, 0, vat2 | self.wht)])
+        tax_lines = move.line_ids.filtered('tax_line_id')
+        self.assertEqual(len(tax_lines.filtered(lambda line: line.tax_line_id.type_code_id.code == 'T1')), 2)
+        before = (move.amount_untaxed, move.amount_tax, move.amount_total, tuple(move.line_ids.mapped('balance')))
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Header formatting sent HTTP')):
+            totals = move._get_eta_tax_totals(tax_lines)
+        self.assertEqual(len(totals), 2)
+        by_type = {row['taxType']: row['amount'] for row in totals}
+        for code in ('T1', 'T4'):
+            booked = sum(abs(line.balance) for line in tax_lines if line.tax_line_id.type_code_id.code == code)
+            self.assertAlmostEqual(by_type[code], booked, places=4)
+        self.assertEqual(before, (move.amount_untaxed, move.amount_tax, move.amount_total, tuple(move.line_ids.mapped('balance'))))
+        self.assertEqual(move._get_eta_tax_totals(self.env['account.move.line']),
+                         [{'taxType': move.company_id.type_code_id.code or 'T1', 'amount': 0.0}])
+
+    def test_duplicate_tax_type_on_one_posted_line_requires_correction(self):
+        vat2 = self.vat.copy({'name': 'Duplicate VAT on the same item'})
+        move = self.invoice(specs=[(1, 114, 0, self.vat | vat2)])
+        before = (move.amount_untaxed, move.amount_tax, move.amount_total, tuple(move.line_ids.mapped('balance')))
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Duplicate tax validation sent HTTP')):
+            document = self.template(move)
+            document['invoiceLines'][0]['taxableItems'] = [
+                {'taxType': tax.type_code_id.code, 'subType': tax.sub_type_code_id.code,
+                 'rate': abs(tax.amount)} for tax in move.invoice_line_ids.tax_ids]
+            with self.assertRaisesRegex(UserError, 'repeats the same ETA tax type'):
+                move.eta_job_ids._validate_eta_line_quantities(document)
+        self.assertEqual(before, (move.amount_untaxed, move.amount_tax, move.amount_total, tuple(move.line_ids.mapped('balance'))))
+
     def test_egp_discount_included_tax_and_multiple_lines_use_posted_totals(self):
         m = self.invoice(specs=[(2, 114, 10, self.vat), (3, 225, 0, self.vat)])
         doc = self.reconcile(m)
