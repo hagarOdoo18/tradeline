@@ -1093,7 +1093,7 @@ class TestHistoricalRecovery(TransactionCase):
         original, current, proofs = self.presentation_documents(self.invoice())
         original['invoiceLines'][0].update(internalCode='', description='[OLD-REF] Apple iPad 11"  A16 128GB Silver')
         current['invoiceLines'][0]['description'] = 'Apple iPad 11 A16 128GB Silver'
-        self.assertTrue(match_document(*approved_presentation_pair(original, current, proofs)))
+        self.assertTrue(match_document(*approved_presentation_pair(original, current, proofs), safe_codes=['EXACT-EGS']))
         for description in ('Apple iPad 11 A16 256GB Silver', 'Apple iPad 11 A16 128GB Blue',
                             'Other product', 'Warranty Two Years', None):
             changed = json.loads(json.dumps(original)); changed['invoiceLines'][0]['description'] = description
