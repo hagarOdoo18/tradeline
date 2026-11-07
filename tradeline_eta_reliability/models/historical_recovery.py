@@ -61,6 +61,14 @@ def approved_presentation_pair(original, current, line_proofs=()):
         if isinstance(x, str) and isinstance(y, str) and x.upper() == y.upper() and x.upper() in allowed:
             a[key] = b[key] = x.upper()
 
+    def label(value):
+        if not isinstance(value, str):
+            return None
+        # Legacy product display names prefixed a bracketed internal reference
+        # and quoted screen inches. Retain every model/specification word.
+        value = re.sub(r'^\[[^\]\r\n]+\]\s*', '', value)
+        return ' '.join(value.replace('"', '').replace('\u201c', '').replace('\u201d', '').split()).casefold()
+
     enum_pair(left, right, 'documentType', ('I', 'C', 'D'))
     # Invoice v1.0 permits these optional descriptive/reference fields. Missing
     # versus enriched metadata is not a different sale; conflicting nonempty
@@ -96,7 +104,8 @@ def approved_presentation_pair(original, current, line_proofs=()):
                 continue
             identifiers = proof.get('internal_codes', ())
             old_sku, new_sku = old.get('internalCode', ''), new.get('internalCode', '')
-            if new_sku in identifiers and (old_sku in identifiers or old_sku == ''):
+            same_label = label(old.get('description')) is not None and label(old.get('description')) == label(new.get('description'))
+            if new_sku in identifiers and (old_sku in identifiers or old_sku == '' and same_label):
                 old['internalCode'] = new['internalCode'] = new_sku
             # Both mappings must be read from the SAME posted base Units UOM.
             # Merely seeing these codes in two receipts never authorizes this.
