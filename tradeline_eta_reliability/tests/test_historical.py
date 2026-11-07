@@ -12,7 +12,7 @@ from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
 from ..models.client import EtaClient, EtaError
-from ..models.historical_recovery import fiscal, fiscal_equal, leaf_codes, match_document
+from ..models.historical_recovery import fiscal, fiscal_equal, leaf_codes, match_document, approved_presentation_pair
 from ..models.catalogue_recovery import approval_identity, approved_usage
 
 
@@ -1055,6 +1055,99 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertFalse(job._historical_matches(dict(raw, status='Submitted'), source))
         alias.client_secret = 'different-secret'
         self.assertFalse(job._historical_matches(raw, source))
+
+    def presentation_documents(self, move):
+        original = self.document(move)
+        original['invoiceLines'][0].update(itemCode='EXACT-EGS', internalCode='OLD-UPC', unitType='C62')
+        current = json.loads(json.dumps(original))
+        original['documentType'] = 'i'
+        current['invoiceLines'][0].update(itemType='egs', internalCode='CURRENT-SKU', unitType='EA')
+        current.update(purchaseOrderReference='PO-123', salesOrderDescription='Normal VAT sales',
+                       proformaInvoiceNumber='', purchaseOrderDescription='',
+                       payment={'bankName': '', 'bankAddress': '', 'bankAccountNo': '',
+                                'bankAccountIBAN': '', 'swiftCode': '', 'terms': ''},
+                       delivery={'approach': '', 'packaging': '', 'dateValidity': '', 'exportPort': '',
+                                 'countryOfOrigin': 'EG', 'grossWeight': 0, 'netWeight': 0, 'terms': ''})
+        proof = {'item_code': 'EXACT-EGS', 'quantity': 1, 'internal_codes': ['OLD-UPC', 'CURRENT-SKU'],
+                 'base_unit_codes': ['C62', 'EA']}
+        return original, current, [proof]
+
+    def test_verified_legacy_presentation_matches_without_mutating_signed_documents(self):
+        original, current, proofs = self.presentation_documents(self.invoice())
+        before = json.dumps([original, current], sort_keys=True)
+        old, new = approved_presentation_pair(original, current, proofs)
+        self.assertTrue(match_document(old, new))
+        self.assertEqual(json.dumps([original, current], sort_keys=True), before)
+        self.assertFalse(match_document(original, current))
+
+    def test_units_and_skus_are_not_global_aliases(self):
+        original, current, proofs = self.presentation_documents(self.invoice())
+        for evidence in ([], [{}], [dict(proofs[0], item_code='OTHER')],
+                         [dict(proofs[0], quantity=2)], [dict(proofs[0], base_unit_codes=[])],
+                         [dict(proofs[0], internal_codes=['CURRENT-SKU'])]):
+            self.assertFalse(match_document(*approved_presentation_pair(original, current, evidence)))
+        changed = json.loads(json.dumps(original)); changed['invoiceLines'][0]['internalCode'] = ''
+        self.assertTrue(match_document(*approved_presentation_pair(changed, current, proofs)))
+
+    def test_presentation_compatibility_keeps_fiscal_identity_and_amount_changes_blocked(self):
+        original, current, proofs = self.presentation_documents(self.invoice())
+        for path, value in [('totalAmount', 101), ('netAmount', 101), ('internalID', 'OTHER'),
+                            ('documentType', 'C'), ('documentTypeVersion', '0.9'),
+                            ('receiver.id', '99999999999999'), ('receiver.name', 'Different buyer'),
+                            ('issuer.id', '987654321'), ('issuer.address.branchID', '2'),
+                            ('invoiceLines.0.itemCode', 'OTHER'), ('invoiceLines.0.quantity', 2),
+                            ('invoiceLines.0.unitType', 'BOX'), ('invoiceLines.0.itemType', 'GS1'),
+                            ('invoiceLines.0.unitValue.amountEGP', 101)]:
+            changed = json.loads(json.dumps(current)); node = changed; parts = path.split('.')
+            for part in parts[:-1]:
+                node = node[int(part)] if isinstance(node, list) else node.setdefault(part, {})
+            node[parts[-1]] = value
+            self.assertFalse(match_document(*approved_presentation_pair(original, changed, proofs)), path)
+        for field, value in [('rate', 0), ('subType', 'V001'), ('taxType', 'T4'), ('amount', 13)]:
+            a, b = json.loads(json.dumps(original)), json.loads(json.dumps(current))
+            a['invoiceLines'][0]['taxableItems'] = [{'taxType': 'T1', 'subType': 'V009', 'rate': 14, 'amount': 14}]
+            b['invoiceLines'][0]['taxableItems'] = [dict(a['invoiceLines'][0]['taxableItems'][0], **{field: value})]
+            self.assertFalse(match_document(*approved_presentation_pair(a, b, proofs)), field)
+
+    def test_nonempty_references_payment_shipping_and_unknown_extensions_stay_strict(self):
+        original, current, proofs = self.presentation_documents(self.invoice())
+        for field, a, b in [('purchaseOrderReference', 'DIFFERENT', 'PO-123'),
+                            ('salesOrderReference', None, 'SO-123'),
+                            ('payment', None, {'bankAccountNo': '123'}),
+                            ('payment', None, {'newField': ''}),
+                            ('delivery', None, dict(current['delivery'], grossWeight=1)),
+                            ('delivery', None, dict(current['delivery'], countryOfOrigin='US')),
+                            ('references', ['old-credit-source'], ['different-credit-source'])]:
+            old, new = json.loads(json.dumps(original)), json.loads(json.dumps(current))
+            if a is not None: old[field] = a
+            new[field] = b
+            self.assertFalse(match_document(*approved_presentation_pair(old, new, proofs)), field)
+
+    def test_only_valid_authority_receipts_enable_presentation_compatibility(self):
+        move = self.invoice(); original, current, proofs = self.presentation_documents(move); job = move.eta_job_ids
+        with patch.object(type(job), '_historical_presentation_proofs', return_value=proofs), \
+                patch.object(type(self.env['product.product']), 'search_count', return_value=1):
+            self.assertTrue(job._historical_matches({'status': 'Valid', 'document': original}, current))
+            for status in ('Invalid', 'Submitted', 'Cancelled', None):
+                self.assertFalse(job._historical_matches({'status': status, 'document': original}, current))
+
+    def test_formatting_only_approval_restores_uuid_without_any_transport_or_financial_change(self):
+        move = self.invoice(); original, current, proofs = self.presentation_documents(move); job = move.eta_job_ids
+        raw = {'uuid': 'already-approved-format', 'internalId': move.name, 'status': 'Valid', 'document': original}
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.line_ids.mapped('balance'))
+        history = {'from': fields.Datetime.now() - timedelta(days=400), 'to': fields.Datetime.now(), 'receipts': {raw['uuid']: 'Valid'}}
+        job.write({'state': 'review', 'historical_review': True})
+        client = MagicMock()
+        with patch.object(type(job), '_historical_source', return_value=current), \
+                patch.object(type(job), '_history_snapshot', return_value=history), \
+                patch.object(type(job), '_history_candidates', return_value=[raw]), \
+                patch.object(type(job), '_historical_presentation_proofs', return_value=proofs), \
+                patch.object(type(self.env['product.product']), 'search_count', return_value=1), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Reconciliation sent HTTP')):
+            job._review_historical(client)
+        self.assertEqual(job.state, 'valid'); self.assertEqual(move.e_invoice_uuid, raw['uuid'])
+        self.assertEqual(move.l10n_eg_uuid, raw['uuid']); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.line_ids.mapped('balance')))
 
     def native_conflict(self, move):
         attachment = self.env['ir.attachment'].create({'name': 'Existing native ETA evidence',

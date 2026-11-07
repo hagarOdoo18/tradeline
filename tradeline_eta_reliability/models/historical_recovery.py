@@ -47,6 +47,65 @@ def egp_rounding_pair(original, current):
         and Decimal(str(gross[0])) == Decimal(str(gross[1])))
 
 
+def approved_presentation_pair(original, current, line_proofs=()):
+    """Compare approved legacy formatting without changing either signed body.
+
+    The caller must require a currently Valid receipt. Unit/SKU differences
+    additionally need posted-line provenance; C62 and EA are NOT global aliases.
+    Amounts, rates, quantities, fiscal codes and buyer identity remain intact.
+    """
+    left, right = deepcopy(original), deepcopy(current)
+
+    def enum_pair(a, b, key, allowed):
+        x, y = a.get(key), b.get(key)
+        if isinstance(x, str) and isinstance(y, str) and x.upper() == y.upper() and x.upper() in allowed:
+            a[key] = b[key] = x.upper()
+
+    enum_pair(left, right, 'documentType', ('I', 'C', 'D'))
+    # Invoice v1.0 permits these optional descriptive/reference fields. Missing
+    # versus enriched metadata is not a different sale; conflicting nonempty
+    # references, the invoice ID and sales-order identity remain strict.
+    # https://sdk.invoicing.eta.gov.eg/documents/invoice-v1-0/
+    for key in ('proformaInvoiceNumber', 'purchaseOrderReference', 'purchaseOrderDescription', 'salesOrderDescription'):
+        a, b = left.get(key), right.get(key)
+        if (a in (None, '') and (b is None or isinstance(b, str))
+                or b in (None, '') and (a is None or isinstance(a, str))):
+            left.pop(key, None); right.pop(key, None)
+    payment_keys = {'bankName', 'bankAddress', 'bankAccountNo', 'bankAccountIBAN', 'swiftCode', 'terms'}
+    for document in (left, right):
+        payment = document.get('payment')
+        if isinstance(payment, dict) and set(payment) <= payment_keys and all(v == '' for v in payment.values()):
+            document.pop('payment')
+        # The Ahmed domestic default adds no shipment data. Do not erase real
+        # origin, weights, instructions, export data or unknown extension keys.
+        delivery = document.get('delivery')
+        if (document.get('documentType') == 'I'
+                and document.get('issuer', {}).get('address', {}).get('country') == 'EG'
+                and document.get('receiver', {}).get('address', {}).get('country') == 'EG'
+                and delivery == {'approach': '', 'packaging': '', 'dateValidity': '', 'exportPort': '',
+                                 'countryOfOrigin': 'EG', 'grossWeight': 0, 'netWeight': 0, 'terms': ''}):
+            document.pop('delivery')
+    old_lines, new_lines = left.get('invoiceLines', []), right.get('invoiceLines', [])
+    if len(old_lines) == len(new_lines):
+        for index, (old, new) in enumerate(zip(old_lines, new_lines)):
+            enum_pair(old, new, 'itemType', ('EGS', 'GS1'))
+            proof = line_proofs[index] if index < len(line_proofs) else {}
+            if not (proof.get('item_code') and old.get('itemCode') == new.get('itemCode') == proof['item_code']
+                    and old.get('itemType') == new.get('itemType')
+                    and old.get('quantity') == new.get('quantity') == proof.get('quantity')):
+                continue
+            identifiers = proof.get('internal_codes', ())
+            old_sku, new_sku = old.get('internalCode', ''), new.get('internalCode', '')
+            if new_sku in identifiers and (old_sku in identifiers or old_sku == ''):
+                old['internalCode'] = new['internalCode'] = new_sku
+            # Both mappings must be read from the SAME posted base Units UOM.
+            # Merely seeing these codes in two receipts never authorizes this.
+            if (proof.get('base_unit_codes') == ['C62', 'EA']
+                    and old.get('unitType') == 'C62' and new.get('unitType') == 'EA'):
+                old['unitType'] = 'EA'
+    return left, right
+
+
 def match_document(original, current, safe_codes=(), trusted_issuer=False, approved_egp_rounding=False, issuer_name_aliases=()):
     """Permit verified master-label/address drift, never fiscal or identity drift."""
     def normalize(document, other):
@@ -412,6 +471,11 @@ class EtaHistoricalRecovery(models.Model):
             code = line.get('itemCode')
             if code and 'e_invoicing_code' in products._fields and products.search_count([('e_invoicing_code', '=', code)]) == 1:
                 safe_codes.add(code)
+        # This compatibility layer is for restoring an existing Valid receipt
+        # only. It cannot release an Invalid/Submitted document for a new POST.
+        if raw.get('status') == 'Valid':
+            document, current = approved_presentation_pair(
+                document, current, self._historical_presentation_proofs(current, safe_codes))
         issuer = current.get('issuer'); trusted = False
         if move.company_id.partner_id.street and move.company_id.partner_id.city:
             for job in self.sudo().search([('company_id', '=', self.company_id.id), ('state', '=', 'valid'), ('payload', '!=', False)], order='checked_at desc', limit=1000):
@@ -440,6 +504,31 @@ class EtaHistoricalRecovery(models.Model):
                 and re.sub(r'\D', '', str(document.get('issuer', {}).get('id', ''))) == rin
                 and abs(float(document.get('totalAmount', -1)) - expected_total) < .005
                 and abs(Decimal(str(document.get('netAmount', -1))) - Decimal(str(expected_net))) < (Decimal('0.009') if approved_rounding else Decimal('0.005')))
+
+    def _historical_presentation_proofs(self, current, safe_codes):
+        """Local metadata only: never authenticate or call the native connector."""
+        source = self.move_id.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
+        lines = current.get('invoiceLines', [])
+        if len(source) != len(lines):
+            return []
+        base_unit = self.env.ref('uom.product_uom_unit')
+        proofs = []
+        for posted, line in zip(source, lines):
+            product = posted.product_id
+            owner = product._eta_catalogue_source_product(self.company_id)
+            proof = {}
+            if (line.get('itemCode') in safe_codes and line.get('itemCode') == owner.e_invoicing_code
+                    and line.get('quantity') == abs(posted.quantity)):
+                proof = {'item_code': line['itemCode'], 'quantity': line['quantity'],
+                         'internal_codes': [value for p in (product, owner)
+                                            for value in (p.barcode, p.default_code) if isinstance(value, str) and value]}
+                uom = posted.product_uom_id
+                if (uom == base_unit and uom.factor == 1
+                        and 'l10n_eg_unit_code_id' in uom._fields and 'eta_uom_id' in uom._fields
+                        and uom.l10n_eg_unit_code_id.code == 'C62' and uom.eta_uom_id.code == 'EA'):
+                    proof['base_unit_codes'] = ['C62', 'EA']
+            proofs.append(proof)
+        return proofs
 
     def _optional_person_id_scope(self, document):
         receiver = document.get('receiver', {}) if isinstance(document, dict) else {}
@@ -479,7 +568,7 @@ class EtaHistoricalRecovery(models.Model):
             return False
         return self._optional_person_id_rejection(original, current, validation)
 
-    def _historical_archive(self, proof, receipts, action):
+    def _historical_archive(self, proof, receipts, action, current_source=None):
         move = self.move_id
         data = {'action': action, 'history_from': str(proof['from']), 'history_to': str(proof.get('verified_through', proof['to'])),
                 'baseline_history_to': str(proof['to']),
@@ -494,6 +583,9 @@ class EtaHistoricalRecovery(models.Model):
                 'prior_date_approved_by': self.issue_date_approved_by.id, 'prior_date_approved_at': str(self.issue_date_approved_at or ''),
                 'prior_date_approval_note': self.issue_date_approval_note,
                 'prior_attempted_at': str(self.attempted_at or ''), 'authority_receipts': receipts}
+        if current_source is not None:
+            data['current_posted_source'] = current_source
+            data['comparison_policy'] = 'Valid receipt only; verified posted product/SKU/base-unit presentation compatibility'
         self.env['ir.attachment'].sudo().create({'name': 'ETA_historical_recovery_%s.json' % self.id,
             'res_model': 'account.move', 'res_id': move.id, 'company_id': move.company_id.id,
             'mimetype': 'application/json', 'raw': json.dumps(data, ensure_ascii=False, default=str).encode(), 'public': False})
@@ -569,7 +661,7 @@ class EtaHistoricalRecovery(models.Model):
                     raise UserError(_('Existing Valid receipt differs from posted source: %s. Reconcile these fields; nothing was resubmitted.', '; '.join(paths)))
                 if self.env['account.move'].sudo().search_count([('id', '!=', move.id), '|', ('e_invoice_uuid', '=', receipt['uuid']), ('l10n_eg_uuid', '=', receipt['uuid'])]):
                     raise UserError(_('The existing approved ETA UUID belongs to another Odoo invoice.'))
-                self._historical_archive(proof, receipts, 'Restore existing approved original; no submission')
+                self._historical_archive(proof, receipts, 'Restore existing approved original; no submission', current_source=current)
                 document = receipt['document']; document = json.loads(document) if isinstance(document, str) else document
                 signature = next((s.get('value') for s in document.get('signatures', []) if s.get('signatureType') == 'I'), False)
                 move.write({'e_invoice_uuid': False, 'e_invoice_long_id': False, 'e_invoice_date': False,
