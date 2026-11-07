@@ -1,7 +1,7 @@
 {
     'name': 'Tradeline ETA Reliable Submission',
     'author': 'Tradeline',
-    'version': '18.0.1.0.58',
+    'version': '18.0.1.0.59',
     'license': 'LGPL-3',
     'depends': ['egyptian_electronic_invoice', 'l10n_eg_edi_eta', 'tradeline_operations_monitor'],
     'data': ['security/security.xml', 'security/ir.model.access.csv', 'data/cron.xml',
