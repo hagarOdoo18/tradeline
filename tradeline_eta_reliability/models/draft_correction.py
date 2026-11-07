@@ -144,6 +144,8 @@ class AccountMoveDraftCorrection(models.Model):
         # correction resets (_eta_verified_reset). They must bypass the submission
         # reset guard below, which protects untrusted UI resets only.
         if (self.env.context.get('_eta_apply_tax')
+                or (self.env.context.get('_eta_admin_apply')
+                    and self.env.user.has_group('base.group_system'))
                 or self.env.context.get('_eta_verified_reset') is _VERIFIED_RESET):
             return super().button_draft()
         self.check_access('write')

@@ -824,7 +824,7 @@ class AccountMove(models.Model):
 
             was_posted = move.state == 'posted'
             if was_posted:
-                move.with_context(_eta_apply_tax=True).button_draft()
+                move.with_context(_eta_apply_tax=True, _eta_admin_apply=True).button_draft()
 
             for line in lines_to_update:
                 taxes = line.sale_line_ids.mapped('tax_id')
@@ -833,7 +833,7 @@ class AccountMove(models.Model):
                 })
 
             if was_posted:
-                move.with_context(_eta_apply_tax=True).action_post()
+                move.with_context(_eta_apply_tax=True, _eta_admin_apply=True).action_post()
 
             updated_count += 1
             move.message_post(

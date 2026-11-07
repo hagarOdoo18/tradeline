@@ -186,7 +186,9 @@ class EtaBranchInvoiceAccess(models.Model):
                 if not name.startswith(('e_invoice_', 'eta_', 'l10n_eg_'))}
 
     def button_draft(self):
-        if not self.env['res.users']._eta_has_workspace_access():
+        admin_apply = (self.env.context.get('_eta_admin_apply')
+                       and self.env.user.has_group('base.group_system'))
+        if not admin_apply and not self.env['res.users']._eta_has_workspace_access():
             controlled = self.filtered(lambda move: move._eta_controls_draft_reset())
             if any(not move._eta_can_reset_unsent() for move in controlled):
                 raise UserError(_('Central accounting must review changes to this posted invoice.'))
