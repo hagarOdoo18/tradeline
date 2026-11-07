@@ -122,6 +122,11 @@ class AccountMoveDraftCorrection(models.Model):
         return True
 
     def _edi_allow_button_draft(self):
+        # Admin Odoo-only tax apply: allow the reset without an EDI cancellation.
+        # The receipt is preserved and nothing is re-sent (see _eta_apply_tax path).
+        if (self.env.context.get('_eta_admin_apply')
+                and self.env.user.has_group('base.group_system')):
+            return True
         if self._eta_controls_draft_reset():
             return self._check_edi_documents_for_reset_to_draft()
         return super()._edi_allow_button_draft()
