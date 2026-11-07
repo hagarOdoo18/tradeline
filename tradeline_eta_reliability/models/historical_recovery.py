@@ -7,7 +7,7 @@ import sqlite3
 import time
 from copy import deepcopy
 from contextlib import closing
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from odoo import api, fields, models, _
@@ -15,6 +15,7 @@ from odoo.exceptions import UserError
 
 from .client import EtaError
 from .eta_job import PROCESSING_REVISION
+from .attachment_content import attachment_bytes
 
 HISTORY_INDEX = '/home/odoo/data/eta-2026-authority-index.sqlite3'
 
@@ -47,7 +48,110 @@ def egp_rounding_pair(original, current):
         and Decimal(str(gross[0])) == Decimal(str(gross[1])))
 
 
-def approved_presentation_pair(original, current, line_proofs=()):
+def verified_egp_line_allocation(original, current):
+    """Prove a cent/millime allocation, never widen the general tolerance.
+
+    Both documents must have identical cent-booked headers, bases, quantities
+    and unit prices. VAT14/WHT1 amounts must add up exactly to those same
+    headers and explain every line total; only a <=1-cent allocation can vary.
+    """
+    def number(value):
+        if type(value) not in (int, float):
+            raise ValueError('Not a JSON number')
+        result = Decimal(str(value))
+        if not result.is_finite():
+            raise ValueError('Nonfinite amount')
+        return result
+
+    try:
+        headers = ('netAmount', 'totalAmount', 'totalSalesAmount', 'totalDiscountAmount',
+                   'extraDiscountAmount', 'totalItemsDiscountAmount', 'taxTotals')
+        if any(key not in original or original[key] != current.get(key) for key in headers):
+            return False
+        if any(number(original[key]) != 0 for key in ('totalDiscountAmount', 'extraDiscountAmount', 'totalItemsDiscountAmount')):
+            return False
+        left, right = original['invoiceLines'], current['invoiceLines']
+        if len(left) < 2 or len(left) != len(right):
+            return False
+        for document in (original, current):
+            taxes = document['taxTotals']
+            if len(taxes) != 2 or {tax['taxType'] for tax in taxes} != {'T1', 'T4'}:
+                return False
+            totals = {tax['taxType']: number(tax['amount']) for tax in taxes}
+            if any(amount < 0 or amount % Decimal('.01') for amount in totals.values()):
+                return False
+            lines = document['invoiceLines']
+            if (sum(number(line['netTotal']) for line in lines) != number(document['netAmount'])
+                    or sum(number(line['salesTotal']) for line in lines) != number(document['totalSalesAmount'])
+                    or sum(number(line['total']) for line in lines) != number(document['totalAmount'])
+                    or number(document['netAmount']) + totals['T1'] - totals['T4'] != number(document['totalAmount'])):
+                return False
+            for kind in ('T1', 'T4'):
+                if sum(number(tax['amount']) for line in lines for tax in line['taxableItems'] if tax['taxType'] == kind) != totals[kind]:
+                    return False
+        for old, new in zip(left, right):
+            if (old['unitValue']['currencySold'] != 'EGP' or new['unitValue']['currencySold'] != 'EGP'
+                    or old['unitValue']['amountEGP'] != new['unitValue']['amountEGP']
+                    or number(old['quantity']) <= 0 or old['quantity'] != new['quantity']
+                    or old['netTotal'] != new['netTotal'] or old['salesTotal'] != new['salesTotal']
+                    or old.get('discount', {}) != new.get('discount', {})):
+                return False
+            if any(number(old[key]) % Decimal('.01') for key in ('netTotal', 'salesTotal', 'total')):
+                return False
+            for line in (old, new):
+                if any(number(line.get(key, 0)) != 0 for key in ('itemsDiscount', 'valueDifference', 'taxableFees', 'totalTaxableFees')):
+                    return False
+                if any(number(line.get('discount', {}).get(key, 0)) != 0 for key in ('rate', 'amount')):
+                    return False
+                taxes = line['taxableItems']
+                if (len(taxes) != 2 or {tax['taxType'] for tax in taxes} != {'T1', 'T4'}
+                        or any((tax['subType'], tax['rate']) != (('V009', 14) if tax['taxType'] == 'T1' else ('W002', 1)) for tax in taxes)
+                        or number(line['total']) != number(line['netTotal']) + sum(
+                            number(tax['amount']) * (-1 if tax['taxType'] == 'T4' else 1) for tax in taxes)):
+                    return False
+            for a, b in zip(old['taxableItems'], new['taxableItems']):
+                if (a['taxType'] != b['taxType'] or number(a['amount']) < 0 or number(b['amount']) < 0
+                        or number(a['amount']) % Decimal('.01') or number(b['amount']) % Decimal('.001')
+                        or abs(number(a['amount']) - number(b['amount'])) >= Decimal('.009')):
+                    return False
+            if abs(number(old['total']) - number(new['total'])) > Decimal('.01'):
+                return False
+        return True
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
+def confirmed_receiver_pair(original, current, confirmed=False, optional_person=False):
+    """A fresh, invoice-bound second ETA receipt can confirm master-data drift."""
+    left, right = deepcopy(original), deepcopy(current)
+    old, new = left.get('receiver', {}), right.get('receiver', {})
+    if not confirmed:
+        return left, right, False
+    old_address, new_address = old.get('address', {}), new.get('address', {})
+    country = old_address.get('country')
+    same_identity = (old.get('type') == new.get('type') and old.get('id') == new.get('id')
+                     and country == new_address.get('country'))
+    identity = str(old.get('id') or '')
+    if (same_identity and old.get('type') == 'B' and country == 'EG'
+            and re.fullmatch(r'[0-9]{9}', identity) and old.get('name') and new.get('name')):
+        old['name'] = new['name']
+    elif (same_identity and old.get('type') == 'F' and country == 'SG'
+          and re.fullmatch(r'(19|20)[0-9]{7}[A-Z]', identity) and old.get('name') == new.get('name') and old.get('name')):
+        # Singapore local-company UEN; the same ID/name/country must also be
+        # present on the independently fetched, currently Valid confirmation.
+        old['address'] = deepcopy(new_address)
+        return left, right, True
+    elif (optional_person and old.get('type') == new.get('type') == 'P'
+          and country == new_address.get('country') == 'EG' and not identity
+          and re.fullmatch(r'[0-9]{14}', str(new.get('id') or ''))
+          and old.get('name') == new.get('name') and old.get('name')):
+        # The approved original remains anonymous. Never invent an ID on it
+        # or discard a nonempty government ID/name to manufacture a match.
+        old['address'] = new['address'] = {'country': 'EG'}
+    return left, right, False
+
+
+def approved_presentation_pair(original, current, line_proofs=(), posted_reversal_reference=None, confirmed_foreign=False):
     """Compare approved legacy formatting without changing either signed body.
 
     The caller must require a currently Valid receipt. Unit/SKU differences
@@ -70,6 +174,10 @@ def approved_presentation_pair(original, current, line_proofs=()):
         return ' '.join(value.replace('"', '').replace('\u201c', '').replace('\u201d', '').split()).casefold()
 
     enum_pair(left, right, 'documentType', ('I', 'C', 'D'))
+    if (left.get('documentType') == right.get('documentType') == 'C'
+            and posted_reversal_reference and left.get('purchaseOrderReference') == posted_reversal_reference
+            and right.get('purchaseOrderReference') in ('NA', 'N/A')):
+        left.pop('purchaseOrderReference', None); right.pop('purchaseOrderReference', None)
     # Invoice v1.0 permits these optional descriptive/reference fields. Missing
     # versus enriched metadata is not a different sale; conflicting nonempty
     # references, the invoice ID and sales-order identity remain strict.
@@ -87,9 +195,9 @@ def approved_presentation_pair(original, current, line_proofs=()):
         # The Ahmed domestic default adds no shipment data. Do not erase real
         # origin, weights, instructions, export data or unknown extension keys.
         delivery = document.get('delivery')
-        if (document.get('documentType') == 'I'
+        if (document.get('documentType') in ('I', 'C')
                 and document.get('issuer', {}).get('address', {}).get('country') == 'EG'
-                and document.get('receiver', {}).get('address', {}).get('country') == 'EG'
+                and (document.get('receiver', {}).get('address', {}).get('country') == 'EG' or confirmed_foreign)
                 and delivery == {'approach': '', 'packaging': '', 'dateValidity': '', 'exportPort': '',
                                  'countryOfOrigin': 'EG', 'grossWeight': 0, 'netWeight': 0, 'terms': ''}):
             document.pop('delivery')
@@ -483,8 +591,18 @@ class EtaHistoricalRecovery(models.Model):
         # This compatibility layer is for restoring an existing Valid receipt
         # only. It cannot release an Invalid/Submitted document for a new POST.
         if raw.get('status') == 'Valid':
+            old_receiver, new_receiver = document.get('receiver', {}), current.get('receiver', {})
+            confirmation = (old_receiver != new_receiver and self._historical_receiver_confirmed(raw, current))
+            optional = self._optional_person_id_scope(document) and self._optional_person_id_scope(current)
+            document, current, foreign = confirmed_receiver_pair(document, current, confirmation, optional)
+            reversal = self._historical_reversal_reference(document, current)
             document, current = approved_presentation_pair(
-                document, current, self._historical_presentation_proofs(current, safe_codes))
+                document, current, self._historical_presentation_proofs(current, safe_codes),
+                posted_reversal_reference=reversal, confirmed_foreign=foreign)
+            if approved_rounding and verified_egp_line_allocation(document, current):
+                document = deepcopy(document)
+                for old, new in zip(document['invoiceLines'], current['invoiceLines']):
+                    old['total'] = new['total']
         issuer = current.get('issuer'); trusted = False
         if move.company_id.partner_id.street and move.company_id.partner_id.city:
             for job in self.sudo().search([('company_id', '=', self.company_id.id), ('state', '=', 'valid'), ('payload', '!=', False)], order='checked_at desc', limit=1000):
@@ -538,6 +656,60 @@ class EtaHistoricalRecovery(models.Model):
                     proof['base_unit_codes'] = ['C62', 'EA']
             proofs.append(proof)
         return proofs
+
+    def _historical_reversal_reference(self, document, current):
+        move = self.move_id
+        if (move.move_type != 'out_refund' or not move.reversed_entry_id
+                or move.reversed_entry_id.company_id != move.company_id):
+            return None
+        reference = move.ref or ''
+        prefix = 'Reversal of: ' + move.reversed_entry_id.name
+        if (reference == prefix or reference.startswith(prefix + ',')) and document.get('purchaseOrderReference') == reference:
+            if (current.get('purchaseOrderReference') in ('NA', 'N/A')
+                    and getattr(move, 'reference_number', None) == current['purchaseOrderReference']):
+                return reference
+        return None
+
+    def _historical_receiver_confirmed(self, raw, current):
+        """Only a scoped private proof from two actual Valid Ahmed GETs counts."""
+        attachment = self.env['ir.attachment'].sudo().search([
+            ('res_model', '=', self._name), ('res_id', '=', self.id), ('company_id', '=', self.company_id.id),
+            ('public', '=', False), ('name', '=', 'ETA_receiver_reconciliation_proof_%s.json' % self.id)],
+            order='id desc', limit=1)
+        if not attachment:
+            return False
+        try:
+            content = attachment_bytes(attachment)
+            digest = self.env['ir.config_parameter'].sudo().get_param(
+                'tradeline_eta_reliability.receiver_reconciliation.%s' % self.id)
+            if not digest or hashlib.sha256(content).hexdigest() != digest:
+                return False
+            proof = json.loads(content)
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(proof['captured_utc'])
+            move = self.move_id; company = self.company_id
+            rin = re.sub(r'\D', '', company.vat or '')
+            if (age < timedelta(0) or age > timedelta(hours=1)
+                    or proof['job'] != self.id or proof['move'] != move.id or proof['partner'] != move.partner_id.id
+                    or proof['company'] != company.id or proof['environment'] != company.config_type
+                    or proof['issuer_rin'] != rin or not re.fullmatch(r'[0-9]{9}', rin)):
+                return False
+            original, confirmation = proof['original_receipt'], proof['confirmation_receipt']
+            other = self.env['account.move'].sudo().browse(proof['confirmation_move']).exists()
+            if (not other or other == move or other.company_id != company or other.partner_id != move.partner_id
+                    or other.e_invoice_status != 'Valid' or other.e_invoice_uuid != confirmation.get('uuid')
+                    or original.get('status') != confirmation.get('status') or original.get('status') != 'Valid'
+                    or raw.get('status') != 'Valid' or original.get('uuid') != raw.get('uuid')
+                    or original.get('internalId') != move.name or confirmation.get('internalId') != other.name):
+                return False
+            def document(value):
+                doc = value['document']
+                return json.loads(doc) if isinstance(doc, str) else doc
+            old, fresh, incoming = document(original), document(confirmation), document(raw)
+            return (old == incoming and old['issuer']['id'] == fresh['issuer']['id'] == rin
+                    and old['internalID'] == move.name and fresh['internalID'] == other.name
+                    and fresh['receiver'] == current['receiver'])
+        except (KeyError, TypeError, ValueError, ArithmeticError):
+            return False
 
     def _optional_person_id_scope(self, document):
         receiver = document.get('receiver', {}) if isinstance(document, dict) else {}
@@ -594,7 +766,11 @@ class EtaHistoricalRecovery(models.Model):
                 'prior_attempted_at': str(self.attempted_at or ''), 'authority_receipts': receipts}
         if current_source is not None:
             data['current_posted_source'] = current_source
-            data['comparison_policy'] = 'Valid receipt only; verified posted product/SKU/base-unit presentation compatibility'
+            data['comparison_policy'] = 'Valid receipt only; posted presentation provenance, exact-header EGP allocation arithmetic and invoice-bound fresh receiver proofs'
+            proof = self.env['ir.attachment'].sudo().search([('res_model', '=', self._name),
+                ('res_id', '=', self.id), ('company_id', '=', self.company_id.id), ('public', '=', False),
+                ('name', '=', 'ETA_receiver_reconciliation_proof_%s.json' % self.id)], order='id desc', limit=1)
+            data['receiver_confirmation_proof_id'] = proof.id
         self.env['ir.attachment'].sudo().create({'name': 'ETA_historical_recovery_%s.json' % self.id,
             'res_model': 'account.move', 'res_id': move.id, 'company_id': move.company_id.id,
             'mimetype': 'application/json', 'raw': json.dumps(data, ensure_ascii=False, default=str).encode(), 'public': False})

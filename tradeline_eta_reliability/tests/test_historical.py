@@ -2,7 +2,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import ExitStack, closing, contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
@@ -12,7 +12,8 @@ from odoo.exceptions import UserError
 from odoo.tests import TransactionCase, tagged
 
 from ..models.client import EtaClient, EtaError
-from ..models.historical_recovery import fiscal, fiscal_equal, leaf_codes, match_document, approved_presentation_pair
+from ..models.historical_recovery import (fiscal, fiscal_equal, leaf_codes, match_document,
+    approved_presentation_pair, verified_egp_line_allocation, confirmed_receiver_pair)
 from ..models.catalogue_recovery import approval_identity, approved_usage
 
 
@@ -1448,3 +1449,171 @@ class TestHistoricalRecovery(TransactionCase):
         self.assertEqual(job.state, 'valid'); self.assertFalse(job.last_error or job.needs_attention)
         self.assertEqual(move.e_invoice_uuid, 'kept-approved'); client.request.assert_not_called()
         self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax))
+
+    def allocation_documents(self, move):
+        original = self.document(move)
+        original['invoiceLines'] *= 2
+        original['invoiceLines'] = json.loads(json.dumps(original['invoiceLines']))
+        for line in original['invoiceLines']:
+            line.update(netTotal=100, salesTotal=100, total=113,
+                taxableItems=[{'taxType': 'T1', 'subType': 'V009', 'rate': 14, 'amount': 14},
+                              {'taxType': 'T4', 'subType': 'W002', 'rate': 1, 'amount': 1}])
+        original.update(netAmount=200, totalSalesAmount=200, totalAmount=226, totalDiscountAmount=0,
+            extraDiscountAmount=0, totalItemsDiscountAmount=0,
+            taxTotals=[{'taxType': 'T1', 'amount': 28}, {'taxType': 'T4', 'amount': 2}])
+        current = json.loads(json.dumps(original))
+        current['invoiceLines'][0].update(total=112.99,
+            taxableItems=[{'taxType': 'T1', 'subType': 'V009', 'rate': 14, 'amount': 13.995},
+                          {'taxType': 'T4', 'subType': 'W002', 'rate': 1, 'amount': 1.005}])
+        current['invoiceLines'][1].update(total=113.01,
+            taxableItems=[{'taxType': 'T1', 'subType': 'V009', 'rate': 14, 'amount': 14.005},
+                          {'taxType': 'T4', 'subType': 'W002', 'rate': 1, 'amount': .995}])
+        return original, current
+
+    def test_exact_header_line_allocation_needs_balanced_arithmetic_and_unchanged_fiscal_inputs(self):
+        original, current = self.allocation_documents(self.invoice())
+        before = json.dumps([original, current], sort_keys=True)
+        self.assertTrue(verified_egp_line_allocation(original, current))
+        self.assertEqual(before, json.dumps([original, current], sort_keys=True))
+        for path, value in [('totalAmount', 226.01), ('netAmount', 200.01), ('totalDiscountAmount', .01),
+                            ('taxTotals.0.amount', 28.001), ('invoiceLines.0.total', 112.989),
+                            ('invoiceLines.0.quantity', 2), ('invoiceLines.0.netTotal', 100.001),
+                            ('invoiceLines.0.unitValue.amountEGP', 100.001),
+                            ('invoiceLines.0.unitValue.currencySold', 'USD'), ('invoiceLines.0.itemsDiscount', .001),
+                            ('invoiceLines.0.taxableItems.0.rate', 0),
+                            ('invoiceLines.0.taxableItems.0.subType', 'V001'),
+                            ('invoiceLines.0.taxableItems.0.taxType', 'T2')]:
+            changed = json.loads(json.dumps(current)); node = changed; parts = path.split('.')
+            for part in parts[:-1]: node = node[int(part)] if isinstance(node, list) else node.setdefault(part, {})
+            node[parts[-1]] = value
+            self.assertFalse(verified_egp_line_allocation(original, changed), path)
+        changed = json.loads(json.dumps(current))
+        for index, (vat, wht, total) in enumerate([(13.994, 1.006, 112.988), (14.006, .994, 113.012)]):
+            changed['invoiceLines'][index]['taxableItems'][0]['amount'] = vat
+            changed['invoiceLines'][index]['taxableItems'][1]['amount'] = wht
+            changed['invoiceLines'][index]['total'] = total
+        self.assertFalse(verified_egp_line_allocation(original, changed))
+
+    def test_line_allocation_restores_valid_only_with_no_transport_or_ledger_change(self):
+        move = self.invoice(); move.button_draft()
+        vat = self.env['account.tax'].create({'name': 'Allocation VAT', 'amount': 14,
+            'type_tax_use': 'sale', 'company_id': self.company.id})
+        wht = self.env['account.tax'].create({'name': 'Allocation WHT', 'amount': -1,
+            'type_tax_use': 'sale', 'company_id': self.company.id})
+        move.write({'invoice_line_ids': [Command.clear()] + [Command.create({'name': name,
+            'account_id': self.income.id, 'quantity': 1, 'price_unit': 100,
+            'tax_ids': [Command.set((vat + wht).ids)]}) for name in ('Allocation A', 'Allocation B')]})
+        move.action_post(); self.assertEqual((move.amount_untaxed, move.amount_total), (200, 226))
+        # The shared Community QA company is USD. Supply the EGP company
+        # context required by this receipt-only, cent-booked EGP policy.
+        currency = patch.object(type(self.company), 'currency_id', self.env.ref('base.EGP'))
+        currency.start(); self.addCleanup(currency.stop)
+        original, current = self.allocation_documents(move); job = move.eta_job_ids
+        raw = {'uuid': 'ORIGINALALLOCATION1234567890', 'internalId': move.name, 'status': 'Valid', 'document': original}
+        self.assertTrue(job._historical_matches(raw, current))
+        for status in ('Invalid', 'Submitted', 'Cancelled'):
+            self.assertFalse(job._historical_matches(dict(raw, status=status), current))
+        before = (move.invoice_date, move.amount_total, move.amount_tax, move.line_ids.mapped('balance'), job.attempts)
+        history = {'from': fields.Datetime.now() - timedelta(days=400), 'to': fields.Datetime.now(), 'receipts': {raw['uuid']: 'Valid'}}
+        job.write({'state': 'review', 'historical_review': True}); client = MagicMock()
+        with patch.object(type(job), '_historical_source', return_value=current), \
+                patch.object(type(job), '_history_snapshot', return_value=history), \
+                patch.object(type(job), '_history_candidates', return_value=[raw]), \
+                patch('requests.sessions.Session.request', side_effect=AssertionError('Restoration sent HTTP')):
+            job._review_historical(client)
+        self.assertEqual((job.state, move.e_invoice_uuid), ('valid', raw['uuid'])); client.request.assert_not_called()
+        self.assertEqual(before, (move.invoice_date, move.amount_total, move.amount_tax, move.line_ids.mapped('balance'), job.attempts))
+        self.assertEqual(json.loads(job.payload)['documents'][0], original)
+
+    def receiver_confirmation_fixture(self):
+        move, other = self.invoice(), self.invoice(); job = move.eta_job_ids
+        original = self.document(move); original['receiver'].update(type='B', id='987654321', name='Earlier business name')
+        current = json.loads(json.dumps(original)); current['receiver'].update(name='Confirmed current business name',
+            address={'country': 'EG', 'street': 'Current verified address'})
+        raw = {'uuid': 'ORIGINALRECEIVER1234567890', 'internalId': move.name, 'status': 'Valid', 'document': original}
+        confirmation = {'uuid': 'CONFIRMEDRECEIVER1234567890', 'internalId': other.name, 'status': 'Valid',
+                        'document': dict(current, internalID=other.name)}
+        other.write({'e_invoice_uuid': confirmation['uuid'], 'e_invoice_status': 'Valid'})
+        proof = {'job': job.id, 'move': move.id, 'partner': move.partner_id.id, 'company': move.company_id.id,
+            'environment': move.company_id.config_type, 'issuer_rin': '123456789', 'confirmation_move': other.id,
+            'captured_utc': datetime.now(timezone.utc).isoformat(), 'original_receipt': raw, 'confirmation_receipt': confirmation}
+        content = json.dumps(proof).encode()
+        attachment = self.env['ir.attachment'].create({'name': 'ETA_receiver_reconciliation_proof_%s.json' % job.id,
+            'res_model': job._name, 'res_id': job.id, 'company_id': job.company_id.id, 'public': False,
+            'mimetype': 'application/json', 'raw': content})
+        self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.receiver_reconciliation.%s' % job.id,
+                                                       hashlib.sha256(content).hexdigest())
+        return job, other, raw, current, proof, attachment
+
+    def test_receiver_alias_requires_a_fresh_scoped_checksum_sealed_government_proof(self):
+        job, other, raw, current, proof, attachment = self.receiver_confirmation_fixture()
+        before = json.dumps([raw, current], sort_keys=True)
+        self.assertTrue(job.with_context(bin_size=True)._historical_receiver_confirmed(raw, current))
+        self.assertTrue(job._historical_matches(raw, current))
+        self.assertEqual(before, json.dumps([raw, current], sort_keys=True))
+        key = 'tradeline_eta_reliability.receiver_reconciliation.%s' % job.id
+        for path, value in [('job', job.id + 1), ('move', job.move_id.id + 1), ('partner', job.move_id.partner_id.id + 1),
+                            ('company', job.company_id.id + 1), ('environment', 'different'), ('issuer_rin', '987654321'),
+                            ('captured_utc', (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()),
+                            ('original_receipt.status', 'Cancelled'), ('original_receipt.uuid', 'OTHER'),
+                            ('confirmation_receipt.status', 'Invalid'), ('confirmation_receipt.internalId', 'OTHER'),
+                            ('confirmation_receipt.document.receiver.id', '111111111')]:
+            changed = json.loads(json.dumps(proof)); node = changed; parts = path.split('.')
+            for part in parts[:-1]: node = node[part]
+            node[parts[-1]] = value; content = json.dumps(changed).encode(); attachment.raw = content
+            self.env['ir.config_parameter'].sudo().set_param(key, hashlib.sha256(content).hexdigest())
+            self.assertFalse(job._historical_receiver_confirmed(raw, current), path)
+        attachment.raw = json.dumps(proof).encode()
+        self.assertFalse(job._historical_receiver_confirmed(raw, current), 'Unsealed attachment replacement')
+        self.env['ir.config_parameter'].sudo().set_param(key, hashlib.sha256(attachment.raw).hexdigest())
+        self.assertTrue(job._historical_receiver_confirmed(raw, current))
+        other.e_invoice_status = 'Cancelled'
+        self.assertFalse(job._historical_receiver_confirmed(raw, current))
+
+    def test_confirmed_receiver_drift_never_changes_nonempty_person_ids_names_or_country(self):
+        original = self.document(self.invoice()); current = json.loads(json.dumps(original))
+        original['receiver'].update(id='', name='Same person')
+        current['receiver'].update(id='12345678901234', name='Same person', address={'country': 'EG', 'street': 'New address'})
+        a, b, foreign = confirmed_receiver_pair(original, current, confirmed=True, optional_person=True)
+        self.assertEqual(a['receiver']['id'], ''); self.assertEqual(b['receiver']['id'], '12345678901234')
+        self.assertEqual(a['receiver']['address'], {'country': 'EG'}); self.assertFalse(foreign)
+        for old_id, name, country, optional in [('12345678901234', 'Same person', 'EG', True),
+                                               ('', 'Different person', 'EG', True), ('', 'Same person', 'US', True),
+                                               ('', 'Same person', 'EG', False)]:
+            old = json.loads(json.dumps(original)); old['receiver'].update(id=old_id, name=name)
+            new = json.loads(json.dumps(current)); new['receiver']['address']['country'] = country
+            left, right, foreign = confirmed_receiver_pair(old, new, confirmed=True, optional_person=optional)
+            self.assertEqual((left, right), (old, new))
+        current['receiver'].update(type='F', id='200012345A', name='Confirmed PTE. LTD.', address={'country': 'SG', 'street': 'Current'})
+        original['receiver'].update(type='F', id='200012345A', name='Confirmed PTE. LTD.', address={'country': 'SG', 'street': 'Old'})
+        left, right, foreign = confirmed_receiver_pair(original, current, confirmed=True)
+        self.assertTrue(foreign); self.assertEqual(left['receiver'], right['receiver'])
+        for field, value in [('id', '200012346A'), ('name', 'Different company'), ('type', 'P')]:
+            changed = json.loads(json.dumps(current)); changed['receiver'][field] = value
+            self.assertEqual(confirmed_receiver_pair(original, changed, confirmed=True), (original, changed, False))
+        self.assertEqual(confirmed_receiver_pair(original, current), (original, current, False))
+
+    def test_credit_placeholder_reference_requires_the_actual_posted_reversal_link(self):
+        source = self.invoice()
+        credit = self.env['account.move'].create({'move_type': 'out_refund', 'journal_id': self.journal.id,
+            'currency_id': self.env.ref('base.EGP').id, 'partner_id': self.partner.id,
+            'invoice_date': fields.Date.today(), 'reversed_entry_id': source.id,
+            'ref': 'Reversal of: ' + source.name + ', recorded reason',
+            'invoice_line_ids': [Command.create({'name': 'Posted credit item', 'account_id': self.income.id,
+                'quantity': 1, 'price_unit': 100, 'tax_ids': [Command.clear()]})]})
+        credit.action_post(); job = credit.eta_job_ids
+        # reference_number is a hosted Ahmed extension, absent from the
+        # minimal Community QA compatibility module.
+        reference = patch.object(type(credit), 'reference_number', 'NA', create=True)
+        reference.start(); self.addCleanup(reference.stop)
+        original = self.document(credit); original.update(documentType='c', purchaseOrderReference=credit.ref)
+        current = json.loads(json.dumps(original)); current.update(documentType='C', purchaseOrderReference='NA',
+            delivery={'approach': '', 'packaging': '', 'dateValidity': '', 'exportPort': '',
+                      'countryOfOrigin': 'EG', 'grossWeight': 0, 'netWeight': 0, 'terms': ''})
+        raw = {'uuid': 'ORIGINALCREDIT123456789012', 'internalId': credit.name, 'status': 'Valid', 'document': original}
+        self.assertTrue(job._historical_matches(raw, current))
+        self.assertFalse(job._historical_matches(dict(raw, status='Submitted'), current))
+        changed = json.loads(json.dumps(current)); changed['references'] = ['different-original']
+        self.assertFalse(job._historical_matches(raw, changed))
+        credit.reversed_entry_id = False
+        self.assertFalse(job._historical_matches(raw, current))
