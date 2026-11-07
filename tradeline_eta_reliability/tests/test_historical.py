@@ -1089,6 +1089,17 @@ class TestHistoricalRecovery(TransactionCase):
         changed = json.loads(json.dumps(original)); changed['invoiceLines'][0]['internalCode'] = ''
         self.assertTrue(match_document(*approved_presentation_pair(changed, current, proofs)))
 
+    def test_missing_legacy_sku_requires_the_same_full_product_description(self):
+        original, current, proofs = self.presentation_documents(self.invoice())
+        original['invoiceLines'][0].update(internalCode='', description='[OLD-REF] Apple iPad 11"  A16 128GB Silver')
+        current['invoiceLines'][0]['description'] = 'Apple iPad 11 A16 128GB Silver'
+        self.assertTrue(match_document(*approved_presentation_pair(original, current, proofs)))
+        for description in ('Apple iPad 11 A16 256GB Silver', 'Apple iPad 11 A16 128GB Blue',
+                            'Other product', 'Warranty Two Years', None):
+            changed = json.loads(json.dumps(original)); changed['invoiceLines'][0]['description'] = description
+            old, new = approved_presentation_pair(changed, current, proofs)
+            self.assertFalse(match_document(old, new, safe_codes=['EXACT-EGS']))
+
     def test_presentation_compatibility_keeps_fiscal_identity_and_amount_changes_blocked(self):
         original, current, proofs = self.presentation_documents(self.invoice())
         for path, value in [('totalAmount', 101), ('netAmount', 101), ('internalID', 'OTHER'),
