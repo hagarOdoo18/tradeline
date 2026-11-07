@@ -25,7 +25,6 @@ if records:
 # ETA-safe: never drafts an invoice already tied to the Authority.
 for move in records.filtered(
     lambda m: m.move_type in ('out_invoice', 'out_refund')
-    and m.commercial_partner_id.is_company
 ):
     move = move.sudo()
 
