@@ -488,6 +488,10 @@ class AccountMoveInherit(models.Model):
 		        "name": partner.display_name or ""
 		        }
 	
+	def _eta_item_code(self, product):
+		"""Local catalogue formatting hook; sending stays on the Ahmed workflow."""
+		return product.e_invoicing_code
+
 	def _get_eta_invoice_lines(self):
 		invoice_lines = []
 		totalAmount = 0.00000
@@ -543,7 +547,10 @@ class AccountMoveInherit(models.Model):
 			total_sales_amount += sales_total_amount
 			# ETA transmits display_name below, not the optional Arabic catalogue
 			# metadata. Validate the actual description without changing its text.
-			prd_required_fields = ['e_invoicing_code', 'code_type']
+			item_code = self._eta_item_code(line.product_id)
+			if not item_code:
+				raise ValidationError(_("Missing One of required details [e_invoicing_code] for product [%s] !!!" % line.product_id.display_name))
+			prd_required_fields = ['code_type']
 			for prd_field in prd_required_fields:
 				if not getattr(line.product_id, prd_field):
 					raise ValidationError(_("Missing One of required details [%s] for product [%s] !!!" %
@@ -564,7 +571,7 @@ class AccountMoveInherit(models.Model):
 				invoice_lines.append({
 					"description": description or '',  # "Computerl"
 					"itemType": line.product_id.code_type,  # "EGS"/"GS1"
-					"itemCode": line.product_id.e_invoicing_code,  # "EG-113317713-123456"
+					"itemCode": item_code,  # "EG-113317713-123456"
 					"unitType": unitType,
 					"quantity": quantity,
 					"internalCode": line.product_id.barcode or "",  # "ICO"/default_code
