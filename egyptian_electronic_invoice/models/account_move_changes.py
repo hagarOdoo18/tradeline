@@ -1044,7 +1044,10 @@ class AccountMoveInherit(models.Model):
 		return res
 	
 	def button_draft(self):
-		self._reset_e_invoice_Fields()
+		# Admin Odoo-only tax apply: keep the ETA receipt fields (status stays
+		# 'Valid', uuid/sent preserved) so nothing is re-queued or re-sent.
+		if not self.env.context.get('_eta_admin_apply'):
+			self._reset_e_invoice_Fields()
 		return super(AccountMoveInherit, self).button_draft()
 	
 	def _check_sales_ref(self, invoice_params):
