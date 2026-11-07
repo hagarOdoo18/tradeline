@@ -782,6 +782,71 @@ class AccountMove(models.Model):
                 skipped_count += 1
 
 
+    def action_sync_sale_tax_to_invoice(self):
+        """Server action: align invoice-line taxes with the taxes on the
+        related sale order lines (company customers only) when the tax
+        totals differ. Uses the Odoo-only apply-tax path (_eta_apply_tax)
+        so any ETA receipt is preserved and never re-submitted."""
+        updated_count = 0
+        skipped_count = 0
+
+        for move in self:
+            if move.move_type not in ('out_invoice', 'out_refund'):
+                skipped_count += 1
+                continue
+            if not move.commercial_partner_id.is_company:
+                skipped_count += 1
+                continue
+
+            sale_lines_all = move.invoice_line_ids.mapped('sale_line_ids')
+            if not sale_lines_all:
+                skipped_count += 1
+                continue
+
+            order_tax = sum(sale_lines_all.mapped('order_id').mapped('amount_tax'))
+            rounding = move.currency_id.rounding or 0.01
+            if float_compare(order_tax, move.amount_tax, precision_rounding=rounding) == 0:
+                skipped_count += 1
+                continue
+
+            lines_to_update = self.env['account.move.line']
+            for line in move.invoice_line_ids:
+                sale_lines = line.sale_line_ids
+                if not sale_lines:
+                    continue
+                taxes = sale_lines.mapped('tax_id')
+                if set(taxes.ids) != set(line.tax_ids.ids):
+                    lines_to_update |= line
+
+            if not lines_to_update:
+                skipped_count += 1
+                continue
+
+            was_posted = move.state == 'posted'
+            if was_posted:
+                move.with_context(_eta_apply_tax=True).button_draft()
+
+            for line in lines_to_update:
+                taxes = line.sale_line_ids.mapped('tax_id')
+                line.with_context(check_move_validity=False).write({
+                    'tax_ids': [(6, 0, taxes.ids)]
+                })
+
+            if was_posted:
+                move.with_context(_eta_apply_tax=True).action_post()
+
+            updated_count += 1
+            move.message_post(
+                body=_("Synced taxes from sale order to %d invoice line(s).")
+                % len(lines_to_update)
+            )
+
+        _logger.info(
+            "action_sync_sale_tax_to_invoice: updated=%s skipped=%s",
+            updated_count, skipped_count)
+        return True
+
+
 class AccountMoveLine(models.Model):
     _inherit = 'account.move.line'
 

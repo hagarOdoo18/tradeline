@@ -20,47 +20,10 @@ if records:
             <field name="binding_view_types">form,list</field>
             <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
             <field name="state">code</field>
-            <field name="code"><![CDATA[
-# Copy sale-order-line taxes onto invoice lines when the tax totals differ.
-# ETA-safe: never drafts an invoice already tied to the Authority.
-for move in records.filtered(
-    lambda m: m.move_type in ('out_invoice', 'out_refund')
-):
-    move = move.sudo()
-
-    sale_lines_all = move.invoice_line_ids.mapped('sale_line_ids')
-    if not sale_lines_all:
-        continue
-
-    order_tax = sum(sale_lines_all.mapped('order_id').mapped('amount_tax'))
-    rounding = move.currency_id.rounding or 0.01
-    if float_compare(order_tax, move.amount_tax, precision_rounding=rounding) == 0:
-        continue
-
-    was_posted = move.state == 'posted'
-
-    if was_posted and (
-        move.e_invoice_sent or move.e_invoice_uuid or move.l10n_eg_uuid
-        or move.l10n_eg_submission_number or move.l10n_eg_eta_json_doc_id
-        or move.e_invoice_status in ('Submitted', 'Valid')
-    ):
-        log("Skipped %s - already submitted to ETA" % move.name)
-        continue
-
-    if was_posted:
-        move.button_draft()
-
-    for line in move.invoice_line_ids:
-        sale_lines = line.sale_line_ids
-        if not sale_lines:
-            continue
-        taxes = sale_lines.mapped('tax_id')
-        if set(taxes.ids) != set(line.tax_ids.ids):
-            line.write({'tax_ids': [(6, 0, taxes.ids)]})
-
-    if was_posted:
-        move.action_post()
-]]></field>
+            <field name="code">
+if records:
+    records.action_sync_sale_tax_to_invoice()
+            </field>
         </record>
     </data>
 </odoo>
