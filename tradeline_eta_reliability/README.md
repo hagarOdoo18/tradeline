@@ -222,6 +222,16 @@ document must have changed beyond its date/signature. The rejected document is
 retained as a company-owned attachment before a corrected version enters the
 durable queue. Accepted documents are refreshed rather than resent.
 
+Duplicate ERP products may use a reviewed `eta_catalogue_product_id` when their
+physical model and verified GTIN match, or their exact manufacturer SKU and
+variant attributes match. Only an accounting manager can configure this
+reference. Its saved identity blocks export if either record's identifying
+metadata or the referenced code later changes. References cannot form chains
+or cross invoice taxpayers. This preserves the unique master-code constraint,
+invoice product/SKU, stock, dates, taxes and journal entries; only Ahmed's local
+`itemCode` formatting changes. Catalogue approval and receipt/retry guards still
+apply through the existing reliability queue.
+
 Validation: run Odoo with `--test-tags=/tradeline_eta_reliability` in an isolated
 database. Transport is mocked; tests never submit a taxpayer document.
 
