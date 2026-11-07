@@ -38,11 +38,10 @@ class AccountInvoiceReportWizard(models.TransientModel):
             ('invoice_date', '>=', self.date_from),
             ('invoice_date', '<=', self.date_to),
             ('state', '=', 'posted'),
-            ('move_type', 'in', ['out_invoice','out_refund']),   # sales invoices
+            ('move_type', 'in', ['out_invoice', 'out_refund']),
+            ('amount_tax', '!=', 0),  # only invoices that carry tax
         ], order='invoice_date')
-
         act = self.generate_excel(invoices)
-
         return act
 
     @staticmethod
