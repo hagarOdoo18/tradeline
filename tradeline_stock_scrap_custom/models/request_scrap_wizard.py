@@ -11,7 +11,9 @@ class RequestScrapWizard(models.TransientModel):
 
     def request_scrap(self):
         self.ensure_one()
-        approve_group = self.env.ref('tradeline_stock_scrap_custom.group_approval_scrap')
+        # Existing databases can have several approval groups with this name.
+        # Preserve the original recipient set across all matching groups.
+        approve_group = self.env['res.groups'].search([('name', '=', 'Approve Scrap')])
         approvers = approve_group.users.filtered('active')
         # Check every recipient before sending anything or changing approval state.
         for user in approvers:
