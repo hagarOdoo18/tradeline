@@ -53,3 +53,16 @@ class TestScrapApprovalMail(TransactionCase):
             with self.assertRaises(UserError):
                 self.wizard.request_scrap()
         send.assert_not_called()
+
+    def test_duplicate_approval_groups_are_validated(self):
+        self.env.ref('tradeline_stock_scrap_custom.group_approval_scrap').users = self.approver
+        invalid = self.approver.copy({
+            'login': 'second-group-scrap-approver', 'email': False,
+        })
+        self.env['res.groups'].create({
+            'name': 'Approve Scrap', 'users': [(6, 0, invalid.ids)],
+        })
+        with patch.object(type(self.wizard), 'send_email') as send:
+            with self.assertRaises(UserError):
+                self.wizard.request_scrap()
+        send.assert_not_called()
