@@ -32,7 +32,7 @@ class EtaForeignLocalRecovery(models.Model):
         """Rejected customer invoices/credit notes whose customer is still
         classified as a foreigner (ETA receiver type 'F')."""
         return [
-            ('e_invoice_statue', '=', 'Error'),
+            ('e_invoice_status', '=', 'Error'),
             ('move_id.state', '=', 'posted'),
             ('move_id.move_type', 'in', ('out_invoice', 'out_refund')),
             ('move_id.partner_id.mobile_type', '=', 'foreigner'),
