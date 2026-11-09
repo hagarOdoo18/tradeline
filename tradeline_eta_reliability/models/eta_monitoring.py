@@ -158,9 +158,11 @@ class EtaJobMonitoring(models.Model):
         ], limit=1))
 
     @api.depends('state', 'last_error', 'create_date', 'attempted_at', 'next_attempt',
-                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry')
+                 'move_id.e_invoice_date', 'move_id.e_invoice_issue', 'issue_date_policy', 'duplicate_retry_at', 'safe_to_retry',
+                 'move_id.amount_total_signed', 'move_id.partner_id.vat', 'move_id.partner_id.company_type')
     def _compute_monitoring(self):
         now = fields.Datetime.now()
+        has_mobile_type = 'mobile_type' in self.env['res.partner']._fields
         cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue', raise_if_not_found=False)
         cron = cron.sudo() if cron else cron
         enabled = (bool(cron and cron.active and not cron.failure_count)
@@ -185,6 +187,16 @@ class EtaJobMonitoring(models.Model):
                 raw = job.move_id.e_invoice_issue
             detail, codes = error_details(raw)
             lower = detail.lower()
+            # ETA requires a valid 14-digit national ID for domestic individual
+            # invoices of EGP 25,000 or more (threshold effective 1 Aug 2024).
+            # Surface that as the concrete cause of an identification rejection,
+            # mirroring the hard block in account_move._get_eta_personal_details.
+            partner = job.move_id.partner_id
+            individual_id_required = bool(
+                partner.company_type == 'person'
+                and (not has_mobile_type or partner.mobile_type == 'local')
+                and abs(job.move_id.amount_total_signed or 0.0) >= 25000
+                and not re.fullmatch(r'[0-9]{14}', (partner.vat or '').strip()))
             actions = []
             if 'CF313' in codes or 'outside the configured eta submission window' in lower:
                 actions.append(_('Current ETA issue-date treatment is approved. Correct any remaining reported errors before retrying.')
@@ -194,7 +206,11 @@ class EtaJobMonitoring(models.Model):
                 actions.append(_('Reconcile the referenced original ETA receipt before considering another submission.'))
             if (any(code.startswith('NI') for code in codes) or codes.intersection({'SF307', 'CF305'})
                     or any(word in lower for word in ('national id', 'receiver id', 'tax id'))):
-                actions.append(_('Verify the customer ID and customer classification in the customer record.'))
+                actions.append(
+                    _('This domestic individual invoice is EGP 25,000 or more, so ETA requires a valid 14-digit '
+                      'national ID. Add the real national ID to the customer record before retrying.')
+                    if individual_id_required else
+                    _('Verify the customer ID and customer classification in the customer record.'))
             if 'CV302' in codes or any(word in lower for word in ('product', 'itemcode', 'ar_description')):
                 actions.append(_('Correct the product details and verify its ETA-approved EGS/GS1 code.'))
             if '4043' in codes or any(word in lower for word in ('signer', 'signing', 'signature')):
@@ -259,7 +275,9 @@ class EtaJobMonitoring(models.Model):
                     'if no receipt can be established, Accounting or IT must review delivery before any resend.')
             if job.state in ('blocked', 'invalid', 'review', 'queued') and actions:
                 if any(word in lower for word in ('national id', 'receiver id', 'customer id', 'tax id')) or any(code.startswith('NI') for code in codes) or codes.intersection({'SF307', 'CF305'}):
-                    reason = _('Customer identification needs attention. Verify the customer type and the real national or tax ID.')
+                    reason = (_('This individual invoice is EGP 25,000 or more; ETA requires a valid 14-digit national ID, which is missing from the customer record.')
+                              if individual_id_required else
+                              _('Customer identification needs attention. Verify the customer type and the real national or tax ID.'))
                 elif 'CV302' in codes:
                     reason = _('An invoice product code needs ETA approval or correction.')
                 elif 'CF313' in codes or 'outside the configured eta submission window' in lower:
