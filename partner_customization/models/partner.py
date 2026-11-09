@@ -98,6 +98,10 @@ class ResPartnerInherit(models.Model):
     @api.constrains('vat', 'mobile_type', 'company_type')
     def vat_constrain(self):
 
+        # The ETA foreign->local remediation cron may convert customers that do
+        # not satisfy the national ID / VAT length rule; skip this check for it.
+        if self.env.context.get('eta_foreign_to_local_cron'):
+            return
         if self.vat and self.mobile_type =='local' and self.company_type == 'person' and len(self.vat) != 14:
             raise ValidationError('National Id must be only 14 digits')
         elif  self.vat and self.mobile_type =='local' and self.company_type == 'company' and len(self.vat) != 9:

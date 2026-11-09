@@ -46,10 +46,13 @@ class EtaForeignLocalRecovery(models.Model):
         local and resubmit them directly to ETA.
 
         Each invoice is handled in its own savepoint and committed, so one
-        failure never rolls back the rest. Only the 11-digit local-mobile check
-        is waived (via the ``eta_foreign_to_local_cron`` context); the national
-        ID / VAT length rule stays in force, so a customer that cannot become a
-        valid local record raises and is skipped rather than force-sent.
+        failure never rolls back the rest. The ``eta_foreign_to_local_cron``
+        context waives both the 11-digit local-mobile check and the national
+        ID / VAT length rule, so the customer can be converted even without a
+        14-digit national ID. The remaining guards still apply and skip an
+        invoice rather than send bad data: the unique/required mobile checks,
+        and ETA's own rule that a domestic individual invoice of EGP 25,000 or
+        more must carry a valid 14-digit national ID (raised at JSON build).
 
         The resend regenerates the ETA JSON from the now-local customer and
         posts it straight to ETA; the reliability job queue is not used.
@@ -66,10 +69,10 @@ class EtaForeignLocalRecovery(models.Model):
             partner = move.partner_id
             try:
                 with self.env.cr.savepoint():
-                    # Waive only the 11-digit local-mobile rule. Flushing here
-                    # makes the remaining partner constraints (14-digit national
-                    # ID / 9-digit VAT, unique mobile) raise inside the
-                    # savepoint so an invalid conversion is skipped, not sent.
+                    # The cron context waives the 11-digit mobile and the national
+                    # ID / VAT length checks. Flushing here still runs the
+                    # unique/required mobile constraints inside the savepoint, so
+                    # those conversions are skipped rather than sent.
                     partner.with_context(
                         eta_foreign_to_local_cron=True).write({'mobile_type': 'local'})
                     partner.flush_recordset()
