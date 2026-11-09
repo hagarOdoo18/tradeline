@@ -75,10 +75,10 @@
                     decoration-danger="eta_staff_state in ('blocked', 'invalid')"
                     decoration-warning="eta_staff_state in ('unknown','delivery_review')"
                     decoration-info="eta_staff_state in ('queued', 'accepted', 'review')"/>
-                <button name="action_eta_send_now" type="object" string="Sync" icon="fa-paper-plane"
-                    groups="tradeline_eta_reliability.group_eta_workspace"
-                    help="Check and send this invoice immediately without waiting for the backlog. Invoice validation and ETA-required waits still apply."
-                    invisible="state != 'posted' or move_type not in ('out_invoice', 'out_refund') or eta_staff_state in ('valid', 'accepted')"/>
+<!--                <button name="action_eta_send_now" type="object" string="Sync" icon="fa-paper-plane"-->
+<!--                    groups="tradeline_eta_reliability.group_eta_workspace"-->
+<!--                    help="Check and send this invoice immediately without waiting for the backlog. Invoice validation and ETA-required waits still apply."-->
+<!--                    invisible="state != 'posted' or move_type not in ('out_invoice', 'out_refund') or eta_staff_state in ('valid', 'accepted')"/>-->
             </xpath>
             <xpath expr="//list" position="inside">
                 <field name="eta_staff_reason" string="ETA issue / explanation" optional="hide" groups="tradeline_eta_reliability.group_eta_workspace"/>
