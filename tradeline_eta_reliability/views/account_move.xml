@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <xpath expr="//button[@name='action_send_electronic_invoice']" position="attributes">
                 <attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute>
-                <attribute name="name">action_eta_send_now</attribute>
+<!--                <attribute name="name">action_eta_send_now</attribute>-->
                 <attribute name="string">Sync</attribute>
                 <attribute name="class">btn-primary</attribute>
                 <attribute name="invisible">state != 'posted' or move_type not in ('out_invoice', 'out_refund') or eta_staff_state in ('valid', 'accepted') or not eta_user_is_admin</attribute>
