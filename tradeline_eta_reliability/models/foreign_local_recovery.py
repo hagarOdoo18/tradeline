@@ -66,20 +66,26 @@ class EtaForeignLocalRecovery(models.Model):
             self._foreign_local_candidate_domain(), order='id', limit=limit)
         done = 0
         for move in moves:
-            partner = move.partner_id
+            # Carry the cron flag (and sudo) through the WHOLE operation. The
+            # partner constraints are validated at flush time against the env
+            # that triggers the flush, so the write, its validation flush and
+            # the send must all run under this context or the waiver is lost.
+            cmove = move.with_context(eta_foreign_to_local_cron=True).sudo()
+            partner = cmove.partner_id
             try:
                 with self.env.cr.savepoint():
-                    # The cron context waives the 11-digit mobile and the national
-                    # ID / VAT length checks. Flushing here still runs the
-                    # unique/required mobile constraints inside the savepoint, so
-                    # those conversions are skipped rather than sent.
-                    partner.with_context(
-                        eta_foreign_to_local_cron=True).write({'mobile_type': 'local'})
+                    # Convert to local. Under this flagged, superuser context the
+                    # 11-digit mobile and national ID / VAT length checks are
+                    # waived; the flush validates the change here, still under
+                    # the flag.
+                    partner.write({'mobile_type': 'local'})
                     partner.flush_recordset()
-                    # Regenerates the JSON from the local customer and submits
+                    # Regenerate the JSON from the now-local customer and submit
                     # directly to ETA (action_send_electronic_invoice calls
-                    # action_generate_eta_json internally).
-                    move.sudo().action_send_electronic_invoice()
+                    # action_generate_eta_json internally). Skips still happen
+                    # via ETA's own send-time rules (e.g. missing national ID on
+                    # a large individual invoice), which raise and are caught.
+                    cmove.action_send_electronic_invoice()
             except (UserError, ValidationError, AccessError) as exc:
                 _logger.info(
                     'ETA foreign->local skipped %s (customer %s): %s',
