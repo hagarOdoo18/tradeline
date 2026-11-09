@@ -49,9 +49,9 @@ class EtaBranchInvoiceAccess(models.Model):
         self._eta_require_central_staff()
         return super().action_eta_execute_staff_request(request_id)
 
-    # def action_send_electronic_invoice(self):
-    #     self._eta_require_admin()
-    #     return super().action_send_electronic_invoice()
+    def action_send_electronic_invoice(self):
+        self._eta_require_admin()
+        return super().action_send_electronic_invoice()
 
     def action_update_electronic_invoice_status(self):
         self._eta_require_central_staff()

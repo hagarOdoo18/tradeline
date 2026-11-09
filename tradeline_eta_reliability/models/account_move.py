@@ -81,22 +81,22 @@ class AccountMove(models.Model):
                 newly_queued._schedule_immediate_dispatch()
                 cron.sudo()._trigger()
 
-    def action_send_electronic_invoice(self):
-        """Request immediate safe dispatch of the same durable job as the cron."""
-        if any(m.state != 'posted' or m.move_type not in ('out_invoice', 'out_refund') for m in self):
-            raise UserError(_('Only posted customer invoices and credit notes can be queued for ETA.'))
-        self.check_access('write')
-        for move in self.filtered(lambda m: m.e_invoice_uuid and m.e_invoice_status == 'Invalid'):
-            move._eta_queue_corrected_document()
-        self._eta_enqueue(reconcile=True)
-        requested = self.env['tradeline.eta.job'].sudo().search([('move_id', 'in', self.ids)])._request_priority_dispatch()
-        return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
-            'title': _('Priority ETA sync requested') if requested else _('ETA sync checked'),
-            'message': (_('An immediate safe attempt is requested after saving. If transport is busy or ETA requires a wait, this invoice keeps priority. Status updates automatically.')
-                        if requested else _('The invoice is saved. Check its current ETA status and any correction or retry message.')),
-            'type': 'info',
-            'next': {'type': 'ir.actions.client', 'tag': 'reload'},
-        }}
+    # def action_send_electronic_invoice(self):
+    #     """Request immediate safe dispatch of the same durable job as the cron."""
+    #     if any(m.state != 'posted' or m.move_type not in ('out_invoice', 'out_refund') for m in self):
+    #         raise UserError(_('Only posted customer invoices and credit notes can be queued for ETA.'))
+    #     self.check_access('write')
+    #     for move in self.filtered(lambda m: m.e_invoice_uuid and m.e_invoice_status == 'Invalid'):
+    #         move._eta_queue_corrected_document()
+    #     self._eta_enqueue(reconcile=True)
+    #     requested = self.env['tradeline.eta.job'].sudo().search([('move_id', 'in', self.ids)])._request_priority_dispatch()
+    #     return {'type': 'ir.actions.client', 'tag': 'display_notification', 'params': {
+    #         'title': _('Priority ETA sync requested') if requested else _('ETA sync checked'),
+    #         'message': (_('An immediate safe attempt is requested after saving. If transport is busy or ETA requires a wait, this invoice keeps priority. Status updates automatically.')
+    #                     if requested else _('The invoice is saved. Check its current ETA status and any correction or retry message.')),
+    #         'type': 'info',
+    #         'next': {'type': 'ir.actions.client', 'tag': 'reload'},
+    #     }}
 
     def _eta_correction_document(self):
         self.ensure_one()
