@@ -114,8 +114,8 @@ class ResPartnerInherit(models.Model):
             if len(existing_mob) > 0 and self.env.user.id  not in [2,1] :
                 raise ValidationError('mobile number already exist')
 
-            elif self.mobile_type == 'local' and len(self.mobile)  not in [15,11]:
-                raise ValidationError('The local mobile number must be only 11 digits')
+            # elif self.mobile_type == 'local' and len(self.mobile)  not in [15,11]:
+            #     raise ValidationError('The local mobile number must be only 11 digits')
         else:
             raise ValidationError('Please Set Mobile Number')
 
