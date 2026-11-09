@@ -209,10 +209,15 @@ class AccountMoveInherit(models.Model):
 				show_results = invoice.show_results
 				internal_id = invoice.name
 				# internal_id = invoice.name.replace("/", "")
-				# if not invoice.e_invoice_json:
-				print("-------------------- here --------------------")
-				invoice_params, env = invoice.action_generate_eta_json()
-				invoice_params = eval(invoice.e_invoice_json)
+				if invoice.e_invoice_json:
+					invoice_params = eval(invoice.e_invoice_json)
+					# rebuild canonical from the (possibly edited) JSON so the signature matches
+					invoice.e_invoice_canonical = invoice.generate_canonical_manual(invoice_params)
+					invoice.e_invoice_json = str(invoice_params).encode('utf-8')
+					invoice.invoice_signed = False
+				else:
+					invoice_params, env = invoice.action_generate_eta_json()
+					invoice_params = eval(invoice.e_invoice_json)
 				print("invoice_params: ", invoice_params)
 				if api_version == '1.0':
 					invoice_params = invoice.action_sign_invoice()
