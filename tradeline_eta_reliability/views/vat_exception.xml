@@ -34,11 +34,11 @@
                     <button name="action_eta_status_details" type="object" string="Open ETA details" class="btn-link"/>
                 </div>
             </xpath>
-            <xpath expr="//header/button[@name='action_eta_send_now']" position="after">
-                <button name="action_eta_send_without_vat" type="object" string="Send without VAT…"
-                    groups="tradeline_eta_reliability.group_eta_workspace"
-                    invisible="state != 'posted' or move_type != 'out_invoice' or eta_staff_state in ('valid','accepted')"/>
-            </xpath>
+<!--            <xpath expr="//header/button[@name='action_eta_send_now']" position="after">-->
+<!--                <button name="action_eta_send_without_vat" type="object" string="Send without VAT…"-->
+<!--                    groups="tradeline_eta_reliability.group_eta_workspace"-->
+<!--                    invisible="state != 'posted' or move_type != 'out_invoice' or eta_staff_state in ('valid','accepted')"/>-->
+<!--            </xpath>-->
             <xpath expr="//notebook" position="inside">
                 <page string="VAT exception" groups="tradeline_eta_reliability.group_eta_workspace">
                     <group>
