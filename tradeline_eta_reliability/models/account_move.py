@@ -199,8 +199,8 @@ class AccountMove(models.Model):
         self.ensure_one()
         # The legacy generator uses date.today(). Keep the actual invoice date
         # in both the document and the canonical bytes generated immediately after this hook.
-        if self.invoice_date:
-            invoice_params['dateTimeIssued'] = self._eta_issue_timestamp()
+        # if self.invoice_date:
+        #     invoice_params['dateTimeIssued'] = self._eta_issue_timestamp()
         if self.state == 'posted' and self.move_type in ('out_invoice', 'out_refund'):
             expected_net, expected_total = self._eta_posted_amounts()
             if (self.currency_id != self.env.ref('base.EGP')
