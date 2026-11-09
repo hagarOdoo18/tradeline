@@ -12,11 +12,11 @@
 <!--                <attribute name="class">btn-primary</attribute>-->
 <!--                <attribute name="invisible">state != 'posted' or move_type not in ('out_invoice', 'out_refund') or eta_staff_state in ('valid', 'accepted') or not eta_user_is_admin</attribute>-->
 <!--            </xpath>-->
-            <xpath expr="//button[@name='action_update_electronic_invoice_status']" position="attributes">
-                <attribute name="name">action_eta_check_status_now</attribute>
-                <attribute name="string">Update Status</attribute>
-                <attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute>
-            </xpath>
+<!--            <xpath expr="//button[@name='action_update_electronic_invoice_status']" position="attributes">-->
+<!--                <attribute name="name">action_eta_check_status_now</attribute>-->
+<!--                <attribute name="string">Update Status</attribute>-->
+<!--                <attribute name="groups">tradeline_eta_reliability.group_eta_workspace</attribute>-->
+<!--            </xpath>-->
             <xpath expr="//sheet" position="before">
                 <field name="eta_staff_state" invisible="1" groups="tradeline_eta_reliability.group_eta_workspace"/>
                 <field name="eta_user_is_admin" invisible="1" groups="tradeline_eta_reliability.group_eta_workspace"/>
