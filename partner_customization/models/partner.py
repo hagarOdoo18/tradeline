@@ -114,8 +114,11 @@ class ResPartnerInherit(models.Model):
             if len(existing_mob) > 0 and self.env.user.id  not in [2,1] :
                 raise ValidationError('mobile number already exist')
 
-            # elif self.mobile_type == 'local' and len(self.mobile)  not in [15,11]:
-            #     raise ValidationError('The local mobile number must be only 11 digits')
+            # The ETA foreign->local remediation cron may convert customers whose
+            # local mobile is not 11 digits; waive only this length check for it.
+            elif (self.mobile_type == 'local' and len(self.mobile) not in [15, 11]
+                  and not self.env.context.get('eta_foreign_to_local_cron')):
+                raise ValidationError('The local mobile number must be only 11 digits')
         else:
             raise ValidationError('Please Set Mobile Number')
 

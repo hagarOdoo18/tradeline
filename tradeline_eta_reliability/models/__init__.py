@@ -1,6 +1,7 @@
 from . import account_move
 from . import eta_job
 from . import historical_recovery
+from . import foreign_local_recovery
 from . import account_edi_format
 from . import operations_monitor
 from . import eta_monitoring
