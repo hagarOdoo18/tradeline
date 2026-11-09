@@ -41,11 +41,11 @@ class AccountMoveDraftCorrection(models.Model):
                 'res_model': 'account.move', 'view_mode': 'list,form',
                 'domain': [('id', 'in', self.eta_vat_correction_ids.ids)]}
 
-    def _check_extra_fields(self, invoice_params):
-        invoice_params = super()._check_extra_fields(invoice_params)
-        if self.move_type == 'out_refund' and self.e_invoice_credit_src:
-            invoice_params['references'] = [self.e_invoice_credit_src]
-        return invoice_params
+    # def _check_extra_fields(self, invoice_params):
+    #     invoice_params = super()._check_extra_fields(invoice_params)
+    #     if self.move_type == 'out_refund' and self.e_invoice_credit_src:
+    #         rinvoice_params['refeences'] = [self.e_invoice_credit_src]
+    #     return invoice_params
 
     def _post(self, soft=True):
         for move in self.filtered(lambda record: record.eta_vat_original_id and record.move_type == 'out_invoice'):
