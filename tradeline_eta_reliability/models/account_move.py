@@ -446,16 +446,16 @@ class AccountMove(models.Model):
                    'next_attempt': False, 'safe_to_retry': False, 'first_submission_candidate': False,
                    'last_error': False, 'failures': 0})
 
-    def action_update_electronic_invoice_status(self):
-        self.check_access('write')
-        self._eta_enqueue()
-        jobs = self.env['tradeline.eta.job'].sudo().search([
-            ('move_id', 'in', self.ids), '|',
-            ('move_id.e_invoice_uuid', '!=', False), ('move_id.l10n_eg_uuid', '!=', False)])
-        # Use the same full-history routing as the log's Refresh action. Polling
-        # one UUID must not erase a duplicate warning or a held source comparison.
-        jobs.action_recheck()
-        return True
+    # def action_update_electronic_invoice_status(self):
+    #     self.check_access('write')
+    #     self._eta_enqueue()
+    #     jobs = self.env['tradeline.eta.job'].sudo().search([
+    #         ('move_id', 'in', self.ids), '|',
+    #         ('move_id.e_invoice_uuid', '!=', False), ('move_id.l10n_eg_uuid', '!=', False)])
+    #     # Use the same full-history routing as the log's Refresh action. Polling
+    #     # one UUID must not erase a duplicate warning or a held source comparison.
+    #     jobs.action_recheck()
+    #     return True
 
     def cron_send_invoices(self):
         return self.env['tradeline.eta.job']._cron_process('submit')
