@@ -210,6 +210,7 @@ class AccountMoveInherit(models.Model):
 				internal_id = invoice.name
 				# internal_id = invoice.name.replace("/", "")
 				if invoice.e_invoice_json:
+					invoice_params, env = invoice.action_generate_eta_json()
 					invoice_params = eval(invoice.e_invoice_json)
 					# rebuild canonical from the (possibly edited) JSON so the signature matches
 					invoice.e_invoice_canonical = invoice.generate_canonical_manual(invoice_params)
