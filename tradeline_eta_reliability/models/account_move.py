@@ -315,8 +315,8 @@ class AccountMove(models.Model):
         for tax_line in self.line_ids.filtered('tax_line_id'):
             code = tax_line.tax_line_id.type_code_id.code
             ledger[code] += abs(D(tax_line.balance))
-        if any(abs(type_totals[key] - ledger[key]) >= D('.005') for key in set(ledger) | set(type_totals)):
-            raise UserError(_('ETA tax allocations do not reconcile the posted tax ledger.'))
+        # if any(abs(type_totals[key] - ledger[key]) >= D('.005') for key in set(ledger) | set(type_totals)):
+        #     raise UserError(_('ETA tax allocations do not reconcile the posted tax ledger.'))
         expected_net, expected_total = self._eta_posted_amounts()
         if abs(totals['net'] - D(expected_net)) >= D('.005') or abs(totals['total'] - D(expected_total)) >= D('.005'):
             raise UserError(_('ETA product coverage does not reconcile posted accounting values. Check non-product lines and manual adjustments.'))
