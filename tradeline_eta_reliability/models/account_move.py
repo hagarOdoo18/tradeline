@@ -165,7 +165,7 @@ class AccountMove(models.Model):
         return True
 
     def _get_eta_invoice_lines(self):
-        lines, discount, sales, total = super()._get_eta_invoice_lines()
+        lines, discount, sales, total, tax_totals_by_type = super()._get_eta_invoice_lines()
         self.ensure_one()
         source = self.invoice_line_ids.filtered(lambda line: line.product_id and line.quantity)
         if len(source) != len(lines):
@@ -182,7 +182,7 @@ class AccountMove(models.Model):
                 correct_total = round(posted_line.price_total, 4)
                 total += correct_total - eta_line['total']
                 eta_line['total'] = correct_total
-        return lines, discount, sales, round(total, 4)
+        return lines, discount, sales, round(total, 4), tax_totals_by_type
 
     def _get_eta_tax_totals(self, tax_lines):
         # Several posted journal items can share an ETA tax type (for example,
