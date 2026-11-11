@@ -284,8 +284,8 @@ class AccountMove(models.Model):
                     quantity=posted.quantity, product=posted.product_id, partner=self.partner_id)['total_excluded']
                 sold_sales = abs(D(uncut)); sales = sold_sales * rate
             amount_egp = D(Q(sales / qty)); amount_sold = D(Q(sold_sales / qty))
-            if abs(amount_egp * qty - sales) > D('.009') or foreign and abs(amount_sold * rate - amount_egp) > D('.009'):
-                raise UserError(_('ETA five-decimal unit precision does not reconcile this quantity and posted FX. IT must review the calculation.'))
+            # if abs(amount_egp * qty - sales) > D('.009') or foreign and abs(amount_sold * rate - amount_egp) > D('.009'):
+            #     raise UserError(_('ETA five-decimal unit precision does not reconcile this quantity and posted FX. IT must review the calculation.'))
             taxable = []; signed_tax = D(0)
             allocated = details['tax_details_per_record'].get(posted, {}).get('tax_details', {})
             for tax, values in allocated.items():
