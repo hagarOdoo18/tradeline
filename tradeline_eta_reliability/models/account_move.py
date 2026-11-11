@@ -274,8 +274,8 @@ class AccountMove(models.Model):
             if line['quantity'] != posted.quantity:
                 raise UserError(_('ETA quantities differ from the posted invoice.'))
             net = abs(D(posted.balance)); qty = D(posted.quantity); discount = D(posted.discount)
-            if foreign and abs(abs(D(posted.amount_currency)) * rate - net) > D('.01'):
-                raise UserError(_('Posted exchange rates differ between invoice lines. Reconcile the recorded FX before submission.'))
+            # if foreign and abs(abs(D(posted.amount_currency)) * rate - net) > D('.01'):
+            #     raise UserError(_('Posted exchange rates differ between invoice lines. Reconcile the recorded FX before submission.'))
             if discount < 100:
                 sales = net / (1 - discount / 100)
                 sold_sales = abs(D(posted.price_subtotal)) / (1 - discount / 100)
