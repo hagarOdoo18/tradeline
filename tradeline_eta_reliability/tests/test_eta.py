@@ -21,6 +21,35 @@ from ..models.eta_monitoring import error_details
 @tagged('post_install', '-at_install')
 class TestEtaReliability(TransactionCase):
 
+    def test_eta_email_pause_preserves_incidents_other_alerts_and_resume(self):
+        from odoo.addons.tradeline_operations_monitor.models.operations_monitor import signal
+        params = self.env['ir.config_parameter'].sudo()
+        params.set_param('tradeline_eta_reliability.pause_monitor_emails', 'True')
+        now = fields.Datetime.now()
+        monitor = self.env['tradeline.operations.monitor'].with_context(active_test=False).search([], limit=1)
+        monitor.confirmation_checks = 1
+        monitor.incident_ids.unlink()
+        eta = signal('eta:daily_rejected', 'ETA correction', 'Invalid invoice', 'Review')
+        shopify = signal('shopify:queue', 'Shopify delay', 'Waiting', 'Review')
+        notices = monitor._reconcile([eta, shopify], {'crons', 'shopify'}, now)
+        self.assertEqual(notices.mapped('code'), ['shopify:queue'])
+        incident = monitor.incident_ids.filtered(lambda item: item.code == eta['code'])
+        self.assertEqual(incident.state, 'open')
+        self.assertFalse(incident.last_notified_at)
+        notices = monitor._reconcile([eta], {'crons'}, now + timedelta(minutes=20))
+        self.assertFalse(notices)
+        notices = monitor._reconcile([], {'crons'}, now + timedelta(minutes=21))
+        self.assertFalse(notices)
+        self.assertEqual(incident.state, 'resolved')
+        # An explicit False must restore notifications, including existing issues.
+        monitor._reconcile([eta], {'crons'}, now + timedelta(minutes=22))
+        params.set_param('tradeline_eta_reliability.pause_monitor_emails', 'False')
+        notices = monitor._reconcile([eta], {'crons'}, now + timedelta(minutes=23))
+        self.assertEqual(notices.mapped('code'), [eta['code']])
+        notices = monitor._reconcile([], {'crons'}, now + timedelta(minutes=24))
+        self.assertEqual(notices.mapped('code'), [eta['code']])
+        self.assertEqual(notices.state, 'resolved')
+
     def test_daily_monitor_excludes_backlog_even_after_new_job_and_issue_date(self):
         now = fields.Datetime.now()
         params = self.env['ir.config_parameter'].sudo()
