@@ -4,10 +4,12 @@ import pytz
 
 from odoo import api, fields, models
 from odoo.osv import expression
+from odoo.tools import str2bool
 from odoo.addons.tradeline_operations_monitor.models.operations_monitor import signal
 from .processing_window import EtaStopped, check_processing_window
 
 DAILY_ALERT_START = 'tradeline_eta_reliability.daily_alert_start_date'
+PAUSE_MONITOR_EMAILS = 'tradeline_eta_reliability.pause_monitor_emails'
 LEGACY_BACKLOG_CODES = {'eta:stalled', 'eta:rejected', 'eta:progress'}
 
 
@@ -39,7 +41,10 @@ class OperationsMonitor(models.Model):
         for item in notices.filtered(lambda item: item.code in LEGACY_BACKLOG_CODES and item.state == 'resolved'):
             item.details = ('Historical ETA alert retired when daily-only monitoring began. '
                             'This does not mean the backlog was cleared. Last observation: %s' % (item.details or ''))
-        return notices.filtered(lambda item: item.code not in LEGACY_BACKLOG_CODES)
+        pause_eta_emails = str2bool(self.env['ir.config_parameter'].sudo().get_param(
+            PAUSE_MONITOR_EMAILS, 'False'))
+        return notices.filtered(lambda item: item.code not in LEGACY_BACKLOG_CODES
+                                and not (pause_eta_emails and item.code.startswith('eta:')))
 
     def _eta_daily_alert_domain(self, now):
         """A fixed Cairo rollout date; unresolved daily invoices never age out.

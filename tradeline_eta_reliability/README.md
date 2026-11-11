@@ -8,6 +8,13 @@ validation never change accounting entries or use a second sender.
 
 ## Daily operations alerts (6 November 2026)
 
+Set system parameter `tradeline_eta_reliability.pause_monitor_emails` to `True`
+to pause ETA Operations Monitor emails until explicitly resumed with `False`.
+New alerts, reminders and recovery emails for ETA incidents are muted. Incident
+tracking, health checks, other operational emails and Ahmed Salama ETA queue
+processing continue unchanged. This does not recall emails already sent or queued;
+review any pending Operations Monitor mail when applying the pause.
+
 ETA document delay, rejection and no-progress alerts cover invoices created
 and dated on or after a fixed Cairo start date. The parameter
 `tradeline_eta_reliability.daily_alert_start_date` is initialized to the Cairo
