@@ -503,6 +503,7 @@ class AccountMoveInherit(models.Model):
 		totalAmount = 0.00000
 		total_discount = 0.00000
 		total_sales_amount = 0.00000
+		tax_totals_by_type = {}  # {taxType: amount}, summed from transmitted taxableItems
 		EGP = self.env.ref('base.EGP')
 		for line in self.invoice_line_ids.filtered(
 				lambda l: l.product_id):  # Loop only lines with product to avoid line of T8
@@ -571,6 +572,13 @@ class AccountMoveInherit(models.Model):
 			unitType = uom or "D41"
 			netTotal = sales_total_amount - discount_amount
 			taxable_items_lines, totalTaxableFees = line._get_taxableItems(taxes_res['taxes'])
+			# Derive the line total from the SAME taxable amounts we transmit, so the
+			# document totals equal ETA's own line-by-line re-estimate (fixes SF347/SF350).
+			line_tax = sum(ti['amount'] for ti in taxable_items_lines)
+			for ti in taxable_items_lines:
+				tax_totals_by_type[ti['taxType']] = round(
+					tax_totals_by_type.get(ti['taxType'], 0.0) + ti['amount'], 5)
+			line_price_total = netTotal + line_tax
 			totalAmount += line_price_total
 			eta_description = self.env['ir.config_parameter'].sudo().get_param('egyptian_electronic_invoice.eta_description')
 			if quantity != 0.0:
@@ -598,7 +606,7 @@ class AccountMoveInherit(models.Model):
 						"amount": round(discount_amount, 4)},
 					"taxableItems": taxable_items_lines,
 				})
-		return invoice_lines, total_discount, total_sales_amount, totalAmount
+		return invoice_lines, total_discount, total_sales_amount, totalAmount, tax_totals_by_type
 
 	# def _get_eta_invoice_lines(self):
 	# 	invoice_lines = []
@@ -912,7 +920,7 @@ class AccountMoveInherit(models.Model):
 		api_version = self.env.company.config_version
 
 		invoice_time = datetime.combine(date.today(), datetime.min.time())
-		invoice_lines, totalDiscountAmount, totalSalesAmount, totalAmount = self._get_eta_invoice_lines()
+		invoice_lines, totalDiscountAmount, totalSalesAmount, totalAmount, tax_totals_by_type = self._get_eta_invoice_lines()
 		netAmount = (totalSalesAmount - totalDiscountAmount)
 		tax_lines = self.line_ids.filtered(lambda l: l.tax_line_id and l.tax_line_id.type_code_id)
 		invoice_time = invoice_time.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -922,7 +930,7 @@ class AccountMoveInherit(models.Model):
 		issuer["address"]["branchID"] = "%s" % self.journal_id.eta_branch or 0
 		receiver = self._get_eta_personal_details(self.partner_id, totalSalesAmount)
 		internal_id = self.name
-		tax_total_lines = self._get_eta_tax_totals(tax_lines)
+		tax_total_lines = [{"taxType": t, "amount": round(a, 4)} for t, a in tax_totals_by_type.items()]
 		type=''
 		if self.move_type=='out_invoice':
 			if self.inv_type =='debit':
