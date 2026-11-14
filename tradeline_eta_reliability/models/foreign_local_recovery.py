@@ -10,6 +10,8 @@ import logging
 from odoo import api, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
+from .eta_monitoring import error_details
+
 _logger = logging.getLogger(__name__)
 
 FOREIGN_LOCAL_DAILY_LIMIT = 50
@@ -75,6 +77,28 @@ class EtaForeignLocalRecovery(models.Model):
             # the send must all run under this context or the waiver is lost.
             cmove = move.with_context(eta_foreign_to_local_cron=True).sudo()
             partner = cmove.partner_id
+            # CF320: ETA rejected an earlier submission because the customer
+            # country/classification did not match the document. Keep the
+            # customer a foreigner and correct the country to United States so
+            # the foreign receiver block is consistent; do not convert to local.
+            recorded = ' '.join(e for e in cmove.eta_job_ids.mapped('last_error') if e) \
+                or (cmove.e_invoice_issue or '')
+            if 'CF320' in error_details(recorded)[1]:
+                try:
+                    partner.sudo().with_context(eta_foreign_to_local_cron=True).write(
+                        {'country_id': self.env.ref('base.us').id})
+                    self.env.cr.commit()
+                except Exception:
+                    self.env.cr.rollback()
+                    _logger.exception(
+                        'ETA foreign->local: could not set country=US on %s',
+                        partner.display_name)
+                else:
+                    _logger.info(
+                        'ETA foreign->local: kept %s foreign and set country=US '
+                        '(CF320 country/classification mismatch) for %s',
+                        partner.display_name, move.display_name)
+                continue
             try:
                 with self.env.cr.savepoint():
                     # Convert to local. Under this flagged, superuser context the
