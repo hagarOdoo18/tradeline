@@ -77,27 +77,35 @@ class EtaForeignLocalRecovery(models.Model):
             # the send must all run under this context or the waiver is lost.
             cmove = move.with_context(eta_foreign_to_local_cron=True).sudo()
             partner = cmove.partner_id
-            # CF320: ETA rejected an earlier submission because the customer
-            # country/classification did not match the document. Keep the
-            # customer a foreigner and correct the country to United States so
-            # the foreign receiver block is consistent; do not convert to local.
+            # ETA rejected an earlier submission for the customer's foreign
+            # receiver details. Correct them in place and keep the customer a
+            # foreigner (do not convert to local): CF320 means the country or
+            # classification does not match, so set the country to United
+            # States; a missing/invalid identification (NI*, CF305, SF307)
+            # means the receiver id is unacceptable, so stamp it 'NA'. Both can
+            # apply at once, so build a single write and leave the invoice for a
+            # later pass to resend as a consistent foreign document.
             recorded = ' '.join(e for e in cmove.eta_job_ids.mapped('last_error') if e) \
                 or (cmove.e_invoice_issue or '')
-            if 'CF320' in error_details(recorded)[1]:
+            codes = error_details(recorded)[1]
+            foreign_fix = {}
+            if 'CF320' in codes:
+                foreign_fix['country_id'] = self.env.ref('base.us').id
+            if any(code.startswith('NI') for code in codes) or codes & {'CF305', 'SF307'}:
+                foreign_fix['vat'] = 'NA'
+            if foreign_fix:
                 try:
-                    partner.sudo().with_context(eta_foreign_to_local_cron=True).write(
-                        {'country_id': self.env.ref('base.us').id})
+                    partner.sudo().with_context(eta_foreign_to_local_cron=True).write(foreign_fix)
                     self.env.cr.commit()
                 except Exception:
                     self.env.cr.rollback()
                     _logger.exception(
-                        'ETA foreign->local: could not set country=US on %s',
-                        partner.display_name)
+                        'ETA foreign->local: could not apply foreign receiver fix %s on %s',
+                        foreign_fix, partner.display_name)
                 else:
                     _logger.info(
-                        'ETA foreign->local: kept %s foreign and set country=US '
-                        '(CF320 country/classification mismatch) for %s',
-                        partner.display_name, move.display_name)
+                        'ETA foreign->local: kept %s foreign and applied %s for %s',
+                        partner.display_name, foreign_fix, move.display_name)
                 continue
             try:
                 with self.env.cr.savepoint():
