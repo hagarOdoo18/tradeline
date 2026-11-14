@@ -50,9 +50,12 @@ class EtaForeignLocalRecovery(models.Model):
         context waives both the 11-digit local-mobile check and the national
         ID / VAT length rule, so the customer can be converted even without a
         14-digit national ID. The remaining guards still apply and skip an
-        invoice rather than send bad data: the unique/required mobile checks,
-        and ETA's own rule that a domestic individual invoice of EGP 25,000 or
-        more must carry a valid 14-digit national ID (raised at JSON build).
+        invoice rather than send bad data: the unique/required mobile checks.
+        ETA's own rule that a domestic individual invoice of EGP 25,000 or more
+        must carry a valid 14-digit national ID (raised at JSON build) is
+        handled specially: the customer is kept a foreigner (never converted to
+        local) and their receiver id is stamped 'NA' so the invoice can go out
+        under the foreign receiver type instead.
 
         The resend regenerates the ETA JSON from the now-local customer and
         posts it straight to ETA; the reliability job queue is not used.
@@ -87,6 +90,29 @@ class EtaForeignLocalRecovery(models.Model):
                     # a large individual invoice), which raise and are caught.
                     cmove.action_send_electronic_invoice()
             except (UserError, ValidationError, AccessError) as exc:
+                if 'national id is required for domestic individual invoices' in str(exc).lower():
+                    # ETA blocks a domestic individual invoice of EGP 25,000 or
+                    # more without a valid national ID, so this customer cannot
+                    # be converted to local. The failed local write has already
+                    # rolled back with the savepoint, so the customer stays a
+                    # foreigner; stamp the receiver id as 'NA' so the invoice can
+                    # go out under the foreign receiver type instead of local.
+                    try:
+                        partner.invalidate_recordset()
+                        partner.sudo().with_context(
+                            eta_foreign_to_local_cron=True).write({'vat': 'NA'})
+                        self.env.cr.commit()
+                    except Exception:
+                        self.env.cr.rollback()
+                        _logger.exception(
+                            'ETA foreign->local: could not set vat=NA on %s',
+                            partner.display_name)
+                    else:
+                        _logger.info(
+                            'ETA foreign->local: kept %s foreign and set vat=NA '
+                            '(EGP 25,000 national ID rule) for %s',
+                            partner.display_name, move.display_name)
+                    continue
                 _logger.info(
                     'ETA foreign->local skipped %s (customer %s): %s',
                     move.display_name, partner.display_name, exc)
