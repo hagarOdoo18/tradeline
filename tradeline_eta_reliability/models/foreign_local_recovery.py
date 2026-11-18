@@ -83,8 +83,8 @@ class EtaForeignLocalRecovery(models.Model):
             # classification does not match, so set the country to United
             # States; a missing/invalid identification (NI*, CF305, SF307)
             # means the receiver id is unacceptable, so stamp it 'NA'. Both can
-            # apply at once, so build a single write and leave the invoice for a
-            # later pass to resend as a consistent foreign document.
+            # apply at once, so build a single write, then resend the invoice as
+            # a consistent foreign document in the same pass.
             recorded = ' '.join(e for e in cmove.eta_job_ids.mapped('last_error') if e) \
                 or (cmove.e_invoice_issue or '')
             codes = error_details(recorded)[1]
@@ -102,10 +102,33 @@ class EtaForeignLocalRecovery(models.Model):
                     _logger.exception(
                         'ETA foreign->local: could not apply foreign receiver fix %s on %s',
                         foreign_fix, partner.display_name)
-                else:
+                    continue
+                _logger.info(
+                    'ETA foreign->local: kept %s foreign and applied %s for %s',
+                    partner.display_name, foreign_fix, move.display_name)
+                # The receiver details are now corrected and committed; resend
+                # the invoice under the foreign receiver type in this same pass.
+                # Regenerate the JSON from the corrected (still foreign) customer
+                # and post straight to ETA, mirroring the local path below.
+                # Resending here is required: the fix write never changes the
+                # invoice's recorded error codes, so a deferred "later pass"
+                # recomputes the identical foreign_fix and continues forever
+                # without ever resubmitting. A send failure leaves a consistent
+                # corrected foreign customer, so the next pass simply retries.
+                try:
+                    with self.env.cr.savepoint():
+                        cmove.action_send_electronic_invoice()
+                except (UserError, ValidationError, AccessError) as exc:
                     _logger.info(
-                        'ETA foreign->local: kept %s foreign and applied %s for %s',
-                        partner.display_name, foreign_fix, move.display_name)
+                        'ETA foreign->local resend skipped %s (customer %s): %s',
+                        move.display_name, partner.display_name, exc)
+                    continue
+                except Exception:
+                    _logger.exception(
+                        'ETA foreign->local resend failed for %s', move.display_name)
+                    continue
+                done += 1
+                self.env.cr.commit()
                 continue
             try:
                 with self.env.cr.savepoint():
