@@ -1122,6 +1122,36 @@ class TestEtaReliability(TransactionCase):
         self.assertEqual(client.session.request.call_count, 1)
         self.assertEqual(client.session.request.call_args.kwargs['timeout'], (5, 25))
 
+    def test_company_cooldown_is_local_and_retains_its_absolute_deadline(self):
+        deadline = fields.Datetime.now() + timedelta(minutes=2)
+        self.company.eta_authority_retry_at = deadline
+        client = EtaClient(self.company)
+        try:
+            client.session.request = MagicMock(side_effect=AssertionError('Cooldown contacted ETA'))
+            with self.assertRaises(EtaError) as caught:
+                client.request('GET', '/api/v1.0/documents/test/raw')
+            self.assertEqual(caught.exception.status, 429)
+            self.assertEqual(caught.exception.retry_at, deadline)
+            client.session.request.assert_not_called()
+        finally:
+            client.close()
+
+    def test_locally_throttled_send_cannot_extend_the_company_cooldown(self):
+        move = self.invoice()
+        job = move.eta_job_ids
+        deadline = fields.Datetime.now() + timedelta(minutes=2)
+        self.company.eta_authority_retry_at = deadline
+        job.payload = json.dumps({'documents': [{'internalID': move.name,
+            'dateTimeIssued': str(move.invoice_date) + 'T00:00:00Z'}]})
+        client = MagicMock()
+        client.request.side_effect = EtaError('Existing company cooldown',
+            status=429, retry_after=121, retry_at=deadline)
+        with patch.object(self.env.cr, 'commit'):
+            job._submit(client)
+        self.assertEqual(job.authority_retry_at, deadline)
+        self.assertEqual(self.company.eta_authority_retry_at, deadline)
+        self.assertEqual(job.state, 'queued')
+
     def test_invoice_log_explains_each_validation_leaf_without_http_or_writes(self):
         move = self.invoice()
         job = move.eta_job_ids
