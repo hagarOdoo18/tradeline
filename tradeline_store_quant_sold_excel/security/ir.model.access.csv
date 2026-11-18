@@ -1,0 +1,2 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_store_report_qty_sold_wizard,store.report.qty.sold.wizard,model_store_report_qty_sold_wizard,group_store_quant_sold,1,1,1,1
