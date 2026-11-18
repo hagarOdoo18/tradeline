@@ -39,7 +39,9 @@ def retry_after_seconds(response, now=None):
             except (ValueError, TypeError, OverflowError):
                 pass
             seconds = math.ceil((deadline - reference).total_seconds())
-        return max(60, min(MAX_RETRY_SECONDS, seconds + 1))
+        # A real short Retry-After is seconds too. Expanding ETA's one-second
+        # throttle into a minute pauses every invoice in the company.
+        return max(1, min(MAX_RETRY_SECONDS, seconds + 1)) if seconds >= 0 else 60
     except (ValueError, TypeError, OverflowError):
         return 60
 
@@ -127,7 +129,7 @@ class EtaClient:
                            retry_at=deadline)
         self._authorize()
         if method == 'GET':
-            gap = 2.1 if path.endswith('/search') else 0.6
+            gap = 2.1 if path.endswith('/search') else 1.1
             # Each bounded callback creates a client. Its first GET can follow
             # the previous lock owner's last GET immediately, so pace it too.
             elapsed = time.monotonic() - self.last_get if self.last_get else 0

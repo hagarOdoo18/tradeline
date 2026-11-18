@@ -796,7 +796,8 @@ class TestAutomaticRecovery(TransactionCase):
 
     def test_retry_after_seconds_and_http_dates_preserve_full_authority_wait(self):
         now = datetime(2026, 11, 3, 20, tzinfo=timezone.utc)
-        for value, expected in [('7200', 7201), ('172800', 172801), ('0', 60),
+        for value, expected in [('7200', 7201), ('172800', 172801), ('0', 1),
+                ('1', 2), ('2', 3), ('59', 60),
                 ('-30', 60), ('nonsense', 60), ('', 60)]:
             self.assertEqual(retry_after_seconds(MagicMock(headers={'Retry-After': value}), now), expected)
         response = MagicMock(headers={'Retry-After': format_datetime(now + timedelta(hours=3), usegmt=True),

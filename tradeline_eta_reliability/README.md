@@ -8,6 +8,10 @@ Receipt checks still use the existing queue, locks, company credentials and
 Ahmed Salama transport, without another submission of an accepted invoice.
 The first GET of each new worker client also waits its endpoint's normal gap,
 preventing adjacent bounded batches from starting requests back-to-back.
+Document retrieval uses a conservative 1.1-second gap; searches keep 2.1 seconds.
+An explicit short Retry-After retains its full delay plus one second rather
+than imposing an artificial one-minute company pause. Missing/malformed headers
+still wait a minute, and retained longer authority/duplicate cooldowns remain.
 
 Tax headers combine posted journal items of the same ETA tax type into one
 total. Separate invoice lines keep their own rates and tax subtypes. Repeated
