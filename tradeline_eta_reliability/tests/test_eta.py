@@ -1141,6 +1141,33 @@ class TestEtaReliability(TransactionCase):
         finally:
             client.close()
 
+    def test_first_receipt_get_of_each_new_worker_client_is_paced(self):
+        self.company.eta_authority_retry_at = False
+        module = 'odoo.addons.tradeline_eta_reliability.models.client'
+        for _index in range(2):
+            client = EtaClient(self.company)
+            client.token, client.token_until = 'test-only', float('inf')
+            client.session.request = MagicMock(return_value=SimpleNamespace(ok=True, json=lambda: {}))
+            try:
+                with patch(module + '.time.sleep') as sleep, patch(module + '.time.monotonic', return_value=1000):
+                    client.request('GET', '/api/v1.0/documents/test/raw')
+                    sleep.assert_called_once_with(0.6)
+                self.assertEqual(client.session.request.call_count, 1)
+            finally:
+                client.close()
+
+    def test_first_search_of_each_new_worker_client_keeps_the_longer_gap(self):
+        self.company.eta_authority_retry_at = False
+        client = EtaClient(self.company)
+        client.token, client.token_until = 'test-only', float('inf')
+        client.session.request = MagicMock(return_value=SimpleNamespace(ok=True, json=lambda: {}))
+        try:
+            with patch('odoo.addons.tradeline_eta_reliability.models.client.time.sleep') as sleep:
+                client.request('GET', '/api/v1.0/documents/search')
+                sleep.assert_called_once_with(2.1)
+        finally:
+            client.close()
+
     def test_locally_throttled_send_cannot_extend_the_company_cooldown(self):
         move = self.invoice()
         job = move.eta_job_ids

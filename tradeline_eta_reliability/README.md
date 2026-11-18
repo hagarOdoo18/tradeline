@@ -6,6 +6,8 @@ New invoices retain their existing priority. Rechecking a company cooldown keeps
 its exact recorded deadline; only a new ETA response can establish a new wait.
 Receipt checks still use the existing queue, locks, company credentials and
 Ahmed Salama transport, without another submission of an accepted invoice.
+The first GET of each new worker client also waits its endpoint's normal gap,
+preventing adjacent bounded batches from starting requests back-to-back.
 
 Tax headers combine posted journal items of the same ETA tax type into one
 total. Separate invoice lines keep their own rates and tax subtypes. Repeated
