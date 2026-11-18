@@ -243,20 +243,33 @@ class EtaJob(models.Model):
         earliest = min(self.create_date, datetime.combine(move.invoice_date, datetime.min.time())) if move.invoice_date else self.create_date
         start = (self.attempted_at or issued or earliest) - timedelta(days=1)
         scan_end = fields.Datetime.now()
-        stop = min(scan_end, start + timedelta(days=29))
-        data = client.request('GET', '/api/v1.0/documents/search', params={
-            'submissionDateFrom': start.strftime('%Y-%m-%dT%H:%M:%S'),
-            'submissionDateTo': stop.strftime('%Y-%m-%dT%H:%M:%S'),
-            'internalID': move.name, 'direction': 'Sent', 'pageSize': 100,
-        })
-        matches = [r for r in data.get('result', []) if r.get('internalId') == move.name]
-        continuation = data.get('metadata', {}).get('continuationToken')
-        if continuation not in (None, 'EndofResultSet'):
-            self._delay('ETA returned multiple pages for this internal ID. Review is required.', seconds=900, state='unknown')
-            return
-        if (not matches and continuation == 'EndofResultSet' and self.first_submission_candidate
+        # ETA's search accepts only a limited (~31-day) window, so walk the whole
+        # [start, now] range in <=29-day pages instead of a single capped window.
+        # Basing the verdict on the complete range - not on a first window that
+        # happens to reach "now" - is what lets an uncertainty older than 29 days
+        # reach a conclusion instead of being pinned in the hold loop forever. A
+        # real document appears near its own submission date, which these pages
+        # now always cover end to end, so an empty result is authoritative.
+        matches = []
+        searched = False
+        window_start = start
+        while window_start < scan_end:
+            searched = True
+            window_stop = min(scan_end, window_start + timedelta(days=29))
+            data = client.request('GET', '/api/v1.0/documents/search', params={
+                'submissionDateFrom': window_start.strftime('%Y-%m-%dT%H:%M:%S'),
+                'submissionDateTo': window_stop.strftime('%Y-%m-%dT%H:%M:%S'),
+                'internalID': move.name, 'direction': 'Sent', 'pageSize': 100,
+            })
+            matches += [r for r in data.get('result', []) if r.get('internalId') == move.name]
+            continuation = data.get('metadata', {}).get('continuationToken')
+            if continuation not in (None, 'EndofResultSet'):
+                self._delay('ETA returned multiple pages for this internal ID. Review is required.', seconds=900, state='unknown')
+                return
+            window_start = window_stop
+        if (searched and not matches and self.first_submission_candidate
                 and not (self.attempted_at or self.attempts or self.duplicate_retry_at
-                         or self.duplicate_payload_hash or move.e_invoice_sent) and stop == scan_end):
+                         or self.duplicate_payload_hash or move.e_invoice_sent)):
             # The original signer committed its payload before POST. A recent
             # document with neither payload nor native/custom receipt is a first
             # submission only after ETA confirms this internal ID is absent.
@@ -272,7 +285,7 @@ class EtaJob(models.Model):
             if document == original:
                 self._apply_remote(raw)
                 return
-        if not matches and continuation == 'EndofResultSet' and stop == scan_end:
+        if searched and not matches:
             checked = fields.Datetime.now()
             local = fields.Datetime.context_timestamp(self.with_context(tz='Africa/Cairo'), checked)
             self.write({'state': 'unknown', 'checked_at': checked, 'failures': 0,
