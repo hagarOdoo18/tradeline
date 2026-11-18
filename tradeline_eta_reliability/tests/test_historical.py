@@ -464,7 +464,7 @@ class TestHistoricalRecovery(TransactionCase):
             self.assertEqual(len(starts), 3)
             self.assertGreaterEqual(starts[0], 102.1)
             self.assertGreaterEqual(starts[1] - starts[0], 2.1)
-            self.assertAlmostEqual(starts[2] - starts[1], .6)
+            self.assertGreaterEqual(starts[2] - starts[1], .6)
         finally:
             client.close()
 

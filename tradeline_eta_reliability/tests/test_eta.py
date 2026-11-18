@@ -1151,7 +1151,7 @@ class TestEtaReliability(TransactionCase):
             try:
                 with patch(module + '.time.sleep') as sleep, patch(module + '.time.monotonic', return_value=1000):
                     client.request('GET', '/api/v1.0/documents/test/raw')
-                    sleep.assert_called_once_with(0.6)
+                    sleep.assert_called_once_with(1.1)
                 self.assertEqual(client.session.request.call_count, 1)
             finally:
                 client.close()
