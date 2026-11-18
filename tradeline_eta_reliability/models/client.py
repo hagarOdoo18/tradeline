@@ -128,7 +128,10 @@ class EtaClient:
         self._authorize()
         if method == 'GET':
             gap = 2.1 if path.endswith('/search') else 0.6
-            time.sleep(max(0, gap - (time.monotonic() - self.last_get)))
+            # Each bounded callback creates a client. Its first GET can follow
+            # the previous lock owner's last GET immediately, so pace it too.
+            elapsed = time.monotonic() - self.last_get if self.last_get else 0
+            time.sleep(max(0, gap - elapsed))
             self.last_get = time.monotonic()
         check_processing_window(self.company.env)
         response = self.session.request(method, self.api + path, headers={
