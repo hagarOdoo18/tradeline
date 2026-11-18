@@ -93,6 +93,7 @@ class EtaForeignLocalRecovery(models.Model):
                 foreign_fix['country_id'] = self.env.ref('base.us').id
             if any(code.startswith('NI') for code in codes) or codes & {'CF305', 'SF307'}:
                 foreign_fix['vat'] = 'NA'
+                foreign_fix['country_id'] = self.env.ref('base.us').id
             if foreign_fix:
                 try:
                     partner.sudo().with_context(eta_foreign_to_local_cron=True).write(foreign_fix)

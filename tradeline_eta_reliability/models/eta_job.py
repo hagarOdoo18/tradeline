@@ -11,7 +11,7 @@ import pytz
 import requests
 
 from odoo import api, fields, models, _
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from .client import EtaClient, EtaError, EtaCataloguePending, MAX_RETRY_SECONDS, SUBMISSION_PATH
 from .processing_window import EtaStopped, check_processing_window
@@ -327,7 +327,20 @@ class EtaJob(models.Model):
             # A retry on another day is prepared again before any new POST.
             self.current_issue_datetime = fields.Datetime.now()
         move.action_generate_eta_json()
-        document = move.action_sign_invoice()
+        try:
+            document = move.action_sign_invoice()
+        except (UserError, ValidationError, requests.RequestException) as exc:
+            # The signing service failed before any ETA POST: a gateway timeout
+            # (HTTP 504), another 5xx, a refused/timed-out connection, or an
+            # unavailable signing token. Nothing was submitted, so a retry is
+            # safe. The ETA JSON was already built and validated above, so a
+            # failure in this step is operational, not a per-invoice data error;
+            # surface it as a signing-service outage (the word the worker's
+            # classifier looks for) so the job is rescheduled for retry instead
+            # of permanently blocked. str(exc) keeps the signer's own detail
+            # (e.g. "Error 504") for the operator.
+            raise UserError(_('The signing service is unavailable; no signature was produced and '
+                              'nothing was submitted. %s', str(exc))) from exc
         self._validate_eta_line_quantities(document)
         if not document.get('signatures') or not document['signatures'][0].get('value'):
             raise UserError(_('The signing service returned no signature.'))
