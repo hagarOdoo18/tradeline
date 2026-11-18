@@ -187,6 +187,18 @@ class TestNativeBatching(TransactionCase):
             self.assertIs(run.client.company, original)
             run.job._delay.assert_called_once()
 
+    def test_local_cooldown_rechecks_preserve_the_exact_company_deadline(self):
+        deadline = fields.Datetime.now() + timedelta(minutes=2)
+        for _index in range(3):
+            with self.isolated_worker(state='accepted') as run:
+                run.job.company_id.eta_authority_retry_at = deadline
+                run.job._refresh.side_effect = EtaError('Existing company cooldown',
+                    status=429, retry_after=121, retry_at=deadline)
+                self.assertTrue(self.Job._process_id(1, run.client))
+                self.assertEqual(run.job.authority_retry_at, deadline)
+                self.assertEqual(run.job.company_id.eta_authority_retry_at, deadline)
+                run.job._submit.assert_not_called()
+
     def test_worker_preserves_tagged_request_failure_after_rollback_before_deferral_commit(self):
         events = []
         exc = EtaError('uncertain request', status=503)
@@ -329,6 +341,8 @@ class TestNativeBatching(TransactionCase):
 
     def test_native_selection_prioritizes_fresh_uncertain_stale_then_verified(self):
         self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.native_receipt_next_class', 'unknown')
+        self.env['ir.config_parameter'].sudo().set_param(
             'tradeline_eta_reliability.native_review_next_class', 'null')
         review, accepted, verified, unknown, fresh = [self.fake_jobs(1, state)[0]
             for state in ('review', 'accepted', 'queued', 'unknown', 'queued')]
@@ -346,6 +360,40 @@ class TestNativeBatching(TransactionCase):
             self.assertIs(self.Job._native_batch_candidate('all', 0), accepted)
             jobs.remove(accepted)
             self.assertIs(self.Job._native_batch_candidate('all', 0), verified)
+
+    def test_slow_uncertainty_cannot_starve_receipt_checks_across_callbacks(self):
+        unknown = self.fake_jobs(1, 'unknown')[0]
+        accepted = self.fake_jobs(1, 'accepted')[0]
+        accepted.id = 2
+        accepted.checked_at = fields.Datetime.now() - timedelta(hours=1)
+        parameters = self.env['ir.config_parameter'].sudo()
+        parameters.set_param('tradeline_eta_reliability.native_receipt_next_class', 'unknown')
+        # Neither population empties. Each slow request consumes a full batch.
+        for expected in (unknown, accepted, unknown, accepted):
+            with self.native_harness([unknown, accepted], processor=lambda job: True, seconds=9) as run:
+                self.assertEqual(self.Job._cron_process(), 1)
+            self.assertEqual(run.calls, [expected.id])
+
+    def test_busy_receipt_job_does_not_advance_persistent_priority(self):
+        unknown = self.fake_jobs(1, 'unknown')[0]
+        parameters = self.env['ir.config_parameter'].sudo()
+        parameters.set_param('tradeline_eta_reliability.native_receipt_next_class', 'unknown')
+        with self.native_harness([unknown], processor=lambda job: False) as run:
+            self.assertEqual(self.Job._cron_process(), 0)
+        self.assertEqual(parameters.get_param('tradeline_eta_reliability.native_receipt_next_class'), 'unknown')
+        self.assertEqual(len(run.calls), 4)
+
+    def test_receipt_priority_falls_back_without_ignoring_retry_deadlines(self):
+        unknown = self.fake_jobs(1, 'unknown')[0]
+        accepted = self.fake_jobs(1, 'accepted')[0]
+        accepted.id = 2
+        accepted.checked_at = fields.Datetime.now() - timedelta(hours=1)
+        accepted.next_attempt = fields.Datetime.now() + timedelta(minutes=5)
+        self.env['ir.config_parameter'].sudo().set_param(
+            'tradeline_eta_reliability.native_receipt_next_class', 'accepted')
+        with self.native_harness([unknown, accepted]) as run:
+            self.assertEqual(self.Job._cron_process(), 1)
+        self.assertEqual(run.calls, [unknown.id])
 
     def test_review_page_includes_overdue_jobs_beyond_large_null_backlog(self):
         moves = self.draft()

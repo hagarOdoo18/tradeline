@@ -45,11 +45,13 @@ def retry_after_seconds(response, now=None):
 
 
 class EtaError(Exception):
-    def __init__(self, message, status=0, retry_after=60, code=None):
+    def __init__(self, message, status=0, retry_after=60, code=None, retry_at=None):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
         self.code = code
+        # A local cooldown is the original deadline, not a new HTTP response.
+        self.retry_at = retry_at
 
 
 class EtaCataloguePending(EtaError):
@@ -121,7 +123,8 @@ class EtaClient:
         deadline = getattr(self.company, 'eta_authority_retry_at', False)
         if isinstance(deadline, datetime) and deadline > datetime.utcnow():
             raise EtaError('ETA asked this company to wait before another request.', status=429,
-                           retry_after=max(1, int(math.ceil((deadline - datetime.utcnow()).total_seconds()))))
+                           retry_after=max(1, int(math.ceil((deadline - datetime.utcnow()).total_seconds()))),
+                           retry_at=deadline)
         self._authorize()
         if method == 'GET':
             gap = 2.1 if path.endswith('/search') else 0.6

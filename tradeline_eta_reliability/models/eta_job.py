@@ -417,7 +417,7 @@ class EtaJob(models.Model):
                 return
             if exc.status in (401, 429):
                 if exc.status == 429:
-                    self.authority_retry_at = fields.Datetime.now() + timedelta(seconds=exc.retry_after)
+                    self.authority_retry_at = exc.retry_at or fields.Datetime.now() + timedelta(seconds=exc.retry_after)
                     self.company_id.eta_authority_retry_at = self.authority_retry_at
                 self._delay(exc, seconds=exc.retry_after, state='queued')
                 return
@@ -611,7 +611,7 @@ class EtaJob(models.Model):
                     return committed
                 job.invalidate_recordset()
                 if isinstance(exc, EtaError) and exc.status == 429:
-                    job.authority_retry_at = fields.Datetime.now() + timedelta(seconds=exc.retry_after)
+                    job.authority_retry_at = exc.retry_at or fields.Datetime.now() + timedelta(seconds=exc.retry_after)
                     job.company_id.eta_authority_retry_at = job.authority_retry_at
                 if getattr(exc, 'eta_submission_failure', None):
                     job._preserve_uncertain_request_failure(exc)
@@ -684,12 +684,15 @@ class EtaJob(models.Model):
         if fresh:
             return min(fresh, key=lambda job: (job.create_date, job.id))
         uncertain = [job for job in due if job.state == 'unknown']
-        if uncertain:
-            return uncertain[0]
         stale = [job for job in due if job.state == 'accepted'
                  and (not job.checked_at or job.checked_at < now - timedelta(minutes=5))]
-        if stale:
-            return stale[0]
+        if uncertain or stale:
+            # A slow uncertainty search may consume a whole callback. Persist
+            # the turn so repeated callbacks cannot starve receipt validation.
+            next_class = self.env['ir.config_parameter'].sudo().get_param(
+                'tradeline_eta_reliability.native_receipt_next_class', 'unknown')
+            preferred = stale if next_class == 'accepted' else uncertain
+            return (preferred or uncertain or stale)[0]
         verified = [job for job in due if job.state == 'queued' and job.historical_reviewed_at
                     and job.historical_reviewed_at >= now - timedelta(minutes=5)]
         if verified:
@@ -796,6 +799,7 @@ class EtaJob(models.Model):
                     clients[company.id] = EtaClient(company)
                 client = clients[company.id]
                 review_class = ('null' if job.next_attempt else 'dated') if job.state == 'review' else None
+                receipt_class = ('accepted' if job.state == 'unknown' else 'unknown') if job.state in ('unknown', 'accepted') else None
                 job_id = job.id
                 # The session transport lock survives rollback. Selection is
                 # read-only; release its relation locks before the owned worker
@@ -806,6 +810,10 @@ class EtaJob(models.Model):
                     if review_class:
                         self.env['ir.config_parameter'].sudo().set_param(
                             'tradeline_eta_reliability.native_review_next_class', review_class)
+                        self.env.cr.commit()
+                    if receipt_class:
+                        self.env['ir.config_parameter'].sudo().set_param(
+                            'tradeline_eta_reliability.native_receipt_next_class', receipt_class)
                         self.env.cr.commit()
         except EtaStopped:
             paused = True
