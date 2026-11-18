@@ -49,6 +49,15 @@ class TestNativeBatching(TransactionCase):
     def setUp(self):
         super().setUp()
         self.Job = self.env['tradeline.eta.job']
+        # Copied staging databases contain real older due jobs. Queue-page
+        # assertions must select only this class's fixtures.
+        for name in ('search', 'search_count'):
+            original = getattr(self.Job, name)
+            scoped = patch.object(type(self.Job), name,
+                side_effect=lambda domain, *args, _original=original, **kwargs:
+                    _original(domain + [('move_id.journal_id', '=', self.journal.id)], *args, **kwargs))
+            scoped.start()
+            self.addCleanup(scoped.stop)
         self.cron = self.env.ref('tradeline_eta_reliability.cron_eta_queue')
         self.cron.write({'active': True, 'nextcall': fields.Datetime.now() + timedelta(minutes=1)})
         self.env['ir.config_parameter'].sudo().set_param('tradeline_eta_reliability.enabled_database', self.env.cr.dbname)

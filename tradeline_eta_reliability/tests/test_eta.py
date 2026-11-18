@@ -387,7 +387,8 @@ class TestEtaReliability(TransactionCase):
     def test_invoice_user_job_actions_enforce_selected_company(self):
         user = self.invoice_user()
         job = self.invoice().eta_job_ids
-        other = self.env['res.company'].create({'name': 'ETA permissions other company',
+        other = self.env['res.company'].with_context(no_vat_validation=True).create({'name': 'ETA permissions other company',
+            'vat': '987654321',
             'activity_code_id': self.company.activity_code_id.id,
             'type_code_id': self.company.type_code_id.id, 'sub_type_code_id': self.company.sub_type_code_id.id})
         user.company_ids |= other
