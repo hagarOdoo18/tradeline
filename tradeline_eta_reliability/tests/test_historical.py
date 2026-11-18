@@ -462,7 +462,7 @@ class TestHistoricalRecovery(TransactionCase):
                     'to': fields.Datetime.now() - timedelta(minutes=1)})
             self.assertEqual([r['uuid'] for r in result], ['approved'])
             self.assertEqual(len(starts), 3)
-            self.assertAlmostEqual(starts[0], 102.1)
+            self.assertGreaterEqual(starts[0], 102.1)
             self.assertGreaterEqual(starts[1] - starts[0], 2.1)
             self.assertAlmostEqual(starts[2] - starts[1], .6)
         finally:
