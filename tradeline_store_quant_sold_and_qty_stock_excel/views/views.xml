@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data>
+        <record model="ir.ui.view" id="wizard_store_quant_sold_stock_qty_report_view">
+            <field name="name">Store Product Quantity Sold and Stock QTY Excel</field>
+            <field name="model">store.report.qty.sold.stock.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Store Product Quantity Sold and Stock QTY Excel">
+                    <group>
+                        <group>
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                        </group>
+                        <group>
+                            <field name="gentextfile" filename="filename" readonly="1"
+                                   invisible="not gentextfile"/>
+                            <field name="filename" invisible="1"/>
+                        </group>
+                    </group>
+                    <footer>
+                        <button name="action_generate_report"
+                                string="Generate Report"
+                                type="object" class="oe_highlight"/>
+                        <button string="Close" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="wizard_store_quant_sold_stock_report_view_action" model="ir.actions.act_window">
+            <field name="name">Store Product Quantity Sold and Stock QTY Excel</field>
+            <field name="res_model">store.report.qty.sold.stock.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="wizard_store_quant_sold_stock_qty_report_view"/>
+            <field name="target">new</field>
+        </record>
+
+        <menuitem id="wizard_store_quant_sold_stock_report_view_menu_action"
+                  name="Store Product Quantity Sold And Stock QTY Excel"
+                  parent="stock.menu_warehouse_report"
+                  action="wizard_store_quant_sold_stock_report_view_action"
+                  sequence="16"
+                  groups="group_store_quant_sold_stock"/>
+    </data>
+</odoo>
