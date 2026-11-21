@@ -8,6 +8,7 @@
         'stock',
         'account',
         'sale_management',
+        'branch',                     # res.branch + branch_id on account.move(.line) / sale.order
         'accounting_customization',   # sale.order/account.move inv_type ('sro'), team_id on move
         'inventory_customization',    # product.template.family_id (+ base_tradeline product.family)
     ],

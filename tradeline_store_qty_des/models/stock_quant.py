@@ -21,12 +21,10 @@ class StoreDesReportWizard(models.TransientModel):
     date_from = fields.Date(
         string="Sold From",
         help="Start of the period used to count sold quantity (POS + Sale). "
-             "Leave empty to count all history. On-hand quantity is always current.",
-    )
+             "Leave empty to count all history. On-hand quantity is always current.")
     date_to = fields.Date(
         string="Sold To",
-        help="End of the period used to count sold quantity (inclusive).",
-    )
+        help="End of the period used to count sold quantity (inclusive).")
     gentextfile = fields.Binary(string="Report", readonly=True)
     filename = fields.Char(string="File name", readonly=True)
 
@@ -35,7 +33,6 @@ class StoreDesReportWizard(models.TransientModel):
     # ------------------------------------------------------------------
     def action_generate_warranty_report(self):
         self.ensure_one()
-
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise UserError(_("'Sold From' must be before 'Sold To'."))
 
@@ -49,10 +46,7 @@ class StoreDesReportWizard(models.TransientModel):
 
         content = self._build_workbook(stores, data)
         filename = "Store Product Description Quant Sheet.xlsx"
-        self.write({
-            "gentextfile": base64.b64encode(content),
-            "filename": filename,
-        })
+        self.write({"gentextfile": base64.b64encode(content), "filename": filename})
 
         return {
             "type": "ir.actions.act_url",
@@ -63,16 +57,14 @@ class StoreDesReportWizard(models.TransientModel):
         }
 
     # ------------------------------------------------------------------
-    # Data gathering (ORM)
+    # Locations / dates
     # ------------------------------------------------------------------
     def _get_store_locations(self):
-        """Active internal stock locations, i.e. the report's store columns."""
         Location = self.env["stock.location"]
         locations = Location.search([("usage", "=", "internal"), ("active", "=", True)])
-        # The legacy module ordered by a custom 'location_number' column that no
-        # longer exists in the code base; fall back to complete_name.
         if "location_number" in Location._fields:
-            return locations.sorted(key=lambda l: (l.location_number or 0, l.complete_name or ""))
+            return locations.sorted(
+                key=lambda l: (l.location_number or 0, l.complete_name or ""))
         return locations.sorted(key=lambda l: l.complete_name or "")
 
     def _sold_date_domain(self):
@@ -85,73 +77,80 @@ class StoreDesReportWizard(models.TransientModel):
                            datetime.combine(self.date_to, time.max)))
         return domain
 
+    # ------------------------------------------------------------------
+    # Data gathering -- aggregated in the database
+    # ------------------------------------------------------------------
     def _collect_report_data(self, stores):
-        """Build, per product template, its metadata, on-hand per store and
-        sold (POS + Sale) per store.
+        store_ids = set(stores.ids)
 
-        Returns a list of dicts ordered by description, one per template that
-        has non-zero on-hand in the listed stores (legacy behaviour)."""
-        store_ids = stores.ids
-
-        # --- On-hand per (product, location) via stock.quant --------------
-        quants = self.env["stock.quant"].search([("location_id", "in", store_ids)])
+        # --- On-hand per (template, location): ONE grouped query ----------
         onhand = defaultdict(float)          # (tmpl_id, loc_id) -> qty
         onhand_total = defaultdict(float)    # tmpl_id -> qty
-        tmpl_variants = defaultdict(lambda: self.env["product.product"])
-        for q in quants:
-            product = q.product_id
-            tmpl = product.product_tmpl_id
-            onhand[(tmpl.id, q.location_id.id)] += q.quantity
-            onhand_total[tmpl.id] += q.quantity
-            tmpl_variants[tmpl.id] |= product
+        variant_tmpl = {}                    # variant_id -> tmpl_id (cache)
 
-        # Keep only templates that actually carry stock (legacy: qty != 0).
+        def tmpl_of(product):
+            tid = variant_tmpl.get(product.id)
+            if tid is None:
+                tid = product.product_tmpl_id.id
+                variant_tmpl[product.id] = tid
+            return tid
+
+        for product, location, qty in self.env["stock.quant"]._read_group(
+                [("location_id", "in", list(store_ids))],
+                groupby=["product_id", "location_id"],
+                aggregates=["quantity:sum"]):
+            if not qty:
+                continue
+            tid = tmpl_of(product)
+            onhand[(tid, location.id)] += qty
+            onhand_total[tid] += qty
+
         tmpl_ids = [tid for tid, qty in onhand_total.items() if qty]
         if not tmpl_ids:
             return []
+        keep = set(tmpl_ids)
 
-        # All variants we care about, for the sold-qty searches.
-        variant_ids = []
-        for tid in tmpl_ids:
-            variant_ids += tmpl_variants[tid].ids
-        variant_to_tmpl = {}
-        for tid in tmpl_ids:
-            for v in tmpl_variants[tid]:
-                variant_to_tmpl[v.id] = tid
-
-        # --- Sold per (template, location): POS order lines ---------------
+        # --- Sold per (template, location) --------------------------------
         sold = defaultdict(float)        # (tmpl_id, loc_id) -> qty
         sold_total = defaultdict(float)  # tmpl_id -> qty
         date_dom = self._sold_date_domain()
 
-        pos_lines = self.env["pos.order.line"].search(
-            [("product_id", "in", variant_ids),
-             ("order_id.state", "in", list(POS_SOLD_STATES))] + date_dom)
-        for line in pos_lines:
-            tid = variant_to_tmpl.get(line.product_id.id)
-            if tid is None:
-                continue
-            picking_type = line.order_id.config_id.picking_type_id
-            loc = picking_type.default_location_src_id
-            sold_total[tid] += line.qty
-            if loc and loc.id in store_ids:
-                sold[(tid, loc.id)] += line.qty
-
-        # --- Sold per (template, location): Sale order lines --------------
-        sale_lines = self.env["sale.order.line"].search(
-            [("product_id", "in", variant_ids),
-             ("order_id.state", "in", list(SALE_SOLD_STATES))] + date_dom)
-        for line in sale_lines:
-            tid = variant_to_tmpl.get(line.product_id.id)
-            if tid is None:
-                continue
-            qty = line.qty_delivered
-            if not qty:
-                continue
-            loc = line.order_id.warehouse_id.lot_stock_id
+        def add_sold(product, loc_id, qty):
+            tid = tmpl_of(product)
+            if tid not in keep:
+                return
             sold_total[tid] += qty
-            if loc and loc.id in store_ids:
-                sold[(tid, loc.id)] += qty
+            if loc_id in store_ids:
+                sold[(tid, loc_id)] += qty
+
+        # POS: map each shop's source location to its configs, then one
+        # grouped query per source location (bounded by #locations, not #lines).
+        loc_configs = defaultdict(list)
+        for cfg in self.env["pos.config"].search([]):
+            loc = cfg.picking_type_id.default_location_src_id
+            if loc:
+                loc_configs[loc.id].append(cfg.id)
+        for loc_id, cfg_ids in loc_configs.items():
+            for product, qty in self.env["pos.order.line"]._read_group(
+                    [("order_id.config_id", "in", cfg_ids),
+                     ("order_id.state", "in", list(POS_SOLD_STATES))] + date_dom,
+                    groupby=["product_id"], aggregates=["qty:sum"]):
+                if qty:
+                    add_sold(product, loc_id, qty)
+
+        # Sale orders: one grouped query per warehouse (bounded by #warehouses).
+        for wh in self.env["stock.warehouse"].search([]):
+            loc = wh.lot_stock_id
+            if not loc:
+                continue
+            for product, qty in self.env["sale.order.line"]._read_group(
+                    [("order_id.warehouse_id", "=", wh.id),
+                     ("order_id.state", "in", list(SALE_SOLD_STATES)),
+                     ("display_type", "=", False),
+                     ("product_id", "!=", False)] + date_dom,
+                    groupby=["product_id"], aggregates=["qty_delivered:sum"]):
+                if qty:
+                    add_sold(product, loc.id, qty)
 
         # --- Assemble rows ------------------------------------------------
         templates = self.env["product.template"].browse(tmpl_ids)
@@ -171,17 +170,13 @@ class StoreDesReportWizard(models.TransientModel):
         return rows
 
     def _price_with_taxes(self, tmpl):
-        """Tax-inclusive sales price.
-
-        Replaces the legacy 'price_with_taxes' column (no longer defined in
-        the code base) by computing it from the product's customer taxes."""
         price = tmpl.list_price
         taxes = tmpl.taxes_id.filtered(lambda t: t.company_id == self.env.company) \
             or tmpl.taxes_id
         if taxes:
             price = taxes.compute_all(
-                tmpl.list_price, self.env.company.currency_id, 1.0, product=None, partner=None
-            )["total_included"]
+                tmpl.list_price, self.env.company.currency_id, 1.0,
+                product=None, partner=None)["total_included"]
         return price
 
     # ------------------------------------------------------------------
@@ -216,7 +211,6 @@ class StoreDesReportWizard(models.TransientModel):
             "valign": "vcenter", "border": 1, "num_format": "#,##0.00",
         })
 
-        # Fixed columns.
         sheet.set_column(0, 1, 20)
         sheet.set_column(2, 2, 80)
         sheet.set_column(3, 5, 18)
@@ -225,19 +219,16 @@ class StoreDesReportWizard(models.TransientModel):
         for col, label in enumerate(headers):
             sheet.write(0, col, label, header_fmt)
 
-        # Per-store columns: [On Hand, Sold] pairs (legacy layout).
         base = len(headers)
-        store_cols = {}  # loc_id -> on-hand column index
+        store_cols = {}
         for i, loc in enumerate(stores):
             onhand_col = base + i * 2
-            sold_col = onhand_col + 1
             store_cols[loc.id] = onhand_col
             label = self._store_label(loc)
-            sheet.set_column(onhand_col, sold_col, 16)
+            sheet.set_column(onhand_col, onhand_col + 1, 16)
             sheet.write(0, onhand_col, label, header_fmt)
-            sheet.write(0, sold_col, "%s Sold" % label, header_fmt)
+            sheet.write(0, onhand_col + 1, "%s Sold" % label, header_fmt)
 
-        # Rows.
         row = 1
         for data in rows:
             sheet.write(row, 0, data["category"], cell_fmt)
@@ -247,9 +238,9 @@ class StoreDesReportWizard(models.TransientModel):
             sheet.write_number(row, 4, data["total_qty"], qty_fmt)
             sheet.write_number(row, 5, data["total_sold"], qty_fmt)
             for loc in stores:
-                onhand_col = store_cols[loc.id]
-                sheet.write_number(row, onhand_col, data["onhand"][loc.id], qty_fmt)
-                sheet.write_number(row, onhand_col + 1, data["sold"][loc.id], qty_fmt)
+                oc = store_cols[loc.id]
+                sheet.write_number(row, oc, data["onhand"][loc.id], qty_fmt)
+                sheet.write_number(row, oc + 1, data["sold"][loc.id], qty_fmt)
             row += 1
 
         last_col = base + len(stores) * 2 - 1

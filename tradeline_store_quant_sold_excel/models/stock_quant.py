@@ -9,20 +9,18 @@ import xlsxwriter
 from odoo import _, fields, models
 from odoo.exceptions import UserError
 
-# Customer invoice move types (net sold = out_invoice - out_refund).
-INVOICE_TYPES = ("out_invoice", "out_refund")
-# Sale orders counted: SRO type, confirmed.
+# Customer invoice move types: net sold = out_invoice - out_refund.
+INVOICE_SIGNS = (("out_invoice", 1.0), ("out_refund", -1.0))
 SRO_INV_TYPE = "sro"
 SALE_STATE = "sale"
-# Sales team excluded from the columns (matches the legacy name filter).
-EXCLUDED_TEAM = "sales"
 
 
 class StoreReportQtySoldWizard(models.TransientModel):
     _name = "store.report.qty.sold.wizard"
     _description = "Store Product Quantity Sold Excel Wizard"
 
-    date_from = fields.Date(string="From", default=lambda self: fields.Date.today() - timedelta(days=30))
+    date_from = fields.Date(string="From",
+                            default=lambda self: fields.Date.today() - timedelta(days=30))
     date_to = fields.Date(string="To", default=lambda self: fields.Date.today())
     gentextfile = fields.Binary(string="Report", readonly=True)
     filename = fields.Char(string="File name", readonly=True)
@@ -35,11 +33,21 @@ class StoreReportQtySoldWizard(models.TransientModel):
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise UserError(_("'From' must be before 'To'."))
 
-        teams, sold, total_sold, products = self._collect_sold_data()
-        if not products:
+        sold, total_sold = self._collect_sold_data()
+        branch_ids = {bid for (_pid, bid) in sold if bid}
+        if not total_sold:
             raise UserError(_("No sold quantities were found for the selected period."))
 
-        content = self._build_workbook(teams, sold, total_sold, products)
+        branches = self.env["res.branch"].browse(sorted(branch_ids)).sorted(
+            key=lambda b: (b.name or "").lower())
+        products = self.env["product.product"].browse(sorted(total_sold)).sorted(
+            key=lambda p: (
+                (p.product_tmpl_id.categ_id.name or "").lower(),
+                (p.product_tmpl_id.family_id.name or "").lower(),
+                (p.display_name or "").lower(),
+            ))
+
+        content = self._build_workbook(branches, sold, total_sold, products)
         filename = "Store Product Quant Sold Sheet.xlsx"
         self.write({"gentextfile": base64.b64encode(content), "filename": filename})
 
@@ -52,98 +60,82 @@ class StoreReportQtySoldWizard(models.TransientModel):
         }
 
     # ------------------------------------------------------------------
-    # Data gathering (ORM) -- sold qty per (template, sales team)
+    # Data gathering -- aggregated in the database, keyed by branch
     # ------------------------------------------------------------------
-    def _date_bounds(self):
-        dt_from = datetime.combine(self.date_from, time.min) if self.date_from else None
-        dt_to = datetime.combine(self.date_to, time.max) if self.date_to else None
-        return dt_from, dt_to
-
-    @staticmethod
-    def _is_excluded(team):
-        return bool(team) and (team.name or "").strip().lower() == EXCLUDED_TEAM
-
     def _collect_sold_data(self):
-        sold = defaultdict(float)        # (variant_id, team_id) -> qty
+        """Sold qty per (variant, branch). Invoices: two grouped queries
+        (branch_id + product_id both stored on account.move.line). SRO orders:
+        one grouped query per branch. Independent of the number of lines in the
+        period, so wide date ranges no longer load every line into memory."""
+        sold = defaultdict(float)        # (variant_id, branch_id) -> qty
         total_sold = defaultdict(float)  # variant_id -> qty
-        teams = {}                       # team_id -> team record (excl. 'sales')
-        variant_ids = set()
 
-        def add(product, team, qty):
-            # Keyed on the product *variant*: the item code (barcode) lives on
-            # product.product, and a template may carry several barcoded variants.
-            if not qty:
-                return
-            team_id = team.id if team else 0
-            sold[(product.id, team_id)] += qty
-            total_sold[product.id] += qty
-            variant_ids.add(product.id)
-            if team and team_id not in teams:
-                teams[team_id] = team
+        AML = self.env["account.move.line"]
+        SOL = self.env["sale.order.line"]
+        df, dt = self.date_from, self.date_to
 
-        # --- Invoices: posted customer moves, net of refunds -------------
-        inv_domain = [
-            ("state", "=", "posted"),
-            ("move_type", "in", list(INVOICE_TYPES)),
-        ]
-        dt_from, dt_to = self.date_from, self.date_to
-        if dt_from:
-            inv_domain.append(("invoice_date", ">=", dt_from))
-        if dt_to:
-            inv_domain.append(("invoice_date", "<=", dt_to))
-        # One search; related reads (team_id, invoice_line_ids) are prefetched
-        # in bulk by the ORM -- no per-product/per-store query like the legacy SQL.
-        moves = self.env["account.move"].search(inv_domain)
-        for move in moves:
-            team = move.team_id
-            if self._is_excluded(team):
-                continue
-            sign = 1.0 if move.move_type == "out_invoice" else -1.0
-            for line in move.invoice_line_ids:
-                if line.display_type or not line.product_id:
+        for move_type, sign in INVOICE_SIGNS:
+            inv_domain = [
+                ("display_type", "=", "product"),
+                ("product_id", "!=", False),
+                ("move_id.state", "=", "posted"),
+                ("move_id.move_type", "=", move_type),
+            ]
+            if df:
+                inv_domain.append(("move_id.invoice_date", ">=", df))
+            if dt:
+                inv_domain.append(("move_id.invoice_date", "<=", dt))
+            for branch, product, qty in AML._read_group(
+                    inv_domain, groupby=["branch_id", "product_id"],
+                    aggregates=["quantity:sum"]):
+                if not qty:
                     continue
-                add(line.product_id, team, line.quantity * sign)
+                bid = branch.id if branch else 0
+                sold[(product.id, bid)] += qty * sign
+                total_sold[product.id] += qty * sign
 
-        # --- SRO sale orders: confirmed, delivered qty -------------------
-        so_domain = [("inv_type", "=", SRO_INV_TYPE), ("state", "=", SALE_STATE)]
-        dt_from, dt_to = self._date_bounds()
-        if dt_from:
-            so_domain.append(("date_order", ">=", dt_from))
-        if dt_to:
-            so_domain.append(("date_order", "<=", dt_to))
-        orders = self.env["sale.order"].search(so_domain)
-        for order in orders:
-            team = order.team_id
-            if self._is_excluded(team):
-                continue
-            for line in order.order_line:
-                if line.display_type or not line.product_id:
+        dt_from = datetime.combine(df, time.min) if df else None
+        dt_to = datetime.combine(dt, time.max) if dt else None
+        for branch in self.env["res.branch"].search([]):
+            so_domain = [
+                ("display_type", "=", False),
+                ("product_id", "!=", False),
+                ("order_id.inv_type", "=", SRO_INV_TYPE),
+                ("order_id.state", "=", SALE_STATE),
+                ("order_id.branch_id", "=", branch.id),
+            ]
+            if dt_from:
+                so_domain.append(("order_id.date_order", ">=", dt_from))
+            if dt_to:
+                so_domain.append(("order_id.date_order", "<=", dt_to))
+            for product, qty in SOL._read_group(
+                    so_domain, groupby=["product_id"],
+                    aggregates=["qty_delivered:sum"]):
+                if not qty:
                     continue
-                add(line.product_id, team, line.qty_delivered)
+                sold[(product.id, branch.id)] += qty
+                total_sold[product.id] += qty
 
-        products = self.env["product.product"].browse(sorted(variant_ids))
-        ordered_teams = sorted(teams.values(), key=lambda t: (t.name or "").lower())
-        return ordered_teams, sold, total_sold, products
+        return sold, total_sold
 
     def _vendor_name(self, tmpl):
         seller = tmpl.seller_ids[:1]
         return seller.partner_id.name if seller and seller.partner_id else ""
 
     def _price_with_taxes(self, tmpl):
-        """Tax-inclusive price (replaces the legacy price_with_taxes column)."""
         price = tmpl.list_price
         taxes = tmpl.taxes_id.filtered(lambda t: t.company_id == self.env.company) \
             or tmpl.taxes_id
         if taxes:
             price = taxes.compute_all(
-                tmpl.list_price, self.env.company.currency_id, 1.0, product=None, partner=None
-            )["total_included"]
+                tmpl.list_price, self.env.company.currency_id, 1.0,
+                product=None, partner=None)["total_included"]
         return price
 
     # ------------------------------------------------------------------
     # Workbook
     # ------------------------------------------------------------------
-    def _build_workbook(self, teams, sold, total_sold, products):
+    def _build_workbook(self, branches, sold, total_sold, products):
         output = BytesIO()
         workbook = xlsxwriter.Workbook(output, {"in_memory": True})
         sheet = workbook.add_worksheet("Store Product Quant Sold Sheet")
@@ -174,12 +166,12 @@ class StoreReportQtySoldWizard(models.TransientModel):
             sheet.write(0, col, label, header_fmt)
 
         base = len(headers)
-        team_col = {}
-        for i, team in enumerate(teams):
+        branch_col = {}
+        for i, branch in enumerate(branches):
             col = base + i
-            team_col[team.id] = col
+            branch_col[branch.id] = col
             sheet.set_column(col, col, 20)
-            sheet.write(0, col, team.name or "", header_fmt)
+            sheet.write(0, col, branch.name or "", header_fmt)
 
         row = 1
         for product in products:
@@ -191,12 +183,12 @@ class StoreReportQtySoldWizard(models.TransientModel):
             sheet.write(row, 4, product.display_name or tmpl.name or "", cell_fmt)
             sheet.write_number(row, 5, self._price_with_taxes(tmpl), price_fmt)
             sheet.write_number(row, 6, total_sold.get(product.id, 0.0), qty_fmt)
-            for team in teams:
-                qty = sold.get((product.id, team.id), 0.0)
-                sheet.write_number(row, team_col[team.id], qty, qty_fmt)
+            for branch in branches:
+                sheet.write_number(row, branch_col[branch.id],
+                                   sold.get((product.id, branch.id), 0.0), qty_fmt)
             row += 1
 
-        last_col = base + len(teams) - 1
+        last_col = base + max(len(branches), 1) - 1
         sheet.freeze_panes(1, 5)
         if row > 1:
             sheet.autofilter(0, 0, row - 1, last_col)
