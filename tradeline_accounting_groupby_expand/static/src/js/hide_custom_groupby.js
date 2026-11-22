@@ -2,8 +2,22 @@
 
 import { Domain } from "@web/core/domain";
 import { serializeDate, serializeDateTime } from "@web/core/l10n/dates";
+import { _t } from "@web/core/l10n/translation";
 import { patch } from "@web/core/utils/patch";
 import { SearchModel } from "@web/search/search_model";
+import { PivotModel } from "@web/views/pivot/pivot_model";
+
+patch(PivotModel.prototype, {
+    _buildMetaData(params) {
+        const metaData = super._buildMetaData(params);
+        const comparison = this.searchParams.comparison;
+        if (metaData.resModel === "account.invoice.report" && comparison?.fieldName === "invoice_date") {
+            // Odoo puts the current period last, after reversing the comparison domains.
+            metaData.origins[metaData.origins.length - 1] = _t("Invoice Date Current");
+        }
+        return metaData;
+    },
+});
 
 const LEGACY_TIME_FILTER_PREFIXES = [
     "tradeline_time_based_on_",
