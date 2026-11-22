@@ -142,6 +142,11 @@ class AccountInvoiceReport(models.Model):
             untaxed_cost_expr = f"({cost_qty_expr} * ({invoice_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
             sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
             credit_note_margin_expr = f"(account_currency_table.rate * (-line.balance + {untaxed_cost_expr}))"
+            # A reason-tagged customer credit should appear as a margin deduction.
+            credit_note_margin_expr = (
+                f"(CASE WHEN move.discount_id IS NOT NULL THEN -ABS({credit_note_margin_expr}) "
+                f"ELSE {credit_note_margin_expr} END)"
+            )
 
             return SQL(
                 "%s, "
