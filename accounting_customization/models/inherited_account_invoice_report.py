@@ -141,10 +141,7 @@ class AccountInvoiceReport(models.Model):
             )
             untaxed_cost_expr = f"({cost_qty_expr} * ({invoice_unit_cost_expr} / {UNTAX_COST_DIVISOR}))"
             sales_margin_expr = f"(account_currency_table.rate * (-line.balance - {untaxed_cost_expr}))"
-            # Customer credit notes are shown as a margin deduction in this report.
-            credit_note_margin_expr = (
-                f"(-ABS(account_currency_table.rate * (-line.balance + {untaxed_cost_expr})))"
-            )
+            credit_note_margin_expr = f"(account_currency_table.rate * (-line.balance + {untaxed_cost_expr}))"
 
             return SQL(
                 "%s, "
