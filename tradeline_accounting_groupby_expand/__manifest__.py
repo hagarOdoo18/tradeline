@@ -26,6 +26,9 @@
             "tradeline_accounting_groupby_expand/static/src/xml/time_ranges.xml",
             "tradeline_accounting_groupby_expand/static/src/scss/time_ranges.scss",
         ],
+        "web.assets_backend_lazy": [
+            "tradeline_accounting_groupby_expand/static/src/js/pivot_label_patch.js",
+        ],
     },
     "post_init_hook": "post_init_hook",
     "installable": True,
