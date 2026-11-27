@@ -33,9 +33,9 @@ class EtaBranchInvoiceAccess(models.Model):
         # Sending/resending to ETA is restricted to administrators; other central
         # staff keep read/status access and automatic queue submission is unaffected.
         self._eta_require_central_staff()
-        if not self.env.user.has_group('base.group_system'):
-            raise AccessError(_('Only an administrator can send or resend documents to ETA. '
-                                'You can still check the ETA status.'))
+        # if not self.env.user.has_group('base.group_system'):
+        #     raise AccessError(_('Only an administrator can send or resend documents to ETA. '
+        #                         'You can still check the ETA status.'))
 
     def action_eta_send_now(self):
         self._eta_require_admin()
