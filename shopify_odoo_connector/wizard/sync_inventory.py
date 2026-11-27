@@ -117,7 +117,7 @@ GRAPHQL_ASSUMED_COST = 250
 GRAPHQL_SET_QUANTITIES = '''
 mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
   inventorySetQuantities(input: $input) {
-    userErrors { field message }
+    userErrors { code field message }
   }
 }
 '''
@@ -970,9 +970,11 @@ class SyncInventory(models.TransientModel):
         # published. Written to log.message at the end of the batch so the
         # quantity each group received can be checked after the fact.
         details = []
+        requested = 0
         pushed = 0
         skipped = 0
         retried = 0
+        rest_fallback_items = 0
         use_graphql = self._supports_graphql_inventory(version)
         graphql_url = ('https://%s/admin/api/%s/graphql.json'
                        % (store_name, version))
@@ -1033,26 +1035,19 @@ class SyncInventory(models.TransientModel):
 
                 if not desired:
                     continue
-
-                # Always re-publish every quantity of the batch: no read of
-                # the current Shopify levels, no comparison, nothing skipped.
-                # The `force` argument is kept for callers that still pass it,
-                # but it no longer changes what is sent.
-                changed = dict(desired)
-                if not changed:
-                    continue
+                requested += len(desired)
 
                 if use_graphql:
-                    done, leftover, errors = self._graphql_set_levels(
+                    done, desired, errors = self._graphql_set_levels(
                         session, graphql_url, headers,
-                        location.shopify_location_id, changed)
+                        location.shopify_location_id, desired)
                     pushed += done
                     failures.extend(errors)
-                    changed = leftover   # chunks GraphQL could not place
+                    rest_fallback_items += len(desired)
 
                 done, errors, retries = self._rest_set_levels(
                     session, set_url, headers, location.shopify_location_id,
-                    changed, variant_by_item)
+                    desired, variant_by_item)
                 pushed += done
                 failures.extend(errors)
                 retried += retries
@@ -1063,15 +1058,18 @@ class SyncInventory(models.TransientModel):
         # row per request (with a commit each one): the per-variant success
         # rows were the bulk of the write load and of the log.message table.
         elapsed = time.monotonic() - started
+        failed = requested - pushed
         summary = ('Inventory push: %d level(s) updated, %d unchanged '
                    '(skipped), %d failed (%d group(s), %d location(s)) '
                    'in %.1fs via %s'
-                   % (pushed, skipped, len(failures), len(groups),
+                   % (pushed, skipped, failed, len(groups),
                       len(shopify_locations), elapsed,
                       'GraphQL %s' % version if use_graphql
                       else 'REST %s' % version))
         if retried:
             summary += ' - %d request(s) needed a retry' % retried
+        if rest_fallback_items:
+            summary += ' - %d level(s) retried via REST' % rest_fallback_items
         _logger.info('%s', summary)
         messages = [{
             'name': summary,
@@ -1097,7 +1095,7 @@ class SyncInventory(models.TransientModel):
             })
         self.env['log.message'].sudo().create(messages)
         return {'pushed': pushed, 'skipped': skipped,
-                'failed': len(failures), 'retried': retried}
+                'failed': failed, 'retried': retried}
 
     # ------------------------------------------------------------------
     # Inventory level transport
@@ -1286,30 +1284,48 @@ class SyncInventory(models.TransientModel):
                 self._graphql_throttle_pause(body)
                 continue
 
-            user_errors = ((body.get('data') or {}).get(
-                'inventorySetQuantities') or {}).get('userErrors') or []
+            result = (body.get('data') or {}).get('inventorySetQuantities')
+            user_errors = result.get('userErrors') if isinstance(result, dict) else None
             if body.get('errors') or user_errors:
                 return body, json.dumps(
                     body.get('errors') or user_errors)[:300], False
+            if user_errors != []:
+                return body, 'missing inventory mutation result', False
             return body, None, False
         return body, 'throttled by Shopify', True
+
+    @staticmethod
+    def _unstocked_inventory_indexes(body, chunk_size):
+        if body.get('errors'):
+            return set()
+        result = (body.get('data') or {}).get('inventorySetQuantities')
+        errors = result.get('userErrors') if isinstance(result, dict) else None
+        if not isinstance(errors, list):
+            return set()
+        indexes = set()
+        for error in errors:
+            if not isinstance(error, dict):
+                return set()
+            field = error.get('field') or []
+            if (error.get('code') != 'ITEM_NOT_STOCKED_AT_LOCATION'
+                    or not isinstance(field, list) or len(field) != 4
+                    or field[:2] != ['input', 'quantities']
+                    or field[3] != 'locationId'
+                    or not re.fullmatch(r'[0-9]{1,3}', str(field[2]))):
+                return set()
+            index = int(field[2])
+            if index >= chunk_size:
+                return set()
+            indexes.add(index)
+        return indexes
 
     def _graphql_set_levels(self, session, graphql_url, headers,
                             location_id, quantities):
         """Set `available` for many items at once (API 2024-07+).
 
-        Returns ``(pushed, leftover, failures)``. `leftover` holds the
-        quantities of a chunk that failed for a reason one-POST-per-item
-        can do better with - a single bad inventory item poisoning the
-        whole mutation, say - so the caller can fall back to REST and
-        isolate it.
-
-        A chunk Shopify **throttled** is deliberately not put in
-        `leftover`. REST is limited to about two requests a second, so
-        pushing a throttled 250-item chunk down that path costs around two
-        minutes; and because the cron re-publishes the whole catalogue
-        every pass, the chunk goes out again a few minutes later anyway.
-        Sending it to REST was what made a throttled push take so long.
+        Returns ``(pushed, leftover, failures)``. The caller retries
+        `leftover` via REST. Exhausted throttles remain pending until
+        the next scheduled export and are reported as failures here.
         """
         pushed = 0
         leftover = {}
@@ -1318,37 +1334,45 @@ class SyncInventory(models.TransientModel):
         items = list((quantities or {}).items())
         for start in range(0, len(items), GRAPHQL_SET_CHUNK):
             chunk = items[start:start + GRAPHQL_SET_CHUNK]
-            variables = {'input': {
-                'name': 'available',
-                'reason': 'correction',
-                'ignoreCompareQuantity': True,
-                'quantities': [{
-                    'inventoryItemId':
-                        'gid://shopify/InventoryItem/%s' % item,
-                    'locationId': 'gid://shopify/Location/%s' % location_id,
-                    'quantity': int(available),
-                } for item, available in chunk],
-            }}
-            body, error, throttled = self._post_inventory_graphql(
-                session, graphql_url, headers,
-                json.dumps({'query': GRAPHQL_SET_QUANTITIES,
-                            'variables': variables}))
-            if error and throttled:
-                throttled_items += len(chunk)
-                failures.append(
-                    'bulk set of %d item(s) at location %s: %s - left for '
-                    'the next pass' % (len(chunk), location_id, error))
-                continue
-            if error:
-                failures.append(
-                    'bulk set of %d item(s) at location %s: %s - retried '
-                    'one by one' % (len(chunk), location_id, error))
-                leftover.update(dict(chunk))
-                continue
-            pushed += len(chunk)
-            # Pace the next chunk against the bucket this response reported,
-            # so the run slows down a little instead of being throttled.
-            self._graphql_throttle_pause(body)
+            while chunk:
+                variables = {'input': {
+                    'name': 'available',
+                    'reason': 'correction',
+                    'ignoreCompareQuantity': True,
+                    'quantities': [{
+                        'inventoryItemId':
+                            'gid://shopify/InventoryItem/%s' % item,
+                        'locationId': 'gid://shopify/Location/%s' % location_id,
+                        'quantity': int(available),
+                    } for item, available in chunk],
+                }}
+                body, error, throttled = self._post_inventory_graphql(
+                    session, graphql_url, headers,
+                    json.dumps({'query': GRAPHQL_SET_QUANTITIES,
+                                'variables': variables}))
+                if throttled:
+                    throttled_items += len(chunk)
+                    failures.append(
+                        'bulk set of %d item(s) at location %s: %s - left for '
+                        'the next pass' % (len(chunk), location_id, error))
+                    break
+                self._graphql_throttle_pause(body)
+                if not error:
+                    pushed += len(chunk)
+                    break
+
+                # REST can assign a missing inventory level. Retry only those
+                # items via REST when Shopify identifies their input indexes.
+                indexes = self._unstocked_inventory_indexes(body, len(chunk))
+                if not indexes:
+                    _logger.info(
+                        'Inventory bulk set of %d item(s) at location %s: %s. '
+                        'retrying via REST', len(chunk), location_id, error)
+                    leftover.update(chunk)
+                    break
+                leftover.update(chunk[index] for index in indexes)
+                chunk = [item for index, item in enumerate(chunk)
+                         if index not in indexes]
         if throttled_items:
             _logger.warning(
                 'Inventory push: %d quantity(ies) at location %s left for '
